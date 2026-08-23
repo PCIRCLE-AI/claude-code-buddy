@@ -484,15 +484,18 @@ export class KnowledgeGraph {
             .get(name);
         if (!row)
             return { archived: false };
-        removeFromFts(this.db, row.id, name, indexedObservationText(this.db, row.id), row.title);
-        if (hasVectorIndex(this.db)) {
+        const observationText = indexedObservationText(this.db, row.id);
+        this.db.transaction(() => {
+            removeFromFts(this.db, row.id, name, observationText, row.title);
+            if (hasVectorIndex(this.db)) {
+                this.db
+                    .prepare('DELETE FROM entities_vec WHERE rowid = ?')
+                    .run(BigInt(row.id));
+            }
             this.db
-                .prepare('DELETE FROM entities_vec WHERE rowid = ?')
-                .run(BigInt(row.id));
-        }
-        this.db
-            .prepare("UPDATE entities SET status = 'archived' WHERE id = ?")
-            .run(row.id);
+                .prepare("UPDATE entities SET status = 'archived' WHERE id = ?")
+                .run(row.id);
+        }).immediate();
         return { archived: true, name, previousStatus: row.status };
     }
     removeObservation(entityName, observationContent) {
@@ -523,13 +526,16 @@ export class KnowledgeGraph {
             .get(name);
         if (!row)
             return { deleted: false };
-        removeFromFts(this.db, row.id, name, indexedObservationText(this.db, row.id), row.title);
-        if (hasVectorIndex(this.db)) {
-            this.db
-                .prepare('DELETE FROM entities_vec WHERE rowid = ?')
-                .run(BigInt(row.id));
-        }
-        this.db.prepare('DELETE FROM entities WHERE id = ?').run(row.id);
+        const observationText = indexedObservationText(this.db, row.id);
+        this.db.transaction(() => {
+            removeFromFts(this.db, row.id, name, observationText, row.title);
+            if (hasVectorIndex(this.db)) {
+                this.db
+                    .prepare('DELETE FROM entities_vec WHERE rowid = ?')
+                    .run(BigInt(row.id));
+            }
+            this.db.prepare('DELETE FROM entities WHERE id = ?').run(row.id);
+        }).immediate();
         return { deleted: true };
     }
     parseMetadata(rawMetadata) {

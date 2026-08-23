@@ -972,24 +972,36 @@ export class KnowledgeGraph {
 
     if (!row) return { archived: false };
 
-    // Remove from FTS5 index (archived entities should not be searchable)
-    removeFromFts(this.db, row.id, name, indexedObservationText(this.db, row.id), row.title);
-
-    // CRITICAL: Remove from vector index (archived entities should not be retrievable via vector search)
+    // One transaction, because a partial archive is worse than a failed one.
     //
-    // Asked rather than caught: when sqlite-vec is not loaded the table does
-    // not exist, and a bare catch would swallow that indistinguishably from a
-    // real delete failure on a database that DOES have an index.
-    if (hasVectorIndex(this.db)) {
-      this.db
-        .prepare('DELETE FROM entities_vec WHERE rowid = ?')
-        .run(BigInt(row.id));
-    }
+    // These ran in autocommit. The FTS delete committed, the vector delete
+    // threw `no such module: vec0` (see hasVectorIndex — the catalogue check
+    // could not tell a loaded extension from a leftover table row), and the
+    // status update never ran. The memory was left ACTIVE and unindexed:
+    // invisible to keyword search, invisible to the archived-supplement
+    // branch (which filters on status='archived'), and invisible to
+    // `includeArchived`. Retrying threw again forever. Only `reindex --fts`
+    // recovered it, and nothing told the user it existed.
+    //
+    // hasVectorIndex now answers the process question, so the throw should
+    // not recur — but the atomicity is what makes a future throw survivable
+    // rather than data-destroying, and that is worth having independently.
+    const observationText = indexedObservationText(this.db, row.id);
+    this.db.transaction(() => {
+      removeFromFts(this.db, row.id, name, observationText, row.title);
 
-    // Set status to archived
-    this.db
-      .prepare("UPDATE entities SET status = 'archived' WHERE id = ?")
-      .run(row.id);
+      // Asked rather than caught: a bare catch here would swallow a real
+      // delete failure on a database that genuinely HAS an index.
+      if (hasVectorIndex(this.db)) {
+        this.db
+          .prepare('DELETE FROM entities_vec WHERE rowid = ?')
+          .run(BigInt(row.id));
+      }
+
+      this.db
+        .prepare("UPDATE entities SET status = 'archived' WHERE id = ?")
+        .run(row.id);
+    }).immediate();
 
     return { archived: true, name, previousStatus: row.status };
   }
@@ -1056,18 +1068,25 @@ export class KnowledgeGraph {
 
     // Delete FTS entry first (contentless FTS5 requires the original
     // indexed values to find the row — see storage/fts-index.ts).
-    removeFromFts(this.db, row.id, name, indexedObservationText(this.db, row.id), row.title);
+    // One transaction, same reason as archiveEntity: in autocommit the FTS
+    // delete committed and a throw on the vector delete left the entity row
+    // in place but out of the index — a permanent orphan that no search could
+    // reach and no retry could clear.
+    const observationText = indexedObservationText(this.db, row.id);
+    this.db.transaction(() => {
+      removeFromFts(this.db, row.id, name, observationText, row.title);
 
-    // Delete vec entry — mirror archiveEntity's cleanup so hard
-    // delete doesn't leak orphan embeddings.
-    if (hasVectorIndex(this.db)) {
-      this.db
-        .prepare('DELETE FROM entities_vec WHERE rowid = ?')
-        .run(BigInt(row.id));
-    }
+      // Mirror archiveEntity's cleanup so a hard delete does not leak orphan
+      // embeddings.
+      if (hasVectorIndex(this.db)) {
+        this.db
+          .prepare('DELETE FROM entities_vec WHERE rowid = ?')
+          .run(BigInt(row.id));
+      }
 
-    // Delete entity (CASCADE handles observations, relations, tags)
-    this.db.prepare('DELETE FROM entities WHERE id = ?').run(row.id);
+      // CASCADE handles observations, relations, tags.
+      this.db.prepare('DELETE FROM entities WHERE id = ?').run(row.id);
+    }).immediate();
 
     return { deleted: true };
   }
