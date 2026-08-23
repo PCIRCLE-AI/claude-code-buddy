@@ -47,6 +47,66 @@ describe('a filename in a comment is not a caller', () => {
   });
 });
 
+describe('a comment opener that is not one', () => {
+  // The regex version could not tell a real block opener from the same two
+  // characters inside a line comment or a string, so it opened a block at the
+  // first and closed it at the next real terminator — blanking everything
+  // between. `tests/core/doctor.test.ts` triggered it with a tsconfig glob
+  // written in prose, and the ids in the resulting hole were then reported by
+  // three detectors as referenced by nothing.
+  // Built by concatenation so this file can hold the sequences without
+  // terminating its own comments. The glob cases must use OPEN: a tsconfig
+  // glob is `**` followed by a block OPENER, and a first version wrote CLOSE
+  // there — producing `***/.test.ts`, which contains no opener at all. Both
+  // stripper versions passed it, so the test proved nothing until a mutation
+  // run showed it surviving.
+  const OPEN = '/' + '*';
+  const CLOSE = '*' + '/';
+
+  it('does not open a block comment at a glob inside a line comment', () => {
+    const src = [
+      `// tsconfig excludes **${OPEN}.test.ts, which is why this is here`,
+      "run('scripts/still-here.mjs');",
+      `${OPEN}* a real block ${CLOSE}`,
+      "run('scripts/also-here.mjs');",
+    ].join('\n');
+    const out = stripComments(src, 'x.ts');
+    expect(out, 'the line after the glob was swallowed').toContain('scripts/still-here.mjs');
+    expect(out, 'everything up to the next block terminator was swallowed').toContain('scripts/also-here.mjs');
+    expect(out, 'the real block comment survived').not.toContain('a real block');
+  });
+
+  it('does not open a block comment at a glob inside a string', () => {
+    const src = [
+      `const pattern = '**${OPEN}.test.ts';`,
+      "run('scripts/after-the-string.mjs');",
+    ].join('\n');
+    const out = stripComments(src, 'x.ts');
+    expect(out).toContain('scripts/after-the-string.mjs');
+  });
+
+  it('still strips a block comment that really is one', () => {
+    const src = `${OPEN} Companion to some-companion-script.mjs ${CLOSE}\nrun('scripts/kept.mjs');`;
+    const out = stripComments(src, 'x.ts');
+    expect(out).not.toContain('some-companion-script.mjs');
+    expect(out).toContain('scripts/kept.mjs');
+  });
+
+  it('does not let an unterminated quote eat the rest of the file', () => {
+    // A stray apostrophe in code (or a fixture built by hand) must not blank
+    // everything after it — that is the same swallow, by a different door.
+    const src = "const broken = 'it\nrun('scripts/survives.mjs');";
+    expect(stripComments(src, 'x.ts')).toContain('scripts/survives.mjs');
+  });
+
+  it('keeps a multi-line template literal intact', () => {
+    const src = 'const t = `line one\nscripts/in-template.mjs\n`;\nrun("scripts/after-template.mjs");';
+    const out = stripComments(src, 'x.ts');
+    expect(out).toContain('scripts/in-template.mjs');
+    expect(out).toContain('scripts/after-template.mjs');
+  });
+});
+
 describe('what must survive stripping', () => {
   it('keeps a real invocation', () => {
     const src = "execFileSync('node', ['scripts/some-watcher-script.mjs']);";

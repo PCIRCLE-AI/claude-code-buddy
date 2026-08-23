@@ -2689,3 +2689,309 @@ describe('doctor: embeddings probe', () => {
     expect(check.summary).toContain('FTS5');
   });
 });
+
+/**
+ * The rows nothing asserted.
+ *
+ * Measured, not guessed: the C8 detector in
+ * `scripts/audit/verification-audit.mjs` lists every `createCheck`/`createInfo`
+ * id in `doctor.ts` and asks whether it appears in test code at all. Seven of
+ * twenty-four appeared nowhere — including `hooks-config`, which is a FAIL row
+ * about an install whose hooks cannot load, and `install_id`, which was
+ * rendering as `[PASS]` while verifying nothing.
+ *
+ * The reason a row can reach that state is worth naming: doctor rows are
+ * output, and a test written for a FIX naturally asserts the fix, not the
+ * sentence that reports the problem. `vector-generation.open` shipped that way
+ * and was found the same way.
+ */
+describe('doctor rows that had no assertion', () => {
+  const envOverrides: Array<[string, string | undefined]> = [];
+
+  function setEnv(key: string, value: string | undefined): void {
+    envOverrides.push([key, process.env[key]]);
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+
+  /**
+   * An isolated MEMESH_DIR. Not optional for these rows: `getInstallRecord()`
+   * CREATES `install.json` when it is absent, so without this the install_id
+   * cases would write into the developer's own `~/.memesh`.
+   */
+  function isolateMemeshDir(): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-doctor-rows-'));
+    tempRoots.push(dir);
+    setEnv('MEMESH_DIR', dir);
+    return dir;
+  }
+
+  afterEach(() => {
+    for (const [key, prev] of envOverrides.splice(0)) {
+      if (prev === undefined) delete process.env[key];
+      else process.env[key] = prev;
+    }
+  });
+
+  /**
+   * Enough injected seams to reach the end of `runDoctor` without touching the
+   * network, the real database, or the developer's config. Every row below is
+   * pushed regardless of what the others report, so a test asserts only its
+   * own row and lets the rest land where they may.
+   */
+  function options(packageRoot: string, overrides: Record<string, unknown> = {}) {
+    return {
+      packageRoot,
+      packageVersion: '4.6.2',
+      openDatabaseImpl: () => makeDatabase(3) as never,
+      closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => caps({ searchLevel: 1, llm: null, embeddings: 'ollama' }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck(),
+      getCurrentInstallChannelImpl: () => 'npm-global',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
+        recommendedCommand: 'memesh update', guidance: '',
+      }),
+      nativeBindingProbeImpl: () => ({ ok: true }),
+      ...overrides,
+    } as unknown as Parameters<typeof runDoctorImpl>[0];
+  }
+
+  function row(result: { checks: Array<{ id: string }> }, id: string) {
+    const matches = result.checks.filter((c) => c.id === id);
+    expect(matches, `doctor emitted ${matches.length} "${id}" rows, expected 1`).toHaveLength(1);
+    return matches[0] as {
+      id: string; label: string; status: string; summary: string;
+      fix?: string; code?: string; informational?: boolean;
+    };
+  }
+
+  function rootWithHooks(contents: string | null): string {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+    const hooksPath = path.join(packageRoot, 'hooks', 'hooks.json');
+    if (contents === null) fs.rmSync(hooksPath);
+    else fs.writeFileSync(hooksPath, contents);
+    return packageRoot;
+  }
+
+  describe('hooks-config', () => {
+    it('passes on the shipped configuration, and says how many types it found', async () => {
+      // The half that gives the three failures below their meaning.
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      isolateMemeshDir();
+
+      const check = row(await runDoctorImpl(options(packageRoot)), 'hooks-config');
+      expect(check.status).toBe('pass');
+      expect(check.code, 'a passing row must not carry a failure code').toBeUndefined();
+      expect(check.summary).toContain('5 hook types');
+    });
+
+    it('fails when hooks.json is missing entirely', async () => {
+      isolateMemeshDir();
+      const check = row(await runDoctorImpl(options(rootWithHooks(null))), 'hooks-config');
+      expect(check.status).toBe('fail');
+      expect(check.code).toBe('hooks-config.missing');
+      expect(check.fix).toContain('hooks/hooks.json');
+    });
+
+    it('fails on a hooks.json that is not valid JSON, and names the path to fix', async () => {
+      isolateMemeshDir();
+      const packageRoot = rootWithHooks('{ this is not json');
+      const check = row(await runDoctorImpl(options(packageRoot)), 'hooks-config');
+      expect(check.status).toBe('fail');
+      expect(check.code).toBe('hooks-config.invalid-json');
+      expect(check.fix, 'the user is not told WHICH file to fix').toContain(packageRoot);
+    });
+
+    it('fails when a hook type is missing, and names the ones that are gone', async () => {
+      // A config that parses and has hooks — but not all of them. Silent by
+      // construction: Claude Code loads it happily and those events never fire.
+      isolateMemeshDir();
+      const packageRoot = rootWithHooks(JSON.stringify({
+        hooks: {
+          PreToolUse: [{ hooks: [{ command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/pre-edit-recall.js' }] }],
+        },
+      }));
+      const check = row(await runDoctorImpl(options(packageRoot)), 'hooks-config');
+      expect(check.status).toBe('fail');
+      expect(check.code).toBe('hooks-config.missing-types');
+      expect(check.summary).toContain('SessionStart');
+      expect(check.summary, 'a type that IS present was reported missing').not.toContain('PreToolUse');
+    });
+  });
+
+  describe('llm_probe', () => {
+    it('says Core Mode when no LLM is configured, and cannot fail for it', async () => {
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      isolateMemeshDir();
+
+      const check = row(await runDoctorImpl(options(packageRoot)), 'llm_probe');
+      expect(check.informational, 'a row that verified nothing counted toward Overall').toBe(true);
+      expect(check.summary).toContain('Core Mode');
+    });
+
+    it('says NOT VERIFIED — not "working" — when a provider is configured but unprobed', async () => {
+      // The whole point of the row: an expired key and a healthy setup must
+      // not read the same.
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      isolateMemeshDir();
+      let probes = 0;
+
+      const check = row(await runDoctorImpl(options(packageRoot, {
+        detectCapabilitiesImpl: () => caps({ llm: { provider: 'anthropic', model: 'claude-3-5-haiku-latest' } }),
+        probeProviderImpl: async () => { probes++; return { valid: true }; },
+      })), 'llm_probe');
+
+      expect(probes, 'doctor made a live provider call without --probe').toBe(0);
+      expect(check.informational).toBe(true);
+      expect(check.summary).toContain('NOT VERIFIED');
+      expect(check.fix).toContain('--probe');
+    });
+
+    it('fails — and says features are silently doing nothing — when the probe is refused', async () => {
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      isolateMemeshDir();
+
+      const check = row(await runDoctorImpl(options(packageRoot, {
+        probeCapabilities: true,
+        detectCapabilitiesImpl: () => caps({ llm: { provider: 'openai', model: 'gpt-4o-mini' } }),
+        probeProviderImpl: async () => ({ valid: false, error: 'invalid_api_key' }),
+      })), 'llm_probe');
+
+      expect(check.status).toBe('fail');
+      expect(check.code).toBe('llm.unreachable');
+      expect(check.summary).toContain('invalid_api_key');
+      expect(check.informational, 'a real failure must count toward Overall').toBeFalsy();
+    });
+
+    it('separates a probe that THREW from one that answered "no"', async () => {
+      // Two different fixes: a thrown error is usually a host/network fault,
+      // a refusal is usually the key. Collapsing them loses that.
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      isolateMemeshDir();
+
+      const check = row(await runDoctorImpl(options(packageRoot, {
+        probeCapabilities: true,
+        detectCapabilitiesImpl: () => caps({ llm: { provider: 'ollama', model: 'llama3' } }),
+        probeProviderImpl: async () => { throw new Error('ECONNREFUSED 127.0.0.1:11434'); },
+      })), 'llm_probe');
+
+      expect(check.status).toBe('fail');
+      expect(check.code).toBe('llm.threw');
+      expect(check.summary).toContain('ECONNREFUSED');
+    });
+  });
+
+  describe('install-channel', () => {
+    it('warns when the install method cannot be identified', async () => {
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      isolateMemeshDir();
+
+      const check = row(await runDoctorImpl(options(packageRoot, {
+        getCurrentInstallChannelImpl: () => 'unknown',
+        getInstallChannelSupportImpl: () => ({
+          channel: 'unknown', label: 'unknown', canSelfUpdate: false,
+          recommendedCommand: null, guidance: '',
+        }),
+      })), 'install-channel');
+
+      expect(check.status).toBe('warn');
+      expect(check.code).toBe('install-channel.unknown');
+      expect(check.fix).toContain('npm install -g @pcircle/memesh');
+    });
+
+    it('passes on a channel it knows, with no fix to offer', async () => {
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      isolateMemeshDir();
+
+      const check = row(await runDoctorImpl(options(packageRoot)), 'install-channel');
+      expect(check.status).toBe('pass');
+      expect(check.code, 'a healthy install carried a warning code').toBeUndefined();
+      expect(check.fix, 'a passing row offered a remedy for nothing').toBeUndefined();
+      expect(check.summary).toContain('npm global');
+    });
+  });
+
+  describe('capabilities', () => {
+    it('reports configured values only, and cannot fail — the row this rule was written for', async () => {
+      // From `DoctorCheck.informational`'s own docstring: this row was
+      // hardcoded to 'pass' and merely echoed config, so an expired key could
+      // never move doctor off PASS.
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      isolateMemeshDir();
+
+      const check = row(await runDoctorImpl(options(packageRoot)), 'capabilities');
+      expect(check.informational).toBe(true);
+      expect(check.summary).toContain('Smart Mode');
+      expect(check.summary).toContain('Configured values only');
+    });
+
+    it('names Core — not Smart Mode — at search level 0', async () => {
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      isolateMemeshDir();
+
+      const check = row(await runDoctorImpl(options(packageRoot, {
+        detectCapabilitiesImpl: () => caps({ searchLevel: 0, llm: null, embeddings: 'tfidf' }),
+      })), 'capabilities');
+      expect(check.summary).toContain('Core');
+      expect(check.summary).not.toContain('Smart Mode');
+    });
+  });
+
+  describe('transcript-mining', () => {
+    it('says OFF and how to turn it on, without treating off as a fault', async () => {
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      isolateMemeshDir();
+      setEnv('MEMESH_TRANSCRIPT_MINING', '0');
+
+      const check = row(await runDoctorImpl(options(packageRoot)), 'transcript-mining');
+      expect(check.informational, 'an opt-in feature being off is not a fault').toBe(true);
+      expect(check.summary).toContain('Off (opt-in)');
+      expect(check.summary).toContain('memesh config set transcriptMining true');
+    });
+
+    it('changes what it says once it is on', async () => {
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      isolateMemeshDir();
+      setEnv('MEMESH_TRANSCRIPT_MINING', '1');
+
+      const check = row(await runDoctorImpl(options(packageRoot)), 'transcript-mining');
+      expect(check.informational).toBe(true);
+      expect(check.summary, 'the row reads identically whether mining is on or off')
+        .not.toContain('Off (opt-in)');
+    });
+  });
+
+  describe('install_id', () => {
+    it('reports the id as INFO, not as a check that passed', async () => {
+      // It was `createCheck(..., 'pass', ...)` with no branch that could fail,
+      // so it rendered as [PASS] and padded Overall with a row that verified
+      // nothing — the exact case `informational` exists for.
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      const dir = isolateMemeshDir();
+
+      const check = row(await runDoctorImpl(options(packageRoot)), 'install_id');
+      expect(check.informational, 'a row that only echoes a stored value counted as a verification').toBe(true);
+
+      // ...and it reports the id that is actually on disk, in the isolated dir.
+      const stored = JSON.parse(fs.readFileSync(path.join(dir, 'install.json'), 'utf8')) as { install_id: string };
+      expect(check.summary).toContain(stored.install_id);
+      expect(check.summary, 'the privacy sentence is the reason this row exists')
+        .toContain('Never transmitted automatically');
+    });
+  });
+});
