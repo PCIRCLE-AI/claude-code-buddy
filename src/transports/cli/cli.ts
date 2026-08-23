@@ -95,6 +95,30 @@ function unitFraction(flag: string): (value: string) => number {
 }
 
 /**
+ * A flag whose value must not be blank.
+ *
+ * `ForgetSchema` rejects `observation: ''` with `.min(1)`, but that schema
+ * guards the MCP and HTTP boundaries — the CLI calls core `forget()`
+ * directly, so `--observation ""` (what an unset shell variable expands to)
+ * reached it unchecked. It did NOT destroy anything: core distinguishes
+ * absent from empty. It reported `Entity "X" not found` for an entity that
+ * plainly exists, because the message branch above used truthiness on a
+ * value that can legitimately be `''` — the same defect one layer up from
+ * the one that made this dangerous.
+ *
+ * Two surfaces should not disagree about the same input. Refused here too.
+ */
+function nonEmpty(flag: string): (value: string) => string {
+  return (value: string): string => {
+    if (value.trim() === '') {
+      console.error(`Error: ${flag} needs some text. An empty value is not a selector.`);
+      process.exit(1);
+    }
+    return value;
+  };
+}
+
+/**
  * A positional proposal id, refused when it is not one.
  *
  * `dream accept abc` ran `parseInt('abc', 10)` -> NaN straight into
@@ -402,7 +426,7 @@ program
   .command('forget')
   .description('Archive an entity or remove an observation (soft-delete, recoverable)')
   .requiredOption('--name <name>', 'Entity name')
-  .option('--observation <text>', 'Remove specific observation only')
+  .option('--observation <text>', 'Remove specific observation only', nonEmpty('--observation'))
   .option('--json', 'Output as JSON')
   // Accept --confirm as a no-op for forward-compat. Users hitting forget
   // for the first time often type `--confirm` by analogy with `rm -i` /
@@ -422,7 +446,7 @@ program
         console.log(`📦 Archived "${opts.name}"`);
       } else if (result.observation_removed) {
         console.log(`✂️  Removed observation (${result.remaining_observations} remaining)`);
-      } else if (opts.observation && result.entity_found) {
+      } else if (opts.observation !== undefined && result.entity_found) {
         // The entity is there; the quoted text just did not match. Saying "not
         // found" sent the user to re-create a memory that already exists — the
         // one action guaranteed to make it worse.

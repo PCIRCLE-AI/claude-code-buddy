@@ -45,6 +45,15 @@ function unitFraction(flag) {
         return parsed;
     };
 }
+function nonEmpty(flag) {
+    return (value) => {
+        if (value.trim() === '') {
+            console.error(`Error: ${flag} needs some text. An empty value is not a selector.`);
+            process.exit(1);
+        }
+        return value;
+    };
+}
 function proposalId(raw) {
     return wholeNumber('<id>')(raw);
 }
@@ -248,7 +257,7 @@ program
     .command('forget')
     .description('Archive an entity or remove an observation (soft-delete, recoverable)')
     .requiredOption('--name <name>', 'Entity name')
-    .option('--observation <text>', 'Remove specific observation only')
+    .option('--observation <text>', 'Remove specific observation only', nonEmpty('--observation'))
     .option('--json', 'Output as JSON')
     .option('--confirm', '[deprecated, no-op] forget is a soft archive — no confirmation needed')
     .action(async (opts) => {
@@ -266,7 +275,7 @@ program
         else if (result.observation_removed) {
             console.log(`✂️  Removed observation (${result.remaining_observations} remaining)`);
         }
-        else if (opts.observation && result.entity_found) {
+        else if (opts.observation !== undefined && result.entity_found) {
             console.log(`Entity "${opts.name}" has no observation matching that text (${result.remaining_observations} observation(s) present).`);
             console.log(`See them with: memesh recall "${opts.name}" --json`);
             process.exitCode = 1;
