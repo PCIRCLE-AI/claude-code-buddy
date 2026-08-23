@@ -86,7 +86,12 @@ describe('G9 — updater policy drift between TS and hook JS', () => {
       { name: 'minor policy + minor bump → update', currentVersion: '4.1.3', latestVersion: '4.2.0', policy: 'minor', deprecated: false, expectedShouldUpdate: true, expectedBump: 'minor', expectedDeprecationOverride: false },
       { name: 'major policy + major bump → update', currentVersion: '4.1.3', latestVersion: '5.0.0', policy: 'major', deprecated: false, expectedShouldUpdate: true, expectedBump: 'major', expectedDeprecationOverride: false },
       { name: 'no latestVersion → skip', currentVersion: '4.1.3', latestVersion: null, policy: 'patch', deprecated: false, expectedShouldUpdate: false, expectedBump: null, expectedDeprecationOverride: false },
-      { name: 'deprecation override: off policy + patch bump + deprecated → update with override', currentVersion: '4.1.3', latestVersion: '4.1.4', policy: 'off', deprecated: true, expectedShouldUpdate: true, expectedBump: 'patch', expectedDeprecationOverride: true },
+      // `off` is no longer overridable. The override fired only for a patch
+      // bump, and every policy above `off` already permits one — so `off` was
+      // the only setting it could ever change, and its trigger is a string
+      // the PUBLISHER writes into the registry. Both copies refuse now, which
+      // is what this drift fixture pins.
+      { name: 'deprecation override does NOT override an explicit off', currentVersion: '4.1.3', latestVersion: '4.1.4', policy: 'off', deprecated: true, expectedShouldUpdate: false, expectedBump: 'patch', expectedDeprecationOverride: false },
       { name: 'deprecation override does NOT apply to minor bumps', currentVersion: '4.1.3', latestVersion: '4.2.0', policy: 'off', deprecated: true, expectedShouldUpdate: false, expectedBump: 'minor', expectedDeprecationOverride: false },
     ];
 
