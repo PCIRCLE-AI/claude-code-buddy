@@ -390,10 +390,18 @@ export function computePmAnalytics(
      AND created_at >= datetime('now', '-' || ? || ' days')`,
   ).get(windowDays) as { n: number }).n;
 
+  // `datetime(last_accessed_at)`, because the column and the cutoff are
+  // written in two different formats. trackAccess stores an ISO string
+  // ('...T...Z'); `datetime('now', ...)` produces SQLite's own
+  // 'YYYY-MM-DD HH:MM:SS'. TEXT comparison first differs at the separator,
+  // where 'T' (0x54) sorts AFTER ' ' (0x20) — so a plan last touched on the
+  // cutoff day never read as stale, whatever the hour. Normalising the
+  // column costs an index this query does not have anyway: it already scans
+  // for `type='plan'`.
   const stalePlans = (db.prepare(
     `SELECT COUNT(*) AS n FROM entities
      WHERE type='plan' AND status='active'
-       AND (last_accessed_at IS NULL OR last_accessed_at < datetime('now', '-30 days'))`,
+       AND (last_accessed_at IS NULL OR datetime(last_accessed_at) < datetime('now', '-30 days'))`,
   ).get() as { n: number }).n;
 
   // Open decisions: created > 14 days ago and not yet superseded by another entity.

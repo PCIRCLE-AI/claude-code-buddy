@@ -36,6 +36,7 @@ import {
   isAutoCaptureEnabled,
   openHookDb,
   readUpdateCheckCache,
+  redactSecrets,
   recordHookRun,
   stampHookRunOnly,
   resolveAutoUpdatePolicy,
@@ -117,7 +118,14 @@ function parseTranscript(transcriptPath) {
             if (block.name === 'Bash') {
               const cmd = block.input?.command ?? '';
               if (typeof cmd === 'string' && cmd.length > 10 && !cmd.startsWith('ls') && !cmd.startsWith('cd')) {
-                bashCommands.push(cmd.slice(0, 100));
+                // Redact BEFORE truncating. A bash command line is the single
+                // most likely place a credential appears in a transcript
+                // (`export ANTHROPIC_API_KEY=sk-...`, `curl -H "Authorization:
+                // Bearer ..."`), and this text is stored verbatim as an
+                // observation — a permanent, searchable, exportable copy.
+                // Truncating first would cut a token in half and leave the
+                // fragment unmatched by every pattern.
+                bashCommands.push(redactSecrets(cmd).slice(0, 100));
               }
             }
           }
@@ -141,7 +149,14 @@ function parseTranscript(transcriptPath) {
             const text = typeof block.content === 'string'
               ? block.content
               : JSON.stringify(block.content);
-            errorsEncountered.push(text.slice(0, 200));
+            // Same reason as the bash branch, and one more: this array is
+            // ALSO the payload `analyzeFailure` sends to the configured LLM
+            // provider. A failed request that echoes its own Authorization
+            // header — the ordinary shape of an auth error — would be stored
+            // and then transmitted off the machine. Redacted once here, at
+            // the point the text enters the process, so every downstream use
+            // inherits it.
+            errorsEncountered.push(redactSecrets(text).slice(0, 200));
           }
         }
 
@@ -511,8 +526,21 @@ process.stdin.on('end', async () => {
               const updateHit = db.prepare(
                 'UPDATE entities SET recall_hits = COALESCE(recall_hits, 0) + 1 WHERE id = ?'
               );
+              // Counted here, not recomputed below. The compliance
+              // numerator and `recall_hits` have to be the SAME
+              // measurement: `cited.size > 0` asked "did this transcript
+              // contain any [mem:N] at all", which counts a marker for an id
+              // this session never injected — one carried over from an
+              // earlier turn, or a number the agent invented — as compliance.
+              // The denominator counts sessions that received an injection,
+              // so the two halves of the rate were answering different
+              // questions.
+              let injectedAndCited = 0;
               for (const id of entityIds) {
-                if (cited.has(id)) updateHit.run(id);
+                if (cited.has(id)) {
+                  updateHit.run(id);
+                  injectedAndCited++;
+                }
               }
 
               // Accounting-mode stamp (constant value, rewritten every
@@ -536,7 +564,7 @@ process.stdin.on('end', async () => {
                 `INSERT INTO memesh_metadata (key, value) VALUES ('citation_sessions_cited', '0')
                  ON CONFLICT(key) DO NOTHING`
               ).run();
-              if (cited.size > 0) bump.run('citation_sessions_cited');
+              if (injectedAndCited > 0) bump.run('citation_sessions_cited');
             }
           }
         }

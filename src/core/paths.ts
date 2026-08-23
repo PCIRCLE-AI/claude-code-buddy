@@ -272,9 +272,16 @@ export const SECRET_PATTERN_SOURCES: readonly string[] = [
  * egress path-redacted but not credential-redacted; it lives here because
  * this module owns redaction and both transports already import it.
  */
+/** Compiled once. `String.prototype.replace` resets a global regex's
+ *  `lastIndex` around the call, so reusing them across calls is safe. The
+ *  Stop hook calls this per bash block and per errored tool result — hundreds
+ *  of times per session, inside a 10-second budget — and it was recompiling
+ *  all eighteen patterns each time. */
+const SECRET_PATTERNS = SECRET_PATTERN_SOURCES.map((s) => new RegExp(s, 'gi'));
+
 export function redactSecrets(input: string): string {
   let out = input;
-  for (const s of SECRET_PATTERN_SOURCES) out = out.replace(new RegExp(s, 'gi'), '***REDACTED***');
+  for (const pattern of SECRET_PATTERNS) out = out.replace(pattern, '***REDACTED***');
   return out;
 }
 

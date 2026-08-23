@@ -383,7 +383,7 @@ function runAutoTelemetryPrune(db) {
     }
     const cutoffIso = new Date(Date.now() - TELEMETRY_PRUNE_DEFAULT_DAYS * 86400000).toISOString();
     try {
-        db.prepare('DELETE FROM llm_telemetry WHERE ts < ?').run(cutoffIso);
+        db.prepare('DELETE FROM llm_telemetry WHERE ts < datetime(?)').run(cutoffIso);
     }
     catch {
         return;

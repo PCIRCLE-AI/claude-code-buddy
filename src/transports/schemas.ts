@@ -76,7 +76,12 @@ export const RecallSchema = z.object({
 // surface, while the rejection tells the caller the exact key it got wrong.
 export const ForgetSchema = z.object({
   name: nameField,
-  observation: z.string().max(10000).optional(),
+  // `.min(1)`: an empty selector is a caller error, not a request to archive
+  // the entity. Without it, `forget({name, observation: ""})` — which an
+  // unset shell variable or a model's empty string produces — fell through
+  // to the entity-level archive and reported success. `.strict()` closed the
+  // wrong-KEY door; this closes the empty-VALUE one beside it.
+  observation: z.string().min(1).max(10000).optional(),
 }).strict();
 
 export const ExportSchema = z.object({
@@ -165,7 +170,7 @@ export const WhySchema = z.object({
 }).strict();
 
 export const UserPatternsSchema = z.object({
-  categories: z.array(z.enum(['workSchedule', 'toolPreferences', 'focusAreas', 'workflow', 'strengths', 'learningAreas'])).optional()
+  categories: z.array(z.enum(['workSchedule', 'focusAreas', 'workflow', 'strengths', 'learningAreas'])).optional()
     .describe('Specific categories to return. Omit for all.'),
 }).strict();
 

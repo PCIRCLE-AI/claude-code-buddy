@@ -161,39 +161,57 @@ export function migrateEntitiesSchema(db: MemeshDatabase): void {
     (db.prepare("PRAGMA table_info(entities)").all() as Array<{ name: string }>).map((c) => c.name),
   );
 
+  // Each column answers for itself.
+  //
+  // These used to be grouped: five ALTERs behind `if (!has('access_count'))`,
+  // two behind `if (!has('recall_hits'))`. A group is only idempotent if it
+  // is also ATOMIC, and it is not — each ALTER commits on its own. So a
+  // failure on the second statement (a `SQLITE_BUSY` from any of the seven
+  // hooks, a full disk) left `access_count` added and the other four
+  // missing, and every run after that read `has('access_count')` as true and
+  // skipped the block. The database was then permanently half-migrated, and
+  // `getEntity` — whose SELECT names `last_accessed_at`, `confidence`,
+  // `recall_hits` — failed forever with no way to heal.
+  //
+  // Per-column guards make each ALTER independently resumable: the next open
+  // adds exactly what is still missing. `safeAlter` swallowing "duplicate
+  // column name" is the belt; this is the braces, and it is the half that
+  // was load-bearing.
+  const addColumn = (column: string, sql: string): void => {
+    if (entityColumns.has(column)) return;
+    safeAlter(db, sql);
+    entityColumns.add(column);
+  };
+
   // v2.11 -> v2.12: status
-  if (!entityColumns.has('status')) {
-    safeAlter(db, "ALTER TABLE entities ADD COLUMN status TEXT NOT NULL DEFAULT 'active'");
-    db.exec("CREATE INDEX IF NOT EXISTS idx_entities_status ON entities(status)");
-  }
+  addColumn('status', "ALTER TABLE entities ADD COLUMN status TEXT NOT NULL DEFAULT 'active'");
 
   // v2.14 -> v2.15: scoring + temporal-validity columns
-  if (!entityColumns.has('access_count')) {
-    safeAlter(db, "ALTER TABLE entities ADD COLUMN access_count INTEGER DEFAULT 0");
-    safeAlter(db, "ALTER TABLE entities ADD COLUMN last_accessed_at TIMESTAMP");
-    safeAlter(db, "ALTER TABLE entities ADD COLUMN confidence REAL DEFAULT 1.0");
-    safeAlter(db, "ALTER TABLE entities ADD COLUMN valid_from TIMESTAMP");
-    safeAlter(db, "ALTER TABLE entities ADD COLUMN valid_until TIMESTAMP");
-  }
+  addColumn('access_count', "ALTER TABLE entities ADD COLUMN access_count INTEGER DEFAULT 0");
+  addColumn('last_accessed_at', "ALTER TABLE entities ADD COLUMN last_accessed_at TIMESTAMP");
+  addColumn('confidence', "ALTER TABLE entities ADD COLUMN confidence REAL DEFAULT 1.0");
+  addColumn('valid_from', "ALTER TABLE entities ADD COLUMN valid_from TIMESTAMP");
+  addColumn('valid_until', "ALTER TABLE entities ADD COLUMN valid_until TIMESTAMP");
 
   // v3.0.0-rc -> v3.0.0: namespace
-  if (!entityColumns.has('namespace')) {
-    safeAlter(db, "ALTER TABLE entities ADD COLUMN namespace TEXT DEFAULT 'personal'");
-    db.exec("CREATE INDEX IF NOT EXISTS idx_entities_namespace ON entities(namespace)");
-  }
+  addColumn('namespace', "ALTER TABLE entities ADD COLUMN namespace TEXT DEFAULT 'personal'");
 
   // v4.0.0: recall effectiveness counters
-  if (!entityColumns.has('recall_hits')) {
-    safeAlter(db, "ALTER TABLE entities ADD COLUMN recall_hits INTEGER DEFAULT 0");
-    safeAlter(db, "ALTER TABLE entities ADD COLUMN recall_misses INTEGER DEFAULT 0");
-  }
+  addColumn('recall_hits', "ALTER TABLE entities ADD COLUMN recall_hits INTEGER DEFAULT 0");
+  addColumn('recall_misses', "ALTER TABLE entities ADD COLUMN recall_misses INTEGER DEFAULT 0");
 
   // Human-readable titles: nullable, additive only — `name` keeps its
   // machine-key identity semantics (dedup/append), `title` is the display
   // string a human or agent reads first.
-  if (!entityColumns.has('title')) {
-    safeAlter(db, "ALTER TABLE entities ADD COLUMN title TEXT");
-  }
+  addColumn('title', "ALTER TABLE entities ADD COLUMN title TEXT");
+
+  // Unconditional, because `IF NOT EXISTS` already makes them idempotent and
+  // they were the other half of the group problem: an index created inside a
+  // conditional that a partial failure skipped never got a second chance.
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_entities_status ON entities(status);
+     CREATE INDEX IF NOT EXISTS idx_entities_namespace ON entities(namespace);`,
+  );
 }
 
 /**

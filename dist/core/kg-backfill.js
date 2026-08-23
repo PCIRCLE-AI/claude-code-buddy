@@ -238,7 +238,7 @@ export function proposeBackfillCandidates(opts = {}, db) {
         list.push({ id: r.id, name: r.name, type: r.type, created_at: r.created_at });
     }
     for (const list of anchorsByProject.values()) {
-        list.sort((a, b) => b.created_at.localeCompare(a.created_at));
+        list.sort((a, b) => (parseSqliteUtcMs(b.created_at) ?? -Infinity) - (parseSqliteUtcMs(a.created_at) ?? -Infinity));
     }
     const orphanProjectRows = conn.prepare(`
     SELECT t.entity_id, t.tag

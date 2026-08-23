@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { remember, forget, recall, exportMemories, importMemories } from '../../src/core/operations.js';
 import { useTestDatabase } from '../helpers/db-fixture.js';
+import { getDatabase } from '../../src/db.js';
+import { KnowledgeGraph } from '../../src/knowledge-graph.js';
 
 useTestDatabase('memesh-export-');
 
@@ -10,7 +12,7 @@ describe('exportMemories', () => {
   it('exports all active entities as JSON', () => {
     remember({ name: 'test-entity', type: 'note', observations: ['some data'] });
     const result = exportMemories({});
-    expect(result.version).toBe('3.0.0');
+    expect(result.version).toBe('3.1.0');
     expect(result.entity_count).toBe(1);
     expect(result.entities).toHaveLength(1);
     expect(result.entities[0].name).toBe('test-entity');
@@ -40,7 +42,7 @@ describe('exportMemories', () => {
   it('includes version and exported_at fields', () => {
     remember({ name: 'a', type: 'note' });
     const result = exportMemories({});
-    expect(result.version).toBe('3.0.0');
+    expect(result.version).toBe('3.1.0');
     expect(new Date(result.exported_at).getTime()).not.toBeNaN();
   });
 
@@ -79,18 +81,89 @@ describe('exportMemories', () => {
     expect(src!.relations.some((r) => r.to === 'dst' && r.type === 'related-to')).toBe(true);
   });
 
-  it('does not export archived entities', () => {
+  it('exports archived entities, carrying their status', () => {
+    // They used to be skipped, so `memesh forget` followed by an export and
+    // a restore brought the memory back to life: the one operation whose
+    // purpose is to take something out of circulation, undone by the one
+    // whose purpose is to preserve state faithfully.
     remember({ name: 'active', type: 'note' });
     remember({ name: 'to-archive', type: 'note' });
     forget({ name: 'to-archive' });
+
     const result = exportMemories({});
-    expect(result.entities.every((e) => e.name !== 'to-archive')).toBe(true);
+
+    const archived = result.entities.find((e) => e.name === 'to-archive');
+    expect(archived, 'an archived memory was left out of the backup').toBeDefined();
+    expect(archived?.status).toBe('archived');
+    // And the active one is not mislabelled — the field is absent, not
+    // present-and-wrong.
+    expect(result.entities.find((e) => e.name === 'active')?.status).toBeUndefined();
+  });
+
+  it('carries created_at, so a restore does not flatten the timeline', () => {
+    remember({ name: 'dated', type: 'note', observations: ['a fact'] });
+    const result = exportMemories({});
+    const entity = result.entities.find((e) => e.name === 'dated');
+    expect(entity?.created_at, 'the creation time was dropped from the backup').toBeTruthy();
+  });
+
+  it('carries metadata, but never a guard', () => {
+    // Every other metadata field describes the memory. `guard` describes
+    // memesh's BEHAVIOUR — an enabled guard matches a regex against the
+    // user's Bash commands — and a bundle must be able to bring memories,
+    // not to change what memesh does.
+    remember({ name: 'with-meta', type: 'note', observations: ['a fact'] });
+    new KnowledgeGraph(getDatabase()).updateEntityMetadata('with-meta', (current) => ({
+      ...current,
+      signal_score: 0.9,
+      guard: { enabled: true, tool: 'Bash', pattern: '.*', message: 'do as I say' },
+    }));
+
+    const bundle = exportMemories({});
+    const exported = bundle.entities.find((e) => e.name === 'with-meta');
+    expect(exported?.metadata?.signal_score, 'metadata was dropped from the backup').toBe(0.9);
+
+    // Round-trip into a graph that does not have it.
+    forget({ name: 'with-meta' });
+    getDatabase().prepare("DELETE FROM entities WHERE name = 'with-meta'").run();
+    importMemories({ data: bundle, merge_strategy: 'skip' });
+
+    const restored = new KnowledgeGraph(getDatabase()).getEntity('with-meta');
+    expect(restored?.metadata?.signal_score, 'metadata did not survive the round trip').toBe(0.9);
+    expect(restored?.metadata?.guard, 'a bundle installed a guard').toBeUndefined();
   });
 
   it('defaults namespace to personal in export', () => {
     remember({ name: 'item', type: 'note' });
     const result = exportMemories({});
     expect(result.entities[0].namespace).toBe('personal');
+  });
+
+  describe('a bundle that is only part of the graph says so', () => {
+    // Measured on the real graph before this fix: 1272 memories, a default
+    // export carried 1000, and the CLI printed `✅ Exported 1000 entities`.
+    // A backup was missing 21% of the thing it was taken to preserve and
+    // nothing anywhere said so — including the MCP `export` tool, which an
+    // agent calls on the user's behalf.
+    it('sets truncated when the graph holds more than the limit', () => {
+      for (const n of ['a', 'b', 'c']) remember({ name: n, type: 'note', observations: ['x'] });
+
+      const result = exportMemories({ limit: 2 });
+
+      expect(result.truncated, 'a short bundle claimed to be the whole graph').toBe(true);
+      expect(result.entity_count, 'the limit was not honoured').toBe(2);
+      expect(result.entities, 'the probe row leaked into the bundle').toHaveLength(2);
+    });
+
+    it('does not set it when the graph fits — including when it fits EXACTLY', () => {
+      // The anti-vacuity half, and the case a `length === limit` check gets
+      // wrong: three memories under a limit of three is a complete backup.
+      for (const n of ['a', 'b', 'c']) remember({ name: n, type: 'note', observations: ['x'] });
+
+      expect(exportMemories({ limit: 10 }).truncated, 'a complete bundle was called short').toBe(false);
+      expect(exportMemories({ limit: 3 }).truncated, 'an exactly-full bundle was called short').toBe(false);
+      expect(exportMemories({ limit: 3 }).entity_count).toBe(3);
+    });
   });
 });
 
@@ -198,14 +271,81 @@ describe('importMemories', () => {
     expect(entity!.namespace).toBe('team');
   });
 
-  it('silently skips relations when target entity does not exist', () => {
+  it('REPORTS a relation whose target is not in the bundle and not in the graph', () => {
+    // This used to be "silently skips", and the silence is what let the real
+    // defect hide: relations were created inside the per-entity loop, so a
+    // target further down the file had not been imported yet and was skipped
+    // by the same catch. Export writes newest-first and relations point
+    // newer -> older, so that was the ORDINARY case, not the edge case — a
+    // backup restored with none of its relations and said nothing.
+    //
+    // With the second pass, a relation that still fails is genuinely
+    // pointing outside the bundle. That is real information loss, and the
+    // import now says so — in `skipped_relations`, NOT in `errors`.
+    //
+    // The distinction is the whole point. Every bundle narrowed by `--tag`,
+    // `--namespace` or `--limit` has relations leaving it: measured, a full
+    // backup of a 1272-memory graph restored 1000 entities and 142 of its
+    // 151 relations, all nine losses being targets the limit cut off. In
+    // `errors` those set exit 1, so the round trip this project documents —
+    // `memesh export > b.json && memesh import b.json` — became a failing
+    // command on a restore that did exactly what it should.
     const data = makeExport([
       { name: 'entity-a', relations: [{ to: 'nonexistent', type: 'related-to' }] },
     ]);
     const result = importMemories({ data, merge_strategy: 'skip' });
-    // No errors for missing relation targets — silently skipped
-    expect(result.imported).toBe(1);
+
+    expect(result.imported, 'the entity itself must still import').toBe(1);
+    expect(result.skipped_relations, 'a lost relation was not reported').toHaveLength(1);
+    expect(result.skipped_relations[0]).toContain('nonexistent');
+    expect(result.errors, 'a link leaving the bundle was counted as a failure').toHaveLength(0);
+  });
+
+  it('a target already in the GRAPH is restored, not reported as lost', () => {
+    // The anti-vacuity half: `skipped_relations` must mean "the target is
+    // nowhere", not "the target was not in the bundle". A bundle that brings
+    // one memory linked to one you already keep must rebuild that link.
+    remember({ name: 'already-here', type: 'note', observations: ['kept'] });
+    const data = makeExport([
+      { name: 'incoming', relations: [{ to: 'already-here', type: 'related-to' }] },
+    ]);
+
+    const result = importMemories({ data, merge_strategy: 'skip' });
+
+    expect(result.skipped_relations, 'a restorable link was reported lost').toHaveLength(0);
     expect(result.errors).toHaveLength(0);
+    const relations = getDatabase()
+      .prepare(
+        `SELECT f.name AS "from", t.name AS "to" FROM relations r
+         JOIN entities f ON f.id = r.from_entity_id
+         JOIN entities t ON t.id = r.to_entity_id
+         WHERE f.name = 'incoming'`,
+      )
+      .all();
+    expect(relations, 'the link to an entity already stored was not rebuilt').toHaveLength(1);
+  });
+
+  it('restores a relation whose target appears LATER in the bundle', () => {
+    // The defect itself, in the order `export` actually writes.
+    const data = makeExport([
+      { name: 'newer-note', relations: [{ to: 'older-note', type: 'implements' }] },
+      { name: 'older-note' },
+    ]);
+
+    const result = importMemories({ data, merge_strategy: 'skip' });
+
+    expect(result.imported).toBe(2);
+    expect(result.errors, `unexpected errors: ${result.errors.join('; ')}`).toHaveLength(0);
+    const relations = getDatabase()
+      .prepare(
+        `SELECT f.name AS "from", t.name AS "to", r.relation_type AS type
+         FROM relations r
+         JOIN entities f ON f.id = r.from_entity_id
+         JOIN entities t ON t.id = r.to_entity_id`,
+      )
+      .all() as Array<{ from: string; to: string; type: string }>;
+    expect(relations, 'the relation was dropped because its target came later').toHaveLength(1);
+    expect(relations[0]).toEqual({ from: 'newer-note', to: 'older-note', type: 'implements' });
   });
 
   it('imports relations when target entity exists', () => {

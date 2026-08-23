@@ -109,4 +109,33 @@ describe('the signal-score backfill fills gaps and nothing else', () => {
     closeDatabase();
     expect(marker.map(m => m.key), 'the pass did not record that it had run').toContain('signal_score_backfill_v2');
   });
+
+  it('READS the marker — a second open leaves a fresh gap unfilled', () => {
+    // The test above proves the marker is WRITTEN. Nothing proved it is
+    // read, and those are different halves: delete `if (done) return` and the
+    // marker still lands, the suite stays green, and every `openDatabase` —
+    // seven hooks, the CLI, the MCP server, the HTTP server, on every single
+    // invocation — runs a full table scan over every entity for the life of
+    // the database.
+    //
+    // A row inserted AFTER the pass has recorded itself is the observable
+    // difference: if the marker is honoured it stays unscored, and if it is
+    // ignored the next open scores it.
+    seedRaw('before-the-pass', null);
+    clearMarker();
+    openDatabase(dbPath);   // the pass runs and records itself
+    closeDatabase();
+
+    // Fixture: the pass really did run, or "the second one did not" is
+    // trivially true.
+    expect(JSON.parse(metadataOf('before-the-pass') as string).signal_score,
+      'fixture: the first pass scored nothing').toEqual(expect.any(Number));
+
+    seedRaw('after-the-pass', null);
+    openDatabase(dbPath);   // marker present — this must be a no-op
+    closeDatabase();
+
+    expect(metadataOf('after-the-pass'),
+      'the marker was written but never read — the backfill runs on every open').toBeNull();
+  });
 });

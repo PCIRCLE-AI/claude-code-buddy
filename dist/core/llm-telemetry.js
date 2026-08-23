@@ -36,7 +36,10 @@ export function summariseTelemetry(windowDays = 30, db) {
     const rows = conn.prepare(`
     SELECT flow, provider, model, project, status, latency_ms, error_class, error_message, attempt_index, fallback_used
     FROM llm_telemetry
-    WHERE ts >= ?
+    -- The mirror image of the prune's bug: with a raw ISO parameter, every
+    -- row from the window's first day compared as BELOW the cutoff and was
+    -- dropped from the scorecard. Same normalisation, same reason.
+    WHERE ts >= datetime(?)
     ORDER BY ts ASC
   `).all(since);
     const byFlow = new Map();
@@ -103,7 +106,7 @@ export function pruneTelemetry(opts = {}) {
     const olderThanDays = opts.olderThanDays ?? 180;
     const db = opts.db ?? getDatabase();
     const cutoffIso = new Date(Date.now() - olderThanDays * 86400000).toISOString();
-    const result = db.prepare('DELETE FROM llm_telemetry WHERE ts < ?').run(cutoffIso);
+    const result = db.prepare('DELETE FROM llm_telemetry WHERE ts < datetime(?)').run(cutoffIso);
     const totalRowsAfter = db.prepare('SELECT COUNT(*) AS c FROM llm_telemetry').get().c;
     return {
         deletedRows: Number(result.changes),

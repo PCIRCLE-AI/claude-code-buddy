@@ -109,6 +109,11 @@ export interface Entity {
   match?: { source: 'keyword' | 'semantic'; relevance: number };
   access_count?: number;
   last_accessed_at?: string;
+  /** Citation accounting, written by the Stop hook and read by
+   *  `rankEntities`'s impact factor. Optional because catalogue reads
+   *  (`listByType`, exports) do not hydrate them. */
+  recall_hits?: number;
+  recall_misses?: number;
   confidence?: number;
   // Temporal validity (`valid_from` / `valid_until`) was removed in
   // 2026-05; the columns remain in the SQLite schema but no code path
@@ -146,6 +151,19 @@ export interface SearchOptions {
   limit?: number;
   includeArchived?: boolean;
   namespace?: string;  // filter by namespace; omit to search all namespaces
+  /**
+   * Whether this read counts as a use of the memories it returns.
+   *
+   * Default true: a recall IS a use, and `access_count` /
+   * `last_accessed_at` are 20% of the ranking. False for reads that are
+   * ABOUT the memories rather than uses of them — `export` is the one that
+   * had to be corrected, because taking a backup re-ranked up to a thousand
+   * memories toward the top and stamped them all as freshly used on the day
+   * the backup ran. `listByType` already made the same distinction by
+   * simply not calling trackAccess; this is the switch for the paths that
+   * share a query with real recalls.
+   */
+  countAsAccess?: boolean;
 }
 
 // --- Operation Input Types (what transports pass to core) ---
@@ -252,6 +270,18 @@ export interface ExportResult {
   version: string;
   exported_at: string;
   entity_count: number;
+  /**
+   * True when the graph holds more memories than `limit` let through, so the
+   * bundle is a subset and a restore from it will be incomplete. Without it
+   * the only signal was `entity_count`, which a caller cannot tell from a
+   * graph that happens to be exactly that size — and a backup that is
+   * silently short is the one failure a backup must not have.
+   *
+   * Optional because this type doubles as the BUNDLE format that `import`
+   * reads, and a bundle written before this release does not carry it.
+   * `exportMemories` always sets it.
+   */
+  truncated?: boolean;
   entities: Array<{
     name: string;
     type: string;
@@ -259,6 +289,29 @@ export interface ExportResult {
      *  in bundles written before titles existed, which import must tolerate. */
     title?: string | null;
     namespace: string;
+    /**
+     * When the memory was first recorded, in the column's own format.
+     *
+     * Without it a restore stamped every memory with the day of the restore,
+     * which is not a detail: `created_at` drives recency in ranking, the
+     * dreamer's weekly clustering, `memesh why`, and every "what was I doing
+     * then" question. A backup that flattens the timeline is not a backup.
+     * Optional, because bundles written before this field exist.
+     */
+    created_at?: string;
+    /**
+     * `archived` for a memory the user has forgotten but not deleted.
+     * Absent means active. Export used to skip archived rows entirely, so
+     * `memesh forget` followed by a restore brought the memory back to life.
+     */
+    status?: string;
+    /**
+     * Everything memesh knows about the memory that is not its text:
+     * provenance, `signal_score`, `task_state`, the demo marker. Import
+     * rebuilds trust and provenance for itself and drops `guard` — see
+     * `buildImportedMetadata`.
+     */
+    metadata?: Record<string, unknown>;
     observations: string[];
     tags: string[];
     relations: Array<{ to: string; type: string }>;
@@ -276,6 +329,13 @@ export interface ImportResult {
   skipped: number;
   appended: number;
   errors: string[];
+  /**
+   * Relations whose target is in neither the bundle nor the graph, as
+   * `from -type-> to`. Real information loss, so it is reported — but not an
+   * error: every filtered or `--limit`-truncated bundle has them, and
+   * counting them as errors made a correct restore exit 1.
+   */
+  skipped_relations: string[];
 }
 
 export interface LearnInput {
@@ -313,6 +373,11 @@ export type EntityRow = {
   access_count: number;
   last_accessed_at: string | null;
   confidence: number;
+  // Selected because `rankEntities` reads them. They were in the schema and
+  // in the scorer but not in this row type, so the recall hydrator silently
+  // returned `undefined` for both and `impactScore(0,0)` was a constant.
+  recall_hits: number;
+  recall_misses: number;
   // valid_from / valid_until columns retained in SQLite schema for
   // back-compat with older databases but are no longer read or written
   // (SDD G2 cut, 2026-05). Do not add them back here without also

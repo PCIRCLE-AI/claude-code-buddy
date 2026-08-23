@@ -31,6 +31,7 @@ import {
   getDbPath,
   getMemeshDirFromDbPath,
   getProjectName,
+  redactSecrets,
   slugFromRemoteUrl,
 } from './_generated/core-paths.js';
 import { autoCaptureDecision } from './_generated/capture-flag.js';
@@ -103,7 +104,16 @@ export function recordGuardFires(dbPath, lessonIds) {
     } finally {
       db.close();
     }
-  } catch { /* counting must never block the user's work */ }
+  } catch (err) {
+    // Never block the user's work — but say so. A read-only database file, a
+    // lost lock, or a schema drift silently stopped the fire counter, and
+    // guard ROI is judged on exactly this number: a guard that fires often
+    // and a guard whose counter never landed look identical in review. One
+    // line on stderr is what guard-check already does for its own failures.
+    try {
+      process.stderr.write(`[memesh guard-fires] not counted: ${err?.message || err}\n`);
+    } catch { /* stderr gone */ }
+  }
 }
 import { isAutoInjectable } from './_generated/work-topology.js';
 export { parseTaskState, taskStateLines, taskStateName } from './_generated/task-state.js';
@@ -116,7 +126,7 @@ import {
   tokenizeQuery,
 } from './_generated/fts-index.js';
 
-export { homeDir, memeshDir, getDbPath, getMemeshDirFromDbPath, getProjectName, slugFromRemoteUrl };
+export { homeDir, memeshDir, getDbPath, getMemeshDirFromDbPath, getProjectName, redactSecrets, slugFromRemoteUrl };
 
 const require = createRequire(import.meta.url);
 
@@ -334,6 +344,10 @@ import {
 // nothing. node:sqlite is part of the runtime: there is no binary to
 // miss, so the failure mode and its whole recovery apparatus are gone.
 
+/** See the pragma in `openHookDb` for why this is not the 30s the shared
+ *  database class uses. */
+const HOOK_BUSY_TIMEOUT_MS = 2000;
+
 export function openHookDb(env = process.env, opts = {}) {
 
   // Path helpers read process.env directly (no-arg). The `env` parameter
@@ -351,6 +365,23 @@ export function openHookDb(env = process.env, opts = {}) {
   const db = new MemeshDatabase(dbPath, { allowExtension: true });
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
+  // A hook waits for a held write lock for less time than Claude Code will
+  // wait for the hook.
+  //
+  // `MemeshDatabase` sets `busy_timeout = 30000`, and that number is right
+  // for the processes it was chosen for: a 30k-vector `swapVectorGeneration`
+  // holds the write lock for ~9s, and the CLI, the MCP server and the HTTP
+  // server should WAIT for it rather than fail. A hook cannot. Its budget in
+  // `hooks/hooks.json` is 3s (UserPromptSubmit) to 10s (Stop, PreCompact),
+  // so a 30s wait has exactly one possible ending: the harness kills the
+  // hook. The capture is lost either way — the difference is that the user
+  // also gets a hook-timeout error, which is the failure mode that makes
+  // memesh something to switch off.
+  //
+  // 2s fits inside every budget with room for the hook's own work. On
+  // contention the capture is skipped quietly, this run's `hook_runs` stamp
+  // is not written, and `memesh doctor` reports the gap honestly.
+  db.pragma(`busy_timeout = ${HOOK_BUSY_TIMEOUT_MS}`);
   // Bringing the schema current is a WRITE, and "cannot migrate" must not
   // mean "cannot open": a database file that is read-only but behind on
   // schema (a pre-upgrade backup, a permissions accident) dies on the
@@ -537,6 +568,23 @@ export { truncateTitle } from './_generated/title.js';
  * @returns {{ id: number, isNew: boolean } | null} null if the row could not be resolved
  */
 export function captureEntity(db, { name, type, observations = [], tags = [], title, metadata }) {
+  // One transaction, because this function performs six writes that only
+  // mean anything together: the entity row, its observations, its tags, and
+  // the contentless-FTS delete + insert that make them findable.
+  //
+  // Without it, a throw anywhere in the middle — a lock lost to the CLI, a
+  // full disk, an FTS corruption — committed the prefix and dropped the
+  // rest, and the two most likely resting places are both invisible:
+  // observations inserted with no FTS row (a memory that exists and can
+  // never be recalled), or the old FTS row deleted and the new one not
+  // written (a memory that just stopped being findable). Neither is
+  // retried, because the callers dedupe on the entity NAME existing —
+  // `INSERT OR IGNORE` reports "already there" on the next run and the
+  // half-written state is permanent.
+  return db.transaction(() => captureEntityInner(db, { name, type, observations, tags, title, metadata }))();
+}
+
+function captureEntityInner(db, { name, type, observations, tags, title, metadata }) {
   // source_host provenance: these hooks only ever run under Claude Code (they
   // are wired into ~/.claude/settings.json), so a hook-captured entity is by
   // definition a claude-code capture. Stamped only on the INSERT — an OR
@@ -575,8 +623,11 @@ export function captureEntity(db, { name, type, observations = [], tags = [], ti
     // it's corrupted — replace with {} and log the healing.
     if (!meta && metaRow?.metadata) {
       try {
+        // The id, not the name. The id is what a maintainer needs to look
+        // the row up; the name is user-authored content, and this line goes
+        // to a stderr stream the user may paste anywhere.
         process.stderr.write(
-          `MeMesh: healed corrupted metadata for entity ${id} (${name}). ` +
+          `MeMesh: healed corrupted metadata for entity ${id}. ` +
           `Original value was unparseable; replaced with {}.\n`,
         );
       } catch { /* stderr gone */ }
@@ -747,9 +798,25 @@ export function decideAutoUpdateHook(currentVersion, cache, policy) {
   const policyAllows = (POLICY_RANK[policy] ?? 0) >= BUMP_RANK[bump];
   if (policyAllows) return { run: true, latest, bump, deprecationOverride: false };
 
+  // The deprecation override does NOT apply when the policy is `off`.
+  //
+  // Look at what the override could ever do: it fires only for a `patch`
+  // bump, and any policy above `off` already permits a patch. So its ONLY
+  // effect was to defeat `off` — the one setting whose whole meaning is
+  // "never install anything without me asking".
+  //
+  // And its trigger is `currentVersionDeprecation`, a string the PUBLISHER
+  // writes into the npm registry. Anyone able to publish the package could
+  // therefore make every user who had turned auto-update OFF run a detached
+  // `npm install -g`, unattended, from a Stop hook. That is not a security
+  // override; it is a remote switch on a user's explicit refusal.
+  //
+  // A deprecated version still gets said out loud: `memesh doctor` escalates
+  // the update-status row to FAIL for it (there is a test named for that),
+  // and the session banner reports it. The user decides.
   const deprecated = typeof cache.currentVersionDeprecation === 'string'
     && cache.currentVersionDeprecation.length > 0;
-  if (deprecated && bump === 'patch') {
+  if (deprecated && bump === 'patch' && policy !== 'off') {
     return { run: true, latest, bump, deprecationOverride: true };
   }
 

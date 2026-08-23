@@ -13,6 +13,7 @@ export const ORDERING_INSTRUCTION = 'The conversation below is in CHRONOLOGICAL 
     'if a decision was reversed, keep ONLY the final state; if an approach was tried and abandoned, ' +
     'record the lesson learned, NOT the abandoned approach. Never record as a live fact any claim ' +
     'that was later contradicted, corrected, or walked back within this same conversation.';
+const TURN_CHAR_CAP = 4000;
 const CHUNK_CHAR_BUDGET = 48000;
 const MAX_CHUNKS_PER_SESSION = 4;
 const SECRET_SOURCES = SECRET_PATTERN_SOURCES;
@@ -105,7 +106,7 @@ function chunkTurns(turns, budget = CHUNK_CHAR_BUDGET) {
     let current = [];
     let size = 0;
     for (const turn of turns) {
-        const cost = turn.text.length + 16;
+        const cost = Math.min(turn.text.length, TURN_CHAR_CAP) + 16;
         if (size + cost > budget && current.length > 0) {
             chunks.push(current);
             current = [];
@@ -119,11 +120,12 @@ function chunkTurns(turns, budget = CHUNK_CHAR_BUDGET) {
     if (current.length > 0 && chunks.length < MAX_CHUNKS_PER_SESSION)
         chunks.push(current);
     const included = chunks.reduce((n, c) => n + c.length, 0);
-    return { chunks, truncatedTurns: turns.length - included };
+    const cappedTurns = chunks.flat().filter((t) => t.text.length > TURN_CHAR_CAP).length;
+    return { chunks, truncatedTurns: turns.length - included, cappedTurns };
 }
 export function buildExtractionPrompt(turns, projectLabel, priorDecisions = []) {
     const body = turns
-        .map((t) => `[${t.role}] ${sanitizeForPrompt(scrubSecrets(t.text)).slice(0, 4000)}`)
+        .map((t) => `[${t.role}] ${sanitizeForPrompt(scrubSecrets(t.text)).slice(0, TURN_CHAR_CAP)}`)
         .join('\n');
     const priorSection = priorDecisions.length > 0
         ? `\nDecisions/facts already noted EARLIER in this same session (they may be reversed by turns below — if so, record the reversal/lesson and do NOT re-propose the abandoned one; do not re-propose ones still standing):
@@ -211,14 +213,15 @@ function memoryHasSecret(m) {
     return containsSecret(m.name) || m.observations.some(containsSecret) || m.tags.some(containsSecret);
 }
 export async function extractMemoriesFromTranscript(transcriptPath, llm, opts = {}) {
-    const result = { memories: [], llmCalls: 0, secretsDropped: 0, llmFailures: 0, parseFailures: 0, truncatedTurns: 0 };
+    const result = { memories: [], llmCalls: 0, secretsDropped: 0, llmFailures: 0, parseFailures: 0, truncatedTurns: 0, cappedTurns: 0 };
     const turns = parseConversation(transcriptPath);
     if (turns.length < 2)
         return result;
     const projectLabel = opts.project ?? getProjectName(process.cwd());
     const budget = opts.maxLlmCalls ?? MAX_CHUNKS_PER_SESSION;
-    const { chunks, truncatedTurns } = chunkTurns(turns, opts.chunkCharBudget);
+    const { chunks, truncatedTurns, cappedTurns } = chunkTurns(turns, opts.chunkCharBudget);
     result.truncatedTurns = truncatedTurns;
+    result.cappedTurns = cappedTurns;
     const priorDecisions = [];
     for (const chunk of chunks) {
         if (result.llmCalls >= budget)
@@ -344,6 +347,7 @@ export async function runTranscriptSource(db, llm, opts = {}) {
         skipped: [],
         truncatedTurns: 0,
         truncatedSessions: [],
+        cappedTurns: 0,
         durationMs: 0,
     };
     if (!llm) {
@@ -373,6 +377,7 @@ export async function runTranscriptSource(db, llm, opts = {}) {
         result.secretsDropped += extract.secretsDropped;
         result.llmFailures += extract.llmFailures;
         result.parseFailures += extract.parseFailures;
+        result.cappedTurns += extract.cappedTurns;
         if (extract.truncatedTurns > 0) {
             result.truncatedTurns += extract.truncatedTurns;
             result.truncatedSessions.push({ sessionId: session.sessionId, truncatedTurns: extract.truncatedTurns });

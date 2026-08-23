@@ -4,6 +4,86 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Removed
+
+- **`user_patterns` no longer reports `toolPreferences` or
+  `workflow.avgSessionMinutes`.** Both were parsed out of observation text in
+  a format nothing has ever written: `patterns.ts` looked for observations
+  beginning `[FOCUS]` containing `Top tools: …`, and for `[SESSION]` lines
+  containing `Duration: Nm`. Neither string occurs anywhere else in the
+  repository, and `signal-scorer.ts` — which reads the one `[SESSION]` shape
+  that did exist — shows it recorded **seconds**, not minutes. So
+  `toolPreferences` was permanently `[]` and `avgSessionMinutes` permanently
+  `0`, on the MCP tool output, the dashboard's Analytics tab, and in the
+  documented response shape. The dashboard rendered the tool list only when
+  non-empty (never) and the session figure as `—` (always).
+
+  They are removed rather than implemented. The test for them was
+  `expect(result.toolPreferences).toEqual([])` — a test asserting the
+  deadness. `commitsPerSession`, `totalSessions` and `totalCommits` are
+  computed from real rows and are unchanged.
+
+  If you passed `"toolPreferences"` in `categories`, that value is no longer
+  accepted; it previously returned an empty list.
+
+- **`DEFAULT_SIGNAL_THRESHOLD` is gone.** Its docstring described a dashboard
+  filter users could override in Settings. Nothing imported it but its own
+  test, and no such filter exists. The signal score itself is real and widely
+  used — the dreamer's compactable range, `kg-backfill`'s Rule 3 floor, the
+  briefing — and is unchanged.
+
+### Changed
+
+- **`memesh export` now tells you when the bundle is only part of your
+  graph.** The `--limit` default is 1000 and always has been, but nothing
+  said so: on a real graph of 1272 memories the command printed
+  `✅ Exported 1000 entities` and produced a bundle missing 21% of what it was
+  taken to preserve. `entity_count` could not distinguish that from a graph
+  that happens to be exactly 1000. The result now carries `truncated`
+  (`true`/`false`) — visible to the MCP and HTTP callers as well as the CLI —
+  and the CLI prints a warning on **stderr**, so `memesh export > b.json`
+  still writes a clean bundle. For a full backup, pass a limit above your
+  graph size: `memesh export --limit 100000 -o backup.json`.
+
+- **`memesh import` no longer exits 1 for a relation that points outside the
+  bundle.** *(Behaviour change — scripts that check the exit code are
+  affected.)* Those relations are real information loss and are still
+  reported, by name, in a new `skipped_relations` field and on stderr. But
+  they are not an error: every bundle narrowed by `--tag`, `--namespace` or
+  `--limit` has them, so counting them as errors made
+  `memesh export > b.json && memesh import b.json` — the round trip this
+  project's own help text recommends — a failing command on a restore that
+  did exactly what it should. Measured: a full backup of a 1272-memory graph
+  restored 1000 entities and 142 of 151 relations, and exited 1. `errors`
+  still means an entry that genuinely failed, and still exits 1.
+
+- **The export bundle is version `3.1.0`, and it is now actually a backup.**
+  Three things a restore needs were missing from it, and a fourth was thrown
+  away on the way back in:
+
+  - `created_at` was not exported, so a restore stamped every memory with the
+    day of the restore. That is not cosmetic: creation time drives recency in
+    ranking, the dreamer's weekly clustering, `memesh why`, and every "what was
+    I doing then" question. Restored only for entities the import creates, and
+    only when `parseSqliteUtcMs` can read the value.
+  - **Archived entities were skipped**, so `memesh forget` followed by an
+    export and a restore brought the memory back to life.
+  - `metadata` was not exported, losing `signal_score`, `task_state`, the demo
+    marker and provenance. It round-trips now, minus `guard` — that field
+    controls what memesh warns about on your tool calls, and a bundle you were
+    sent must be able to bring memories, not to change what memesh does.
+  - **Relations were dropped on import.** They were created inside the
+    per-entity loop and skipped when the target "may not have been imported
+    yet". That is not an edge case: `export` writes newest-first and relations
+    point newer → older, so the target was almost always still further down the
+    file. A backup of a graph with relations restored with none of them and
+    reported success. They are created in a second pass now, after every entity
+    exists, and one that still cannot be created — a target genuinely outside
+    the bundle — is reported in `errors` instead of swallowed.
+
+  Bundles written by earlier versions import unchanged; every added field is
+  optional.
+
 ### Fixed
 
 - **`memesh doctor` no longer counts the Install ID row as something it

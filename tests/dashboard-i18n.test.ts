@@ -20,6 +20,31 @@ function parseTranslationKeys(): Map<string, Set<string>> {
   return locales;
 }
 
+/**
+ * Every locale's key AND value, so a test can compare what a locale SAYS and
+ * not only which keys it declares.
+ *
+ * Key parity alone is satisfied by pasting the English block under every
+ * locale name — 11 identical blocks, 0 missing keys, green. That is exactly
+ * what a half-finished translation looks like, and the check that was
+ * supposed to catch it could not see it.
+ */
+function parseTranslationEntries(): Map<string, Map<string, string>> {
+  const locales = new Map<string, Map<string, string>>();
+  const localeBlocks = i18nSource.matchAll(/\n {2}('[^']+'|\w+): \{([\s\S]*?)\n {2}\}/g);
+
+  for (const match of localeBlocks) {
+    const locale = match[1].replaceAll("'", '');
+    const entries = new Map<string, string>();
+    for (const entry of match[2].matchAll(/'([^']+)': ('(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`),?\n/g)) {
+      entries.set(entry[1], entry[2].slice(1, -1));
+    }
+    locales.set(locale, entries);
+  }
+
+  return locales;
+}
+
 function parseNamedLocales(): string[] {
   const namesBlock = i18nSource.match(/const LOCALE_NAMES: Record<Locale, string> = \{([\s\S]*?)\n\};/);
   expect(namesBlock).not.toBeNull();
@@ -38,6 +63,37 @@ describe('dashboard i18n', () => {
       const extra = [...keys].filter((key) => !englishKeys!.has(key));
 
       expect({ locale, missing, extra }).toEqual({ locale, missing: [], extra: [] });
+    }
+  });
+
+  it('every locale actually says something different from English', () => {
+    // Key parity is satisfied by 11 copies of the English block. This is the
+    // half that was missing: a locale whose VALUES are English is an
+    // untranslated locale wearing a translated locale's name, and the
+    // dashboard would ship it as if it were finished.
+    //
+    // Not "every value must differ" — some legitimately do not: a product
+    // name, a command, a technical term with no local equivalent. The
+    // measured shape is a MAJORITY difference, and the threshold is set well
+    // below what every shipped locale achieves so a real translation cannot
+    // trip it while a pasted block cannot pass it.
+    const entries = parseTranslationEntries();
+    const english = entries.get('en');
+    expect(english, 'the English block did not parse').toBeDefined();
+    expect(english!.size, 'the English block parsed as empty — every ratio below is meaningless')
+      .toBeGreaterThan(100);
+
+    for (const [locale, values] of entries) {
+      if (locale === 'en') continue;
+      const compared = [...english!.entries()].filter(([key]) => values.has(key));
+      expect(compared.length, `${locale}: nothing to compare`).toBeGreaterThan(100);
+      const translated = compared.filter(([key, englishValue]) => values.get(key) !== englishValue);
+      const ratio = translated.length / compared.length;
+      expect(
+        ratio,
+        `${locale} repeats the English string for ${compared.length - translated.length} of ${compared.length} keys `
+        + '— that is a pasted block, not a translation',
+      ).toBeGreaterThan(0.7);
     }
   });
 

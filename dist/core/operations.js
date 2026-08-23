@@ -203,7 +203,7 @@ export function learn(args) {
 export function forget(args) {
     const db = getDatabase();
     const kg = new KnowledgeGraph(db);
-    if (args.observation) {
+    if (args.observation !== undefined) {
         const result = kg.removeObservation(args.name, args.observation);
         return {
             observation_removed: result.removed,
@@ -235,7 +235,7 @@ export function setPinned(name, pinned) {
     });
     return { name, pinned, found: true };
 }
-function countMissingVectors(db, namespace) {
+export function countMissingVectors(db, namespace) {
     if (!hasVectorIndex(db))
         return 0;
     const row = db.prepare(`

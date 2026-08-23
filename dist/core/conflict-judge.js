@@ -19,7 +19,7 @@ function sharedProject(db, aId, bId) {
     const shared = tagsFor(bId).find((t) => aTags.has(t));
     return shared ?? 'cross-project';
 }
-function buildPrompt(a, b) {
+export function buildPrompt(a, b) {
     const entries = wrapUntrusted('entries', [
         `[A] (${a.type}, ${a.created_at.slice(0, 10)}) ${a.name}\n  ${a.observations.join(' | ')}`,
         `[B] (${b.type}, ${b.created_at.slice(0, 10)}) ${b.name}\n  ${b.observations.join(' | ')}`,

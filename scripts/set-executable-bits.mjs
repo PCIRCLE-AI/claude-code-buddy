@@ -17,7 +17,15 @@ for (const relativePath of executableTargets(packageDir)) {
 
   try {
     fs.chmodSync(absolutePath, 0o755);
-  } catch {
-    // Windows ignores POSIX executable bits; keep build portable.
+  } catch (err) {
+    // Windows ignores POSIX executable bits; keep the build portable there.
+    // Everywhere else a chmod failure is real — a read-only mount, wrong
+    // ownership, a full disk — and it produces a package whose `memesh`
+    // binary is not executable. That failure surfaces to the user as
+    // "permission denied" on first run, with nothing connecting it back to
+    // the build that caused it.
+    if (process.platform !== 'win32') {
+      throw new Error(`set-executable-bits: cannot chmod ${relativePath} — ${err.message}`, { cause: err });
+    }
   }
 }

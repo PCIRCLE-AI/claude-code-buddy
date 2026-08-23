@@ -264,21 +264,24 @@ Export memories to a portable JSON bundle. Use for personal backup, migrating be
 |-----------|------|----------|-------------|
 | `namespace` | string | No | Export only entities from this namespace (`"personal"`, `"team"`, `"global"`). Omit to export all namespaces. |
 | `tag` | string | No | Export only entities matching this tag (e.g., `"project:myapp"`) |
-| `limit` | number | No | Maximum number of active entities to export (default: 1000) |
+| `limit` | number | No | Maximum number of entities to export, archived ones included (default: 1000). The default is a **subset**, not a backup: a graph larger than the limit exports the newest `limit` memories and sets `truncated: true`. For a full backup, pass a limit above your graph size. |
 
 **Response**:
 
 ```json
 {
-  "version": "3.0.0",
+  "version": "3.1.0",
   "exported_at": "2026-04-17T00:00:00.000Z",
   "entity_count": 12,
+  "truncated": false,
   "entities": [
     {
       "name": "auth-decision",
       "title": "Why we chose OAuth 2.0",
       "type": "decision",
       "namespace": "team",
+      "created_at": "2026-04-01 09:12:33",
+      "metadata": {"signal_score": 0.8},
       "observations": ["Use OAuth 2.0"],
       "tags": ["project:myapp", "topic:auth"],
       "relations": []
@@ -288,6 +291,17 @@ Export memories to a portable JSON bundle. Use for personal backup, migrating be
 ```
 
 `title` is `null` for an entity that has none. Bundles written before titles existed carry no `title` key at all, and `import` reads that as "this bundle says nothing about the title" — it leaves an existing entity's title alone rather than clearing it.
+
+**What a bundle carries, and what import does with it (v3.1.0)**
+
+| field | on export | on import |
+|---|---|---|
+| `created_at` | always | restored for entities the import CREATES, and only when `parseSqliteUtcMs` can read the value. An entity you already had keeps its own creation time. |
+| `status` | present only for archived entities | the entity is archived after it is created. Archived memories are part of a backup: without them, `forget` then export then restore brought the memory back. |
+| `metadata` | present when the entity has any | merged, minus `guard`, `trust` and `provenance`. The last two are rebuilt by the import. `guard` is refused: it controls what memesh WARNS about on your tool calls, and a file you were sent must not be able to install one. |
+| `relations` | always | created in a SECOND pass, after every entity in the bundle exists. A relation that still cannot be created points outside the bundle, and is named in `skipped_relations` rather than dropped — reported, but not an error, because every narrowed bundle has them. |
+
+Bundles written by earlier versions (`3.0.0`) import unchanged — every added field is optional.
 
 **Examples**:
 
@@ -343,9 +357,16 @@ bundle.
   "imported": 10,
   "skipped": 2,
   "appended": 0,
-  "errors": []
+  "errors": [],
+  "skipped_relations": ["older-note -supersedes-> a-memory-not-in-this-bundle"]
 }
 ```
+
+`skipped_relations` names each link the restore could not rebuild, as
+`from -type-> to`. It is reported but is **not** an error and does not fail the
+command: every bundle narrowed by `--tag`, `--namespace` or `--limit` has
+relations that point outside it. `errors` is for entries that genuinely failed,
+and only `errors` makes the CLI exit non-zero.
 
 **Examples**:
 
@@ -514,7 +535,7 @@ Analyze user work patterns from existing memory. Returns work schedule (peak hou
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `categories` | string[] | No | Specific categories to return: `"workSchedule"`, `"toolPreferences"`, `"focusAreas"`, `"workflow"`, `"strengths"`, `"learningAreas"`. Omit for all. |
+| `categories` | string[] | No | Specific categories to return: `"workSchedule"`, `"focusAreas"`, `"workflow"`, `"strengths"`, `"learningAreas"`. Omit for all. |
 
 **Response** (MCP returns markdown text; HTTP returns JSON):
 
@@ -524,10 +545,8 @@ Analyze user work patterns from existing memory. Returns work schedule (peak hou
     "hourDistribution": [{"hour": 9, "count": 42}, {"hour": 14, "count": 38}],
     "dayDistribution": [{"dayNum": 1, "count": 50}]
   },
-  "toolPreferences": [{"tool": "Read", "sessions": 15}],
   "focusAreas": [{"type": "decision", "count": 12}],
   "workflow": {
-    "avgSessionMinutes": 45,
     "commitsPerSession": 2.3,
     "totalSessions": 20,
     "totalCommits": 46
@@ -669,6 +688,7 @@ Every `success: false` envelope carries a machine-readable `errorCode` **alongsi
 | `auth.missing-bearer` | 401 | No (or blank) `Authorization: Bearer <token>` header on a remote-bound listener |
 | `auth.invalid-token` | 401 | A bearer token was presented but did not match |
 | `auth.not-configured` | 503 | Remote listener is up but no token was provisioned (server misconfiguration) |
+| `auth.cross-origin` | 403 | The request came from another site, or reached a loopback listener under a non-loopback `Host` (see **The origin boundary** below) |
 | `validation.bad-body` | 400 | Request body missing, not valid JSON, or failed schema validation |
 | `validation.bad-param` | 400 | A path or query parameter is invalid |
 | `route.retired` | 410 | Endpoint retired on purpose; the `error` text names the replacement |
@@ -678,6 +698,32 @@ Every `success: false` envelope carries a machine-readable `errorCode` **alongsi
 | `operation.failed` | 400 | The request was well-formed but the operation itself rejected it |
 | `llm.not-configured` | 400 | The endpoint needs Smart Mode and no LLM provider is configured |
 | `server.internal` | 500/503 | Unexpected server-side failure |
+
+### The origin boundary
+
+The default listener binds to `127.0.0.1` and requires no authentication — the
+boundary is meant to be "only this machine". A browser is on this machine, so
+that is not enough on its own: a page on any site the user happens to visit can
+submit a form to `http://127.0.0.1:3737/v1/demo/reset` without a preflight, and
+the handler would run. The browser blocks the attacking page from reading the
+reply, which hides the result rather than preventing it.
+
+Every `/v1/*` request is therefore checked before anything else runs:
+
+- **`Sec-Fetch-Site`** — set by the browser and unsettable from page script.
+  `same-origin` (the dashboard) and `none` (a typed URL or bookmark) pass;
+  `cross-site` and `same-site` answer `403 auth.cross-origin`.
+- **`Origin`** — the fallback for a browser that sends no `Sec-Fetch-Site`. It
+  must match the `Host` the request arrived on.
+- **`Host`** — on a loopback listener it must be a loopback name. An attacker
+  who points `evil.example` at `127.0.0.1` (DNS rebinding) makes the browser
+  report `same-origin`; the `Host` header is what still names them. A listener
+  bound remotely is exempt from this one, because it requires a bearer token
+  that no browser attaches on its own.
+
+Non-browser clients — the CLI, the MCP server, `curl`, your scripts — send none
+of these headers and are unaffected. Anything able to set headers freely is
+already running locally, where it could open the database directly.
 
 `POST /v1/config/test` is the one surface whose failures travel *inside* a `success: true` envelope (the probe outcome is data, not a transport error); its stable codes are documented with that endpoint below.
 
@@ -1625,7 +1671,7 @@ MeMesh runs as a stdio MCP server. Claude Code manages the connection automatica
 
 Returns user work patterns extracted from existing memory entities.
 
-**Response fields:** `workSchedule` (hour/day distribution), `toolPreferences`, `focusAreas`, `workflow` (avg session minutes, commits/session), `strengths` (high-confidence types), `learningAreas` (tags from lessons/mistakes).
+**Response fields:** `workSchedule` (hour/day distribution), `focusAreas`, `workflow` (commits/session, totals), `strengths` (high-confidence types), `learningAreas` (tags from lessons/mistakes).
 
 `workSchedule.dayDistribution` entries carry `dayNum` — an integer `0`–`6` from SQLite `strftime('%w')`, where `0` is Sunday and `6` is Saturday. There is no English `day` name field: day names are presentation, so localising `dayNum` into a weekday label is the client's job.
 

@@ -136,7 +136,7 @@ export function compressWeeklyNoise(db: MemeshDatabase): { compressed: number; w
     FROM entities
     WHERE type IN (${noiseTypePlaceholders})
       AND status = 'active'
-      AND created_at < ?
+      AND created_at < datetime(?)
     GROUP BY week
     HAVING count >= ?
     ORDER BY week
@@ -152,7 +152,7 @@ export function compressWeeklyNoise(db: MemeshDatabase): { compressed: number; w
       WHERE e.type IN (${noiseTypePlaceholders})
         AND e.status = 'active'
         AND strftime('%Y-W%W', e.created_at) = ?
-        AND e.created_at < ?
+        AND e.created_at < datetime(?)
     `).all(...noiseTypeValues, week, cutoff) as Array<{ id: number; name: string; type: string }>;
 
     if (entities.length === 0) continue;

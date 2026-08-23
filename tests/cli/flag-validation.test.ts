@@ -148,7 +148,10 @@ describe('CLI: flags reject values they do not understand', () => {
     it('`telemetry --window abc` says it needs a number', () => {
       const r = runCli(['telemetry', '--window', 'abc']);
       expect(r.exitCode).toBe(1);
-      expect(r.stderr + r.stdout).toContain('--window needs a number');
+      // The message now comes from `wholeNumber`, the one coercion every
+      // numeric flag in the CLI shares, rather than from a guard this
+      // command carried alone.
+      expect(r.stderr + r.stdout).toContain('--window needs a whole number');
       expect(r.stderr).not.toContain('RangeError');
     });
 
@@ -172,6 +175,30 @@ describe('CLI: flags reject values they do not understand', () => {
       const r = runCli(['forget', '--name', 'never-existed']);
       expect(r.stdout + r.stderr).toContain('not found');
       expect(r.exitCode, 'a forget that forgot nothing is invisible to scripts').toBe(1);
+    });
+
+    it('an EMPTY selector is refused, and never reported as a missing entity', () => {
+      // `--observation ""` is what an unset shell variable expands to, and it
+      // is the input that used to archive the whole memory. Core stopped
+      // that; the CLI's MESSAGE branch was still truthiness-based, so `''`
+      // fell past `opts.observation && …` into the final else and told the
+      // user `Entity "kept-2" not found` about an entity sitting right there
+      // — the exact false statement the test above exists to prevent, for a
+      // different input.
+      //
+      // `ForgetSchema` rejects it with `.min(1)` at the MCP and HTTP
+      // boundaries; the CLI calls core directly, so it needs its own refusal
+      // rather than a different answer to the same question.
+      expect(runCli(['remember', '--name', 'kept-2', '--type', 'note', '--obs', 'still here']).exitCode).toBe(0);
+
+      const r = runCli(['forget', '--name', 'kept-2', '--observation', '']);
+      expect(r.exitCode, 'an empty selector was accepted').toBe(1);
+      expect(r.stdout + r.stderr, 'the refusal does not name the flag').toContain('--observation');
+      expect(r.stdout + r.stderr, 'an entity that exists was reported missing').not.toContain('not found');
+
+      // And the memory is untouched — active, with its observation.
+      const check = runCli(['recall', 'kept-2', '--json']);
+      expect(check.stdout, 'the empty selector destroyed something').toContain('still here');
     });
 
     it('a matching observation is still removed', () => {

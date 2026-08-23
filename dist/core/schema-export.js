@@ -160,7 +160,7 @@ export function exportOpenAITools() {
                     properties: {
                         categories: {
                             type: 'array',
-                            items: { type: 'string', enum: ['workSchedule', 'toolPreferences', 'focusAreas', 'workflow', 'strengths', 'learningAreas'] },
+                            items: { type: 'string', enum: ['workSchedule', 'focusAreas', 'workflow', 'strengths', 'learningAreas'] },
                             description: 'Specific categories to return. Omit for all.',
                         },
                     },

@@ -120,9 +120,10 @@ gate_doctor_runs() {
   #
   # Output goes to a private mktemp file, not a fixed world-readable /tmp
   # path that was also never deleted.
-  local doctor_json rc
+  local doctor_json rc doctor_rc
   doctor_json="$(mktemp)"
   with_throwaway_home node dist/transports/cli/cli.js doctor --json >"$doctor_json" 2>/dev/null
+  doctor_rc=$?
   if [ ! -s "$doctor_json" ]; then rm -f "$doctor_json"; return 1; fi
   DOCTOR_JSON="$doctor_json" python3 - <<'PY'
 import json, os
@@ -139,6 +140,17 @@ print(f'overall: {status}, checks: {len(checks)}')
 PY
   rc=$?
   rm -f "$doctor_json"
+  # The JSON is the verdict on the CHECKS; the exit code is the verdict on
+  # the RUN. They were not the same thing and only one was read: doctor
+  # printed a complete report and then died — an unflushed write, a throw in
+  # a later section, a crash on close — and this gate reported PASS from the
+  # part that made it to disk. `doctor` exits non-zero when a check fails, so
+  # the python above already accounts for that case; a non-zero exit with no
+  # failing check is the one this catches.
+  if [ "$rc" -eq 0 ] && [ "$doctor_rc" -ne 0 ]; then
+    echo "  doctor printed a clean report but exited $doctor_rc — the run did not finish"
+    return 1
+  fi
   return $rc
 }
 

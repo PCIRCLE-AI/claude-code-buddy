@@ -36,11 +36,28 @@ const repoRoot = join(__filename, '..', '..');
 const distDir = join(repoRoot, 'dist');
 const manifestPath = join(distDir, 'skills-manifest.json');
 
-async function walk(dir) {
+/**
+ * Every file under `dir`, recursively.
+ *
+ * `mustExist` is the difference between "this subdirectory happens to be
+ * empty" and "the directory I was told to manifest is not there". The catch
+ * used to swallow both: a rename or a bad `files` entry in package.json made
+ * `walk('skills')` answer `[]`, the manifest shipped with zero skill entries,
+ * and `memesh doctor` then verified what remained and reported "Skills +
+ * hooks integrity PASS". This same file already hard-fails for a missing
+ * single-file artefact, with a comment saying exactly why; the directories
+ * were the half left out.
+ */
+async function walk(dir, mustExist = false) {
   const out = [];
   let entries;
   try { entries = await readdir(dir, { withFileTypes: true }); }
-  catch { return out; }
+  catch (err) {
+    if (mustExist) {
+      throw new Error(`generate-skills-manifest: cannot read ${dir} — ${err.message}`, { cause: err });
+    }
+    return out;
+  }
   for (const entry of entries) {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) out.push(...await walk(full));
@@ -57,10 +74,10 @@ function sha256(absolutePath) {
 const targets = [];
 
 // Skills — every file under skills/
-targets.push(...await walk(join(repoRoot, 'skills')));
+targets.push(...await walk(join(repoRoot, 'skills'), true));
 
 // Hooks — every .js under scripts/hooks
-targets.push(...(await walk(join(repoRoot, 'scripts', 'hooks'))).filter(p => p.endsWith('.js')));
+targets.push(...(await walk(join(repoRoot, 'scripts', 'hooks'), true)).filter(p => p.endsWith('.js')));
 
 // Single-file artefacts (declarative wiring read by Claude Code itself).
 //

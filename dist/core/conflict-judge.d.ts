@@ -42,6 +42,17 @@ export interface ConflictJudgeOptions {
     fallbacks?: LLMConfig[];
     onAttempt?: (attempts: LLMAttempt[]) => void;
 }
+interface EntityRow {
+    id: number;
+    name: string;
+    type: string;
+    created_at: string;
+}
+export declare function buildPrompt(a: EntityRow & {
+    observations: string[];
+}, b: EntityRow & {
+    observations: string[];
+}): string;
 export declare function judgeConflicts(db: MemeshDatabase, llm: LLMConfig, opts?: ConflictJudgeOptions): Promise<ConflictJudgeResult>;
 export {};
 //# sourceMappingURL=conflict-judge.d.ts.map

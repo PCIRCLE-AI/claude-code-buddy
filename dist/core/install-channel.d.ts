@@ -22,7 +22,8 @@ export interface InstallChannelSupport {
 }
 export declare function getGlobalNpmRoot(options?: {
     execFileSyncImpl?: ExecFileSyncLike;
-}): string | null;
+    execPathImpl?: string;
+}): string;
 export declare function detectInstallChannel(options: DetectInstallChannelOptions): InstallChannel;
 export declare function getCurrentInstallChannel(options: GetCurrentInstallChannelOptions): InstallChannel;
 export declare function getInstallChannelSupport(channel: InstallChannel): InstallChannelSupport;

@@ -9,7 +9,7 @@ import {
 
 function makeExecFileSyncMock(handlers: {
   install?: (args: string[]) => void;
-  ls?: () => string;
+  ls?: (args: string[]) => string;
 }) {
   return ((file: string, args: readonly string[] | undefined | null) => {
     expect(file).toBe('npm');
@@ -22,7 +22,12 @@ function makeExecFileSyncMock(handlers: {
     }
 
     if (command[0] === 'ls') {
-      return handlers.ls?.() ?? JSON.stringify({});
+      // `command` is forwarded, not discarded. The mock used to call
+      // `handlers.ls()` with no arguments, so nothing could see WHICH npm
+      // command had been run: dropping `-g` from `npm ls` left every test
+      // green while the updater read the LOCAL tree and reported the global
+      // package as missing.
+      return handlers.ls?.(command) ?? JSON.stringify({});
     }
 
     throw new Error(`Unexpected command: ${command.join(' ')}`);
@@ -30,18 +35,27 @@ function makeExecFileSyncMock(handlers: {
 }
 
 describe('updater', () => {
-  it('reads the installed global version from npm ls output', () => {
+  it('reads the installed global version from npm ls output — and asks GLOBALLY', () => {
+    let lsArgs: string[] = [];
     const version = getInstalledGlobalVersion({
       execFileSyncImpl: makeExecFileSyncMock({
-        ls: () => JSON.stringify({
-          dependencies: {
-            '@pcircle/memesh': { version: '4.0.2' },
-          },
-        }),
+        ls: (args) => {
+          lsArgs = args;
+          return JSON.stringify({
+            dependencies: {
+              '@pcircle/memesh': { version: '4.0.2' },
+            },
+          });
+        },
       }),
     });
 
     expect(version).toBe('4.0.2');
+    // The half that was missing. `npm ls` without `-g` reads the CURRENT
+    // project, so the updater would report a globally-installed memesh as
+    // absent — and refuse to update it — with every assertion above still
+    // green.
+    expect(lsArgs, 'npm ls was asked about the local tree, not the global one').toContain('-g');
   });
 
   it('returns null when npm ls does not report a global install', () => {
@@ -178,11 +192,30 @@ describe('decideAutoUpdate', () => {
     expect(decideAutoUpdate({ ...base, latestVersion: '5.0.0', policy: 'major' }).shouldUpdate).toBe(true);
   });
 
-  it("deprecation override forces patch bump even on policy 'off'", () => {
+  it("deprecation override does NOT fire on policy 'off'", () => {
+    // It used to. Look at what the override could ever do: it fires only for
+    // a `patch` bump, and every policy above `off` already permits a patch —
+    // so `off` was the ONLY setting it could override, the one whose whole
+    // meaning is "never install anything without me asking". Its trigger is
+    // `currentVersionDeprecated`, which comes from a string the PUBLISHER
+    // writes into the npm registry, so it amounted to a remote switch on a
+    // user's explicit refusal. A deprecated version is still reported: doctor
+    // escalates the update-status row to FAIL for it.
     const d = decideAutoUpdate({ ...base, currentVersionDeprecated: true, policy: 'off' });
-    expect(d.shouldUpdate).toBe(true);
+    expect(d.shouldUpdate, "policy 'off' was overridden by registry metadata").toBe(false);
+    expect(d.deprecationOverride).toBe(false);
+  });
+
+  it("deprecation override still lifts a patch past a policy that is NOT off", () => {
+    // The anti-vacuity half. A `minor` policy refuses a patch? No — it
+    // permits one, so the override cannot be observed there either. It is
+    // observable only where the policy permits nothing and is not `off`,
+    // which no rank does. Kept as an explicit statement of that: the override
+    // is now unreachable by construction, and if a future policy value makes
+    // it reachable this test is where the intent is written down.
+    const d = decideAutoUpdate({ ...base, currentVersionDeprecated: true, policy: 'patch' });
+    expect(d.shouldUpdate, 'a permitted patch stopped being permitted').toBe(true);
     expect(d.bump).toBe('patch');
-    expect(d.deprecationOverride).toBe(true);
   });
 
   it('deprecation override does NOT auto-bump minor or major (could change behaviour)', () => {

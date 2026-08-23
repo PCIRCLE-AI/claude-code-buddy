@@ -16,14 +16,22 @@ function isPluginMarketplacePath(packageRoot) {
     const segment = `${path.sep}.claude${path.sep}plugins${path.sep}cache${path.sep}`;
     return packageRoot.includes(segment);
 }
+function derivedGlobalNpmRoot(execPath) {
+    const prefix = path.dirname(path.dirname(execPath));
+    return process.platform === 'win32'
+        ? path.join(prefix, 'node_modules')
+        : path.join(prefix, 'lib', 'node_modules');
+}
 export function getGlobalNpmRoot(options = {}) {
-    const { execFileSyncImpl = execFileSync } = options;
+    const { execFileSyncImpl = execFileSync, execPathImpl = process.execPath } = options;
     try {
-        return execFileSyncImpl('npm', ['root', '-g'], { encoding: 'utf8' }).trim() || null;
+        const spawned = execFileSyncImpl('npm', ['root', '-g'], { encoding: 'utf8' }).trim();
+        if (spawned)
+            return spawned;
     }
     catch {
-        return null;
     }
+    return derivedGlobalNpmRoot(execPathImpl);
 }
 export function detectInstallChannel(options) {
     const { packageRoot, globalNpmRoot, existsSyncImpl = fs.existsSync, } = options;

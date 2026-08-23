@@ -110,9 +110,11 @@ describe('GraphTab — two layers', () => {
     const { container } = render(<GraphTab />);
     await waitFor(() => { expect(container.querySelector('canvas')).not.toBeNull(); });
 
-    // Enter focus mode the way the component does — clicking is a canvas
-    // gesture, so drive the state through the search box's auto-centre
-    // instead and assert on what the banner would render.
+    // Enter focus mode for real. Typing alone only HIGHLIGHTS, so the old
+    // version of this test never mounted the focus banner it was named for —
+    // and its only assertion was `not.toContain(name)`, which a page that
+    // rendered nothing at all satisfies. Enter selects the sole match (see
+    // the keyboard-access tests below), which is what mounts the banner.
     const search = container.querySelector(`input[placeholder="${t('graph.search')}"]`) as HTMLInputElement;
     expect(search, 'the graph search box moved').not.toBeNull();
     fireEvent.input(search, { target: { value: 'Why the graph' } });
@@ -120,7 +122,18 @@ describe('GraphTab — two layers', () => {
       expect(container.textContent, 'graph search cannot find a node by its headline')
         .toContain('1 matches');
     });
-    expect(container.textContent).not.toContain('pre-compact-9f3c2a1b');
+
+    fireEvent.keyDown(search, { key: 'Enter' });
+
+    await waitFor(() => {
+      // The POSITIVE assertion the old test lacked: the banner is up and it
+      // reads the headline.
+      expect(container.textContent, 'the focus banner never mounted')
+        .toContain('Why the graph opens on work');
+    });
+    // …and never the machine key, which is what UX-1's chain forbids.
+    expect(container.textContent, 'the focus banner named the entity by its dedup key')
+      .not.toContain('pre-compact-9f3c2a1b');
   });
 
   it('asks for the work layer first and never fetches the full graph when it is big enough', async () => {
@@ -179,5 +192,82 @@ describe('GraphTab — two layers', () => {
       expect(btn(t('graph.layerAll')).getAttribute('aria-pressed')).toBe('true');
     });
     expect(btn(t('graph.layerWork')).getAttribute('aria-pressed')).toBe('false');
+  });
+});
+
+describe('GraphTab — a node can be opened from the keyboard', () => {
+  // Node selection was pointer-only. The click handler was the ONLY path into
+  // ego mode and the evidence drill-down, so a keyboard user could focus the
+  // canvas (it is focusable and carries an aria-label with the counts) and
+  // read the summary — and could not open a single node. Search highlighted
+  // matches and stopped there.
+  //
+  // The fix is deliberately narrow: Enter in the search box, only when the
+  // query has narrowed to exactly one node. Full node-to-node traversal is
+  // still deferred, and the canvas comment says so.
+
+  function searchBox(container: Element): HTMLInputElement {
+    const input = container.querySelector('input[type="text"]') as HTMLInputElement | null;
+    if (!input) throw new Error('fixture: no search box rendered');
+    return input;
+  }
+
+  it('Enter opens the sole match', async () => {
+    const target = entity(1, { name: 'work-1', title: 'The decision about caching' });
+    stubFetch(() => ({
+      entities: [target, ...WORK_NODES.slice(1)],
+      relations: [],
+      evidenceCounts: {},
+    }));
+    const { container } = render(<GraphTab />);
+    await waitFor(() => expect(container.querySelector('canvas')).not.toBeNull());
+
+    const input = searchBox(container);
+    fireEvent.input(input, { target: { value: 'caching' } });
+    await waitFor(() => {
+      expect(container.textContent ?? '', 'fixture: the query matched nothing').toContain('1 ');
+    });
+
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(container.textContent ?? '', 'Enter did not open the node')
+        .toContain('The decision about caching');
+    });
+  });
+
+  it('says Enter is available exactly when it is', async () => {
+    // A hint that appeared on every search would promise an action that does
+    // nothing whenever the query matches two nodes or none.
+    stubFetch(() => ({ entities: WORK_NODES, relations: [], evidenceCounts: {} }));
+    const { container } = render(<GraphTab />);
+    await waitFor(() => expect(container.querySelector('canvas')).not.toBeNull());
+
+    const input = searchBox(container);
+    const hint = () => container.querySelector('#graph-search-hint')?.textContent ?? '';
+
+    // Every fixture node is named `work-N`, so this matches all five.
+    fireEvent.input(input, { target: { value: 'work-' } });
+    await waitFor(() => expect(hint()).toContain('5 '));
+    expect(hint(), 'the hint promised Enter on an ambiguous query').not.toContain(t('graph.enterToOpen'));
+
+    fireEvent.input(input, { target: { value: 'work-3' } });
+    await waitFor(() => expect(hint()).toContain('1 '));
+    expect(hint(), 'the hint is missing when Enter WOULD work').toContain(t('graph.enterToOpen'));
+  });
+
+  it('Enter on an ambiguous query does nothing', async () => {
+    stubFetch(() => ({ entities: WORK_NODES, relations: [], evidenceCounts: {} }));
+    const { container } = render(<GraphTab />);
+    await waitFor(() => expect(container.querySelector('canvas')).not.toBeNull());
+
+    const input = searchBox(container);
+    fireEvent.input(input, { target: { value: 'work-' } });
+    await waitFor(() => expect(container.querySelector('#graph-search-hint')?.textContent ?? '').toContain('5 '));
+
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    // No focus banner appeared — the tab is where it was.
+    expect(container.querySelector('#graph-search-hint')?.textContent ?? '').toContain('5 ');
   });
 });

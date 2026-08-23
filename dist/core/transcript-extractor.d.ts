@@ -27,6 +27,7 @@ export interface ExtractResult {
     llmFailures: number;
     parseFailures: number;
     truncatedTurns: number;
+    cappedTurns: number;
 }
 export declare function extractMemoriesFromTranscript(transcriptPath: string, llm: LLMConfig, opts?: ExtractOptions): Promise<ExtractResult>;
 export declare const TRANSCRIPT_DEDUP_MAX_DISTANCE = 0.44;
@@ -82,6 +83,7 @@ export interface TranscriptSourceResult {
         sessionId: string;
         truncatedTurns: number;
     }>;
+    cappedTurns: number;
     durationMs: number;
 }
 export declare function runTranscriptSource(db: MemeshDatabase, llm: LLMConfig | null | undefined, opts?: TranscriptSourceOptions): Promise<TranscriptSourceResult>;

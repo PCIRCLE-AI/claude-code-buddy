@@ -27,12 +27,120 @@ import type { LessonSeverity, MergeStrategy, ExportResult } from '../../core/typ
 // withDatabase factors that into one place so future commands cannot
 // forget the close. Async-friendly via Promise return type.
 async function withDatabase<T>(fn: () => T | Promise<T>): Promise<T> {
-  openDatabase();
+  // A database that will not open is the one failure EVERY command shares,
+  // and it reached the user as a fifteen-line Node stack carrying the
+  // absolute install path — from `memesh recall`, from `memesh remember`,
+  // from all of them. `memesh doctor` handles the identical state perfectly
+  // and says what to do about it; it was simply the only command that did.
+  //
+  // Only the OPEN is wrapped. A throw from `fn` is the command's own
+  // business and keeps its own reporting.
+  try {
+    openDatabase();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`Error: memesh cannot open its database.`);
+    console.error(`       ${message}`);
+    console.error(`       Run \`memesh doctor\` — it names the file, the likely cause and the way back.`);
+    process.exit(1);
+  }
   try {
     return await fn();
   } finally {
+    // Flush BEFORE closing, and here rather than in each command.
+    //
+    // `remember` SCHEDULES the embedding and returns; the write lands later.
+    // In the MCP and HTTP servers the process outlives the promise, but a CLI
+    // process does not — and `closeDatabase()` beats the pending write, so
+    // the vector is written against a closed handle and lost.
+    //
+    // Close and flush are inherently ordered against each other, which is
+    // exactly why one owner should hold both. Three commands had remembered
+    // to flush by hand and `memesh learn` had not, so every lesson recorded
+    // from the shell reached the graph with no vector — invisible to semantic
+    // recall, the same failure `memesh task` had.
+    await flushPendingEmbeddings();
     closeDatabase();
   }
+}
+
+/**
+ * A commander coercion for numeric flags that refuses a value it cannot use.
+ *
+ * `parseInt('abc')` is `NaN`, and `NaN` was carried straight into whatever
+ * the flag fed. Each site failed in its own way and none of them said what
+ * was wrong: `recall --limit abc` put NaN in a SQL LIMIT and died with a raw
+ * `ERR_SQLITE_ERROR` and the install path; `export --limit abc` silently
+ * ignored the flag and exported the default; `config set sessionLimit abc`
+ * stored null and then hid the key from `config list`.
+ *
+ * `why` already guarded its two flags by hand, with a comment explaining
+ * exactly this. One owner now, so a new numeric flag inherits the guard
+ * instead of re-deriving it.
+ */
+/**
+ * A 0..1 threshold. `parseFloat('abc')` is NaN, and every comparison against
+ * NaN is false — so a mistyped threshold silently made the filter match
+ * nothing rather than refusing.
+ */
+function unitFraction(flag: string): (value: string) => number {
+  return (value: string): number => {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
+      console.error(`Error: ${flag} needs a number between 0 and 1, not "${value}".`);
+      process.exit(1);
+    }
+    return parsed;
+  };
+}
+
+/**
+ * A flag whose value must not be blank.
+ *
+ * `ForgetSchema` rejects `observation: ''` with `.min(1)`, but that schema
+ * guards the MCP and HTTP boundaries — the CLI calls core `forget()`
+ * directly, so `--observation ""` (what an unset shell variable expands to)
+ * reached it unchecked. It did NOT destroy anything: core distinguishes
+ * absent from empty. It reported `Entity "X" not found` for an entity that
+ * plainly exists, because the message branch above used truthiness on a
+ * value that can legitimately be `''` — the same defect one layer up from
+ * the one that made this dangerous.
+ *
+ * Two surfaces should not disagree about the same input. Refused here too.
+ */
+function nonEmpty(flag: string): (value: string) => string {
+  return (value: string): string => {
+    if (value.trim() === '') {
+      console.error(`Error: ${flag} needs some text. An empty value is not a selector.`);
+      process.exit(1);
+    }
+    return value;
+  };
+}
+
+/**
+ * A positional proposal id, refused when it is not one.
+ *
+ * `dream accept abc` ran `parseInt('abc', 10)` -> NaN straight into
+ * `applyProposal`, which archives source memories. `wholeNumber` covers the
+ * flags; a positional argument has no `.option()` to hang a coercion on, so
+ * it gets the same predicate explicitly rather than a fourth spelling of it.
+ */
+function proposalId(raw: string): number {
+  return wholeNumber('<id>')(raw);
+}
+
+function wholeNumber(flag: string, min = 1): (value: string) => number {
+  return (value: string): number => {
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed) || parsed < min) {
+      console.error(
+        `Error: ${flag} needs a whole number of ${min} or more, not "${value}".`,
+      );
+      process.exit(1);
+    }
+    return parsed;
+  };
 }
 
 /**
@@ -225,7 +333,6 @@ program
         for (const err of result.relationErrors ?? []) console.error(`   ⚠️  ${err}`);
       }
       if (result.relationErrors?.length) process.exitCode = 1;
-      await flushPendingEmbeddings();
     });
   });
 
@@ -235,7 +342,7 @@ program
   .description('Search stored knowledge')
   .argument('[query]', 'Search query')
   .option('--tag <tag>', 'Filter by tag')
-  .option('--limit <n>', 'Max results', '20')
+  .option('--limit <n>', 'Max results', wholeNumber('--limit'), 20)
   .option('--include-archived', 'Include archived entities')
   .option('--namespace <namespace>', 'Filter by namespace: personal, team, or global')
   .option('--cross-project', 'Search across all project tags (ignores --tag filter)')
@@ -248,7 +355,7 @@ program
       const { entities, conflicts, retrieval } = await recallWithConflicts({
         query: query || undefined,
         tag: opts.tag,
-        limit: parseInt(opts.limit),
+        limit: opts.limit,
         include_archived: opts.includeArchived,
         namespace: opts.namespace,
         cross_project: opts.crossProject,
@@ -319,7 +426,7 @@ program
   .command('forget')
   .description('Archive an entity or remove an observation (soft-delete, recoverable)')
   .requiredOption('--name <name>', 'Entity name')
-  .option('--observation <text>', 'Remove specific observation only')
+  .option('--observation <text>', 'Remove specific observation only', nonEmpty('--observation'))
   .option('--json', 'Output as JSON')
   // Accept --confirm as a no-op for forward-compat. Users hitting forget
   // for the first time often type `--confirm` by analogy with `rm -i` /
@@ -339,7 +446,7 @@ program
         console.log(`📦 Archived "${opts.name}"`);
       } else if (result.observation_removed) {
         console.log(`✂️  Removed observation (${result.remaining_observations} remaining)`);
-      } else if (opts.observation && result.entity_found) {
+      } else if (opts.observation !== undefined && result.entity_found) {
         // The entity is there; the quoted text just did not match. Saying "not
         // found" sent the user to re-create a memory that already exists — the
         // one action guaranteed to make it worse.
@@ -456,7 +563,7 @@ program
   .description('Export memories as JSON. Defaults to stdout (pipe-friendly); use `-o <file>` to write directly.')
   .option('--tag <tag>', 'Export only entities with this tag')
   .option('--namespace <ns>', 'Export only from this namespace (personal, team, global)')
-  .option('--limit <n>', 'Max entities to export', '1000')
+  .option('--limit <n>', 'Max entities to export', wholeNumber('--limit'), 1000)
   .option('-o, --out <file>', 'Write JSON to <file> instead of stdout. Parent directory must exist.')
   .action(async (opts) => {
     requireOneOf(opts.namespace, NAMESPACES, '--namespace');
@@ -464,7 +571,7 @@ program
       const result = exportMemories({
         tag: opts.tag,
         namespace: opts.namespace,
-        limit: parseInt(opts.limit),
+        limit: opts.limit,
       });
       const json = JSON.stringify(result, null, 2);
       if (opts.out) {
@@ -485,6 +592,15 @@ program
         process.stderr.write(`✅ Exported ${result.entity_count} entities to ${opts.out}\n`);
       } else {
         console.log(json);
+      }
+      // Always on stderr, so it reaches the user of `memesh export > b.json`
+      // without ever landing in the bundle. A backup that is quietly short is
+      // the one failure a backup must not have.
+      if (result.truncated) {
+        process.stderr.write(
+          `⚠️  This is NOT the whole graph — ${result.entity_count} entities is the --limit, and there are more.\n`
+          + `   For a full backup, raise it: memesh export --limit 100000${opts.out ? ` -o ${opts.out}` : ''}\n`,
+        );
       }
     });
   });
@@ -550,6 +666,16 @@ program
         process.exit(1);
       }
       console.log(`Imported: ${result.imported}, Skipped: ${result.skipped}, Appended: ${result.appended}`);
+      // Named, not merely counted, and on stderr — a relation the restore
+      // could not rebuild is information the user lost, and the only way to
+      // get it back is to re-export with the entities it points at.
+      if (result.skipped_relations.length > 0) {
+        console.error(
+          `Note: ${result.skipped_relations.length} relation(s) not restored — the target is not in this bundle:\n  `
+          + `${result.skipped_relations.join('\n  ')}`,
+        );
+        console.error(`       Export those entities too (widen --limit, or drop --tag/--namespace) to keep the links.`);
+      }
       if (result.errors.length > 0) {
         console.error(`Errors:\n  ${result.errors.join('\n  ')}`);
         process.exitCode = 1;
@@ -637,8 +763,8 @@ program
   .command('why')
   .description('Explain a file: commits memesh remembers touching it, their sessions, and related memories')
   .argument('<file>', 'File path (relative to the current directory or absolute)')
-  .option('--line <n>', 'Attribute one line via git blame instead of file history')
-  .option('--limit <n>', 'Max commits to inspect', '10')
+  .option('--line <n>', 'Attribute one line via git blame instead of file history', wholeNumber('--line'))
+  .option('--limit <n>', 'Max commits to inspect', wholeNumber('--limit'), 10)
   .option('--json', 'Output as JSON')
   .action(async (file, opts) => {
     await withDatabase(async () => {
@@ -652,14 +778,12 @@ program
       // was told "That line does not exist in the tracked file." — an
       // affirmatively false statement from the one command whose whole
       // contract is that it abstains rather than guesses.
-      const limit = parseInt(opts.limit, 10);
-      const line = opts.line !== undefined ? parseInt(opts.line, 10) : undefined;
-      for (const [flag, value] of [['--limit', limit], ['--line', line]] as const) {
-        if (value !== undefined && (!Number.isInteger(value) || value < 1)) {
-          console.error(`Error: ${flag} needs a whole number of 1 or more.`);
-          process.exit(1);
-        }
-      }
+      //
+      // The guard that used to live here is now `wholeNumber`, applied at the
+      // option declarations above — because `recall` and `export` had the
+      // same two failures and this was the only command that had noticed.
+      const limit = opts.limit as number;
+      const line = opts.line as number | undefined;
       const resolved = resolveFileCommits(cwd, file, { line, limit });
       const result = explainCommits(getDatabase(), {
         file,
@@ -830,7 +954,7 @@ program
   .option('--done <text>', 'What was just finished')
   .option('--json', 'Output as JSON')
   .action(async (opts) => {
-    await withDatabase(() => {
+    await withDatabase(async () => {
       // Which flags were PASSED, not which have text: `--blocked ""` is a
       // request to clear, and reading truthiness here would silently drop it.
       const patch: Partial<Record<TaskStateField, string>> = {};
@@ -856,6 +980,9 @@ program
         return;
       }
 
+      // `setTaskState` goes through `remember`, which SCHEDULES the embedding
+      // and returns — `withDatabase` awaits it before closing, for this
+      // command and every other one.
       const result = setTaskState({ project: opts.project, patch, sourceHost: 'cli' });
       if (opts.json) {
         console.log(JSON.stringify(result));
@@ -1065,7 +1192,13 @@ configCmd
     }
     // Coerce numeric string values for keys that take numbers
     let coerced: unknown = value;
-    if (canonical === 'sessionLimit') coerced = parseInt(value, 10);
+    if (canonical === 'sessionLimit') {
+      // The third failure `wholeNumber` was written for, and the one it did
+      // not reach: `parseInt('abc')` is NaN, the config writer stored null,
+      // and `config list` then hid the key entirely — so the user's setting
+      // vanished and nothing said why. Same predicate, same message.
+      coerced = wholeNumber('sessionLimit')(value);
+    }
     if (canonical === 'llmFallbacks') coerced = JSON.parse(value);
     if (canonical === 'autoCapture') {
       coerced = value === 'true' || value === '1';
@@ -1168,7 +1301,7 @@ program
 program
   .command('serve')
   .description('Start the HTTP API server and web dashboard')
-  .option('--port <port>', 'Port number', '3737')
+  .option('--port <port>', 'Port number', wholeNumber('--port', 0), 3737)
   .option('--host <host>', 'Host to bind', '127.0.0.1')
   // The token sentence is conditional and used not to say so. Auth is keyed to
   // the bind ADDRESS, not to this flag: `--allow-remote` on the default
@@ -1180,7 +1313,7 @@ program
     try {
       // autoUpdateCheck: a user-launched serve is online by definition, so it
       // fills the npm update cache itself instead of nagging the user to.
-      startServer(opts.host, parseInt(opts.port, 10), { allowRemote: opts.allowRemote, autoUpdateCheck: true });
+      startServer(opts.host, opts.port, { allowRemote: opts.allowRemote, autoUpdateCheck: true });
     } catch (err) {
       // startServer refuses a non-loopback bind without an opt-in, and the
       // refusal is a good actionable sentence. Thrown out of an async action
@@ -1315,19 +1448,18 @@ program
 program
   .command('telemetry')
   .description('Show LLM call telemetry (per-flow scorecard for the last N days)')
-  .option('--window <days>', 'Look-back window in days (default 30)', (v) => parseInt(v, 10), 30)
-  .option('--prune <days>', 'Delete rows older than N days BEFORE rendering (closes v4.2.0 retention gap)', (v) => parseInt(v, 10))
+  .option('--window <days>', 'Look-back window in days (default 30)', wholeNumber('--window'), 30)
+  .option('--prune <days>', 'Delete rows older than N days BEFORE rendering (closes v4.2.0 retention gap)', wholeNumber('--prune', 0))
   .option('--json', 'Output as JSON')
   .action(async (opts) => {
     // `--window abc` parses to NaN, which reached `new Date(NaN).toISOString()`
-    // and threw a RangeError with a stack trace. Commander's parser cannot
-    // reject it, so the check belongs here.
-    for (const [flag, value] of [['--window', opts.window], ['--prune', opts.prune]] as const) {
-      if (value !== undefined && !Number.isFinite(value)) {
-        console.error(`Error: ${flag} needs a number of days.`);
-        process.exit(1);
-      }
-    }
+    // and threw a RangeError with a stack trace. The guard that used to sit
+    // here — "Commander's parser cannot reject it, so the check belongs
+    // here" — was right about the OLD parser, which returned NaN and let it
+    // through. `wholeNumber` on the option declarations above rejects it
+    // before the action runs, for these two flags and for every other
+    // numeric flag in the CLI, which is why this block is gone rather than
+    // duplicated.
     await withDatabase(async () => {
       const { summariseTelemetry, pruneTelemetry } = await import('../../core/llm-telemetry.js');
       let pruneResult: { deletedRows: number; cutoffIso: string; totalRowsAfter: number } | null = null;
@@ -1401,12 +1533,12 @@ kgCmd
   .description('Propose / apply heuristic relations to connect orphan entities (no LLM)')
   .option('--project <name>', 'Restrict to one project')
   .option('--dry-run', 'Show proposals without writing (default off — use to preview)')
-  .option('--max-per-source <n>', 'Max edges per orphan (default 3)', (v) => parseInt(v, 10), 3)
-  .option('--min-shared-tags <n>', 'Min shared topical tags to gate co-occurrence rule (default 2)', (v) => parseInt(v, 10), 2)
+  .option('--max-per-source <n>', 'Max edges per orphan (default 3)', wholeNumber('--max-per-source'), 3)
+  .option('--min-shared-tags <n>', 'Min shared topical tags to gate co-occurrence rule (default 2)', wholeNumber('--min-shared-tags'), 2)
   .option('--include-archived', 'Also process archived entities')
   .option('--session-cooccurrence', 'Rule 3: link high-signal orphans co-created in the same session')
   .option('--name-tokens', 'Rule 4: link orphans sharing ≥3 name content tokens (or Jaccard ≥ 0.50)')
-  .option('--min-jaccard <n>', 'Jaccard threshold for name similarity (default 0.50)', parseFloat)
+  .option('--min-jaccard <n>', 'Jaccard threshold for name similarity (default 0.50)', unitFraction('--min-jaccard'))
   .option('--all-rules', 'Enable all heuristic rules (Rules 1–5)')
   .option('--no-evidence-links', 'Disable Rule 5: evidence → work-item links via shared session id (on by default — these edges feed the graph\'s evidence badges)')
   .option('--reset-idempotency', 'Clear the persistent "already-attempted" orphan cache before running (use after schema changes or to reconsider every orphan)')
@@ -1680,12 +1812,12 @@ dreamCmd
   .description('Run a dream pass — propose digests for clusters of compactable entities')
   .option('--project <name>', 'Restrict to one project')
   .option('--dry-run', 'Compute proposals without writing to dream_proposals')
-  .option('--max-llm-calls <n>', 'Hard cap on LLM calls (default 100)', (v) => parseInt(v, 10))
-  .option('--window-days <n>', 'Look-back window in days (default 56 = 8 weeks)', (v) => parseInt(v, 10))
+  .option('--max-llm-calls <n>', 'Hard cap on LLM calls (default 100)', wholeNumber('--max-llm-calls'))
+  .option('--window-days <n>', 'Look-back window in days (default 56 = 8 weeks)', wholeNumber('--window-days'))
   .option('--validate', 'Run a second LLM pass to cross-check each digest against its sources (doubles LLM calls per proposal; surfaces under flow=digest_validator in `memesh telemetry`)')
   .option('--from-transcripts', 'EXPERIMENTAL: mine Claude Code session transcripts for this project (decisions/lessons/facts hidden in the conversation) and STAGE them as proposals for `dream accept`, instead of clustering existing entities. Scoped to the current project only — --project does not apply here. With --dry-run, lists sessions and conversation-turn counts without calling an LLM.')
   .option('--if-due', 'For a scheduler (cron/launchd): only mine if `transcriptMining` is enabled in config AND at least --min-interval-hours have passed since this project was last mined; otherwise exit 0 doing nothing. Lets one frequently-firing entry self-throttle. Only meaningful with --from-transcripts.')
-  .option('--min-interval-hours <n>', 'With --if-due: minimum hours between mined runs for this project (default 24).', (v) => parseInt(v, 10))
+  .option('--min-interval-hours <n>', 'With --if-due: minimum hours between mined runs for this project (default 24).', wholeNumber('--min-interval-hours'))
   .action(async (opts) => {
     // --from-transcripts is the transcript-source path (Task #18). B1 shipped
     // discovery; B2 adds extraction + staging (still REVERSIBLE — proposals sit
@@ -1782,6 +1914,12 @@ dreamCmd
         if (result.parseFailures > 0) console.log(`  unparsable replies:  ${result.parseFailures} (chunk reply not valid JSON — likely truncated; those candidates were lost, retry)`);
         // Never let a size-cap truncation be a silent 0: name each session that
         // lost tail turns (the newest content, likeliest to hold a reversal).
+        if (result.cappedTurns > 0) {
+          console.log(
+            `  per-turn cap: ${result.cappedTurns} turn(s) were analysed only in part `
+            + `(the first 4,000 characters); the rest of each was not sent`,
+          );
+        }
         if (result.truncatedTurns > 0) {
           console.log(`  size-cap truncation: ${result.truncatedTurns} conversation turn(s) beyond the cap were NOT analysed`);
           for (const t of result.truncatedSessions) {
@@ -1865,9 +2003,9 @@ dreamCmd
   .description('Run pattern detector — surface emerging patterns/conventions/repeated mistakes per project (Phase 3)')
   .option('--project <name>', 'Restrict to one project (default: all projects)')
   .option('--dry-run', 'Compute proposals without writing to dream_proposals')
-  .option('--max-llm-calls <n>', 'Hard cap on LLM calls (default 10)', (v) => parseInt(v, 10))
-  .option('--window-days <n>', 'Look-back window in days (default 30)', (v) => parseInt(v, 10))
-  .option('--min-signal <n>', 'Minimum signal_score to include in scan (default 0.3)', (v) => parseFloat(v))
+  .option('--max-llm-calls <n>', 'Hard cap on LLM calls (default 10)', wholeNumber('--max-llm-calls'))
+  .option('--window-days <n>', 'Look-back window in days (default 30)', wholeNumber('--window-days'))
+  .option('--min-signal <n>', 'Minimum signal_score to include in scan (default 0.3)', unitFraction('--min-signal'))
   .action(async (opts) => {
     await withDatabase(async () => {
       const { runPatternDetector } = await import('../../core/dreamer.js');
@@ -1955,7 +2093,7 @@ dreamCmd
 dreamCmd
   .command('conflicts')
   .description('Judge semantically-close memory pairs for contradiction / supersession / duplication (LLM) and stage relation proposals for review')
-  .option('--max-pairs <n>', 'Judge at most N of the tightest candidate pairs this run (default 20)', (v) => parseInt(v, 10))
+  .option('--max-pairs <n>', 'Judge at most N of the tightest candidate pairs this run (default 20)', wholeNumber('--max-pairs'))
   .option('--dry-run', 'Show how many candidates are queued without calling an LLM or writing anything')
   .action(async (opts) => {
     await withDatabase(async () => {
@@ -2010,7 +2148,7 @@ dreamCmd
     await withDatabase(async () => {
       const { getProposalDetail } = await import('../../core/dreamer.js');
       const { getDatabase } = await import('../../db.js');
-      const detail = getProposalDetail(getDatabase(), parseInt(id, 10));
+      const detail = getProposalDetail(getDatabase(), proposalId(id));
       if (!detail) {
         console.error(`proposal #${id} not found`);
         console.error('See ids with: memesh dream list');
@@ -2078,7 +2216,7 @@ dreamCmd
       // print the throw as a raw stack trace. The message alone is enough.
       let result;
       try {
-        result = applyProposal(getDatabase(), parseInt(id, 10), kg);
+        result = applyProposal(getDatabase(), proposalId(id), kg);
       } catch (err) {
         console.error(err instanceof Error ? err.message : String(err));
         console.error('See pending ids with: memesh dream list');
@@ -2089,7 +2227,6 @@ dreamCmd
       // closes the DB in its finally, so flush BEFORE it does or the write lands
       // on a closing DB and the dedup gap stays open in the real path. remember
       // flushes for the same reason (see the remember command).
-      await flushPendingEmbeddings();
       console.log(`Applied proposal #${result.proposalId}`);
       console.log(`  digest entity: ${result.digestEntityName}`);
       console.log(`  sources archived: ${result.sourcesArchived}`);
@@ -2105,7 +2242,7 @@ dreamCmd
       const { rejectProposal } = await import('../../core/dreamer.js');
       const { getDatabase } = await import('../../db.js');
       try {
-        rejectProposal(getDatabase(), parseInt(id, 10), opts.reason);
+        rejectProposal(getDatabase(), proposalId(id), opts.reason);
       } catch (err) {
         console.error(err instanceof Error ? err.message : String(err));
         console.error('See pending ids with: memesh dream list');

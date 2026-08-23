@@ -118,23 +118,22 @@ export function findConflictCandidates(
   if (!hasVectorIndex(db)) return [];
 
   const typePlaceholders = CONFLICT_SIGNAL_TYPES.map(() => '?').join(',');
-  let signal: Array<{ id: number; emb: Uint8Array; name: string; type: string }>;
-  try {
-    signal = db.prepare(
-      `SELECT v.rowid AS id, v.embedding AS emb, e.name, e.type
-       FROM entities_vec v
-       JOIN entities e ON e.id = v.rowid
-       WHERE e.status = 'active' AND e.type IN (${typePlaceholders})`,
-    ).all(...CONFLICT_SIGNAL_TYPES) as typeof signal;
-  } catch (err) {
-    // `hasVectorIndex` answers from sqlite_master, which persists in the
-    // file — a database created where sqlite-vec loaded, later opened where
-    // the platform binary is missing, passes the check and then fails HERE
-    // on first touch. That specific failure IS the keyword-only answer, so
-    // return []; anything else is a real query bug and must surface.
-    if (err instanceof Error && err.message.includes('no such module: vec0')) return [];
-    throw err;
-  }
+  // No local catch for `no such module: vec0` any more.
+  //
+  // There used to be one, and its comment said "`hasVectorIndex` answers from
+  // sqlite_master, which persists in the file" — the trap this file was the
+  // only place to guard against. `hasVectorIndex` no longer answers that way:
+  // it touches `entities_vec` and classifies the absence errors itself, so the
+  // guard above is the answer for all six call sites. Leaving the catch here
+  // would keep a stale explanation of a mechanism that no longer exists, which
+  // is how the next reader concludes the trap is still open and re-adds the
+  // duplicate somewhere else.
+  const signal = db.prepare(
+    `SELECT v.rowid AS id, v.embedding AS emb, e.name, e.type
+     FROM entities_vec v
+     JOIN entities e ON e.id = v.rowid
+     WHERE e.status = 'active' AND e.type IN (${typePlaceholders})`,
+  ).all(...CONFLICT_SIGNAL_TYPES) as Array<{ id: number; emb: Uint8Array; name: string; type: string }>;
   if (signal.length < 2) return [];
 
   const byId = new Map(signal.map((s) => [s.id, s]));

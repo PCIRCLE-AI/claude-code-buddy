@@ -1082,7 +1082,22 @@ process.stdin.on('end', async () => {
       const lifecycleMod = await importFromPluginRoot(pluginRoot, 'dist/core/lifecycle.js');
       dbMod.openDatabase();
       try {
-        lifecycleMod.compressWeeklyNoise(dbMod.getDatabase());
+        // Say what it did. This archives at least 20 of the user's memories
+        // per week processed and the count was thrown away, so the one
+        // operation in memesh that removes things from view was also the
+        // only one that left no trace anywhere — not in the hook output, not
+        // in doctor, not in the dashboard. Nothing to opt into: it runs at
+        // most once a day and stays silent when it compresses nothing.
+        const noise = lifecycleMod.compressWeeklyNoise(dbMod.getDatabase());
+        if (noise && noise.compressed > 0) {
+          try {
+            process.stderr.write(
+              `[memesh] archived ${noise.compressed} low-signal memor${noise.compressed === 1 ? 'y' : 'ies'} `
+              + `into ${noise.weeksProcessed} weekly summar${noise.weeksProcessed === 1 ? 'y' : 'ies'} `
+              + `(recover with \`memesh recall --include-archived\`)\n`,
+            );
+          } catch { /* stderr gone */ }
+        }
       } finally {
         dbMod.closeDatabase();
       }

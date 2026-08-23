@@ -27,6 +27,8 @@ export interface Entity {
     };
     access_count?: number;
     last_accessed_at?: string;
+    recall_hits?: number;
+    recall_misses?: number;
     confidence?: number;
     namespace: 'personal' | 'team' | 'global' | string;
 }
@@ -48,6 +50,7 @@ export interface SearchOptions {
     limit?: number;
     includeArchived?: boolean;
     namespace?: string;
+    countAsAccess?: boolean;
 }
 export interface RememberInput {
     name: string;
@@ -111,11 +114,15 @@ export interface ExportResult {
     version: string;
     exported_at: string;
     entity_count: number;
+    truncated?: boolean;
     entities: Array<{
         name: string;
         type: string;
         title?: string | null;
         namespace: string;
+        created_at?: string;
+        status?: string;
+        metadata?: Record<string, unknown>;
         observations: string[];
         tags: string[];
         relations: Array<{
@@ -134,6 +141,7 @@ export interface ImportResult {
     skipped: number;
     appended: number;
     errors: string[];
+    skipped_relations: string[];
 }
 export interface LearnInput {
     error: string;
@@ -159,6 +167,8 @@ export type EntityRow = {
     access_count: number;
     last_accessed_at: string | null;
     confidence: number;
+    recall_hits: number;
+    recall_misses: number;
     namespace: string;
 };
 export type CountRow = {

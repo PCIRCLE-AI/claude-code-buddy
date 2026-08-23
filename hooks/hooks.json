@@ -28,7 +28,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/session-start.js"
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/session-start.js",
+            "timeout": 10
           }
         ]
       }
@@ -39,7 +40,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/post-commit.js"
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/post-commit.js",
+            "timeout": 5
           }
         ]
       }

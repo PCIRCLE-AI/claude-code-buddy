@@ -29,14 +29,35 @@
 import type { MemeshDatabase } from './sqlite.js';
 
 /**
- * Does this database have a usable `entities_vec` table?
+ * Does this database have a usable `entities_vec` table IN THIS PROCESS?
  *
- * False means sqlite-vec is not loaded in this process — recall runs on FTS5
- * alone, and nothing should attempt a vector read or write.
+ * Touches the table rather than asking `sqlite_master`. Those are different
+ * questions and the catalogue answers the wrong one: the row persists in the
+ * FILE, so a database created where sqlite-vec loaded and later opened where
+ * the platform binary is missing (musl, an unusual arch, `npm ci
+ * --omit=optional`, a container image) passed the catalogue check and then
+ * threw `no such module: vec0` on first touch.
+ *
+ * `conflict-candidates.ts` documents that exact trap and catches it — at one
+ * of six call sites. The two that were not guarded are `archiveEntity` and
+ * `deleteEntity`, where the throw landed between a committed FTS delete and
+ * the status update, stranding the memory: active, so the archived-supplement
+ * branch never sees it; absent from the index, so keyword search never sees
+ * it. Answering the process question here removes the trap for every caller
+ * instead of repeating the catch six times.
+ *
+ * Only the two "there is no vector index" errors are absence. Anything else —
+ * a corrupt shadow table, a locked database — is a real fault and must
+ * surface, because reporting it as "no index" would silently downgrade recall
+ * to keyword-only and look like a configuration choice.
  */
 export function hasVectorIndex(db: MemeshDatabase): boolean {
-  const row = db
-    .prepare("SELECT 1 AS present FROM sqlite_master WHERE name = 'entities_vec'")
-    .get();
-  return row !== undefined;
+  try {
+    db.prepare('SELECT 1 FROM entities_vec LIMIT 1').get();
+    return true;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (/no such module: vec0|no such table/i.test(message)) return false;
+    throw err;
+  }
 }

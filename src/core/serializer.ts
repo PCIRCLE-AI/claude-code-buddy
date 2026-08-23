@@ -6,6 +6,7 @@
 import { getDatabase } from '../db.js';
 import { KnowledgeGraph } from '../knowledge-graph.js';
 import { truncateTitle } from './title.js';
+import { parseSqliteUtcMs } from './time-utils.js';
 import { NAMESPACES } from './types.js';
 import type { ExportInput, ExportResult, ImportInput, ImportResult } from './types.js';
 
@@ -17,10 +18,34 @@ type EntityMetadata = {
 
 function buildImportedMetadata(
   existingMetadata: EntityMetadata | undefined,
-  args: { exportedAt: string; importVersion: string; mergeStrategy: ImportInput['merge_strategy'] }
+  args: {
+    exportedAt: string;
+    importVersion: string;
+    mergeStrategy: ImportInput['merge_strategy'];
+    /** What the BUNDLE said, which is attacker-controlled in the general case. */
+    bundled?: Record<string, unknown>;
+  }
 ): EntityMetadata {
+  // `guard` is dropped, deliberately and by name.
+  //
+  // Every other metadata field describes the memory. `guard` describes
+  // memesh's BEHAVIOUR: an enabled guard makes `guard-check` match a regex
+  // against the user's Bash commands and print a message of the guard
+  // author's choosing before the tool runs. A JSON file the user was sent
+  // must not be able to install one — that is a different kind of trust from
+  // "here are some memories", and importing it would be the one place a
+  // bundle could change what memesh DOES rather than what it knows.
+  //
+  // A denylist of one rather than an allowlist, because the rest of the
+  // shape is open-ended by design (`task_state`, `signal_score`, whatever a
+  // future release adds) and an allowlist would silently drop it. Anything
+  // added later that carries authority has to be added here too — that is
+  // the cost, and it is written down rather than left implicit.
+  const { guard: _guard, ...bundledSafe } = (args.bundled ?? {}) as Record<string, unknown>;
+  void _guard;
   return {
     ...(existingMetadata ?? {}),
+    ...bundledSafe,
     trust: 'untrusted',
     provenance: {
       ...(existingMetadata?.provenance ?? {}),
@@ -41,18 +66,46 @@ export function exportMemories(args: ExportInput): ExportResult {
   const db = getDatabase();
   const kg = new KnowledgeGraph(db);
 
+  const limit = args.limit || 1000;
   const entities = kg.search(undefined, {
     tag: args.tag,
-    limit: args.limit || 1000,
-    includeArchived: false,
+    // One MORE than asked for, so "there is more" is a fact rather than an
+    // inference. `entities.length === limit` cannot tell a graph of exactly
+    // `limit` memories from one that was cut short, and it is the cut-short
+    // case that matters: measured on a real graph of 1272 memories, the
+    // default export carried 1000 and reported `✅ Exported 1000 entities`,
+    // so a backup was missing 21% of the thing it was taken to preserve and
+    // said nothing. The extra row costs one query, not a second copy of the
+    // filter.
+    limit: limit + 1,
+    // Archived memories ARE part of a backup. They were skipped, so
+    // `memesh forget` followed by an export and a restore brought the
+    // memory back to life — the one operation whose whole purpose is to
+    // take something out of circulation, undone by the one operation whose
+    // whole purpose is to preserve state faithfully.
+    includeArchived: true,
     namespace: args.namespace,
+    // A backup is not a use. Without this, `memesh export` bumped
+    // `access_count` and stamped `last_accessed_at = now` on up to a
+    // thousand memories — 20% of the ranking — so the act of taking a backup
+    // re-sorted the graph and made every exported memory look freshly
+    // relevant on the day the backup ran. `listByType` draws the same line
+    // by simply never calling trackAccess.
+    countAsAccess: false,
   });
 
+  const truncated = entities.length > limit;
+  const exported = truncated ? entities.slice(0, limit) : entities;
+
   return {
-    version: '3.0.0',
+    version: '3.1.0',
     exported_at: new Date().toISOString(),
-    entity_count: entities.length,
-    entities: entities.map((e) => ({
+    entity_count: exported.length,
+    // Carried in the RESULT, not printed by the CLI alone: the MCP and HTTP
+    // callers export too, and an agent taking a backup on the user's behalf
+    // is exactly who must not be told a truncated bundle is the whole graph.
+    truncated,
+    entities: exported.map((e) => ({
       name: e.name,
       type: e.type,
       // The bundle carries `title` because without it the round trip is not a
@@ -63,6 +116,19 @@ export function exportMemories(args: ExportInput): ExportResult {
       // so a reader can tell "no title" from "this bundle predates titles".
       title: e.title ?? null,
       namespace: e.namespace ?? 'personal',
+      // `created_at` is not a detail. It drives recency in ranking, the
+      // dreamer's weekly clustering, `memesh why`, and every "what was I
+      // doing then" question — and without it a restore stamped every
+      // memory with the day of the restore, flattening the whole timeline
+      // into one instant.
+      created_at: e.created_at,
+      // Only when it is not the default, so an ordinary bundle stays the
+      // shape a reader already knows.
+      ...(e.archived ? { status: 'archived' } : {}),
+      // Everything memesh knows that is not the text: provenance,
+      // `signal_score`, `task_state`, the demo marker. Import rebuilds
+      // trust and provenance for itself and refuses `guard`.
+      ...(e.metadata ? { metadata: e.metadata } : {}),
       observations: e.observations,
       tags: e.tags,
       relations: (e.relations || []).map((r) => ({ to: r.to, type: r.type })),
@@ -163,9 +229,16 @@ export function importMemories(args: ImportInput): ImportResult {
   const kg = new KnowledgeGraph(db);
 
   let imported = 0;
+  /** (from, to, type) triples held back until every entity exists. */
+  const pendingRelations: Array<{ from: string; to: string; type: string }> = [];
   let skipped = 0;
   let appended = 0;
   const errors: string[] = [];
+  /** Relations whose target is not in the bundle and not already stored. */
+  const skippedRelations: string[] = [];
+  /** Compiled once: a restore can create up to `limit` entities (1000). */
+  const setCreatedAt = db.prepare('UPDATE entities SET created_at = ? WHERE name = ?');
+  const entityExists = db.prepare('SELECT 1 FROM entities WHERE name = ?');
 
   for (const [index, entity] of args.data.entities.entries()) {
     const invalid = describeInvalidEntity(entity, index);
@@ -200,6 +273,7 @@ export function importMemories(args: ImportInput): ImportResult {
       // of the scope you keep it in.
       const namespace = args.namespace ?? (existing ? undefined : (entity.namespace || 'personal'));
       const importedMetadata = buildImportedMetadata(existing?.metadata as EntityMetadata | undefined, {
+        bundled: (entity as { metadata?: Record<string, unknown> }).metadata,
         exportedAt: args.data.exported_at,
         importVersion: args.data.version,
         mergeStrategy: args.merge_strategy,
@@ -250,12 +324,44 @@ export function importMemories(args: ImportInput): ImportResult {
         kg.updateEntityMetadata(entity.name, (current) => ({ ...current, ...importedMetadata }));
       }
 
-      // Create relations — target entity must exist; silently skip if not
+      // Relations are DEFERRED to a second pass. They used to be created
+      // here, inside the per-entity loop, with the comment "target may not
+      // have been imported yet — skip silently". That is not an edge case,
+      // it is the ordinary outcome: `export` writes newest-first
+      // (`ORDER BY id DESC`) and a relation almost always points from a
+      // newer memory to an older one, so the target is still further down
+      // the file. A backup of a graph with relations therefore restored
+      // with NONE of them, reporting "Imported: N" and nothing else.
       for (const rel of entity.relations || []) {
-        try {
-          kg.createRelation(entity.name, rel.to, rel.type);
-        } catch {
-          // Target may not have been imported yet or doesn't exist — skip silently
+        pendingRelations.push({ from: entity.name, to: rel.to, type: rel.type });
+      }
+
+      // `created_at` and `status`, restored only for entities this import
+      // CREATED. An entity the importer already had keeps its own creation
+      // time and its own archived-or-not state: a bundle may bring memories,
+      // never rewrite the history of one you already keep.
+      //
+      // The timestamp is accepted only if `parseSqliteUtcMs` vouches for it.
+      // That parser exists because a value it cannot read is a value nothing
+      // downstream can order (see `kg-backfill` Rule 5), and it also closes
+      // the door on a hand-edited bundle stamping a memory in the future,
+      // where a negative age passes every recency check.
+      if (!existing) {
+        const bundledCreatedAt = (entity as { created_at?: unknown }).created_at;
+        const bundledMs = typeof bundledCreatedAt === 'string'
+          ? parseSqliteUtcMs(bundledCreatedAt)
+          : null;
+        if (bundledMs !== null) {
+          // Stored in the COLUMN's format, not the bundle's. `parseSqliteUtcMs`
+          // accepts either separator, so a bundle carrying `...T...` validates
+          // and would be written back verbatim — recreating the two-format
+          // column that `demo.ts` was just fixed to stop producing, and that
+          // every `datetime(col)` workaround downstream exists to survive.
+          // One writer, one format.
+          setCreatedAt.run(new Date(bundledMs).toISOString().replace('T', ' ').slice(0, 19), entity.name);
+        }
+        if ((entity as { status?: unknown }).status === 'archived') {
+          kg.archiveEntity(entity.name);
         }
       }
 
@@ -265,5 +371,33 @@ export function importMemories(args: ImportInput): ImportResult {
     }
   }
 
-  return { imported, skipped, appended, errors };
+  // Second pass: every entity in the bundle now exists, so a relation that
+  // still cannot be created is genuinely pointing outside it. That is real
+  // information loss and it is REPORTED — the old code could not tell the
+  // two cases apart, so it had to swallow both.
+  //
+  // Reported, but NOT an error. A relation leaving the bundle is a property
+  // of the bundle, not a failure of the import: any `--tag`/`--namespace`
+  // filter produces them, and so does a bundle cut short by `--limit`. Put
+  // in `errors` they set exit 1, which turns the round trip this project
+  // documents — `memesh export > b.json && memesh import b.json` — into a
+  // failing command on a restore that did exactly what it should. Measured:
+  // a full backup of a 1272-memory graph restored 1000 entities and 142 of
+  // 151 relations, and exited 1.
+  for (const rel of pendingRelations) {
+    if (!entityExists.get(rel.to)) {
+      skippedRelations.push(`${rel.from} -${rel.type}-> ${rel.to}`);
+      continue;
+    }
+    try {
+      kg.createRelation(rel.from, rel.to, rel.type);
+    } catch (err) {
+      errors.push(
+        `${rel.from} -${rel.type}-> ${rel.to}: relation not restored `
+        + `(${err instanceof Error ? err.message : String(err)})`,
+      );
+    }
+  }
+
+  return { imported, skipped, appended, errors, skipped_relations: skippedRelations };
 }

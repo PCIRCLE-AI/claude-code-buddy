@@ -123,7 +123,7 @@ export const TOOL_DEFINITIONS = [
             properties: {
                 tag: { type: 'string', description: 'Export only entities with this tag' },
                 namespace: { type: 'string', description: 'Export only from this namespace (personal, team, global)' },
-                limit: { type: 'number', description: 'Max entities to export (default: 1000)' },
+                limit: { type: 'number', description: 'Max entities to export (default: 1000). The default is a SUBSET, not a backup — check `truncated` in the response, and for a full backup pass a limit above the graph size.' },
             },
             additionalProperties: false,
         },
@@ -208,7 +208,7 @@ export const TOOL_DEFINITIONS = [
                     type: 'array',
                     items: {
                         type: 'string',
-                        enum: ['workSchedule', 'toolPreferences', 'focusAreas', 'workflow', 'strengths', 'learningAreas'],
+                        enum: ['workSchedule', 'focusAreas', 'workflow', 'strengths', 'learningAreas'],
                     },
                     description: 'Specific categories to return. Omit for all.',
                 },
@@ -237,7 +237,18 @@ function stripNullProps(value) {
     return value;
 }
 function parseOrFail(schema, args) {
-    const parsed = schema.safeParse(stripNullProps(args ?? {}));
+    const raw = args ?? {};
+    const strictPass = schema.safeParse(raw);
+    if (!strictPass.success) {
+        const unknownKeys = strictPass.error.issues.filter((i) => i.code === 'unrecognized_keys');
+        if (unknownKeys.length > 0) {
+            return {
+                ok: false,
+                result: fail(unknownKeys.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')),
+            };
+        }
+    }
+    const parsed = schema.safeParse(stripNullProps(raw));
     if (!parsed.success) {
         const message = parsed.error instanceof z.ZodError
             ? parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
@@ -328,17 +339,6 @@ export async function handleTool(name, args, sourceHost) {
                     .join(', ');
                 lines.push(`Busiest days: ${busiestDays || 'No data'}`);
             }
-            if (allCategories || cats.includes('toolPreferences')) {
-                lines.push('', '### Tool Preferences');
-                if (data.toolPreferences.length > 0) {
-                    data.toolPreferences.forEach((tp, i) => {
-                        lines.push(`${i + 1}. ${tp.tool} (${tp.sessions} sessions)`);
-                    });
-                }
-                else {
-                    lines.push('No tool usage data yet.');
-                }
-            }
             if (allCategories || cats.includes('focusAreas')) {
                 lines.push('', '### Focus Areas');
                 if (data.focusAreas.length > 0) {
@@ -352,7 +352,7 @@ export async function handleTool(name, args, sourceHost) {
             }
             if (allCategories || cats.includes('workflow')) {
                 lines.push('', '### Workflow');
-                lines.push(`Avg session: ${data.workflow.avgSessionMinutes} min | Commits per session: ${data.workflow.commitsPerSession}`);
+                lines.push(`Commits per session: ${data.workflow.commitsPerSession}`);
                 lines.push(`Total sessions: ${data.workflow.totalSessions} | Total commits: ${data.workflow.totalCommits}`);
             }
             if (allCategories || cats.includes('strengths')) {

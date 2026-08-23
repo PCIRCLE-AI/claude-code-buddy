@@ -155,7 +155,7 @@ export const TOOL_DEFINITIONS = [
       properties: {
         tag: { type: 'string', description: 'Export only entities with this tag' },
         namespace: { type: 'string', description: 'Export only from this namespace (personal, team, global)' },
-        limit: { type: 'number', description: 'Max entities to export (default: 1000)' },
+        limit: { type: 'number', description: 'Max entities to export (default: 1000). The default is a SUBSET, not a backup — check `truncated` in the response, and for a full backup pass a limit above the graph size.' },
       },
       additionalProperties: false,
     },
@@ -258,7 +258,7 @@ export const TOOL_DEFINITIONS = [
           type: 'array',
           items: {
             type: 'string',
-            enum: ['workSchedule', 'toolPreferences', 'focusAreas', 'workflow', 'strengths', 'learningAreas'],
+            enum: ['workSchedule', 'focusAreas', 'workflow', 'strengths', 'learningAreas'],
           },
           description: 'Specific categories to return. Omit for all.',
         },
@@ -312,7 +312,33 @@ function stripNullProps(value: unknown): unknown {
 }
 
 function parseOrFail<T>(schema: z.ZodType<T>, args: unknown): { ok: true; data: T } | { ok: false; result: ToolResult } {
-  const parsed = schema.safeParse(stripNullProps(args ?? {}));
+  const raw = args ?? {};
+
+  // Unknown keys are rejected BEFORE any null-stripping.
+  //
+  // `stripNullProps` deletes every null-valued property, and it used to run
+  // first — so `.strict()` never saw a key whose value happened to be null.
+  // `forget({name, observations: null})` (plural: the word `remember` uses)
+  // therefore lost the key entirely, fell through to the archive-the-entity
+  // branch, and reported `{archived:true}`. That is the exact destructive
+  // behaviour `.strict()` was introduced to end, reached by a different door.
+  //
+  // The null-stripping itself stays, and its premise is unchanged: for a
+  // KNOWN optional field, a null from a client that fills blanks with null
+  // (Gemini CLI does) means "left blank". That premise says nothing about a
+  // field the schema does not declare, which is why the check is split.
+  const strictPass = schema.safeParse(raw);
+  if (!strictPass.success) {
+    const unknownKeys = strictPass.error.issues.filter((i) => i.code === 'unrecognized_keys');
+    if (unknownKeys.length > 0) {
+      return {
+        ok: false,
+        result: fail(unknownKeys.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')),
+      };
+    }
+  }
+
+  const parsed = schema.safeParse(stripNullProps(raw));
   if (!parsed.success) {
     const message =
       parsed.error instanceof z.ZodError
@@ -442,18 +468,6 @@ export async function handleTool(name: string, args: Record<string, unknown> | u
         lines.push(`Busiest days: ${busiestDays || 'No data'}`);
       }
 
-      // --- Tool Preferences ---
-      if (allCategories || cats!.includes('toolPreferences')) {
-        lines.push('', '### Tool Preferences');
-        if (data.toolPreferences.length > 0) {
-          data.toolPreferences.forEach((tp, i) => {
-            lines.push(`${i + 1}. ${tp.tool} (${tp.sessions} sessions)`);
-          });
-        } else {
-          lines.push('No tool usage data yet.');
-        }
-      }
-
       // --- Focus Areas ---
       if (allCategories || cats!.includes('focusAreas')) {
         lines.push('', '### Focus Areas');
@@ -469,7 +483,7 @@ export async function handleTool(name: string, args: Record<string, unknown> | u
       // --- Workflow ---
       if (allCategories || cats!.includes('workflow')) {
         lines.push('', '### Workflow');
-        lines.push(`Avg session: ${data.workflow.avgSessionMinutes} min | Commits per session: ${data.workflow.commitsPerSession}`);
+        lines.push(`Commits per session: ${data.workflow.commitsPerSession}`);
         lines.push(`Total sessions: ${data.workflow.totalSessions} | Total commits: ${data.workflow.totalCommits}`);
       }
 

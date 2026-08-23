@@ -17,13 +17,55 @@ import { installHooks } from '../../core/install-hooks.js';
 import { getTaskState, setTaskState } from '../../core/task-state-store.js';
 import { TASK_STATE_FIELDS, taskStateLines } from '../../core/task-state.js';
 async function withDatabase(fn) {
-    openDatabase();
+    try {
+        openDatabase();
+    }
+    catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`Error: memesh cannot open its database.`);
+        console.error(`       ${message}`);
+        console.error(`       Run \`memesh doctor\` — it names the file, the likely cause and the way back.`);
+        process.exit(1);
+    }
     try {
         return await fn();
     }
     finally {
+        await flushPendingEmbeddings();
         closeDatabase();
     }
+}
+function unitFraction(flag) {
+    return (value) => {
+        const parsed = Number(value);
+        if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
+            console.error(`Error: ${flag} needs a number between 0 and 1, not "${value}".`);
+            process.exit(1);
+        }
+        return parsed;
+    };
+}
+function nonEmpty(flag) {
+    return (value) => {
+        if (value.trim() === '') {
+            console.error(`Error: ${flag} needs some text. An empty value is not a selector.`);
+            process.exit(1);
+        }
+        return value;
+    };
+}
+function proposalId(raw) {
+    return wholeNumber('<id>')(raw);
+}
+function wholeNumber(flag, min = 1) {
+    return (value) => {
+        const parsed = Number(value);
+        if (!Number.isInteger(parsed) || parsed < min) {
+            console.error(`Error: ${flag} needs a whole number of ${min} or more, not "${value}".`);
+            process.exit(1);
+        }
+        return parsed;
+    };
 }
 function requireOneOf(value, allowed, flag) {
     if (value === undefined || allowed.includes(value))
@@ -143,7 +185,6 @@ program
         }
         if (result.relationErrors?.length)
             process.exitCode = 1;
-        await flushPendingEmbeddings();
     });
 });
 program
@@ -151,7 +192,7 @@ program
     .description('Search stored knowledge')
     .argument('[query]', 'Search query')
     .option('--tag <tag>', 'Filter by tag')
-    .option('--limit <n>', 'Max results', '20')
+    .option('--limit <n>', 'Max results', wholeNumber('--limit'), 20)
     .option('--include-archived', 'Include archived entities')
     .option('--namespace <namespace>', 'Filter by namespace: personal, team, or global')
     .option('--cross-project', 'Search across all project tags (ignores --tag filter)')
@@ -162,7 +203,7 @@ program
         const { entities, conflicts, retrieval } = await recallWithConflicts({
             query: query || undefined,
             tag: opts.tag,
-            limit: parseInt(opts.limit),
+            limit: opts.limit,
             include_archived: opts.includeArchived,
             namespace: opts.namespace,
             cross_project: opts.crossProject,
@@ -216,7 +257,7 @@ program
     .command('forget')
     .description('Archive an entity or remove an observation (soft-delete, recoverable)')
     .requiredOption('--name <name>', 'Entity name')
-    .option('--observation <text>', 'Remove specific observation only')
+    .option('--observation <text>', 'Remove specific observation only', nonEmpty('--observation'))
     .option('--json', 'Output as JSON')
     .option('--confirm', '[deprecated, no-op] forget is a soft archive — no confirmation needed')
     .action(async (opts) => {
@@ -234,7 +275,7 @@ program
         else if (result.observation_removed) {
             console.log(`✂️  Removed observation (${result.remaining_observations} remaining)`);
         }
-        else if (opts.observation && result.entity_found) {
+        else if (opts.observation !== undefined && result.entity_found) {
             console.log(`Entity "${opts.name}" has no observation matching that text (${result.remaining_observations} observation(s) present).`);
             console.log(`See them with: memesh recall "${opts.name}" --json`);
             process.exitCode = 1;
@@ -316,7 +357,7 @@ program
     .description('Export memories as JSON. Defaults to stdout (pipe-friendly); use `-o <file>` to write directly.')
     .option('--tag <tag>', 'Export only entities with this tag')
     .option('--namespace <ns>', 'Export only from this namespace (personal, team, global)')
-    .option('--limit <n>', 'Max entities to export', '1000')
+    .option('--limit <n>', 'Max entities to export', wholeNumber('--limit'), 1000)
     .option('-o, --out <file>', 'Write JSON to <file> instead of stdout. Parent directory must exist.')
     .action(async (opts) => {
     requireOneOf(opts.namespace, NAMESPACES, '--namespace');
@@ -324,7 +365,7 @@ program
         const result = exportMemories({
             tag: opts.tag,
             namespace: opts.namespace,
-            limit: parseInt(opts.limit),
+            limit: opts.limit,
         });
         const json = JSON.stringify(result, null, 2);
         if (opts.out) {
@@ -339,6 +380,10 @@ program
         }
         else {
             console.log(json);
+        }
+        if (result.truncated) {
+            process.stderr.write(`⚠️  This is NOT the whole graph — ${result.entity_count} entities is the --limit, and there are more.\n`
+                + `   For a full backup, raise it: memesh export --limit 100000${opts.out ? ` -o ${opts.out}` : ''}\n`);
         }
     });
 });
@@ -395,6 +440,11 @@ program
             process.exit(1);
         }
         console.log(`Imported: ${result.imported}, Skipped: ${result.skipped}, Appended: ${result.appended}`);
+        if (result.skipped_relations.length > 0) {
+            console.error(`Note: ${result.skipped_relations.length} relation(s) not restored — the target is not in this bundle:\n  `
+                + `${result.skipped_relations.join('\n  ')}`);
+            console.error(`       Export those entities too (widen --limit, or drop --tag/--namespace) to keep the links.`);
+        }
         if (result.errors.length > 0) {
             console.error(`Errors:\n  ${result.errors.join('\n  ')}`);
             process.exitCode = 1;
@@ -464,21 +514,15 @@ program
     .command('why')
     .description('Explain a file: commits memesh remembers touching it, their sessions, and related memories')
     .argument('<file>', 'File path (relative to the current directory or absolute)')
-    .option('--line <n>', 'Attribute one line via git blame instead of file history')
-    .option('--limit <n>', 'Max commits to inspect', '10')
+    .option('--line <n>', 'Attribute one line via git blame instead of file history', wholeNumber('--line'))
+    .option('--limit <n>', 'Max commits to inspect', wholeNumber('--limit'), 10)
     .option('--json', 'Output as JSON')
     .action(async (file, opts) => {
     await withDatabase(async () => {
         const { resolveFileCommits, explainCommits } = await import('../../core/why.js');
         const cwd = process.cwd();
-        const limit = parseInt(opts.limit, 10);
-        const line = opts.line !== undefined ? parseInt(opts.line, 10) : undefined;
-        for (const [flag, value] of [['--limit', limit], ['--line', line]]) {
-            if (value !== undefined && (!Number.isInteger(value) || value < 1)) {
-                console.error(`Error: ${flag} needs a whole number of 1 or more.`);
-                process.exit(1);
-            }
-        }
+        const limit = opts.limit;
+        const line = opts.line;
         const resolved = resolveFileCommits(cwd, file, { line, limit });
         const result = explainCommits(getDatabase(), {
             file,
@@ -631,7 +675,7 @@ program
     .option('--done <text>', 'What was just finished')
     .option('--json', 'Output as JSON')
     .action(async (opts) => {
-    await withDatabase(() => {
+    await withDatabase(async () => {
         const patch = {};
         for (const field of TASK_STATE_FIELDS) {
             if (opts[field] !== undefined)
@@ -813,8 +857,9 @@ configCmd
         }
     }
     let coerced = value;
-    if (canonical === 'sessionLimit')
-        coerced = parseInt(value, 10);
+    if (canonical === 'sessionLimit') {
+        coerced = wholeNumber('sessionLimit')(value);
+    }
     if (canonical === 'llmFallbacks')
         coerced = JSON.parse(value);
     if (canonical === 'autoCapture') {
@@ -898,13 +943,13 @@ program
 program
     .command('serve')
     .description('Start the HTTP API server and web dashboard')
-    .option('--port <port>', 'Port number', '3737')
+    .option('--port <port>', 'Port number', wholeNumber('--port', 0), 3737)
     .option('--host <host>', 'Host to bind', '127.0.0.1')
     .option('--allow-remote', 'Permit binding to a non-loopback host. Pair it with --host; on a non-loopback bind a bearer token is generated and REQUIRED for every /v1 request, and the startup output says where it lives. On the default loopback host this flag changes nothing.')
     .action(async (opts) => {
     const { startServer } = await import('../http/server.js');
     try {
-        startServer(opts.host, parseInt(opts.port, 10), { allowRemote: opts.allowRemote, autoUpdateCheck: true });
+        startServer(opts.host, opts.port, { allowRemote: opts.allowRemote, autoUpdateCheck: true });
     }
     catch (err) {
         console.error(`MeMesh: ${err instanceof Error ? err.message : String(err)}`);
@@ -998,16 +1043,10 @@ program
 program
     .command('telemetry')
     .description('Show LLM call telemetry (per-flow scorecard for the last N days)')
-    .option('--window <days>', 'Look-back window in days (default 30)', (v) => parseInt(v, 10), 30)
-    .option('--prune <days>', 'Delete rows older than N days BEFORE rendering (closes v4.2.0 retention gap)', (v) => parseInt(v, 10))
+    .option('--window <days>', 'Look-back window in days (default 30)', wholeNumber('--window'), 30)
+    .option('--prune <days>', 'Delete rows older than N days BEFORE rendering (closes v4.2.0 retention gap)', wholeNumber('--prune', 0))
     .option('--json', 'Output as JSON')
     .action(async (opts) => {
-    for (const [flag, value] of [['--window', opts.window], ['--prune', opts.prune]]) {
-        if (value !== undefined && !Number.isFinite(value)) {
-            console.error(`Error: ${flag} needs a number of days.`);
-            process.exit(1);
-        }
-    }
     await withDatabase(async () => {
         const { summariseTelemetry, pruneTelemetry } = await import('../../core/llm-telemetry.js');
         let pruneResult = null;
@@ -1074,12 +1113,12 @@ kgCmd
     .description('Propose / apply heuristic relations to connect orphan entities (no LLM)')
     .option('--project <name>', 'Restrict to one project')
     .option('--dry-run', 'Show proposals without writing (default off — use to preview)')
-    .option('--max-per-source <n>', 'Max edges per orphan (default 3)', (v) => parseInt(v, 10), 3)
-    .option('--min-shared-tags <n>', 'Min shared topical tags to gate co-occurrence rule (default 2)', (v) => parseInt(v, 10), 2)
+    .option('--max-per-source <n>', 'Max edges per orphan (default 3)', wholeNumber('--max-per-source'), 3)
+    .option('--min-shared-tags <n>', 'Min shared topical tags to gate co-occurrence rule (default 2)', wholeNumber('--min-shared-tags'), 2)
     .option('--include-archived', 'Also process archived entities')
     .option('--session-cooccurrence', 'Rule 3: link high-signal orphans co-created in the same session')
     .option('--name-tokens', 'Rule 4: link orphans sharing ≥3 name content tokens (or Jaccard ≥ 0.50)')
-    .option('--min-jaccard <n>', 'Jaccard threshold for name similarity (default 0.50)', parseFloat)
+    .option('--min-jaccard <n>', 'Jaccard threshold for name similarity (default 0.50)', unitFraction('--min-jaccard'))
     .option('--all-rules', 'Enable all heuristic rules (Rules 1–5)')
     .option('--no-evidence-links', 'Disable Rule 5: evidence → work-item links via shared session id (on by default — these edges feed the graph\'s evidence badges)')
     .option('--reset-idempotency', 'Clear the persistent "already-attempted" orphan cache before running (use after schema changes or to reconsider every orphan)')
@@ -1324,12 +1363,12 @@ dreamCmd
     .description('Run a dream pass — propose digests for clusters of compactable entities')
     .option('--project <name>', 'Restrict to one project')
     .option('--dry-run', 'Compute proposals without writing to dream_proposals')
-    .option('--max-llm-calls <n>', 'Hard cap on LLM calls (default 100)', (v) => parseInt(v, 10))
-    .option('--window-days <n>', 'Look-back window in days (default 56 = 8 weeks)', (v) => parseInt(v, 10))
+    .option('--max-llm-calls <n>', 'Hard cap on LLM calls (default 100)', wholeNumber('--max-llm-calls'))
+    .option('--window-days <n>', 'Look-back window in days (default 56 = 8 weeks)', wholeNumber('--window-days'))
     .option('--validate', 'Run a second LLM pass to cross-check each digest against its sources (doubles LLM calls per proposal; surfaces under flow=digest_validator in `memesh telemetry`)')
     .option('--from-transcripts', 'EXPERIMENTAL: mine Claude Code session transcripts for this project (decisions/lessons/facts hidden in the conversation) and STAGE them as proposals for `dream accept`, instead of clustering existing entities. Scoped to the current project only — --project does not apply here. With --dry-run, lists sessions and conversation-turn counts without calling an LLM.')
     .option('--if-due', 'For a scheduler (cron/launchd): only mine if `transcriptMining` is enabled in config AND at least --min-interval-hours have passed since this project was last mined; otherwise exit 0 doing nothing. Lets one frequently-firing entry self-throttle. Only meaningful with --from-transcripts.')
-    .option('--min-interval-hours <n>', 'With --if-due: minimum hours between mined runs for this project (default 24).', (v) => parseInt(v, 10))
+    .option('--min-interval-hours <n>', 'With --if-due: minimum hours between mined runs for this project (default 24).', wholeNumber('--min-interval-hours'))
     .action(async (opts) => {
     if (opts.fromTranscripts) {
         const windowDays = typeof opts.windowDays === 'number' && !Number.isNaN(opts.windowDays) ? opts.windowDays : 3;
@@ -1406,6 +1445,10 @@ dreamCmd
                 console.log(`  LLM call failures:   ${result.llmFailures} (sessions not mined — retry when the provider is reachable)`);
             if (result.parseFailures > 0)
                 console.log(`  unparsable replies:  ${result.parseFailures} (chunk reply not valid JSON — likely truncated; those candidates were lost, retry)`);
+            if (result.cappedTurns > 0) {
+                console.log(`  per-turn cap: ${result.cappedTurns} turn(s) were analysed only in part `
+                    + `(the first 4,000 characters); the rest of each was not sent`);
+            }
             if (result.truncatedTurns > 0) {
                 console.log(`  size-cap truncation: ${result.truncatedTurns} conversation turn(s) beyond the cap were NOT analysed`);
                 for (const t of result.truncatedSessions) {
@@ -1477,9 +1520,9 @@ dreamCmd
     .description('Run pattern detector — surface emerging patterns/conventions/repeated mistakes per project (Phase 3)')
     .option('--project <name>', 'Restrict to one project (default: all projects)')
     .option('--dry-run', 'Compute proposals without writing to dream_proposals')
-    .option('--max-llm-calls <n>', 'Hard cap on LLM calls (default 10)', (v) => parseInt(v, 10))
-    .option('--window-days <n>', 'Look-back window in days (default 30)', (v) => parseInt(v, 10))
-    .option('--min-signal <n>', 'Minimum signal_score to include in scan (default 0.3)', (v) => parseFloat(v))
+    .option('--max-llm-calls <n>', 'Hard cap on LLM calls (default 10)', wholeNumber('--max-llm-calls'))
+    .option('--window-days <n>', 'Look-back window in days (default 30)', wholeNumber('--window-days'))
+    .option('--min-signal <n>', 'Minimum signal_score to include in scan (default 0.3)', unitFraction('--min-signal'))
     .action(async (opts) => {
     await withDatabase(async () => {
         const { runPatternDetector } = await import('../../core/dreamer.js');
@@ -1551,7 +1594,7 @@ dreamCmd
 dreamCmd
     .command('conflicts')
     .description('Judge semantically-close memory pairs for contradiction / supersession / duplication (LLM) and stage relation proposals for review')
-    .option('--max-pairs <n>', 'Judge at most N of the tightest candidate pairs this run (default 20)', (v) => parseInt(v, 10))
+    .option('--max-pairs <n>', 'Judge at most N of the tightest candidate pairs this run (default 20)', wholeNumber('--max-pairs'))
     .option('--dry-run', 'Show how many candidates are queued without calling an LLM or writing anything')
     .action(async (opts) => {
     await withDatabase(async () => {
@@ -1599,7 +1642,7 @@ dreamCmd
     await withDatabase(async () => {
         const { getProposalDetail } = await import('../../core/dreamer.js');
         const { getDatabase } = await import('../../db.js');
-        const detail = getProposalDetail(getDatabase(), parseInt(id, 10));
+        const detail = getProposalDetail(getDatabase(), proposalId(id));
         if (!detail) {
             console.error(`proposal #${id} not found`);
             console.error('See ids with: memesh dream list');
@@ -1660,14 +1703,13 @@ dreamCmd
         const kg = new KnowledgeGraph(getDatabase());
         let result;
         try {
-            result = applyProposal(getDatabase(), parseInt(id, 10), kg);
+            result = applyProposal(getDatabase(), proposalId(id), kg);
         }
         catch (err) {
             console.error(err instanceof Error ? err.message : String(err));
             console.error('See pending ids with: memesh dream list');
             process.exit(1);
         }
-        await flushPendingEmbeddings();
         console.log(`Applied proposal #${result.proposalId}`);
         console.log(`  digest entity: ${result.digestEntityName}`);
         console.log(`  sources archived: ${result.sourcesArchived}`);
@@ -1682,7 +1724,7 @@ dreamCmd
         const { rejectProposal } = await import('../../core/dreamer.js');
         const { getDatabase } = await import('../../db.js');
         try {
-            rejectProposal(getDatabase(), parseInt(id, 10), opts.reason);
+            rejectProposal(getDatabase(), proposalId(id), opts.reason);
         }
         catch (err) {
             console.error(err instanceof Error ? err.message : String(err));

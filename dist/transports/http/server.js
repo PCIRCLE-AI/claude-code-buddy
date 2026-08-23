@@ -98,6 +98,60 @@ function constantTimeEquals(a, b) {
     const eq = timingSafeEqual(aPad, bPad);
     return eq && a.length === b.length;
 }
+const CROSS_SITE_REFUSAL = {
+    success: false,
+    errorCode: 'auth.cross-origin',
+    error: 'Cross-site requests are not accepted by the MeMesh API.',
+    hint: 'The dashboard served by this server is same-origin and works normally. Scripts should call the API directly (no Origin header) or use the CLI.',
+};
+function sameSiteOnly(req, res, next) {
+    const ownerServer = req.socket.server;
+    const requiresAuth = ownerServer ? (serverAuthRequired.get(ownerServer) ?? false) : false;
+    const hostHeader = req.headers.host;
+    if (!requiresAuth && hostHeader !== undefined && !isLoopbackHost(stripPort(hostHeader))) {
+        res.status(403).json({
+            success: false,
+            errorCode: 'auth.cross-origin',
+            error: `Request arrived with Host "${hostHeader}", which is not a loopback name.`,
+            hint: 'This server is bound to loopback and has no authentication. Reach it as 127.0.0.1 or localhost.',
+        });
+        return;
+    }
+    const fetchSite = req.header('sec-fetch-site');
+    if (fetchSite !== undefined) {
+        if (fetchSite === 'same-origin' || fetchSite === 'none') {
+            next();
+            return;
+        }
+        res.status(403).json(CROSS_SITE_REFUSAL);
+        return;
+    }
+    const origin = req.header('origin');
+    if (origin !== undefined && origin !== 'null') {
+        let originHost;
+        try {
+            originHost = new URL(origin).host;
+        }
+        catch {
+            res.status(403).json(CROSS_SITE_REFUSAL);
+            return;
+        }
+        if (normalizeHost(originHost) !== normalizeHost(hostHeader ?? '')) {
+            res.status(403).json(CROSS_SITE_REFUSAL);
+            return;
+        }
+    }
+    next();
+}
+function stripPort(hostHeader) {
+    const trimmed = hostHeader.trim();
+    if (trimmed.startsWith('[')) {
+        const close = trimmed.indexOf(']');
+        return close < 0 ? trimmed : trimmed.slice(0, close + 1);
+    }
+    const colon = trimmed.lastIndexOf(':');
+    return colon < 0 ? trimmed : trimmed.slice(0, colon);
+}
 function bearerAuth(req, res, next) {
     const ownerServer = req.socket.server;
     const requiresAuth = ownerServer ? (serverAuthRequired.get(ownerServer) ?? false) : false;
@@ -132,6 +186,7 @@ function bearerAuth(req, res, next) {
     }
     next();
 }
+app.use('/v1/', sameSiteOnly);
 app.use('/v1/', bearerAuth);
 app.use('/v1/', apiLimiter);
 app.use('/v1/', express.json({ limit: '1mb' }));
@@ -607,7 +662,7 @@ app.get('/v1/entities', (req, res) => {
         const kg = new KnowledgeGraph(getDatabase());
         return typeFilter
             ? kg.listByType(typeFilter, limit, includeArchived)
-            : kg.listRecent(limit, includeArchived);
+            : kg.listRecent(limit, includeArchived, undefined, false);
     });
 });
 app.get('/v1/entities/:name', (req, res) => handleGet(res, () => {

@@ -7,10 +7,10 @@ import path from 'node:path';
 import process from 'node:process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { chromium } from 'playwright';
+import { npmSync } from './lib/npm-bin.mjs';
 
 const repoRoot = process.cwd();
 const smokeDir = path.join(repoRoot, 'tmp', 'dashboard-e2e-smoke');
-const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const npmCacheDir = process.env.MEMESH_NPM_CACHE ?? path.join(os.tmpdir(), 'memesh-npm-cache');
 
 const pageErrors = [];
@@ -110,8 +110,7 @@ async function main() {
   cleanupDir(smokeDir);
   fs.mkdirSync(smokeDir, { recursive: true });
 
-  const packJson = execFileSync(
-    npmCommand,
+  const packJson = npmSync(
     ['pack', '--json', '--pack-destination', smokeDir],
     {
       cwd: repoRoot,
@@ -135,8 +134,23 @@ async function main() {
   });
 
   const packageRoot = path.join(extractDir, 'package');
-  const packagedNodeModules = path.join(packageRoot, 'node_modules');
-  fs.symlinkSync(path.join(repoRoot, 'node_modules'), packagedNodeModules, 'junction');
+
+  // Install the tarball's PRODUCTION dependencies, rather than symlinking
+  // this repo's `node_modules` in.
+  //
+  // The symlink handed the packaged CLI the whole dev tree — vitest, the
+  // TypeScript compiler, every transitive dev dependency — so an import that
+  // resolved here would also resolve for a user only if that package
+  // happened to be a runtime dependency too. A `dependencies` entry moved to
+  // `devDependencies`, or forgotten entirely, passed this smoke test and
+  // broke on the first real install. `smoke-packed-artifact.mjs` already
+  // makes this distinction and says why in its own comment; this one
+  // borrowed the dev tree instead.
+  npmSync(['install', '--omit=dev', '--no-audit', '--no-fund'], {
+    cwd: packageRoot,
+    stdio: 'inherit',
+    env: { ...process.env, npm_config_cache: npmCacheDir },
+  });
   const cliEntry = path.join(packageRoot, 'dist', 'transports', 'cli', 'cli.js');
   const dbPath = path.join(smokeDir, 'knowledge-graph.db');
   const commonEnv = {

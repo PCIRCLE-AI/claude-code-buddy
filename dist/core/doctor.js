@@ -8,17 +8,21 @@ import { embedText } from './embedder.js';
 import { probeProvider } from './llm-validator.js';
 import { openDatabase, closeDatabase, getPendingReindexInfo, isDatabaseOpen, readVectorGeneration, generationRowIds, } from '../db.js';
 import { getUpdateCheck } from './version-check.js';
+import { classifyBump } from './updater.js';
 import { getCurrentInstallChannel, getInstallChannelSupport } from './install-channel.js';
 import { getInstallRecord } from './install-id.js';
 import { citationRulePath, citationRuleState } from './citation-rule.js';
 import { getDbPath, homeDir, memeshDir, getProjectName } from './paths.js';
-import { detectPluginRuntime } from './install-hooks.js';
+import { detectPluginRuntime, readInstallMarker } from './install-hooks.js';
 import { lastTranscriptMineAt } from './transcript-source.js';
+import { countMissingVectors } from './operations.js';
+import { hasVectorIndex } from '../storage/vector-index.js';
 import { UNSPACED_SCRIPT_GLOB_RUN3 } from '../storage/fts-index.js';
 import { MemeshDatabase } from '../storage/sqlite.js';
 import { AUTO_CAPTURE_TAG } from './types.js';
 import { parseSqliteUtcMs } from './time-utils.js';
 import { autoCaptureDecision } from './capture-flag.js';
+import { guardFromMetadata } from './guards.js';
 const EMBEDDING_PROBE_TIMEOUT_MS = 15000;
 const EXPECTED_HOOK_TYPES = ['PreToolUse', 'SessionStart', 'PostToolUse', 'Stop', 'PreCompact'];
 const LOCALE_README_FILES = [
@@ -247,7 +251,7 @@ function inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir, installC
     }
     const settingsParsed = parseJsonFile(marker.settings_path, readFileSyncImpl);
     if (!settingsParsed.ok) {
-        return createCheck('hook-wiring', 'Hooks wired into Claude Code', 'fail', `${marker.settings_path} is no longer valid JSON.`, 'Restore from your ~/.claude backups or re-create with `memesh install-hooks`.', { code: 'hook-wiring.settings-invalid', params: { path: String(marker.settings_path) } });
+        return createCheck('hook-wiring', 'Hooks wired into Claude Code', 'fail', `${marker.settings_path} is no longer valid JSON, so nothing can read your hook wiring — including memesh.`, `Repair the JSON, or move the file aside (\`mv ${marker.settings_path} ${marker.settings_path}.broken\`) — memesh keeps timestamped \`.bak-pre-memesh-*\` copies next to it. Then run \`memesh install-hooks\`.`, { code: 'hook-wiring.settings-invalid', params: { path: String(marker.settings_path) } });
     }
     const CAPTURE_EVENTS = new Set(['Stop', 'PostToolUse', 'PreCompact']);
     const hooks = settingsParsed.value.hooks;
@@ -613,7 +617,7 @@ async function inspectUpdateStatus(packageVersion, getUpdateCheckImpl, installSu
         });
     }
     if (update.updateAvailable && update.latestVersion) {
-        if (packageVersion < update.latestVersion) {
+        if (classifyBump(packageVersion, update.latestVersion)) {
             return createCheck('update-status', 'Update status', 'warn', `Update available: ${update.latestVersion} (current: ${packageVersion})`, `Run 'memesh update' to upgrade`, { code: 'update-status.update-available', params: { latest: update.latestVersion, current: packageVersion } });
         }
         else {
@@ -638,21 +642,22 @@ async function inspectHttpProbe(httpBaseUrl, fetchImpl) {
         return createCheck('http-probe', 'HTTP probe', 'warn', `No running HTTP server detected at ${httpBaseUrl}.`, 'Start the local server with `memesh serve` if you want dashboard and HTTP API verification.', { code: 'http-probe.no-server', params: { url: httpBaseUrl } });
     }
 }
-function verifySkillsManifest(packageRoot, existsSyncImpl, readFileSyncImpl) {
+function verifySkillsManifest(packageRoot, existsSyncImpl, readFileSyncImpl, installSupport) {
+    const reinstall = installSupport.guidance;
     const manifestPath = path.join(packageRoot, 'dist', 'skills-manifest.json');
     if (!existsSyncImpl(manifestPath)) {
-        return createCheck('skills-manifest', 'Skills + hooks integrity', 'warn', 'No skills-manifest.json found. This is normal for source checkouts — packaged installs ship the manifest.', 'Run `npm run build` to regenerate, or reinstall via `npm install -g @pcircle/memesh`.', { code: 'skills-manifest.missing-dev' });
+        return createCheck('skills-manifest', 'Skills + hooks integrity', 'warn', 'No skills-manifest.json found. This is normal for source checkouts — packaged installs ship the manifest.', `Run \`npm run build\` to regenerate, or reinstall: ${reinstall}`, { code: 'skills-manifest.missing-dev' });
     }
     let manifest;
     try {
         manifest = JSON.parse(readFileSyncImpl(manifestPath, 'utf8'));
     }
     catch (err) {
-        return createCheck('skills-manifest', 'Skills + hooks integrity', 'fail', `skills-manifest.json is unreadable (${err instanceof Error ? err.message : 'parse error'}).`, 'Reinstall the package: `npm install -g @pcircle/memesh`. If the problem persists open an issue.', { code: 'skills-manifest.unreadable', params: { detail: err instanceof Error ? err.message : 'parse error' } });
+        return createCheck('skills-manifest', 'Skills + hooks integrity', 'fail', `skills-manifest.json is unreadable (${err instanceof Error ? err.message : 'parse error'}).`, `Reinstall the package: ${reinstall} If the problem persists open an issue.`, { code: 'skills-manifest.unreadable', params: { detail: err instanceof Error ? err.message : 'parse error' } });
     }
     const entries = manifest.entries ?? [];
     if (entries.length === 0) {
-        return createCheck('skills-manifest', 'Skills + hooks integrity', 'fail', 'skills-manifest.json contains zero entries.', 'Reinstall the package: `npm install -g @pcircle/memesh`.', { code: 'skills-manifest.empty' });
+        return createCheck('skills-manifest', 'Skills + hooks integrity', 'fail', 'skills-manifest.json contains zero entries.', `Reinstall the package: ${reinstall}`, { code: 'skills-manifest.empty' });
     }
     const mismatches = [];
     const missing = [];
@@ -681,7 +686,7 @@ function verifySkillsManifest(packageRoot, existsSyncImpl, readFileSyncImpl) {
         missing.length > 0 ? `${missing.length} missing: ${missing.slice(0, 3).join(', ')}${missing.length > 3 ? ` (+${missing.length - 3} more)` : ''}` : null,
         mismatches.length > 0 ? `${mismatches.length} tampered: ${mismatches.slice(0, 3).join(', ')}${mismatches.length > 3 ? ` (+${mismatches.length - 3} more)` : ''}` : null,
     ].filter(Boolean).join('; ');
-    return createCheck('skills-manifest', 'Skills + hooks integrity', 'fail', `Manifest verification failed: ${detail}.`, 'Reinstall the package: `npm install -g @pcircle/memesh`. If the problem reproduces on a fresh install, open a security issue at https://github.com/PCIRCLE-AI/memesh/security.', { code: 'skills-manifest.verify-failed', params: { detail } });
+    return createCheck('skills-manifest', 'Skills + hooks integrity', 'fail', `Manifest verification failed: ${detail}.`, `Reinstall the package: ${reinstall} If the problem reproduces on a fresh install, open a security issue at https://github.com/PCIRCLE-AI/memesh/security.`, { code: 'skills-manifest.verify-failed', params: { detail } });
 }
 async function inspectEmbeddingProbe(capabilities, probeCapabilities, embedTextImpl) {
     if (capabilities.embeddings === 'tfidf') {
@@ -774,11 +779,22 @@ export async function runDoctor(options) {
             }
         }
         const pendingReindex = getPendingReindexInfo();
-        if (pendingReindex) {
-            const owed = pendingReindex.reason === 'vectors-missing'
-                ? 'Some memories have no search vector'
-                : 'Search index needs rebuilding (embedding configuration changed)';
-            dbChecks.push(createCheck('vector_index', 'Vector Index', 'warn', owed, `Run 'memesh reindex' to fix. This will restore full search functionality.`, { code: 'vector-index.stale' }));
+        const vectorDb = db;
+        let missingVectors;
+        try {
+            missingVectors = hasVectorIndex(vectorDb) ? countMissingVectors(vectorDb) : 0;
+        }
+        catch {
+            missingVectors = null;
+        }
+        if (pendingReindex || missingVectors === null || missingVectors > 0) {
+            const owed = pendingReindex && pendingReindex.reason !== 'vectors-missing'
+                ? 'Search index needs rebuilding (embedding configuration changed)'
+                : missingVectors === null
+                    ? 'The vector index could not be read, so how much of your memory semantic recall can see is unknown'
+                    : `${missingVectors} memor${missingVectors === 1 ? 'y has' : 'ies have'} no search vector, `
+                        + 'so semantic recall cannot find them (keyword search still works)';
+            dbChecks.push(createCheck('vector_index', 'Vector Index', 'warn', owed, `Run 'memesh reindex' to fix. This will restore full search functionality.`, { code: 'vector-index.stale', params: { missing: missingVectors ?? -1 } }));
         }
         const generation = readVectorGeneration();
         if (generation.state !== 'none') {
@@ -791,6 +807,35 @@ export async function runDoctor(options) {
                 ? `Run 'memesh reindex' to finish it (the vectors already produced are reused), `
                     + `or 'memesh reindex --discard-generation' to reclaim the space.`
                 : `Run 'memesh reindex --discard-generation' to clear it, then 'memesh reindex'.`, { code: 'vector-generation.open', params: { staged } }));
+        }
+        try {
+            const guardRows = db
+                .prepare(`SELECT id, name, metadata FROM entities
+           WHERE status = 'active'
+             AND type IN ('lesson_learned', 'lesson', 'mistake')
+             AND metadata LIKE '%"guard"%'`)
+                .all();
+            const fired = guardRows
+                .filter((r) => guardFromMetadata(r.id, r.metadata) !== null)
+                .map((r) => {
+                let fires = 0;
+                try {
+                    const parsedMeta = JSON.parse(r.metadata);
+                    if (typeof parsedMeta.guard?.fires === 'number')
+                        fires = parsedMeta.guard.fires;
+                }
+                catch { }
+                return { name: r.name, fires };
+            })
+                .sort((a, b) => b.fires - a.fires);
+            if (fired.length > 0) {
+                const everFired = fired.filter((g) => g.fires > 0);
+                const top = everFired.slice(0, 3).map((g) => `${g.name} (${g.fires})`).join(', ');
+                dbChecks.push(createInfo('guard_activity', 'Guard activity', `${fired.length} active guard(s); ${everFired.length} have ever fired`
+                    + (top ? `. Most: ${top}.` : '. None has matched yet.')));
+            }
+        }
+        catch {
         }
         const citationTotalRow = db
             .prepare(`SELECT value FROM memesh_metadata WHERE key = 'citation_sessions_total'`)
@@ -805,14 +850,15 @@ export async function runDoctor(options) {
             const rate = citedKnown && Number.isInteger(cited)
                 ? Math.round((cited / citationTotal) * 100)
                 : null;
+            const ruleScope = readInstallMarker()?.scope === 'project' ? 'project' : 'user';
             let rule;
             try {
-                rule = citationRuleState('user', homeDir(), process.cwd(), {
+                rule = citationRuleState(ruleScope, homeDir(), process.cwd(), {
                     readFileSync: readFileSyncImpl,
                 });
             }
             catch {
-                rule = { path: citationRulePath('user', homeDir(), process.cwd()), state: 'unreadable' };
+                rule = { path: citationRulePath(ruleScope, homeDir(), process.cwd()), state: 'unreadable' };
             }
             if (rate === null) {
                 dbChecks.push(createInfo('citation_compliance', 'Memory citation rate', `${citationTotal} session(s) received injected memories; how many cited one is not recorded `
@@ -907,7 +953,7 @@ export async function runDoctor(options) {
     checks.push(inspectNodeRuntime(packageRoot, existsSyncImpl, readFileSyncImpl));
     checks.push(inspectNativeBinding(packageRoot, existsSyncImpl, nativeBindingProbeImpl));
     checks.push(inspectShellCli(install, packageRoot, resolveShellMemeshImpl));
-    checks.push(verifySkillsManifest(packageRoot, existsSyncImpl, readFileSyncImpl));
+    checks.push(verifySkillsManifest(packageRoot, existsSyncImpl, readFileSyncImpl, installSupport));
     const capabilities = detectCapabilitiesImpl();
     checks.push(createInfo('capabilities', 'Capabilities (configured)', `Search level ${capabilities.searchLevel} (${capabilities.searchLevel === 1 ? 'Smart Mode' : 'Core'}); embeddings: ${capabilities.embeddings}; LLM: ${capabilities.llm ? `${capabilities.llm.provider} (${capabilities.llm.model ?? 'default'})` : 'not configured'}. Configured values only — see the probe rows below for what actually works.`));
     if (!isTranscriptMiningEnabled()) {

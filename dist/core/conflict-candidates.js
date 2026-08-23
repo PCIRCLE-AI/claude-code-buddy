@@ -17,18 +17,10 @@ export function findConflictCandidates(db, opts = {}) {
     if (!hasVectorIndex(db))
         return [];
     const typePlaceholders = CONFLICT_SIGNAL_TYPES.map(() => '?').join(',');
-    let signal;
-    try {
-        signal = db.prepare(`SELECT v.rowid AS id, v.embedding AS emb, e.name, e.type
-       FROM entities_vec v
-       JOIN entities e ON e.id = v.rowid
-       WHERE e.status = 'active' AND e.type IN (${typePlaceholders})`).all(...CONFLICT_SIGNAL_TYPES);
-    }
-    catch (err) {
-        if (err instanceof Error && err.message.includes('no such module: vec0'))
-            return [];
-        throw err;
-    }
+    const signal = db.prepare(`SELECT v.rowid AS id, v.embedding AS emb, e.name, e.type
+     FROM entities_vec v
+     JOIN entities e ON e.id = v.rowid
+     WHERE e.status = 'active' AND e.type IN (${typePlaceholders})`).all(...CONFLICT_SIGNAL_TYPES);
     if (signal.length < 2)
         return [];
     const byId = new Map(signal.map((s) => [s.id, s]));

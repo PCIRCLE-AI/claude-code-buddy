@@ -74,13 +74,35 @@ export function computeSignalScore(input: SignalInput): number {
 
   // Mechanical commit messages — short, conventional-only, no body.
   // "fix typo", "wip", "bump version" type entries.
+  //
+  // Read from the OBSERVATION, not from the joined text. `obsText` is
+  // `observations.join(' ')`, and post-commit stores three of them: the
+  // commit message, `Branch: x`, and `Diff stats: y`. Joining with a SPACE
+  // means the flattened string has no newline unless the message itself had
+  // one — so the old code asked the hook's own annotations to answer
+  // questions about the author's message, and got the answer backwards:
+  //
+  //   no body  -> nothing to split on, so `firstLine` was the whole
+  //               80-character joined string: too long for every demotion
+  //               branch, fell through to "substantive commit body", 0.6
+  //   a body   -> `firstLine` was just the subject, "fix: thing", 10 chars
+  //               with a colon: 0.3
+  //
+  // Measured on the live graph: 459 commits at 0.6, exactly 1 below 0.4.
+  // The score meant to demote mechanical commits was promoting them.
   if (type === 'commit') {
-    const firstLine = obsText.split('\n')[0]?.trim() ?? '';
-    if (firstLine.length < 30 && !/[!:]/.test(firstLine)) return 0.2;
-    if (firstLine.length < 30) return 0.3;
-    // Conventional commit with no body — borderline noise
-    if (!obsText.includes('\n') && firstLine.length < 60) return 0.4;
-    // Substantive commit body
+    const message = (observations[0] ?? '').trim();
+    const [subject = '', ...rest] = message.split('\n');
+    const head = subject.trim();
+    const hasBody = rest.join('\n').trim().length > 0;
+    // The length rules describe a message with nothing but a subject line.
+    // A commit that wrote a body has already earned the benefit of the
+    // doubt, however terse its subject.
+    if (!hasBody) {
+      if (head.length < 30 && !/[!:]/.test(head)) return 0.2;
+      if (head.length < 30) return 0.3;
+      if (head.length < 60) return 0.4;
+    }
     return Math.min(0.7, base + 0.1);
   }
 
@@ -147,10 +169,3 @@ function baseScoreForType(type: string): number {
   return 0.5;
 }
 
-/**
- * Default threshold below which dashboard hides entities. Users
- * can override in Settings (per-tab eventually). 0.4 keeps
- * lessons/decisions/architecture/pattern visible while filtering
- * empty session_keypoints + trivial commits.
- */
-export const DEFAULT_SIGNAL_THRESHOLD = 0.4;

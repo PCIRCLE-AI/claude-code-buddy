@@ -13,8 +13,8 @@
     },
     {
       "path": "hooks/hooks.json",
-      "sha256": "63b75c9dcf89ae52d13dcae10fe4b2af8d8ba60954c2b2f6ab059a94a265b703",
-      "bytes": 1750
+      "sha256": "6dab1d96f600b6b0f85c3ca276f660127582ba0b6f7f8a460a4ed6bf1611ca95",
+      "bytes": 1803
     },
     {
       "path": "scripts/hooks/_generated/capture-flag.js",
@@ -28,8 +28,8 @@
     },
     {
       "path": "scripts/hooks/_generated/core-paths.js",
-      "sha256": "f83cb1fee08b5d297d2c4cf94d491b70e5093095590891593ec1e755bb0c92d7",
-      "bytes": 5056
+      "sha256": "6c867a9765e3e469fd539cc002179ff4fe3b79a59fc2b8b9f7a10d126c621531",
+      "bytes": 5123
     },
     {
       "path": "scripts/hooks/_generated/fts-index.js",
@@ -43,8 +43,8 @@
     },
     {
       "path": "scripts/hooks/_generated/schema.js",
-      "sha256": "7af0e2791213a6a0d5807d8ae5b2b5801bcb408c86cf179ac9d73fff83489423",
-      "bytes": 12700
+      "sha256": "898b6121fd36e8fb423cfd32e1df40324c4d593def7df658c7aca80340866c64",
+      "bytes": 12673
     },
     {
       "path": "scripts/hooks/_generated/sqlite.js",
@@ -73,8 +73,8 @@
     },
     {
       "path": "scripts/hooks/_shared.js",
-      "sha256": "e47bada1e7f677e451a82a55417fd899bd5dce71f14656a314a6ab31fccd708a",
-      "bytes": 38148
+      "sha256": "e81aec2454a2b681193d583df7f9fe67491a45f7e87a576cf77e879e0352089f",
+      "bytes": 42029
     },
     {
       "path": "scripts/hooks/guard-check.js",
@@ -88,8 +88,8 @@
     },
     {
       "path": "scripts/hooks/pre-compact.js",
-      "sha256": "69828d76b9e3f739a8f838f7baf8d3aac37328a5deb9caaaa31f1b4dc719cfe5",
-      "bytes": 8197
+      "sha256": "6e0f0e33fff5137a311b50eec688acda458277e1ac3d4cd275f4b445dfcbb58b",
+      "bytes": 8754
     },
     {
       "path": "scripts/hooks/pre-edit-recall.js",
@@ -98,13 +98,13 @@
     },
     {
       "path": "scripts/hooks/session-start.js",
-      "sha256": "f87f789387919507340a14183022197e290b44398d2fb8de9330103f3fe12bd2",
-      "bytes": 54834
+      "sha256": "5e8695ea67af7c8afd94b71cc5fef527f991d7aac6bfc548c4e19fa9010ec7bb",
+      "bytes": 55748
     },
     {
       "path": "scripts/hooks/session-summary.js",
-      "sha256": "2546b8aaed0155936848fcebd4ddda7c73cf06098e4d46fc64746a68acf20e65",
-      "bytes": 44903
+      "sha256": "12d28e2524bb13b6cb709fe3510264058728d6299bd43a2c1dc5723d658a7806",
+      "bytes": 46696
     },
     {
       "path": "scripts/hooks/user-prompt-intent.js",

@@ -72,6 +72,9 @@ export class KnowledgeGraph {
             .run(nextMetadata ? JSON.stringify(nextMetadata) : null, name);
     }
     createEntity(name, type, opts) {
+        return this.db.transaction(() => this.createEntityInner(name, type, opts))();
+    }
+    createEntityInner(name, type, opts) {
         const incomingMetadata = (opts?.metadata && typeof opts.metadata === 'object') ? { ...opts.metadata } : {};
         if (incomingMetadata.signal_score === undefined) {
             incomingMetadata.signal_score = computeSignalScore({
@@ -196,7 +199,7 @@ export class KnowledgeGraph {
     }
     getEntity(name) {
         const row = this.db
-            .prepare('SELECT id, name, title, type, created_at, metadata, status, access_count, last_accessed_at, confidence, namespace FROM entities WHERE name = ?')
+            .prepare('SELECT id, name, title, type, created_at, metadata, status, access_count, last_accessed_at, confidence, namespace, recall_hits, recall_misses FROM entities WHERE name = ?')
             .get(name);
         if (!row)
             return null;
@@ -223,6 +226,8 @@ export class KnowledgeGraph {
             access_count: row.access_count ?? 0,
             last_accessed_at: row.last_accessed_at ?? undefined,
             confidence: row.confidence ?? 1.0,
+            recall_hits: row.recall_hits ?? 0,
+            recall_misses: row.recall_misses ?? 0,
             namespace: row.namespace ?? 'personal',
         };
     }
@@ -236,7 +241,7 @@ export class KnowledgeGraph {
         if (opts?.namespace)
             params.push(opts.namespace);
         const entityRows = this.db
-            .prepare(`SELECT id, name, title, type, created_at, metadata, status, access_count, last_accessed_at, confidence, namespace
+            .prepare(`SELECT id, name, title, type, created_at, metadata, status, access_count, last_accessed_at, confidence, namespace, recall_hits, recall_misses
          FROM entities WHERE id IN (${placeholders}) ${statusFilter} ${namespaceFilter}`)
             .all(...params);
         const entityMap = new Map();
@@ -301,6 +306,8 @@ export class KnowledgeGraph {
                 relations: relations.length > 0 ? relations : undefined,
                 ...(row.status === 'archived' ? { archived: true } : {}),
                 access_count: row.access_count ?? 0,
+                recall_hits: row.recall_hits ?? 0,
+                recall_misses: row.recall_misses ?? 0,
                 last_accessed_at: row.last_accessed_at ?? undefined,
                 confidence: row.confidence ?? 1.0,
                 namespace: row.namespace ?? 'personal',
@@ -324,11 +331,12 @@ export class KnowledgeGraph {
     }
     search(query, opts) {
         const limit = opts?.limit ?? 20;
+        const countAsAccess = opts?.countAsAccess ?? true;
         if (!query || query.trim() === '') {
             if (opts?.tag) {
-                return this.listRecentByTag(opts.tag, limit, opts?.includeArchived, opts?.namespace);
+                return this.listRecentByTag(opts.tag, limit, opts?.includeArchived, opts?.namespace, countAsAccess);
             }
-            return this.listRecent(limit, opts?.includeArchived, opts?.namespace);
+            return this.listRecent(limit, opts?.includeArchived, opts?.namespace, countAsAccess);
         }
         const ftsQuery = buildMatchExpression(this.db, query);
         if (ftsQuery === null) {
@@ -410,8 +418,8 @@ export class KnowledgeGraph {
             });
             results.push(...archivedEntities);
         }
-        const entityIds = results.map((e) => e.id);
-        this.trackAccess(entityIds);
+        if (countAsAccess)
+            this.trackAccess(results.map((e) => e.id));
         return results;
     }
     trackAccess(entityIds) {
@@ -420,7 +428,7 @@ export class KnowledgeGraph {
     findConflicts(entityNames) {
         return findConflicts(this.db, entityNames);
     }
-    listRecent(limit, includeArchived, namespace) {
+    listRecent(limit, includeArchived, namespace, countAsAccess = true) {
         const statusFilter = includeArchived ? '' : "AND status = 'active'";
         const namespaceFilter = namespace ? 'AND namespace = ?' : '';
         const params = [];
@@ -431,7 +439,8 @@ export class KnowledgeGraph {
             .prepare(`SELECT id FROM entities WHERE 1=1 ${statusFilter} ${namespaceFilter} ORDER BY id DESC LIMIT ?`)
             .all(...params);
         const results = this.getEntitiesByIds(rows.map((r) => r.id), { includeArchived, namespace });
-        this.trackAccess(results.map((e) => e.id));
+        if (countAsAccess)
+            this.trackAccess(results.map((e) => e.id));
         return results;
     }
     listByType(type, limit, includeArchived, namespace) {
@@ -446,7 +455,7 @@ export class KnowledgeGraph {
             .all(...params);
         return this.getEntitiesByIds(rows.map((r) => r.id), { includeArchived, namespace });
     }
-    listRecentByTag(tag, limit, includeArchived, namespace) {
+    listRecentByTag(tag, limit, includeArchived, namespace, countAsAccess = true) {
         const statusFilter = includeArchived ? '' : "AND e.status = 'active'";
         const namespaceFilter = namespace ? 'AND e.namespace = ?' : '';
         const params = [tag];
@@ -464,8 +473,14 @@ export class KnowledgeGraph {
          LIMIT ?`)
             .all(...params);
         const results = this.getEntitiesByIds(rows.map((r) => r.id), { includeArchived, namespace });
-        this.trackAccess(results.map((e) => e.id));
+        if (countAsAccess)
+            this.trackAccess(results.map((e) => e.id));
         return results;
+    }
+    removeVectorRow(id) {
+        if (!hasVectorIndex(this.db))
+            return;
+        this.db.prepare('DELETE FROM entities_vec WHERE rowid = ?').run(BigInt(id));
     }
     clearEntityData(name) {
         const row = this.db
@@ -474,9 +489,12 @@ export class KnowledgeGraph {
         if (!row)
             return;
         const prevObsText = indexedObservationText(this.db, row.id);
-        this.db.prepare('DELETE FROM observations WHERE entity_id = ?').run(row.id);
-        this.db.prepare('DELETE FROM tags WHERE entity_id = ?').run(row.id);
-        this.rebuildFts(row.id, name, prevObsText, row.title);
+        this.db.transaction(() => {
+            this.db.prepare('DELETE FROM observations WHERE entity_id = ?').run(row.id);
+            this.db.prepare('DELETE FROM tags WHERE entity_id = ?').run(row.id);
+            this.rebuildFts(row.id, name, prevObsText, row.title);
+            this.removeVectorRow(row.id);
+        })();
     }
     archiveEntity(name) {
         const row = this.db
@@ -484,15 +502,14 @@ export class KnowledgeGraph {
             .get(name);
         if (!row)
             return { archived: false };
-        removeFromFts(this.db, row.id, name, indexedObservationText(this.db, row.id), row.title);
-        if (hasVectorIndex(this.db)) {
+        const observationText = indexedObservationText(this.db, row.id);
+        this.db.transaction(() => {
+            removeFromFts(this.db, row.id, name, observationText, row.title);
+            this.removeVectorRow(row.id);
             this.db
-                .prepare('DELETE FROM entities_vec WHERE rowid = ?')
-                .run(BigInt(row.id));
-        }
-        this.db
-            .prepare("UPDATE entities SET status = 'archived' WHERE id = ?")
-            .run(row.id);
+                .prepare("UPDATE entities SET status = 'archived' WHERE id = ?")
+                .run(row.id);
+        }).immediate();
         return { archived: true, name, previousStatus: row.status };
     }
     removeObservation(entityName, observationContent) {
@@ -523,13 +540,12 @@ export class KnowledgeGraph {
             .get(name);
         if (!row)
             return { deleted: false };
-        removeFromFts(this.db, row.id, name, indexedObservationText(this.db, row.id), row.title);
-        if (hasVectorIndex(this.db)) {
-            this.db
-                .prepare('DELETE FROM entities_vec WHERE rowid = ?')
-                .run(BigInt(row.id));
-        }
-        this.db.prepare('DELETE FROM entities WHERE id = ?').run(row.id);
+        const observationText = indexedObservationText(this.db, row.id);
+        this.db.transaction(() => {
+            removeFromFts(this.db, row.id, name, observationText, row.title);
+            this.removeVectorRow(row.id);
+            this.db.prepare('DELETE FROM entities WHERE id = ?').run(row.id);
+        }).immediate();
         return { deleted: true };
     }
     parseMetadata(rawMetadata) {

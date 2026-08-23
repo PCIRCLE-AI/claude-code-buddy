@@ -94,7 +94,15 @@ CURRENT_VERSION="$(INSTALL_REGISTRY="$INSTALL_REGISTRY" node -e "
   const entries = (j.plugins && j.plugins['memesh@pcircle-memesh']) || [];
   if (entries.length === 0) { process.stdout.write('none'); process.exit(0); }
   process.stdout.write(entries[0].version || 'unknown');
-")"
+")" || {
+  # Its sibling twelve lines up has this guard; this read did not, so an
+  # unreadable or malformed installed_plugins.json made CURRENT_VERSION the
+  # empty string. That compares unequal to every target, so the script
+  # reported an upgrade from "" and carried on — on a registry it had just
+  # failed to parse.
+  echo "ERROR: could not read the installed memesh version from $INSTALL_REGISTRY" >&2
+  exit 1
+}
 
 echo "==> Currently installed: $CURRENT_VERSION"
 

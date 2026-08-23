@@ -4,13 +4,20 @@ import { basename } from 'path';
 import { existsSync, readFileSync } from 'fs';
 import { AUTO_CAPTURE_TAG, captureEntity, getProjectName, isAutoCaptureEnabled, openHookDb, recordHookRun, truncateTitle } from './_shared.js';
 
-// Timeout guard: always exit within 10 seconds
-const TIMEOUT_MS = 10000;
-const timeoutHandle = setTimeout(() => {
-  try { process.stderr.write('[memesh pre-compact] Timed out after 10s\n'); } catch {}
-  process.exit(0);
-}, TIMEOUT_MS);
-timeoutHandle.unref();
+// There is no in-process timeout guard, and its absence is deliberate.
+//
+// This file used to arm `setTimeout(() => process.exit(0), 10_000).unref()`.
+// It could not fire. Everything after `stdin`'s `end` event is one
+// synchronous block — no `await`, no callback — so the event loop never gets
+// a turn between the handler starting and the process exiting, and a JS
+// timer cannot interrupt a blocking SQLite call. The one window where it
+// COULD have run is while stdin is still open, which is not where a hook
+// hangs.
+//
+// The timeout that does work is external: `hooks/hooks.json` declares
+// `"timeout": 10` for PreCompact, and the harness enforces it on the
+// process. `openHookDb` additionally caps the SQLite lock wait at 2s so
+// contention ends in a skipped capture rather than in that kill.
 
 let input = '';
 process.stdin.setEncoding('utf8');

@@ -1,7 +1,8 @@
 import type { StructuredLesson } from './failure-analyzer.js';
-import { remember, recall } from './operations.js';
+import { remember } from './operations.js';
 import type { LessonSeverity } from './types.js';
 import { getDatabase } from '../db.js';
+import { KnowledgeGraph } from '../knowledge-graph.js';
 
 /**
  * Create or update a structured lesson entity.
@@ -25,9 +26,17 @@ export function createLesson(
   const name = `lesson-${projectName}-${lesson.errorPattern}`;
 
   // Check existence BEFORE remember() so we can reliably detect new vs upsert.
-  // recall() returns the entity if it exists; empty array means it's new.
-  const existing = recall({ query: name, limit: 1 });
-  const isNew = existing.length === 0 || existing[0].name !== name;
+  //
+  // By NAME, not by recall. This used to be `recall({ query: name, limit: 1
+  // })` — a fuzzy search, to answer a question about an exact key. It cost
+  // three things: it matched some OTHER memory whenever the lesson did not
+  // exist yet (the `existing[0].name !== name` clause below is the evidence
+  // that its author knew), it ran the whole ranking stack for one lookup,
+  // and — because a search counts as a use — it bumped `access_count` and
+  // stamped `last_accessed_at` on that unrelated memory. Every LLM-generated
+  // lesson therefore manufactured one "memory reused this week", which is
+  // the dashboard's headline number.
+  const isNew = new KnowledgeGraph(getDatabase()).getEntity(name) === null;
 
   remember({
     name,

@@ -124,6 +124,12 @@ describe('HTTP Transport: POST /v1/dream/run', () => {
     });
     expect(res.status).toBe(400);
     expect(res.body.success).toBe(false);
+    // Named, so the 400 is proof the FIELD was validated. Without this the
+    // assertion passes for any 400 the route happens to produce — including
+    // one from a schema that dropped `validate` entirely, which is the
+    // regression this file says it exists to catch.
+    expect(String(res.body.error), 'the 400 did not come from the validate field')
+      .toMatch(/validate/i);
   });
 });
 

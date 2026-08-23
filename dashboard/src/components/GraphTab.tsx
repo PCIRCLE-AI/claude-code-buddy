@@ -1506,11 +1506,43 @@ export function GraphTab() {
   // Search match count — over the SAME haystack the canvas highlights on
   // (name + headline). Counted over the machine name alone it reported "0
   // matches" for a query that the user took straight off this canvas.
-  const matchCount = searchQuery
-    ? [...displayIndex.values()].filter((d) =>
-        d.search.includes(searchQuery.toLowerCase()),
-      ).length
-    : 0;
+  // Memoized: this scans every node, and it used to run on every render with
+  // `searchQuery.toLowerCase()` recomputed per node.
+  const searchMatches = useMemo(() => {
+    if (!searchQuery) return [];
+    const q = searchQuery.toLowerCase();
+    return [...displayIndex.entries()].filter(([, d]) => d.search.includes(q));
+  }, [displayIndex, searchQuery]);
+  const matchCount = searchMatches.length;
+
+  /**
+   * Select the node the search has narrowed to, from the keyboard.
+   *
+   * Node selection was pointer-only: the click handler was the ONLY way to
+   * enter ego mode or open the evidence drill-down, so a keyboard user could
+   * reach the canvas (it is focusable and labelled) and read the summary,
+   * and could not open a single node. Search highlighted matches and stopped
+   * there.
+   *
+   * Deliberately narrow: only when the query has narrowed to exactly ONE
+   * node, and driven from the search box the user is already typing in. Full
+   * node-to-node traversal is still deferred — it is a large-graph
+   * interaction that needs its own design, as the canvas comment says — but
+   * "find it and open it" is the thing the mouse does that the keyboard
+   * could not do at all.
+   */
+  const selectSoleMatch = () => {
+    if (searchMatches.length !== 1) return;
+    const [name] = searchMatches[0];
+    setEgoNodeId(name);
+    // The REAL node, not a two-field stand-in. `{ id, display } as GNode`
+    // left twelve of fourteen fields undefined on a node reached by keyboard
+    // and populated on the same node reached by click — nothing reads them
+    // today, and the next reader of `evidenceNode` would get `undefined` with
+    // no type error to warn them.
+    const node = nodesRef.current.find((n) => n.id === name);
+    if (node) setEvidenceNode(node);
+  };
 
   // Ego node name for banner
   const egoEntity = egoNodeId
@@ -1697,6 +1729,8 @@ export function GraphTab() {
             placeholder={t('graph.search')}
             value={searchQuery}
             onInput={(e) => setSearchQuery((e.target as HTMLInputElement).value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') selectSoleMatch(); }}
+            aria-describedby="graph-search-hint"
             style={{
               flex: '1 1 160px',
               minWidth: 120,
@@ -1712,6 +1746,8 @@ export function GraphTab() {
           />
           {searchQuery && (
             <span
+              id="graph-search-hint"
+              role="status"
               style={{
                 fontSize: 11,
                 fontFamily: 'var(--mono)',
@@ -1719,6 +1755,9 @@ export function GraphTab() {
               }}
             >
               {matchCount} {t('graph.matches')}
+              {/* The hint appears exactly when the action is available, so it
+                  never promises something Enter will not do. */}
+              {matchCount === 1 && ` — ${t('graph.enterToOpen')}`}
             </span>
           )}
           <button

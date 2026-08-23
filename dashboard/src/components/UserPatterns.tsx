@@ -7,7 +7,7 @@ interface Props {
 }
 
 export function UserPatterns({ data }: Props) {
-  const { workSchedule, toolPreferences, focusAreas, workflow, strengths, learningAreas } = data;
+  const { workSchedule, focusAreas, workflow, strengths, learningAreas } = data;
 
   // Build hour heatmap data (0-23)
   const hourMap = new Map<number, number>();
@@ -81,33 +81,6 @@ export function UserPatterns({ data }: Props) {
         </div>
       </div>
 
-      {/* Top Tools */}
-      {toolPreferences.length > 0 && (
-        <div style={{ marginBottom: 16 }}>
-          <div style={{
-            fontSize: 11,
-            fontWeight: 600,
-            color: 'var(--text-3)',
-            textTransform: 'uppercase',
-            letterSpacing: '.06em',
-            marginBottom: 8,
-          }}>
-            {t('patterns.tools')}
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {toolPreferences.slice(0, 10).map((tp) => (
-              <span
-                key={tp.tool}
-                class="tag"
-                style={{ fontSize: 11, padding: '2px 8px' }}
-              >
-                {tp.tool} <span style={{ opacity: 0.5 }}>({tp.sessions})</span>
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* Workflow Stats */}
       <div style={{ marginBottom: 16 }}>
         <div style={{
@@ -121,12 +94,6 @@ export function UserPatterns({ data }: Props) {
           {t('patterns.workflow')}
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-          <div class="stat" style={{ padding: 12 }}>
-            <div class="stat-val" style={{ fontSize: 18 }}>
-              {workflow.avgSessionMinutes > 0 ? `${Math.round(workflow.avgSessionMinutes)}m` : '—'}
-            </div>
-            <div class="stat-lbl">{t('patterns.avgSession')}</div>
-          </div>
           <div class="stat" style={{ padding: 12 }}>
             <div class="stat-val" style={{ fontSize: 18 }}>
               {workflow.totalSessions > 0 ? workflow.commitsPerSession.toFixed(1) : '—'}

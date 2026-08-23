@@ -10,16 +10,11 @@ export interface PatternsResult {
             count: number;
         }>;
     };
-    toolPreferences: Array<{
-        tool: string;
-        sessions: number;
-    }>;
     focusAreas: Array<{
         type: string;
         count: number;
     }>;
     workflow: {
-        avgSessionMinutes: number;
         commitsPerSession: number;
         totalSessions: number;
         totalCommits: number;

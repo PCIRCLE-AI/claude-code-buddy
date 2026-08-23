@@ -87,6 +87,49 @@ describe('the census reads a live database', () => {
     expect(find(signals, 'entities.total').value).toContain('3');
   });
 
+  it('names every probe the script emits, so none can go quiet unnoticed', () => {
+    // `signals.length > 3` was the only structural assertion, and three of
+    // the six probes were never named by any test. A probe that stopped
+    // emitting — a renamed column, a query that started throwing into the
+    // `?? {}` fallback — would take its line out of the census with the
+    // suite green, which is precisely the class of silence this tool exists
+    // to expose. If it can happen to what it measures, it can happen to it.
+    seed({ citation_sessions_total: '4', citation_sessions_cited: '1' }, 3);
+    const { signals } = census();
+    const names = signals.map((sig) => sig.name);
+
+    for (const probe of [
+      'entities.total',
+      'entities.access_count',
+      'entities.recall_hits',
+      'citation.sessions',
+      'hooks.runs',
+    ]) {
+      expect(names, `the ${probe} probe emitted nothing`).toContain(probe);
+    }
+  });
+
+  it('reads the counters it reports, rather than reporting a constant', () => {
+    // Each of the three probes that had no assertion, given a value only the
+    // database could supply.
+    seed({ citation_sessions_total: '7', citation_sessions_cited: '2' }, 5);
+    const db = new Database(dbPath);
+    db.prepare('UPDATE entities SET access_count = 3, recall_hits = 4 WHERE name = ?').run('e0');
+    db.prepare("INSERT OR REPLACE INTO hook_runs (hook, last_run_at) VALUES ('session-summary', '2026-08-24 01:00:00')").run();
+    db.close();
+
+    const { signals } = census();
+
+    expect(find(signals, 'entities.access_count').value,
+      'the access probe did not read access_count').toContain('1/5');
+    expect(find(signals, 'entities.recall_hits').value,
+      'the recall-hits probe did not read recall_hits').toContain('4 hits');
+    expect(find(signals, 'citation.sessions').value,
+      'the citation probe did not read the counters').toContain('7');
+    expect(find(signals, 'hooks.session-summary').value,
+      'the hook probe did not read hook_runs').toContain('2026-08-24');
+  });
+
   it('refuses a database path that does not exist, rather than reporting zeroes', () => {
     // Reporting "0 signals, all healthy" for a missing file is the failure
     // mode this whole tool exists to remove.

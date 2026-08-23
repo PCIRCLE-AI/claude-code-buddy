@@ -1,10 +1,14 @@
 import { getDatabase } from '../db.js';
 import { KnowledgeGraph } from '../knowledge-graph.js';
 import { truncateTitle } from './title.js';
+import { parseSqliteUtcMs } from './time-utils.js';
 import { NAMESPACES } from './types.js';
 function buildImportedMetadata(existingMetadata, args) {
+    const { guard: _guard, ...bundledSafe } = (args.bundled ?? {});
+    void _guard;
     return {
         ...(existingMetadata ?? {}),
+        ...bundledSafe,
         trust: 'untrusted',
         provenance: {
             ...(existingMetadata?.provenance ?? {}),
@@ -19,21 +23,29 @@ function buildImportedMetadata(existingMetadata, args) {
 export function exportMemories(args) {
     const db = getDatabase();
     const kg = new KnowledgeGraph(db);
+    const limit = args.limit || 1000;
     const entities = kg.search(undefined, {
         tag: args.tag,
-        limit: args.limit || 1000,
-        includeArchived: false,
+        limit: limit + 1,
+        includeArchived: true,
         namespace: args.namespace,
+        countAsAccess: false,
     });
+    const truncated = entities.length > limit;
+    const exported = truncated ? entities.slice(0, limit) : entities;
     return {
-        version: '3.0.0',
+        version: '3.1.0',
         exported_at: new Date().toISOString(),
-        entity_count: entities.length,
-        entities: entities.map((e) => ({
+        entity_count: exported.length,
+        truncated,
+        entities: exported.map((e) => ({
             name: e.name,
             type: e.type,
             title: e.title ?? null,
             namespace: e.namespace ?? 'personal',
+            created_at: e.created_at,
+            ...(e.archived ? { status: 'archived' } : {}),
+            ...(e.metadata ? { metadata: e.metadata } : {}),
             observations: e.observations,
             tags: e.tags,
             relations: (e.relations || []).map((r) => ({ to: r.to, type: r.type })),
@@ -79,9 +91,13 @@ export function importMemories(args) {
     const db = getDatabase();
     const kg = new KnowledgeGraph(db);
     let imported = 0;
+    const pendingRelations = [];
     let skipped = 0;
     let appended = 0;
     const errors = [];
+    const skippedRelations = [];
+    const setCreatedAt = db.prepare('UPDATE entities SET created_at = ? WHERE name = ?');
+    const entityExists = db.prepare('SELECT 1 FROM entities WHERE name = ?');
     for (const [index, entity] of args.data.entities.entries()) {
         const invalid = describeInvalidEntity(entity, index);
         if (invalid) {
@@ -96,6 +112,7 @@ export function importMemories(args) {
                 : undefined;
             const namespace = args.namespace ?? (existing ? undefined : (entity.namespace || 'personal'));
             const importedMetadata = buildImportedMetadata(existing?.metadata, {
+                bundled: entity.metadata,
                 exportedAt: args.data.exported_at,
                 importVersion: args.data.version,
                 mergeStrategy: args.merge_strategy,
@@ -131,10 +148,18 @@ export function importMemories(args) {
                 kg.updateEntityMetadata(entity.name, (current) => ({ ...current, ...importedMetadata }));
             }
             for (const rel of entity.relations || []) {
-                try {
-                    kg.createRelation(entity.name, rel.to, rel.type);
+                pendingRelations.push({ from: entity.name, to: rel.to, type: rel.type });
+            }
+            if (!existing) {
+                const bundledCreatedAt = entity.created_at;
+                const bundledMs = typeof bundledCreatedAt === 'string'
+                    ? parseSqliteUtcMs(bundledCreatedAt)
+                    : null;
+                if (bundledMs !== null) {
+                    setCreatedAt.run(new Date(bundledMs).toISOString().replace('T', ' ').slice(0, 19), entity.name);
                 }
-                catch {
+                if (entity.status === 'archived') {
+                    kg.archiveEntity(entity.name);
                 }
             }
             imported++;
@@ -143,6 +168,19 @@ export function importMemories(args) {
             errors.push(`${entity.name}: ${err instanceof Error ? err.message : String(err)}`);
         }
     }
-    return { imported, skipped, appended, errors };
+    for (const rel of pendingRelations) {
+        if (!entityExists.get(rel.to)) {
+            skippedRelations.push(`${rel.from} -${rel.type}-> ${rel.to}`);
+            continue;
+        }
+        try {
+            kg.createRelation(rel.from, rel.to, rel.type);
+        }
+        catch (err) {
+            errors.push(`${rel.from} -${rel.type}-> ${rel.to}: relation not restored `
+                + `(${err instanceof Error ? err.message : String(err)})`);
+        }
+    }
+    return { imported, skipped, appended, errors, skipped_relations: skippedRelations };
 }
 //# sourceMappingURL=serializer.js.map

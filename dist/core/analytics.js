@@ -169,7 +169,7 @@ export function computePmAnalytics(db, windowDays = 30) {
      AND created_at >= datetime('now', '-' || ? || ' days')`).get(windowDays).n;
     const stalePlans = db.prepare(`SELECT COUNT(*) AS n FROM entities
      WHERE type='plan' AND status='active'
-       AND (last_accessed_at IS NULL OR last_accessed_at < datetime('now', '-30 days'))`).get().n;
+       AND (last_accessed_at IS NULL OR datetime(last_accessed_at) < datetime('now', '-30 days'))`).get().n;
     const openDecisions = db.prepare(`SELECT COUNT(*) AS n FROM entities e
      WHERE e.type='decision' AND e.status='active'
        AND e.created_at < datetime('now', '-14 days')

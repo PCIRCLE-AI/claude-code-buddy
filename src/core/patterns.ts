@@ -18,10 +18,8 @@ export interface PatternsResult {
     // Names are presentation — each transport localises dayNum itself.
     dayDistribution: Array<{ dayNum: number; count: number }>;
   };
-  toolPreferences: Array<{ tool: string; sessions: number }>;
   focusAreas: Array<{ type: string; count: number }>;
   workflow: {
-    avgSessionMinutes: number;
     commitsPerSession: number;
     totalSessions: number;
     totalCommits: number;
@@ -62,33 +60,6 @@ export function computePatterns(db: MemeshDatabase, categories?: string[]): Patt
     `).all() as Array<{ dayNum: number; count: number }>;
   }
 
-  // --- Tool Preferences ---
-  let toolPreferences: Array<{ tool: string; sessions: number }> = [];
-
-  if (allCategories || categories!.includes('toolPreferences')) {
-    const sessionObs = db.prepare(`
-      SELECT o.content FROM observations o
-      JOIN entities e ON o.entity_id = e.id
-      WHERE e.type IN ('session_keypoint', 'session-insight') AND o.content LIKE '[FOCUS]%'
-      LIMIT 500
-    `).all() as Array<{ content: string }>;
-
-    const toolCounts: Record<string, number> = {};
-    for (const row of sessionObs) {
-      const match = row.content.match(/Top tools: (.+)/);
-      if (match) {
-        for (const part of match[1].split(', ')) {
-          const name = part.split('(')[0].trim();
-          if (name) toolCounts[name] = (toolCounts[name] || 0) + 1;
-        }
-      }
-    }
-    toolPreferences = Object.entries(toolCounts)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10)
-      .map(([tool, sessions]) => ({ tool, sessions }));
-  }
-
   // --- Focus Areas ---
   let focusAreas: Array<{ type: string; count: number }> = [];
 
@@ -101,30 +72,11 @@ export function computePatterns(db: MemeshDatabase, categories?: string[]): Patt
   }
 
   // --- Workflow ---
-  let avgSessionMinutes = 0;
   let commitsPerSession = 0;
   let totalSessions = 0;
   let totalCommits = 0;
 
   if (allCategories || categories!.includes('workflow')) {
-    const sessionDurations = db.prepare(`
-      SELECT o.content FROM observations o
-      JOIN entities e ON o.entity_id = e.id
-      WHERE e.type IN ('session_keypoint', 'session-insight') AND o.content LIKE '[SESSION]%'
-      LIMIT 200
-    `).all() as Array<{ content: string }>;
-
-    let totalMinutes = 0;
-    let sessionCount = 0;
-    for (const row of sessionDurations) {
-      const match = row.content.match(/Duration: (\d+)m/);
-      if (match) {
-        totalMinutes += parseInt(match[1]);
-        sessionCount++;
-      }
-    }
-    avgSessionMinutes = sessionCount > 0 ? Math.round(totalMinutes / sessionCount) : 0;
-
     totalCommits = (db.prepare(
       "SELECT COUNT(*) as c FROM entities WHERE type = 'commit'"
     ).get() as { c: number }).c;
@@ -162,9 +114,8 @@ export function computePatterns(db: MemeshDatabase, categories?: string[]): Patt
 
   return {
     workSchedule: { hourDistribution, dayDistribution },
-    toolPreferences,
     focusAreas,
-    workflow: { avgSessionMinutes, commitsPerSession, totalSessions, totalCommits },
+    workflow: { commitsPerSession, totalSessions, totalCommits },
     strengths,
     learningAreas,
   };

@@ -17,6 +17,7 @@ import path from 'path';
 const require = createRequire(import.meta.url);
 // _shared.js is plain JS with no type declarations.
 const shared = require('../../scripts/hooks/_shared.js');
+import { TITLE_MAX_LENGTH } from '../../src/core/title.js';
 
 describe('write-hook invariants (fake-working gates)', () => {
   let tmpDir: string;
@@ -141,9 +142,53 @@ describe('write-hook invariants (fake-working gates)', () => {
     // session-summary.test.ts, pre-compact.test.ts assert the written row);
     // this grep only guards the shared length cap, which the row assertions
     // cannot see unless the fixture text happens to be long.
-    for (const hook of ['session-summary.js', 'post-commit.js', 'pre-compact.js']) {
+    // COUNTED, not merely present. `session-summary.js` writes three titles
+    // — the edited-files entity, the fixes entity, the heavy-session summary
+    // — and a single `toMatch(/truncateTitle\(/)` is satisfied by any one of
+    // them, so two could lose the cap with this test green.
+    //
+    // The expected count is written down per hook rather than derived from
+    // the source, because every derivation available here is a second regex
+    // over the same file and would drift with it. A hook that grows a fourth
+    // title is a visible edit HERE, which is the point: the number is the
+    // reviewer's checklist, not a computed tautology.
+    const TITLE_SITES: Record<string, number> = {
+      'session-summary.js': 3,
+      'post-commit.js': 1,
+      'pre-compact.js': 1,
+    };
+    for (const [hook, expected] of Object.entries(TITLE_SITES)) {
       const src = fs.readFileSync(path.join('scripts/hooks', hook), 'utf8');
-      expect(src, `${hook} must cap its title via the shared truncateTitle`).toMatch(/truncateTitle\(/);
+      const capped = (src.match(/truncateTitle\(/g) ?? []).length;
+      expect(
+        capped,
+        `${hook} caps ${capped} title(s); ${expected} are written. Either a title lost its `
+        + 'cap, or a new one arrived and this count needs updating with it.',
+      ).toBe(expected);
+    }
+  });
+
+  it('the cap is REAL: a long title is truncated at the boundary', () => {
+    // The structural check above proves each site calls `truncateTitle`. It
+    // cannot prove the function still truncates — the file comment says the
+    // per-hook row assertions miss it "unless the fixture text happens to be
+    // long", and none of their fixtures are. This one is.
+    const { db } = shared.openHookDb({ ...process.env, MEMESH_DB_PATH: dbPath }, { fts: true });
+    try {
+      const longTitle = 'x'.repeat(TITLE_MAX_LENGTH + 500);
+      shared.captureEntity(db, {
+        name: 'long-title-entity',
+        type: 'note',
+        observations: ['a fact'],
+        title: shared.truncateTitle(longTitle),
+      });
+      const row = db.prepare('SELECT title FROM entities WHERE name = ?')
+        .get('long-title-entity') as { title: string };
+      expect(row.title.length, 'the cap did not cap').toBeLessThanOrEqual(TITLE_MAX_LENGTH);
+      expect(row.title.length, 'the cap threw the title away instead of trimming it')
+        .toBeGreaterThan(TITLE_MAX_LENGTH / 2);
+    } finally {
+      db.close();
     }
   });
 

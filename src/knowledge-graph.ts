@@ -299,6 +299,31 @@ export class KnowledgeGraph {
       trustOverride?: 'trusted' | 'untrusted';
     }
   ): number {
+    // One transaction, for the same reason `archiveEntity`, `deleteEntity`
+    // and `clearEntityData` have one — and this is the writer that matters
+    // most, because it is the one every surface uses.
+    //
+    // The body below performs the same six-write sequence the hooks'
+    // `captureEntity` does: the entity row, a confidence update, the
+    // observations, the tags, and the contentless-FTS delete + insert that
+    // make them findable. In autocommit a throw in the middle commits the
+    // prefix, and the two likely resting places are both invisible —
+    // observations with no FTS row (a memory that exists and can never be
+    // recalled), or the old FTS row deleted and the new one not written. The
+    // `INSERT OR IGNORE` on the entity name then makes it permanent: the next
+    // write reports "already there" and never repairs the rest.
+    //
+    // Safe to nest: `MemeshDatabase` tracks depth and turns an inner
+    // transaction into a SAVEPOINT, so `createEntitiesBatch`'s outer
+    // transaction and the import/dreamer callers keep working unchanged.
+    return this.db.transaction(() => this.createEntityInner(name, type, opts))();
+  }
+
+  private createEntityInner(
+    name: string,
+    type: string,
+    opts?: Parameters<KnowledgeGraph['createEntity']>[2],
+  ): number {
     // Phase-1 of #39 (signal scorer): every entity gets a rule-based
     // signal_score at creation time so the dashboard can default-hide
     // empty session_keypoints, mechanical commits, and other captured
@@ -527,7 +552,7 @@ export class KnowledgeGraph {
   getEntity(name: string): Entity | null {
     const row = this.db
       .prepare(
-        'SELECT id, name, title, type, created_at, metadata, status, access_count, last_accessed_at, confidence, namespace FROM entities WHERE name = ?'
+        'SELECT id, name, title, type, created_at, metadata, status, access_count, last_accessed_at, confidence, namespace, recall_hits, recall_misses FROM entities WHERE name = ?'
       )
       .get(name) as EntityRow | undefined;
 
@@ -559,6 +584,8 @@ export class KnowledgeGraph {
       access_count: row.access_count ?? 0,
       last_accessed_at: row.last_accessed_at ?? undefined,
       confidence: row.confidence ?? 1.0,
+      recall_hits: row.recall_hits ?? 0,
+      recall_misses: row.recall_misses ?? 0,
       namespace: row.namespace ?? 'personal',
     };
   }
@@ -581,7 +608,14 @@ export class KnowledgeGraph {
     // Batch query 1: entities
     const entityRows = this.db
       .prepare(
-        `SELECT id, name, title, type, created_at, metadata, status, access_count, last_accessed_at, confidence, namespace
+        // `recall_hits` / `recall_misses` are selected because `rankEntities`
+        // reads them. Without them the hydrator handed the scorer `undefined`
+        // for both, `impactScore(0 ?? 0, 0 ?? 0)` returned 0.5 for every row,
+        // and the impact factor — 10% of the ranking — was a constant. On a
+        // real graph the true range is 0.037 to 0.750. `briefing.ts` hydrates
+        // them and got real values; the recall path did not, so one scorer
+        // behaved differently depending on who called it.
+        `SELECT id, name, title, type, created_at, metadata, status, access_count, last_accessed_at, confidence, namespace, recall_hits, recall_misses
          FROM entities WHERE id IN (${placeholders}) ${statusFilter} ${namespaceFilter}`
       )
       .all(...params) as EntityRow[];
@@ -663,6 +697,8 @@ export class KnowledgeGraph {
         relations: relations.length > 0 ? relations : undefined,
         ...(row.status === 'archived' ? { archived: true } : {}),
         access_count: row.access_count ?? 0,
+        recall_hits: row.recall_hits ?? 0,
+        recall_misses: row.recall_misses ?? 0,
         last_accessed_at: row.last_accessed_at ?? undefined,
         confidence: row.confidence ?? 1.0,
         namespace: row.namespace ?? 'personal',
@@ -693,11 +729,13 @@ export class KnowledgeGraph {
   search(query?: string, opts?: SearchOptions): Entity[] {
     const limit = opts?.limit ?? 20;
 
+    const countAsAccess = opts?.countAsAccess ?? true;
+
     if (!query || query.trim() === '') {
       if (opts?.tag) {
-        return this.listRecentByTag(opts.tag, limit, opts?.includeArchived, opts?.namespace);
+        return this.listRecentByTag(opts.tag, limit, opts?.includeArchived, opts?.namespace, countAsAccess);
       }
-      return this.listRecent(limit, opts?.includeArchived, opts?.namespace);
+      return this.listRecent(limit, opts?.includeArchived, opts?.namespace, countAsAccess);
     }
 
     // Terms are OR-ed, not space-separated. A space is FTS5's implicit AND,
@@ -840,11 +878,10 @@ export class KnowledgeGraph {
       results.push(...archivedEntities);
     }
 
-    const entityIds = results.map((e) => e.id);
     // Access only. `recall_hits` belongs to the Stop hook, which is the one
     // place that can tell whether an injected memory was USED — see
     // storage/conflicts.ts::trackAccess.
-    this.trackAccess(entityIds);
+    if (countAsAccess) this.trackAccess(results.map((e) => e.id));
     return results;
   }
 
@@ -865,7 +902,7 @@ export class KnowledgeGraph {
     return findConflicts(this.db, entityNames);
   }
 
-  listRecent(limit?: number, includeArchived?: boolean, namespace?: string): Entity[] {
+  listRecent(limit?: number, includeArchived?: boolean, namespace?: string, countAsAccess = true): Entity[] {
     const statusFilter = includeArchived ? '' : "AND status = 'active'";
     const namespaceFilter = namespace ? 'AND namespace = ?' : '';
     const params: (string | number)[] = [];
@@ -883,7 +920,7 @@ export class KnowledgeGraph {
       { includeArchived, namespace }
     );
 
-    this.trackAccess(results.map((e) => e.id));
+    if (countAsAccess) this.trackAccess(results.map((e) => e.id));
     return results;
   }
 
@@ -909,7 +946,7 @@ export class KnowledgeGraph {
     );
   }
 
-  private listRecentByTag(tag: string, limit: number, includeArchived?: boolean, namespace?: string): Entity[] {
+  private listRecentByTag(tag: string, limit: number, includeArchived?: boolean, namespace?: string, countAsAccess = true): Entity[] {
     const statusFilter = includeArchived ? '' : "AND e.status = 'active'";
     const namespaceFilter = namespace ? 'AND e.namespace = ?' : '';
     const params: (string | number)[] = [tag];
@@ -934,7 +971,7 @@ export class KnowledgeGraph {
       { includeArchived, namespace }
     );
 
-    this.trackAccess(results.map((e) => e.id));
+    if (countAsAccess) this.trackAccess(results.map((e) => e.id));
     return results;
   }
 
@@ -942,6 +979,19 @@ export class KnowledgeGraph {
    * Clear all observations and tags for an entity without deleting the entity row.
    * Used by overwrite import to start fresh before re-adding data.
    */
+  /**
+   * Drop an entity's row from the vector index, if this process has one.
+   *
+   * Asked rather than caught: a bare `try {} catch {}` here would swallow a
+   * real delete failure on a database that genuinely HAS an index, and this
+   * runs on the three paths that invalidate an entity's text — archive,
+   * delete, and clear.
+   */
+  private removeVectorRow(id: number): void {
+    if (!hasVectorIndex(this.db)) return;
+    this.db.prepare('DELETE FROM entities_vec WHERE rowid = ?').run(BigInt(id));
+  }
+
   clearEntityData(name: string): void {
     const row = this.db
       .prepare('SELECT id, title FROM entities WHERE name = ?')
@@ -958,11 +1008,30 @@ export class KnowledgeGraph {
     // class absorbs the miss.
     const prevObsText = indexedObservationText(this.db, row.id);
 
-    this.db.prepare('DELETE FROM observations WHERE entity_id = ?').run(row.id);
-    this.db.prepare('DELETE FROM tags WHERE entity_id = ?').run(row.id);
-    // Rebuild FTS with empty content (removes old indexed text). title is
-    // untouched by this method, so the same value goes in on both sides.
-    this.rebuildFts(row.id, name, prevObsText, row.title);
+    // One transaction, for the same reason archiveEntity has one: these four
+    // writes are a single act. A throw between the observation delete and the
+    // FTS rebuild leaves indexed text for observations that are gone —
+    // keyword search answering for content nobody can read.
+    this.db.transaction(() => {
+      this.db.prepare('DELETE FROM observations WHERE entity_id = ?').run(row.id);
+      this.db.prepare('DELETE FROM tags WHERE entity_id = ?').run(row.id);
+      // Rebuild FTS with empty content (removes old indexed text). title is
+      // untouched by this method, so the same value goes in on both sides.
+      this.rebuildFts(row.id, name, prevObsText, row.title);
+      // And drop the vector, for the same reason the FTS text is dropped: it
+      // encodes observations that no longer exist. The keyword index was
+      // cleared here from the start; the vector was not, so every caller of
+      // this method — `--merge overwrite` on import, and the memory tool's
+      // `rewriteObservations` — left the entity semantically matching its OLD
+      // text. A memory edited to say the opposite of what it used to say
+      // still came back for the old query, with the new text attached.
+      //
+      // Deleted rather than re-embedded: embedding is a network call and this
+      // is a synchronous graph mutation. NO vector is a state the system
+      // already knows how to see (`countMissingVectors`) and already knows
+      // how to fix (`memesh reindex`); a WRONG vector is neither.
+      this.removeVectorRow(row.id);
+    })();
   }
 
   archiveEntity(name: string): { archived: boolean; name?: string; previousStatus?: string } {
@@ -972,24 +1041,30 @@ export class KnowledgeGraph {
 
     if (!row) return { archived: false };
 
-    // Remove from FTS5 index (archived entities should not be searchable)
-    removeFromFts(this.db, row.id, name, indexedObservationText(this.db, row.id), row.title);
-
-    // CRITICAL: Remove from vector index (archived entities should not be retrievable via vector search)
+    // One transaction, because a partial archive is worse than a failed one.
     //
-    // Asked rather than caught: when sqlite-vec is not loaded the table does
-    // not exist, and a bare catch would swallow that indistinguishably from a
-    // real delete failure on a database that DOES have an index.
-    if (hasVectorIndex(this.db)) {
-      this.db
-        .prepare('DELETE FROM entities_vec WHERE rowid = ?')
-        .run(BigInt(row.id));
-    }
+    // These ran in autocommit. The FTS delete committed, the vector delete
+    // threw `no such module: vec0` (see hasVectorIndex — the catalogue check
+    // could not tell a loaded extension from a leftover table row), and the
+    // status update never ran. The memory was left ACTIVE and unindexed:
+    // invisible to keyword search, invisible to the archived-supplement
+    // branch (which filters on status='archived'), and invisible to
+    // `includeArchived`. Retrying threw again forever. Only `reindex --fts`
+    // recovered it, and nothing told the user it existed.
+    //
+    // hasVectorIndex now answers the process question, so the throw should
+    // not recur — but the atomicity is what makes a future throw survivable
+    // rather than data-destroying, and that is worth having independently.
+    const observationText = indexedObservationText(this.db, row.id);
+    this.db.transaction(() => {
+      removeFromFts(this.db, row.id, name, observationText, row.title);
 
-    // Set status to archived
-    this.db
-      .prepare("UPDATE entities SET status = 'archived' WHERE id = ?")
-      .run(row.id);
+      this.removeVectorRow(row.id);
+
+      this.db
+        .prepare("UPDATE entities SET status = 'archived' WHERE id = ?")
+        .run(row.id);
+    }).immediate();
 
     return { archived: true, name, previousStatus: row.status };
   }
@@ -1056,18 +1131,21 @@ export class KnowledgeGraph {
 
     // Delete FTS entry first (contentless FTS5 requires the original
     // indexed values to find the row — see storage/fts-index.ts).
-    removeFromFts(this.db, row.id, name, indexedObservationText(this.db, row.id), row.title);
+    // One transaction, same reason as archiveEntity: in autocommit the FTS
+    // delete committed and a throw on the vector delete left the entity row
+    // in place but out of the index — a permanent orphan that no search could
+    // reach and no retry could clear.
+    const observationText = indexedObservationText(this.db, row.id);
+    this.db.transaction(() => {
+      removeFromFts(this.db, row.id, name, observationText, row.title);
 
-    // Delete vec entry — mirror archiveEntity's cleanup so hard
-    // delete doesn't leak orphan embeddings.
-    if (hasVectorIndex(this.db)) {
-      this.db
-        .prepare('DELETE FROM entities_vec WHERE rowid = ?')
-        .run(BigInt(row.id));
-    }
+      // Mirror archiveEntity's cleanup so a hard delete does not leak orphan
+      // embeddings.
+      this.removeVectorRow(row.id);
 
-    // Delete entity (CASCADE handles observations, relations, tags)
-    this.db.prepare('DELETE FROM entities WHERE id = ?').run(row.id);
+      // CASCADE handles observations, relations, tags.
+      this.db.prepare('DELETE FROM entities WHERE id = ?').run(row.id);
+    }).immediate();
 
     return { deleted: true };
   }

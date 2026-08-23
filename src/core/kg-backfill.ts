@@ -489,9 +489,17 @@ export function proposeBackfillCandidates(opts: BackfillOptions = {}, db?: Memes
     }
     list.push({ id: r.id, name: r.name, type: r.type, created_at: r.created_at });
   }
-  // Sort each project's anchors by recency, newest first
+  // Sort each project's anchors by recency, newest first.
+  //
+  // Through `parseSqliteUtcMs`, not `localeCompare`. `created_at` genuinely
+  // holds two formats: rows written by the graph carry SQLite's
+  // 'YYYY-MM-DD HH:MM:SS', rows written by `import` carry whatever ISO string
+  // the export file had. Comparing them as TEXT orders every ISO row after
+  // every SQLite row from the same second, because the separator differs —
+  // so an imported anchor always looked newer than a locally-written one.
+  // Rule 5 below already uses this helper; Rule 2 was the one left behind.
   for (const list of anchorsByProject.values()) {
-    list.sort((a, b) => b.created_at.localeCompare(a.created_at));
+    list.sort((a, b) => (parseSqliteUtcMs(b.created_at) ?? -Infinity) - (parseSqliteUtcMs(a.created_at) ?? -Infinity));
   }
 
   // Map orphan id -> project tag (if any)

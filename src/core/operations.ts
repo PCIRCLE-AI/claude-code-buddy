@@ -484,8 +484,15 @@ export function forget(args: ForgetInput): ForgetResult {
   const db = getDatabase();
   const kg = new KnowledgeGraph(db);
 
-  // Observation-level forget: remove specific observation, keep entity active
-  if (args.observation) {
+  // Observation-level forget: remove specific observation, keep entity active.
+  //
+  // `!== undefined`, not truthiness. `""` is a PRESENT selector, and treating
+  // it as absent sent a request scoped to one observation into the branch that
+  // archives the whole memory — reported as `{archived:true}`, which does not
+  // even mention the observation the caller targeted. The schema now rejects
+  // an empty string outright (`.min(1)`), so this branch and that one are the
+  // only two states left: a selector was given, or it was not.
+  if (args.observation !== undefined) {
     const result = kg.removeObservation(args.name, args.observation);
     return {
       observation_removed: result.removed,
@@ -621,7 +628,7 @@ export interface ReindexResult {
  * Unscoped, it decides `pending_reindex`, which describes the whole database —
  * reindexing one namespace must not clear a flag the others still justify.
  */
-function countMissingVectors(
+export function countMissingVectors(
   db: ReturnType<typeof getDatabase>,
   namespace?: string
 ): number {

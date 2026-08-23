@@ -52,16 +52,49 @@ function isPluginMarketplacePath(packageRoot: string): boolean {
   return packageRoot.includes(segment);
 }
 
+/**
+ * Where a global install lives, derived from the running Node binary.
+ *
+ * npm puts global packages at `<prefix>/lib/node_modules` on POSIX and
+ * `<prefix>/node_modules` on Windows, and `<prefix>` is the directory two
+ * levels above `node` itself (`<prefix>/bin/node`). That holds for nvm,
+ * Volta, Homebrew, fnm, Docker images and a plain system install alike,
+ * because they all place `node` and the global module tree under one prefix.
+ *
+ * `execPathImpl` is a parameter for the same reason the others are: so a
+ * test can describe a layout without owning the machine's.
+ */
+function derivedGlobalNpmRoot(execPath: string): string {
+  const prefix = path.dirname(path.dirname(execPath));
+  return process.platform === 'win32'
+    ? path.join(prefix, 'node_modules')
+    : path.join(prefix, 'lib', 'node_modules');
+}
+
+/**
+ * `npm root -g`, with a fallback for the case where npm is not reachable.
+ *
+ * The spawn is authoritative when it works — it honours `prefix` from
+ * `.npmrc`, which nothing derivable can see. But it fails whenever `npm` is
+ * not on PATH, and that is not exotic: Claude Code launched from a GUI app,
+ * or a shell where the version manager's shim has not been sourced, both
+ * produce a minimal PATH with `node` present and `npm` absent. The whole
+ * detection then fell through to `unknown`, and `memesh update` refused to
+ * run on a genuine npm-global install with "cannot self-update from this
+ * install method".
+ */
 export function getGlobalNpmRoot(
-  options: { execFileSyncImpl?: ExecFileSyncLike } = {},
-): string | null {
-  const { execFileSyncImpl = execFileSync } = options;
+  options: { execFileSyncImpl?: ExecFileSyncLike; execPathImpl?: string } = {},
+): string {
+  const { execFileSyncImpl = execFileSync, execPathImpl = process.execPath } = options;
 
   try {
-    return execFileSyncImpl('npm', ['root', '-g'], { encoding: 'utf8' }).trim() || null;
+    const spawned = execFileSyncImpl('npm', ['root', '-g'], { encoding: 'utf8' }).trim();
+    if (spawned) return spawned;
   } catch {
-    return null;
+    // npm is not reachable from this process — fall through to the layout.
   }
+  return derivedGlobalNpmRoot(execPathImpl);
 }
 
 export function detectInstallChannel(options: DetectInstallChannelOptions): InstallChannel {

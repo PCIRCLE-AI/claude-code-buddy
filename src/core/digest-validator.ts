@@ -145,15 +145,24 @@ export async function validateDigest(
  * and so a future caller can re-parse a stored rawResponse without
  * re-running the LLM.
  *
- * Defaults to pass on:
+ * Answers `unavailable` — not `pass` — when the body cannot be read:
  * - missing JSON object
  * - JSON parse error
  * - missing/unknown verdict
  * - non-array suspicious field
+ *
+ * This used to default to `pass`, and the caller thirty lines above already
+ * explains why that is wrong: "'pass' means I checked and every claim is
+ * supported; this is 'I could not check at all'. Reporting the second as the
+ * first is how a validation gate becomes decoration." That reasoning was
+ * applied to the LLM being UNREACHABLE and not to the LLM answering with
+ * something unreadable — the more likely of the two, since a model that
+ * drifts off the JSON format does so silently. Both now report the same
+ * thing, and neither blocks: `dreamer` skips only on `reject`.
  */
 export function parseValidatorResponse(text: string): ValidationResult {
   const fallback: ValidationResult = {
-    status: 'pass',
+    status: 'unavailable',
     suspiciousClaims: [],
     rawResponse: text,
   };
@@ -176,9 +185,12 @@ export function parseValidatorResponse(text: string): ValidationResult {
   if (o.verdict === 'reject' || o.verdict === 'soften' || o.verdict === 'pass') {
     status = o.verdict;
   } else {
-    // Unknown / missing verdict → don't block the digest. The whole
-    // point of this validator is to be a soft check, not a hard gate.
-    status = 'pass';
+    // Unknown / missing verdict → the body parsed, but it did not judge
+    // anything. Still doesn't block the digest — this validator is a soft
+    // check, not a hard gate, and only `reject` skips — but it is not
+    // `pass` either: `pass` claims a check happened and found the claims
+    // supported. Same distinction the unreachable-LLM branch already draws.
+    status = 'unavailable';
   }
 
   let suspiciousClaims: SuspiciousClaim[] = [];
@@ -197,8 +209,9 @@ export function parseValidatorResponse(text: string): ValidationResult {
 
   // If verdict says "soften" / "reject" but there are no claims, drop
   // back to pass — a verdict without supporting evidence is useless
-  // and likely a misfire.
-  if (status !== 'pass' && suspiciousClaims.length === 0) {
+  // and likely a misfire. `unavailable` is left alone: it is not a verdict
+  // that came without evidence, it is the absence of a verdict.
+  if ((status === 'soften' || status === 'reject') && suspiciousClaims.length === 0) {
     status = 'pass';
   }
 

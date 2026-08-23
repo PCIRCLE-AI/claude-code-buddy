@@ -77,11 +77,9 @@ export function isPatternsRenderable(p: PatternsData | null): p is PatternsData 
   return (
     Array.isArray(p?.workSchedule?.hourDistribution) &&
     Array.isArray(p.workSchedule?.dayDistribution) &&
-    Array.isArray(p.toolPreferences) &&
     Array.isArray(p.focusAreas) &&
     Array.isArray(p.strengths) &&
     Array.isArray(p.learningAreas) &&
-    typeof p.workflow?.avgSessionMinutes === 'number' &&
     typeof p.workflow?.totalSessions === 'number' &&
     typeof p.workflow?.commitsPerSession === 'number'
   );

@@ -69,7 +69,7 @@ export function decideAutoUpdate(input) {
             deprecationOverride: false,
         };
     }
-    if (currentVersionDeprecated && bump === 'patch') {
+    if (currentVersionDeprecated && bump === 'patch' && policy !== 'off') {
         return {
             shouldUpdate: true,
             bump,

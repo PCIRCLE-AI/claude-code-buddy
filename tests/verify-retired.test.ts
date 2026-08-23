@@ -12,12 +12,14 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
+import { spawnSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { TOOL_DEFINITIONS } from '../src/transports/mcp/handlers.js';
 import { exportOpenAITools } from '../src/core/schema-export.js';
 import { RETIRED_ROUTES } from '../src/transports/http/retired-routes.js';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const CLI_PATH = path.join(repoRoot, 'dist', 'transports', 'cli', 'cli.js');
 
 describe('verify_agent_work and the orchestration surfaces are retired', () => {
   it('is not an MCP tool', () => {
@@ -49,17 +51,31 @@ describe('verify_agent_work and the orchestration surfaces are retired', () => {
     // The commands survive ONLY to say they are gone. Deleting the blocks
     // would make Commander print "unknown command", which reads as a broken
     // install — the exact failure mode the consolidate signpost documents.
-    const cli = fs.readFileSync(path.join(repoRoot, 'src/transports/cli/cli.ts'), 'utf8');
-    const block = cli.slice(
-      cli.indexOf('// --- verify / patterns (retired) ---'),
-      cli.indexOf('// --- export ---'),
-    );
-    expect(block, 'the verify retirement signpost is gone from the CLI').toContain('`memesh verify` has been retired');
-    expect(block, 'the patterns retirement signpost is gone from the CLI').toContain('`memesh patterns` has been retired');
-    expect(block, 'the verify signpost does not name a replacement workflow').toContain('memesh remember');
-    // `verify … && deploy` must fail loudly, not deploy on a command that no
-    // longer checks anything.
-    expect(block, 'the verify signpost exits 0, so gating scripts cannot tell it failed').toContain('process.exitCode = 1');
+    // RUN them, both. This used to slice the source between two markers —
+    // a window holding BOTH retirement blocks, so every needle survived
+    // deleting either command on its own, which is exactly what the test is
+    // for. `verify … && deploy` in particular must fail loudly rather than
+    // deploy on a command that no longer checks anything.
+    for (const [command, replacement] of [
+      ['verify', 'memesh remember'],
+      ['patterns', 'memesh'],
+    ] as const) {
+      const result = spawnSync('node', [CLI_PATH, command], {
+        encoding: 'utf8',
+        env: { ...process.env, MEMESH_AUTO_UPDATE: '0' },
+        timeout: 30_000,
+      });
+      const output = (result.stdout ?? '') + (result.stderr ?? '');
+
+      expect(output, `the ${command} retirement signpost is gone from the CLI`)
+        .toContain(`\`memesh ${command}\` has been retired`);
+      expect(output, `the ${command} signpost does not name a replacement workflow`)
+        .toContain(replacement);
+      expect(result.status, `\`memesh ${command}\` exits 0, so gating scripts cannot tell it failed`)
+        .toBe(1);
+      expect(output, `\`memesh ${command}\` was deleted, not retired`)
+        .not.toMatch(/unknown command/i);
+    }
   });
 
   it('answers POST /v1/verify with 410, not 404', () => {

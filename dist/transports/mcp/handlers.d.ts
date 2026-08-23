@@ -126,7 +126,7 @@ export declare const TOOL_DEFINITIONS: readonly [{
             };
             readonly limit: {
                 readonly type: "number";
-                readonly description: "Max entities to export (default: 1000)";
+                readonly description: "Max entities to export (default: 1000). The default is a SUBSET, not a backup — check `truncated` in the response, and for a full backup pass a limit above the graph size.";
             };
         };
         readonly additionalProperties: false;
@@ -237,7 +237,7 @@ export declare const TOOL_DEFINITIONS: readonly [{
                 readonly type: "array";
                 readonly items: {
                     readonly type: "string";
-                    readonly enum: readonly ["workSchedule", "toolPreferences", "focusAreas", "workflow", "strengths", "learningAreas"];
+                    readonly enum: readonly ["workSchedule", "focusAreas", "workflow", "strengths", "learningAreas"];
                 };
                 readonly description: "Specific categories to return. Omit for all.";
             };

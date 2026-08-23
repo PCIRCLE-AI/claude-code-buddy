@@ -160,6 +160,37 @@ export async function callLLM(
   throw lastErr ?? new Error('callLLM: no providers configured');
 }
 
+/**
+ * How long one provider request may take before it is abandoned.
+ *
+ * The three `fetch` calls below had no timeout at all. `embedder.ts` fixed
+ * this on its own path and wrote down what it measured: a provider that
+ * accepts the connection and never answers hangs the caller indefinitely.
+ * Here the callers are the Stop hook's failure analysis (a 10-second budget
+ * before the harness kills it), `memesh dream run`, and the HTTP server's
+ * dream route — a hang in the last one holds a connection open forever on a
+ * single-threaded event loop.
+ *
+ * 30s matches the embedder, deliberately: two different ceilings for the same
+ * provider on the same machine would be a number nobody could explain.
+ * Retries and backoff are NOT copied here — `callLLM` above already owns
+ * failover across providers, and adding a second retry layer underneath it
+ * would multiply the wait the hook budget cannot afford.
+ */
+const REQUEST_TIMEOUT_MS = 30_000;
+
+/**
+ * `fetch` with a deadline.
+ *
+ * `AbortSignal.timeout` rather than a hand-rolled `setTimeout` + controller:
+ * it needs no cleanup, cannot leak a timer when the request wins the race,
+ * and rejects with a `TimeoutError` that `classifyError` already reads as
+ * `network` — the class that lets failover try the next provider.
+ */
+function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+  return fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+}
+
 /** One provider, one HTTP call. Throws on non-2xx. */
 async function callSingle(
   prompt: string,
@@ -169,7 +200,7 @@ async function callSingle(
   if (config.provider === 'anthropic') {
     const apiKey = config.apiKey || process.env.ANTHROPIC_API_KEY;
     if (!apiKey) throw new Error('Anthropic: no API key configured');
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await fetchWithTimeout('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'x-api-key': apiKey,
@@ -194,7 +225,7 @@ async function callSingle(
   if (config.provider === 'openai') {
     const apiKey = config.apiKey || process.env.OPENAI_API_KEY;
     if (!apiKey) throw new Error('OpenAI: no API key configured');
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    const res = await fetchWithTimeout('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
@@ -217,7 +248,7 @@ async function callSingle(
 
   if (config.provider === 'ollama') {
     const host = process.env.OLLAMA_HOST || 'http://localhost:11434';
-    const res = await fetch(`${host}/api/generate`, {
+    const res = await fetchWithTimeout(`${host}/api/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
