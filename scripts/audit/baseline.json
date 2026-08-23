@@ -611,10 +611,10 @@
       "reason": "readSettings throws on unparseable input; absent hooks truthfully means none wired",
       "triaged": "2026-08-04; re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main — NOTE C7 339 slid onto a colliding key, whole set re-verified); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD)"
     },
-    "C5 src/core/install-hooks.ts:433": {
+    "C5 src/core/install-hooks.ts:454": {
       "class": "SAFE-GUARDED",
       "reason": "readSettings throws on unparseable input; absent hooks truthfully means none wired",
-      "triaged": "2026-08-04; re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main — NOTE C7 339 slid onto a colliding key, whole set re-verified); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD)"
+      "triaged": "2026-08-04; re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main — NOTE C7 339 slid onto a colliding key, whole set re-verified); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD); re-keyed 2026-08-24 (uninstallHooks parses settings before deleting the rule file; same statement, classification unchanged)"
     },
     "C5 src/knowledge-graph.ts:658": {
       "class": "SAFE-ACCUMULATOR",

@@ -36,6 +36,7 @@ import {
   isAutoCaptureEnabled,
   openHookDb,
   readUpdateCheckCache,
+  redactSecrets,
   recordHookRun,
   stampHookRunOnly,
   resolveAutoUpdatePolicy,
@@ -117,7 +118,14 @@ function parseTranscript(transcriptPath) {
             if (block.name === 'Bash') {
               const cmd = block.input?.command ?? '';
               if (typeof cmd === 'string' && cmd.length > 10 && !cmd.startsWith('ls') && !cmd.startsWith('cd')) {
-                bashCommands.push(cmd.slice(0, 100));
+                // Redact BEFORE truncating. A bash command line is the single
+                // most likely place a credential appears in a transcript
+                // (`export ANTHROPIC_API_KEY=sk-...`, `curl -H "Authorization:
+                // Bearer ..."`), and this text is stored verbatim as an
+                // observation — a permanent, searchable, exportable copy.
+                // Truncating first would cut a token in half and leave the
+                // fragment unmatched by every pattern.
+                bashCommands.push(redactSecrets(cmd).slice(0, 100));
               }
             }
           }
@@ -141,7 +149,14 @@ function parseTranscript(transcriptPath) {
             const text = typeof block.content === 'string'
               ? block.content
               : JSON.stringify(block.content);
-            errorsEncountered.push(text.slice(0, 200));
+            // Same reason as the bash branch, and one more: this array is
+            // ALSO the payload `analyzeFailure` sends to the configured LLM
+            // provider. A failed request that echoes its own Authorization
+            // header — the ordinary shape of an auth error — would be stored
+            // and then transmitted off the machine. Redacted once here, at
+            // the point the text enters the process, so every downstream use
+            // inherits it.
+            errorsEncountered.push(redactSecrets(text).slice(0, 200));
           }
         }
 

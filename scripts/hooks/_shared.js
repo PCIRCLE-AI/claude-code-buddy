@@ -31,6 +31,7 @@ import {
   getDbPath,
   getMemeshDirFromDbPath,
   getProjectName,
+  redactSecrets,
   slugFromRemoteUrl,
 } from './_generated/core-paths.js';
 import { autoCaptureDecision } from './_generated/capture-flag.js';
@@ -116,7 +117,7 @@ import {
   tokenizeQuery,
 } from './_generated/fts-index.js';
 
-export { homeDir, memeshDir, getDbPath, getMemeshDirFromDbPath, getProjectName, slugFromRemoteUrl };
+export { homeDir, memeshDir, getDbPath, getMemeshDirFromDbPath, getProjectName, redactSecrets, slugFromRemoteUrl };
 
 const require = createRequire(import.meta.url);
 
@@ -334,6 +335,10 @@ import {
 // nothing. node:sqlite is part of the runtime: there is no binary to
 // miss, so the failure mode and its whole recovery apparatus are gone.
 
+/** See the pragma in `openHookDb` for why this is not the 30s the shared
+ *  database class uses. */
+const HOOK_BUSY_TIMEOUT_MS = 2000;
+
 export function openHookDb(env = process.env, opts = {}) {
 
   // Path helpers read process.env directly (no-arg). The `env` parameter
@@ -351,6 +356,23 @@ export function openHookDb(env = process.env, opts = {}) {
   const db = new MemeshDatabase(dbPath, { allowExtension: true });
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
+  // A hook waits for a held write lock for less time than Claude Code will
+  // wait for the hook.
+  //
+  // `MemeshDatabase` sets `busy_timeout = 30000`, and that number is right
+  // for the processes it was chosen for: a 30k-vector `swapVectorGeneration`
+  // holds the write lock for ~9s, and the CLI, the MCP server and the HTTP
+  // server should WAIT for it rather than fail. A hook cannot. Its budget in
+  // `hooks/hooks.json` is 3s (UserPromptSubmit) to 10s (Stop, PreCompact),
+  // so a 30s wait has exactly one possible ending: the harness kills the
+  // hook. The capture is lost either way — the difference is that the user
+  // also gets a hook-timeout error, which is the failure mode that makes
+  // memesh something to switch off.
+  //
+  // 2s fits inside every budget with room for the hook's own work. On
+  // contention the capture is skipped quietly, this run's `hook_runs` stamp
+  // is not written, and `memesh doctor` reports the gap honestly.
+  db.pragma(`busy_timeout = ${HOOK_BUSY_TIMEOUT_MS}`);
   // Bringing the schema current is a WRITE, and "cannot migrate" must not
   // mean "cannot open": a database file that is read-only but behind on
   // schema (a pre-upgrade backup, a permissions accident) dies on the
@@ -575,8 +597,11 @@ export function captureEntity(db, { name, type, observations = [], tags = [], ti
     // it's corrupted — replace with {} and log the healing.
     if (!meta && metaRow?.metadata) {
       try {
+        // The id, not the name. The id is what a maintainer needs to look
+        // the row up; the name is user-authored content, and this line goes
+        // to a stderr stream the user may paste anywhere.
         process.stderr.write(
-          `MeMesh: healed corrupted metadata for entity ${id} (${name}). ` +
+          `MeMesh: healed corrupted metadata for entity ${id}. ` +
           `Original value was unparseable; replaced with {}.\n`,
         );
       } catch { /* stderr gone */ }

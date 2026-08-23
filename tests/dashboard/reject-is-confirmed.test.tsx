@@ -106,6 +106,10 @@ describe('rejecting a proposal asks first', () => {
     await waitFor(() => {
       expect(posts.some((u) => u.includes('/v1/dream/proposals/7/reject'))).toBe(true);
     });
+    // The size pin that gives the `toEqual([])` above its meaning: one click
+    // produces exactly one call, so "no calls" is a real observation and not
+    // a stub that never records anything.
+    expect(posts.filter((u) => u.includes('/reject'))).toHaveLength(1);
   });
 
   it('does not ask before accepting — accept is reversible', async () => {
