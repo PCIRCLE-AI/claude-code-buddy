@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { checkNamesKey, evaluatePoll, REQUIRED_STABLE_POLLS } from './lib/check-settling.mjs';
 
 /**
  * Block until every GitHub Actions check on a PR has concluded, and print an
@@ -47,6 +48,14 @@ import { execFileSync } from 'node:child_process';
  *     Right after a push, GitHub Actions can take a few seconds to register
  *     any check runs at all; treating "no rows yet" as "nothing to wait for"
  *     would reproduce the exact failure mode in evidence #1 above.
+ *   - ZERO ROWS was guarded; a PARTIAL set was not. GitHub registers check
+ *     runs in batches, and a poll landing on "the three that exist so far, all
+ *     green" satisfied `pending === 0` and returned 0 — a full matrix reported
+ *     green on a fraction of it. Measured on PR #190 (2026-08-23): one poll
+ *     saw a single row while twelve more were seconds away. A PASS now also
+ *     requires the SET OF CHECK NAMES to be identical across two consecutive
+ *     polls; a FAIL is still returned immediately. See
+ *     `scripts/lib/check-settling.mjs`.
  *
  * Usage:
  *   node scripts/wait-for-checks.mjs <pr-number> [--timeout-min N] [--interval-sec N]
@@ -212,6 +221,10 @@ async function main(argv) {
 
   const deadline = Date.now() + timeoutMin * 60 * 1000;
   let consecutiveFailures = 0;
+  // The check list has to hold still before a green tally counts. See
+  // scripts/lib/check-settling.mjs for the poll this was measured against.
+  let prevNamesKey = null;
+  let stablePolls = 0;
 
   for (;;) {
     const raw = invokeGhChecks(prNumber);
@@ -253,13 +266,31 @@ async function main(argv) {
     const notPassedSuffix = tally.notPassed.length > 0 ? ` not-passed=[${tally.notPassed.join(', ')}]` : '';
     log(`${now} pass=${tally.pass} pending=${tally.pending} fail=${tally.fail}${notPassedSuffix}`);
 
-    if (tally.fail > 0) {
+    const namesKey = checkNamesKey(checks);
+    const decision = evaluatePoll({
+      tally,
+      namesKey,
+      prevNamesKey,
+      stablePolls,
+      requiredStablePolls: REQUIRED_STABLE_POLLS,
+    });
+    prevNamesKey = namesKey;
+    stablePolls = decision.stablePolls;
+
+    if (decision.verdict === 'fail') {
       log(resultLine(tally, 1));
       return 1;
     }
-    if (tally.pending === 0) {
+    if (decision.verdict === 'pass') {
+      log(`${now} settled: ${decision.reason}`);
       log(resultLine(tally, 0));
       return 0;
+    }
+    // 'wait'. When nothing is pending the reason is the settle guard, and that
+    // is worth saying out loud — a silent extra poll after "pending=0" reads
+    // like the script is stuck.
+    if (tally.pending === 0) {
+      log(`${now} holding: ${decision.reason}`);
     }
     if (Date.now() >= deadline) {
       log(resultLine(tally, 2));
