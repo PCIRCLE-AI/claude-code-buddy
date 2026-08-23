@@ -15,8 +15,10 @@
 //
 // Loud is not short, though: this check can only shout, and the remedy it
 // names used to be prose nobody had automated. `scripts/finish-release.mjs`
-// (`npm run release:finish`) is that remedy as one command, so the window is
-// the length of one API call rather than however long the next person takes.
+// (`npm run release:finish`) is that remedy as one command. It does not make
+// the window short by itself — the window still runs until somebody runs it —
+// but it removes the interruptible MIDDLE: there is no longer a half-finished
+// state to walk away from, only "not started" and "done".
 //
 // Kept as a pure function, separate from the script that runs it, so both
 // directions can be pinned by a test without a repository to mutate. A gate

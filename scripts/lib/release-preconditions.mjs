@@ -80,7 +80,12 @@ export function checkReleasePreconditions({
     );
   }
 
-  if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(String(pkgVersion))) {
+  // No prerelease suffix on purpose. Nothing here handles one: `gh release
+  // create` would mark `4.7.0-rc.1` as latest without `--prerelease`, and
+  // publish-npm.yml runs `npm publish` with no `--tag`, so it would take npm's
+  // `latest` dist-tag too. This project has never shipped a prerelease; when
+  // it does, that is its own change, not a regex that quietly permits it.
+  if (!/^\d+\.\d+\.\d+$/.test(String(pkgVersion))) {
     blockers.push(`package.json version \`${pkgVersion}\` is not a version this can tag`);
   }
 

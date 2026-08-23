@@ -87,6 +87,14 @@ describe('release preconditions', () => {
     expect(r.ok).toBe(false);
   });
 
+  it('refuses a prerelease version rather than mis-publishing it', () => {
+    // Deliberate, not an oversight in the regex: `gh release create` would
+    // mark 4.7.0-rc.1 as latest without `--prerelease`, and publish-npm.yml
+    // runs `npm publish` with no `--tag`, so it would take npm's `latest`
+    // dist-tag too. A prerelease flow is its own change.
+    expect(checkReleasePreconditions(ready({ pkgVersion: '4.7.0-rc.1' })).ok).toBe(false);
+  });
+
   it.each([
     ['the checkout', 'localTags'],
     ['origin', 'remoteTags'],
@@ -200,6 +208,13 @@ describe('finish-release cuts the release in one call', () => {
     // The precondition check has to come first in the file, not after the
     // release call — an order this cheap to get wrong is worth pinning.
     expect(code.indexOf('checkReleasePreconditions(')).toBeLessThan(code.indexOf("'release', 'create'"));
+  });
+
+  it('asks GitHub what exists before saying nothing was created', () => {
+    // A failure signal is not evidence that nothing happened: gh can fail
+    // AFTER the release POST succeeded, and "nothing was tagged" would then be
+    // a false sentence a human acts on. The failure path has to look.
+    expect(code).toMatch(/'release',\s*'view'/);
   });
 
   it('is wired to an npm script, so it is the documented way in', () => {

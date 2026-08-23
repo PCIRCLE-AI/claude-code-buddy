@@ -191,8 +191,22 @@ try {
     { cwd: repoRoot, encoding: 'utf8' }
   ).trim();
 } catch (e) {
-  console.error(`\n✗ gh release create failed — nothing was tagged, nothing was published.`);
+  // "gh failed" is not evidence that nothing happened. The release is one
+  // `POST /repos/{owner}/{repo}/releases`, and gh can fail AFTER that POST
+  // succeeded — a read timeout on the response, a 502 on the way back. Then
+  // the tag, the release and the publish run all exist while this printed
+  // "nothing was tagged", the operator retries, and the retry refuses with
+  // "already exists". Two contradictory messages and no way to tell which
+  // lied. Ask GitHub what is actually there instead of asserting it.
+  console.error(`\n✗ gh release create failed:`);
   console.error(String(e.stderr || e.message).trim());
+  const created = capture('gh', ['release', 'view', tag, '--json', 'url', '-q', '.url']);
+  console.error(
+    created
+      ? `\n  BUT ${tag} EXISTS: ${created}\n  The call failed on the way back, not on the way in — the publish may ` +
+          `already be running. Check it before doing anything else; do not re-cut.`
+      : `\n  ${tag} does not exist — nothing was tagged, nothing was published. Safe to re-run.`
+  );
   process.exit(1);
 } finally {
   fs.rmSync(notesDir, { recursive: true, force: true });
