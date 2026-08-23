@@ -136,3 +136,31 @@ Expected: `memesh` shows **Connected**.
 | `command not found: gemini` | Gemini CLI itself is not installed — out of scope here; install it first, then re-run the add. |
 | Shows Disconnected | Run `command -v memesh-mcp`. Empty output means section 2 is incomplete or PATH is wrong — fix per section 2's table, then re-run `gemini mcp list`. |
 | `memesh` absent from the list | The add was made in a different scope or did not persist. Re-run `gemini mcp add -s user memesh memesh-mcp`. |
+
+## 5. Cursor
+
+Prerequisite: section 2 — `memesh-mcp` must resolve on PATH.
+
+For a personal server available in every Cursor project, create or edit
+`~/.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "memesh": {
+      "command": "memesh-mcp"
+    }
+  }
+}
+```
+
+For one project only, use the same entry in that project's `.cursor/mcp.json`.
+Restart Cursor, then open Cursor's MCP settings and confirm that `memesh` is
+connected. If the Cursor Agent CLI is installed, `cursor-agent mcp list` also
+shows the configured server.
+
+| Failure | Remedy |
+|---|---|
+| `memesh` is disconnected | Run `command -v memesh-mcp`. Empty output means section 2 is incomplete or PATH is not visible to Cursor. |
+| Cursor cannot start the server | Use the absolute path returned by `command -v memesh-mcp` as `command`, then restart Cursor. |
+| Tools are missing | Confirm the `mcpServers.memesh` entry is valid JSON and that the server is configured as a local stdio command, not an HTTP URL. |

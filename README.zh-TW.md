@@ -16,7 +16,7 @@
 
 ---
 
-**MeMesh** — 給 Claude Code 和 MCP 程式開發代理的開源**代理式記憶**：從代理的實際工作中擷取，在它行動的當下注入，記憶自相矛盾時保持誠實。一個 SQLite 檔案。不需要雲端。
+**MeMesh** — 給個人 AI 程式開發代理的開源**代理式記憶**：相容於 Claude Code、Codex、Gemini、Cursor 與其他 MCP 用戶端。從代理的實際工作中擷取，在它行動的當下注入，記憶自相矛盾時保持誠實。一個 SQLite 檔案。不需要雲端。
 
 ## 安裝
 
@@ -65,7 +65,7 @@ flowchart TB
     subgraph clients["Where you use memesh from"]
       direction LR
       CC["Claude Code<br/>(chat + agent)"]:::client
-      TERM["Terminal / other<br/>MCP clients<br/>(Cursor, Cline...)"]:::client
+      TERM["Terminal / other<br/>MCP clients<br/>(Codex, Gemini, Cursor...)"]:::client
     end
 
     subgraph paths["Two install paths"]
@@ -158,7 +158,7 @@ memesh setup --check         # 機器層級驗證：讀各主機自己的設定�
 
 這些 hooks 會跟你既有的 `~/.claude/hooks/` 自訂 hooks 共存 — `install-hooks` 用追加方式寫入，從不覆寫你的東西。要移除：`memesh uninstall-hooks`。
 
-### 從 Codex CLI 和 Gemini CLI 用同一份記憶
+### 從 Codex CLI、Gemini CLI、Cursor 與其他 MCP 用戶端使用同一份記憶
 
 `memesh-mcp` 是標準的 stdio MCP server，任何支援 MCP 的主機都能用 — 不限 Claude Code。裝好選項 B（`memesh-mcp` 在 `PATH` 上）之後，每個主機註冊一次：
 
@@ -170,7 +170,17 @@ codex mcp add memesh -- memesh-mcp
 gemini mcp add -s user memesh memesh-mcp
 ```
 
-每個主機讀寫的都是同一個 `~/.memesh/knowledge-graph.db`，所以在 Claude Code session 存的記憶，Codex 和 Gemini 都回憶得到，反之亦然。驗證：
+Cursor 請將同一個 stdio server 加入 `~/.cursor/mcp.json`（全域），或專案內的 `.cursor/mcp.json`：
+
+```json
+{
+  "mcpServers": {
+    "memesh": { "command": "memesh-mcp" }
+  }
+}
+```
+
+每個主機讀寫的都是同一個 `~/.memesh/knowledge-graph.db`，所以在任何代理儲存的記憶，Codex、Gemini、Cursor 和其他 MCP 用戶端都能回憶得到。請從主機要求它呼叫 `recall` 工具驗證：
 
 ```bash
 codex mcp list       # memesh 應顯示為 enabled
@@ -272,8 +282,8 @@ Claude Code 在 session 開始時自動收到的就是同一個區塊，其他 M
 |---------------|---------------------|
 | **使用 Claude Code 的開發者** | 在工作時自動回憶專案決策、檔案特定的經驗教訓和過去的失敗 |
 | **程式開發代理進階使用者** | 在多個 MCP 相容工具間共享一層在地記憶 |
-| **嘗試 AI 程式開發工作流的團隊** | 匯出／匯入專案知識，無需引入託管基礎設施 |
-| **代理開發者** | 透過 MCP、HTTP 或 CLI 添加在地記憶 |
+| **使用 Codex、Gemini、Cursor、Claude Code 或其他 MCP 用戶端的個人** | 在不同代理與 session 之間使用同一層在地記憶 |
+| **整合 AI 代理的開發者** | 透過 MCP、HTTP 或 CLI 添加在地記憶 |
 
 ---
 
@@ -415,8 +425,8 @@ MeMesh 的檢索引擎**只用 FTS5**（熱路徑上不使用 LLM、不使用嵌
 
 **🕸️ 知識圖連通性** — `memesh kg backfill-relations --all-rules` 使用標籤共現、專案叢集、會話上下文和名稱相似度連結孤立實體 — 無需 LLM。
 
-**📦 團隊共享** — `memesh export > team-knowledge.json` → 與團隊共享 → `memesh import team-knowledge.json`
-匯入的組合保持可搜尋，但 MeMesh 不會自動將匯入的記憶注入 Claude hooks，直到你檢查或在本地重新儲存。
+**📦 個人備份與搬遷** — `memesh export > memesh-backup.json` → 複製到另一台機器 → `memesh import memesh-backup.json`
+匯入的組合保持可搜尋，但 MeMesh 不會自動將匯入的記憶注入 host context，直到你檢查或在本地重新儲存。
 
 ---
 
@@ -425,8 +435,8 @@ MeMesh 的檢索引擎**只用 FTS5**（熱路徑上不使用 LLM、不使用嵌
 > 「MeMesh 記得我們三週前選擇了 PKCE 而不是隱式流程。當我再次問 Claude 關於身份驗證的問題時，它已經知道了——不需要重新解釋。」
 > — **獨立開發者，正在打造 SaaS**
 
-> 「我們每個星期五匯出團隊的記憶，星期一匯入。每個人的 Claude 在新一週開始時都知道團隊上週學到的東西。」
-> — **3 人新創公司，共享知識庫**
+> 「我在 Claude Code 儲存的決策，隔天可以從 Codex 找回來。同一份在地記憶跟著工作走，不會被綁在單一代理上。」
+> — **使用多個程式開發代理的個人開發者**
 
 > 「儀表板顯示我 90% 的記憶是自動生成的對話日誌。我開始有意使用 `remember` 來記錄架構決策。改變了遊戲規則。」
 > — **發現分析面板的開發者**
@@ -480,7 +490,7 @@ memesh config set embedder.provider openai          # or: ollama
 | `remember` | 用觀察、關係和標籤儲存知識 |
 | `recall` | FTS5 + sqlite-vec 搜尋，包含多因素評分（相關性、近期性、頻率、信心、回憶影響）— 熱路徑上不使用 LLM |
 | `forget` | 軟歸檔（永不刪除）或移除特定觀察 |
-| `export` | 在專案或團隊成員之間以 JSON 共享記憶 |
+| `export` | 以 JSON 備份、搬遷記憶，或在相容代理之間轉移 |
 | `import` | 匯入記憶，包含合併策略（跳過 / 覆寫 / 追加） |
 | `learn` | 記錄來自錯誤的結構化教訓（錯誤、根本原因、修復、預防） |
 | `task_state` | 讀取或記下工作進度——目標、下一步、卡住的地方、剛完成的事 |

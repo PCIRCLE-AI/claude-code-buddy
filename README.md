@@ -16,7 +16,7 @@
 
 ---
 
-**MeMesh** — open-source **agentic memory** for Claude Code & MCP coding agents: captured from the agent's real work, injected at the moment it acts, kept honest when it contradicts itself. One SQLite file. No cloud.
+**MeMesh** — open-source **agentic memory** for individual AI coding agents: compatible with Claude Code, Codex, Gemini, Cursor, and other MCP clients. Captured from the agent's real work, injected at the moment it acts, kept honest when it contradicts itself. One SQLite file. No cloud.
 
 ## Install
 
@@ -67,7 +67,7 @@ flowchart TB
     subgraph clients["Where you use memesh from"]
       direction LR
       CC["Claude Code<br/>(chat + agent)"]:::client
-      TERM["Terminal / other<br/>MCP clients<br/>(Cursor, Cline...)"]:::client
+      TERM["Terminal / other<br/>MCP clients<br/>(Codex, Gemini, Cursor...)"]:::client
     end
 
     subgraph paths["Two install paths"]
@@ -162,7 +162,7 @@ memesh setup --check         # machine-level verification: reads the hosts' own 
 
 The hooks coexist with any custom hooks you already have under `~/.claude/hooks/` — `install-hooks` writes additive entries and never overwrites yours. To remove later: `memesh uninstall-hooks`.
 
-### Same memory from Codex CLI and Gemini CLI
+### Same memory from Codex CLI, Gemini CLI, Cursor, and other MCP clients
 
 `memesh-mcp` is a plain stdio MCP server, so any MCP-capable host can talk to it — not just Claude Code. With Option B installed (`memesh-mcp` on your `PATH`), register it once per host:
 
@@ -174,7 +174,18 @@ codex mcp add memesh -- memesh-mcp
 gemini mcp add -s user memesh memesh-mcp
 ```
 
-Every host reads and writes the same `~/.memesh/knowledge-graph.db`, so a memory stored from a Claude Code session is recallable from Codex or Gemini, and the other way around. Verify from either host by asking it to call the `recall` tool, or from a terminal:
+For Cursor, add the same stdio server to `~/.cursor/mcp.json` (global) or
+`.cursor/mcp.json` (project-local):
+
+```json
+{
+  "mcpServers": {
+    "memesh": { "command": "memesh-mcp" }
+  }
+}
+```
+
+Every host reads and writes the same `~/.memesh/knowledge-graph.db`, so a memory stored from one agent is recallable from Codex, Gemini, Cursor, or another MCP client. Verify from the host by asking it to call the `recall` tool, or from a terminal:
 
 ```bash
 codex mcp list       # memesh should be listed as enabled
@@ -276,8 +287,8 @@ This same block is what Claude Code receives automatically at session start, and
 |---------------|---------------------|
 | **A developer using Claude Code** | Auto-recall project decisions, file-specific lessons, and past failures as you work |
 | **A coding-agent power user** | Share one local memory layer across MCP-compatible tools |
-| **A team experimenting with AI coding workflows** | Export/import project knowledge without introducing hosted infrastructure |
-| **An agent developer** | Add local memory through MCP, HTTP, or the CLI |
+| **An individual using Codex, Gemini, Cursor, Claude Code, or another MCP client** | Use one local memory layer across agents and sessions |
+| **A developer integrating an agent** | Add local memory through MCP, HTTP, or the CLI |
 
 ---
 
@@ -419,8 +430,8 @@ When npm flags an installed version as deprecated (typically a security advisory
 
 **🕸️ Knowledge Graph Connectivity** — `memesh kg backfill-relations --all-rules` links orphan entities using tag co-occurrence, project clustering, session context, and name similarity — no LLM required.
 
-**📦 Team Sharing** — `memesh export > team-knowledge.json` → share with your team → `memesh import team-knowledge.json`
-Imported bundles stay searchable, but MeMesh does not auto-inject imported memories into Claude hooks until you review or re-store them locally.
+**📦 Personal backup and migration** — `memesh export > memesh-backup.json` → copy it to another machine → `memesh import memesh-backup.json`
+Imported bundles stay searchable, but MeMesh does not auto-inject imported memories into host context until you review or re-store them locally.
 
 ---
 
@@ -429,8 +440,8 @@ Imported bundles stay searchable, but MeMesh does not auto-inject imported memor
 > "MeMesh remembered that we chose PKCE over implicit flow three weeks ago. When I asked Claude about auth again, it already knew — no re-explaining needed."
 > — **Solo developer, building a SaaS**
 
-> "We export our team's memory every Friday and import it Monday. Everyone's Claude starts the week knowing what the team learned last week."
-> — **3-person startup, shared knowledge base**
+> "I stored a decision from Claude Code and recalled it from Codex the next day. The same local memory followed my work instead of one agent."
+> — **Solo developer using multiple coding agents**
 
 > "The dashboard showed me that 90% of my memories were auto-generated session logs. I started using `remember` deliberately for architecture decisions. Game changer."
 > — **Developer who discovered the analytics panel**
@@ -538,7 +549,7 @@ If you switch to an embedder with a different dimension (e.g. 768 → 1536), **n
 | `remember` | Store knowledge with observations, relations, and tags |
 | `recall` | FTS5 + sqlite-vec search with multi-factor scoring (relevance, recency, frequency, confidence, recall impact) — no LLM in the hot path |
 | `forget` | Soft-archive (never deletes) or remove specific observations |
-| `export` | Share memories as JSON between projects or team members |
+| `export` | Back up, migrate, or move memories as JSON between compatible agents |
 | `import` | Import memories with merge strategies (skip / overwrite / append) |
 | `learn` | Record structured lessons from mistakes (error, root cause, fix, prevention) |
 | `task_state` | Read or record where the work stands — goal, next step, blocker, what was just finished |
