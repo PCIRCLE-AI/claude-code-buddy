@@ -4,6 +4,8 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+## [4.6.2] — 2026-08-23
+
 ### Added
 
 - **`npm run release:finish` — the release is one command now.** Merging a
