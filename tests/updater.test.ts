@@ -9,7 +9,7 @@ import {
 
 function makeExecFileSyncMock(handlers: {
   install?: (args: string[]) => void;
-  ls?: () => string;
+  ls?: (args: string[]) => string;
 }) {
   return ((file: string, args: readonly string[] | undefined | null) => {
     expect(file).toBe('npm');
@@ -22,7 +22,12 @@ function makeExecFileSyncMock(handlers: {
     }
 
     if (command[0] === 'ls') {
-      return handlers.ls?.() ?? JSON.stringify({});
+      // `command` is forwarded, not discarded. The mock used to call
+      // `handlers.ls()` with no arguments, so nothing could see WHICH npm
+      // command had been run: dropping `-g` from `npm ls` left every test
+      // green while the updater read the LOCAL tree and reported the global
+      // package as missing.
+      return handlers.ls?.(command) ?? JSON.stringify({});
     }
 
     throw new Error(`Unexpected command: ${command.join(' ')}`);
@@ -30,18 +35,27 @@ function makeExecFileSyncMock(handlers: {
 }
 
 describe('updater', () => {
-  it('reads the installed global version from npm ls output', () => {
+  it('reads the installed global version from npm ls output — and asks GLOBALLY', () => {
+    let lsArgs: string[] = [];
     const version = getInstalledGlobalVersion({
       execFileSyncImpl: makeExecFileSyncMock({
-        ls: () => JSON.stringify({
-          dependencies: {
-            '@pcircle/memesh': { version: '4.0.2' },
-          },
-        }),
+        ls: (args) => {
+          lsArgs = args;
+          return JSON.stringify({
+            dependencies: {
+              '@pcircle/memesh': { version: '4.0.2' },
+            },
+          });
+        },
       }),
     });
 
     expect(version).toBe('4.0.2');
+    // The half that was missing. `npm ls` without `-g` reads the CURRENT
+    // project, so the updater would report a globally-installed memesh as
+    // absent — and refuse to update it — with every assertion above still
+    // green.
+    expect(lsArgs, 'npm ls was asked about the local tree, not the global one').toContain('-g');
   });
 
   it('returns null when npm ls does not report a global install', () => {

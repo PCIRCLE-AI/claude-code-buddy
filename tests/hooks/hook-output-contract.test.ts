@@ -13,7 +13,7 @@
  * here regardless of what its own test believes.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { execFileSync } from 'child_process';
+import { execFileSync, spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -210,41 +210,55 @@ describe('Feature: Claude Code hook-output contract', () => {
     }
   }
 
-  function runHook(hookCase: HookCase): string {
+  /**
+   * Run one hook and report BOTH what it printed and how it exited.
+   *
+   * The exit code used to be discarded — the catch returned `err.stdout` and
+   * the caller validated that. For a hook that dies before printing anything
+   * (a syntax error, a bad import, a throw at module scope) `stdout` is `''`,
+   * and `validateHookOutput('')` answers `{ valid: true, kind: 'empty' }`
+   * because emitting nothing IS how a hook opts out. So the contract test
+   * could not tell "this hook declined to say anything" from "this hook
+   * crashed on startup", and the second one passed.
+   */
+  function runHook(hookCase: HookCase): { stdout: string; status: number; stderr: string } {
     if (hookCase.seed) seedMemories(hookCase.seed);
     if (hookCase.patchMetadata) patchMetadata(hookCase.patchMetadata);
     const hookPath = path.resolve('scripts/hooks', hookCase.file);
-    try {
-      return execFileSync('node', [hookPath], {
-        input: JSON.stringify(hookCase.input),
-        env: {
-          ...process.env,
-          MEMESH_DB_PATH: dbPath,
-          MEMESH_DIR: testDir,
-          // Keep the run hermetic: no npm registry check, no detached spawn.
-          MEMESH_AUTO_UPDATE: '0',
-          ...hookCase.env,
-        },
-        encoding: 'utf8',
-        timeout: 30000,
-      });
-    } catch (err) {
-      // A hook must never fail the harness; surface stdout anyway so the
-      // contract assertion reports the real payload rather than a spawn error.
-      const e = err as { stdout?: string };
-      if (typeof e.stdout === 'string') return e.stdout;
-      throw err;
-    }
+    const result = spawnSync('node', [hookPath], {
+      input: JSON.stringify(hookCase.input),
+      env: {
+        ...process.env,
+        MEMESH_DB_PATH: dbPath,
+        MEMESH_DIR: testDir,
+        // Keep the run hermetic: no npm registry check, no detached spawn.
+        MEMESH_AUTO_UPDATE: '0',
+        ...hookCase.env,
+      },
+      encoding: 'utf8',
+      timeout: 30000,
+    });
+    return {
+      stdout: result.stdout ?? '',
+      // `status` is null when the process was killed by a signal (a timeout);
+      // that is a failure, not a zero.
+      status: result.status ?? 1,
+      stderr: result.stderr ?? '',
+    };
   }
 
   for (const hookCase of HOOK_CASES) {
     it(`Scenario: ${hookCase.file} (${hookCase.boundEvent}) emits a contract-valid payload`, () => {
-      const stdout = runHook(hookCase);
+      const { stdout, status, stderr } = runHook(hookCase);
+      // Before the payload: a hook that crashed printed nothing, and nothing
+      // is a VALID payload. The exit code is the only thing that separates
+      // "declined to speak" from "died before it could".
+      expect(status, `${hookCase.file} exited ${status}\n${stderr}`).toBe(0);
       expectValidHookOutput(stdout, `${hookCase.file} stdout`);
     });
 
     it(`Scenario: ${hookCase.file} never claims a hookSpecificOutput variant its event lacks`, () => {
-      const stdout = runHook(hookCase);
+      const { stdout } = runHook(hookCase);
       const result = validateHookOutput(stdout);
       const hso = result.parsed?.hookSpecificOutput as { hookEventName?: string } | undefined;
       if (!hso) return; // emitting nothing, or top-level-only, is always fine
@@ -284,6 +298,13 @@ describe('Feature: Claude Code hook-output contract', () => {
         }
       }
     }
+
+    // The size pin, without which the whole test is vacuous: a manifest that
+    // failed to parse into anything yields an empty `declared`, and an empty
+    // set has no uncovered members. Seven hooks are declared today; the floor
+    // only has to be high enough that a broken read cannot meet it.
+    expect(declared.size, 'no hooks were read from hooks.json — the filter below proves nothing')
+      .toBeGreaterThan(5);
 
     const covered = new Set(HOOK_CASES.map((c) => c.file));
     const uncovered = [...declared].filter((f) => !covered.has(f));

@@ -2,6 +2,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, fireEvent } from '@testing-library/preact';
 import { ProjectRoadmap } from '../../dashboard/src/components/ProjectRoadmap';
+import { t } from '../../dashboard/src/lib/i18n';
 import type { Entity } from '../../dashboard/src/lib/api';
 
 function makeEntity(overrides: Partial<Entity>): Entity {
@@ -24,7 +25,16 @@ describe('ProjectRoadmap — SPEC-9 v0/v1 acceptance criteria', () => {
     ];
     const { container } = render(<ProjectRoadmap projectName="memesh" entities={entities} />);
     expect(container.textContent).toContain('memesh');
-    expect(container.textContent).toMatch(/2/);
+    // NOT `/2/`. Every rendered date carries a 2 (the year), so that pattern
+    // matched whatever the component drew and asserted nothing about the
+    // count — the component could render zero and still pass. Assert the
+    // rendered SUMMARY, built from the same i18n template the component uses,
+    // so the count is checked in its own context and in whatever locale the
+    // suite runs under.
+    expect(
+      container.textContent,
+      'the header does not render the memory count',
+    ).toContain(t('roadmap.summary', { count: 2, first: '', last: '' }).split(' · ')[0]);
   });
 
   it('renders empty state for a project with zero entities (edge E1)', () => {
