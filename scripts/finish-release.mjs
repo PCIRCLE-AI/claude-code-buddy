@@ -154,9 +154,10 @@ console.log(`  commit:      ${headSha ? headSha.slice(0, 8) : '(unknown)'}`);
 console.log(`  notes:       ${notesFile ?? `CHANGELOG.md [${pkgVersion}]`} (${notes ? notes.length : 0} chars)`);
 
 // Print the head of the body BEFORE acting, in both paths. The default source
-// is the CHANGELOG section, which for 4.6.1 was 26KB — while the release bodies
-// actually published for 4.6.0 and 4.6.1 were ~3.5KB of curated highlights
-// passed with `--notes-file`. Both are legitimate; which one is about to become
+// is the CHANGELOG section, which for 4.6.1 was 26,355 characters — while the
+// bodies actually published for 4.6.1 and 4.6.0 were 2,790 and 1,949 characters
+// of curated highlights, passed with `--notes-file`. Both are legitimate; which
+// one is about to become
 // public should not be a surprise, and after the call it is too late to look.
 if (notes) {
   const head = notes.trim().split('\n').slice(0, 6);

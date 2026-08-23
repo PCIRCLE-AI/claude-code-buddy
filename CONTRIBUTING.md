@@ -62,8 +62,9 @@ rather than the first item.
 
 Pick the release body deliberately. With no `--notes-file` it publishes the
 whole `## [X.Y.Z]` CHANGELOG section — complete, and long: 4.6.1's was 26,355
-characters. The bodies actually published for 4.6.0 and 4.6.1 were about 3.5KB
-of curated highlights written by hand and passed with `--notes-file <path>`.
+characters. The bodies actually published for 4.6.1 and 4.6.0 were 2,790 and
+1,949 characters of curated highlights, written by hand and passed with
+`--notes-file <path>`.
 Either is a reasonable release; the command prints the first lines of whichever
 it resolved before it acts, and after the call it is too late to look.
 
