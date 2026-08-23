@@ -800,8 +800,9 @@ node. Archived entities are excluded.
 
 `evidenceCounts` maps a work-node name to its number of incoming `evidences`
 edges; a node with no such edge is absent from the map. Those edges are drawn
-by `memesh kg backfill`, not by the hooks — a graph where every count is zero
-means the backfill has not run, not that the work happened without evidence.
+by `memesh kg backfill-relations`, not by the hooks — a graph where every
+count is zero means the backfill has not run, not that the work happened
+without evidence.
 
 Any other `layer` value is a `400` with `errorCode: "validation.bad-param"`.
 There is no `layer=evidence`: the evidence layer is an order of magnitude

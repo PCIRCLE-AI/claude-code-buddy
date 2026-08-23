@@ -561,6 +561,76 @@ if (!hasBearerAuth) {
   else if (badCommands.length) fail(`agent docs name CLI subcommands that do not exist:\n      ${badCommands.join('\n      ')}`);
   else if (agentDocs.length) ok(`${mentions} \`memesh <subcommand>\` mentions in agent docs all resolve to registered CLI commands`);
 
+  // (a1) a NESTED subcommand must exist under its parent.
+  //
+  // (a) above captures only the first word after `memesh`, so `memesh kg
+  // backfill` reads as `kg` — a real command — and passed. The real name is
+  // `kg backfill-relations`, and that bullet survived every gate in the 4.6.1
+  // release notes until somebody happened to read it while promoting the
+  // section. A gate that checks the parent and ignores the child is a gate for
+  // the half of the name that is hardly ever wrong.
+  //
+  // Parents and children are both derived from cli.ts. `patterns` is
+  // registered twice — top-level and under `dream` — which is why the child
+  // sets are per-parent rather than one flat set.
+  const parentVars = new Map(
+    [...cliSrc.matchAll(/const (\w+)\s*=\s*program\s*\.command\('([\w-]+)'/g)].map(m => [m[1], m[2]]),
+  );
+  const childrenOf = new Map();
+  for (const [varName, parentName] of parentVars) {
+    const re = new RegExp(`(?:^|\\n)${varName}\\s*\\.command\\('([\\w-]+)`, 'g');
+    childrenOf.set(parentName, new Set([...cliSrc.matchAll(re)].map(m => m[1])));
+  }
+  // Absence is not evidence: an extraction that stopped matching would report
+  // "no bad nested commands found" forever.
+  if (parentVars.size === 0) fail('no `const xCmd = program.command(...)` parents matched — the nested-command extraction stopped working');
+  for (const [parentName, kids] of childrenOf) {
+    if (kids.size === 0) fail(`\`${parentName}\` matched no subcommands — the nested-command extraction stopped working`);
+  }
+
+  // Scanned across EVERY tracked markdown file, whole-document.
+  //
+  // The first version looked only inside single backticks, in a hand-listed
+  // set of documents. Measured against the repository, that missed 19 distinct
+  // nested commands living in fenced code blocks — more than the 25 it saw,
+  // and the fenced ones are what an agent copies out of `llms-install.md` and
+  // runs. It also missed `skills/memesh-review/SKILL.md`, which was not on the
+  // list.
+  //
+  // Whole-document, every tracked `.md`, was then measured too: 89 mentions,
+  // exactly one of them wrong — `memesh dream review` in the 4.5.1 notes, a
+  // command `git log -S` finds no trace of in cli.ts's whole history. So the
+  // narrower rule was not trading coverage for quiet; it was hiding a live
+  // error in published release notes.
+  //
+  // The CHANGELOG is included in full, older sections and all, for the same
+  // reason. If a nested subcommand is ever legitimately retired, its
+  // announcement will fail this gate — and that is the moment to decide what
+  // to do about it, not a reason to stop looking now.
+  const nestedTargets = [...tracked].filter(f => f.endsWith('.md')).map(f => [f, read(f)]);
+  if (nestedTargets.length === 0) fail('no tracked markdown files found — the nested-command scan has nothing to read');
+
+  // Same lookbehind as (a): it keeps `@pcircle/memesh`, `memesh-mcp` and
+  // `pcircle-memesh` out, so only a real invocation is read as one.
+  const nestedRe = new RegExp(
+    String.raw`(?<![\w/@.-])memesh\s+(${[...childrenOf.keys()].join('|')})\s+([a-z][a-z-]*)`,
+    'g',
+  );
+  let nestedMentions = 0;
+  const badNested = [];
+  for (const [label, text] of nestedTargets) {
+    for (const m of text.matchAll(nestedRe)) {
+      nestedMentions++;
+      if (!childrenOf.get(m[1]).has(m[2])) badNested.push(`${label} -> ${m[0]}`);
+    }
+  }
+  // Zero mentions is not a pass. If the pattern ever stops matching — a doc
+  // style change, a regex edit — this would print "0 mentions all resolve"
+  // forever, which is the exact shape of gate it was added to close.
+  if (nestedMentions === 0) fail('found no nested `memesh <parent> <sub>` mentions in any document — the extraction stopped matching');
+  else if (badNested.length) fail(`documents name nested subcommands that do not exist:\n      ${badNested.join('\n      ')}`);
+  else ok(`${nestedMentions} nested \`memesh <${[...childrenOf.keys()].join('|')}> <sub>\` mentions across ${nestedTargets.length} markdown files all resolve`);
+
   // (a2) every CLI flag an option table documents is a flag cli.ts registers.
   //
   // The missing direction. A sibling test already scans SOURCE files so no

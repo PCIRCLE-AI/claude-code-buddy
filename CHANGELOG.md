@@ -1324,7 +1324,7 @@ All notable changes to MeMesh are documented here.
   can shift a centroid and move a member. Identical membership is still
   de-duplicated exactly; an *overlapping* cluster is not, so a pending proposal
   can end up beside a later one covering most of the same entries. Both are
-  staged, neither touches a source entity, and `memesh dream review` shows the
+  staged, neither touches a source entity, and `memesh dream show` shows the
   source ids — but it is a real difference from the old behaviour.
 
 ### Fixed
