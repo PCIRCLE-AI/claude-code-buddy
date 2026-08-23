@@ -8,7 +8,7 @@
 
 ## Overview
 
-MeMesh Plugin is the local memory layer for Claude Code and other MCP-compatible coding agents. It provides 9 operations (`remember`, `recall`, `forget`, `export`, `import`, `learn`, `task_state`, `briefing`, `user_patterns`) through three transports — CLI, HTTP REST, and MCP — backed by SQLite with FTS5 full-text search and optional sqlite-vec vector embeddings.
+MeMesh is the local agentic-memory layer for individual AI coding agents, including Claude Code, Codex, Gemini, Cursor, and other MCP-compatible clients. It provides 9 operations (`remember`, `recall`, `forget`, `export`, `import`, `learn`, `task_state`, `briefing`, `user_patterns`) through three transports — CLI, HTTP REST, and MCP — backed by SQLite with FTS5 full-text search and optional sqlite-vec vector embeddings.
 
 The package is intentionally local-first and inspectable:
 - one SQLite database under the user's control
@@ -16,7 +16,7 @@ The package is intentionally local-first and inspectable:
 - Claude Code hook integration for session-start, pre-edit recall, user-prompt-intent detection, post-commit capture, session-summary learning, and pre-compact save
 - optional smarter retrieval and extraction when an LLM is configured
 
-This repository is the plugin/package wedge of the broader MeMesh effort. Hosted workspace and enterprise operating-system products are intentionally out of scope for this package architecture.
+This repository is the standalone local package. Hosted workspace and enterprise operating-system products are intentionally out of scope for this package architecture.
 
 ```
                      ┌─────────────┐
@@ -406,6 +406,7 @@ MeMesh supports three integration tiers:
 | **MCP server** | Claude Managed Agents | MCP connector (beta, via session config) |
 | | Claude Desktop | MCP server config |
 | | Codex CLI / Gemini CLI | MCP server (`memesh-mcp` in client config) |
+| | Cursor | MCP server (`memesh-mcp` in client config) |
 | | Custom apps | Direct stdio MCP connection |
 | **HTTP API** | Custom apps/scripts | HTTP REST API (`memesh serve`, 34 endpoints) |
 
@@ -491,14 +492,14 @@ Entities carry a `namespace` field (`personal` | `team` | `global`, default: `pe
 
 `recall` accepts a `cross_project: true` flag. When set, the project-tag filter is lifted and FTS5 search spans all namespaces. The same multi-factor scoring applies.
 
-### Team Sharing Workflow
+### Personal Backup and Cross-Agent Transfer
 
 ```bash
-# Exporter
-memesh export --namespace team --output team-memories.json
+# Export from the personal namespace
+memesh export --namespace personal --output memesh-backup.json
 
-# Importers (each team member)
-memesh import team-memories.json --merge skip
+# Import on another machine or through another compatible agent
+memesh import memesh-backup.json --merge skip
 ```
 
 ---

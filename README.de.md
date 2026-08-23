@@ -16,7 +16,7 @@
 
 ---
 
-**MeMesh** — Open-Source-**agentischer Speicher** für Claude Code & MCP-Coding-Agenten: erfasst aus der echten Arbeit des Agenten, injiziert in dem Moment, in dem er handelt, ehrlich gehalten, wenn er sich selbst widerspricht. Eine SQLite-Datei. Keine Cloud.
+**MeMesh** — Open-Source-**agentischer Speicher** für einzelne KI-Coding-Agenten: kompatibel mit Claude Code, Codex, Gemini, Cursor und anderen MCP-Clients. Erfasst aus der echten Arbeit des Agenten, injiziert in dem Moment, in dem er handelt, ehrlich gehalten, wenn er sich selbst widerspricht. Eine SQLite-Datei. Keine Cloud.
 
 ## Installation
 
@@ -65,7 +65,7 @@ flowchart TB
     subgraph clients["Where you use memesh from"]
       direction LR
       CC["Claude Code<br/>(chat + agent)"]:::client
-      TERM["Terminal / other<br/>MCP clients<br/>(Cursor, Cline...)"]:::client
+      TERM["Terminal / other<br/>MCP clients<br/>(Codex, Gemini, Cursor...)"]:::client
     end
 
     subgraph paths["Two install paths"]
@@ -152,7 +152,7 @@ memesh setup --check         # Prüfung auf Maschinenebene: liest die Host-Confi
 
 Die Hooks existieren neben Ihren bestehenden Custom-Hooks unter `~/.claude/hooks/` — `install-hooks` schreibt additiv und überschreibt nie Ihre Einträge. Zum Entfernen: `memesh uninstall-hooks`.
 
-### Dieselben Memories aus Codex CLI und Gemini CLI
+### Dieselben Memories aus Codex CLI, Gemini CLI, Cursor und anderen MCP-Clients
 
 `memesh-mcp` ist ein gewöhnlicher stdio-MCP-Server — jeder MCP-fähige Host kann ihn nutzen, nicht nur Claude Code. Mit installierter Option B (`memesh-mcp` im `PATH`) einmal pro Host registrieren:
 
@@ -164,7 +164,18 @@ codex mcp add memesh -- memesh-mcp
 gemini mcp add -s user memesh memesh-mcp
 ```
 
-Jeder Host liest und schreibt dieselbe `~/.memesh/knowledge-graph.db` — eine in Claude Code gespeicherte Memory ist aus Codex oder Gemini abrufbar, und umgekehrt. Prüfen:
+Für Cursor fügen Sie denselben stdio-Server in `~/.cursor/mcp.json` (global)
+oder in `.cursor/mcp.json` (projektspezifisch) ein:
+
+```json
+{
+  "mcpServers": {
+    "memesh": { "command": "memesh-mcp" }
+  }
+}
+```
+
+Jeder Host liest und schreibt dieselbe `~/.memesh/knowledge-graph.db` — eine in einem Agenten gespeicherte Memory ist aus Codex, Gemini, Cursor oder einem anderen MCP-Client abrufbar. Prüfen:
 
 ```bash
 codex mcp list       # memesh sollte als enabled gelistet sein
@@ -264,8 +275,8 @@ Denselben Block erhält Claude Code automatisch beim Session-Start, und jeder an
 |---------------|---------------------|
 | **Claude Code verwenden** | Projektentscheidungen, dateispezifische Erkenntnisse und vergangene Fehler während der Arbeit automatisch abrufen |
 | **Power-User von Coding-Agenten** | Eine lokale Speicherschicht über MCP-kompatible Tools verteilen |
-| **ein Team mit KI-Coding-Workflows experimentiert** | Projektwissen ohne gehostete Infrastruktur aus- und importieren |
-| **Agent-Entwickler** | Lokalen Speicher via MCP, HTTP oder CLI hinzufügen |
+| **Codex, Gemini, Cursor, Claude Code oder einen anderen MCP-Client einzeln nutzt** | Eine lokale Speicherschicht über Agenten und Sessions hinweg verwenden |
+| **einen Agenten integrieren** | Lokalen Speicher via MCP, HTTP oder CLI hinzufügen |
 
 ---
 
@@ -406,8 +417,8 @@ Wenn npm eine installierte Version als veraltet kennzeichnet (typischerweise ein
 
 **🕸️ Wissensgraph-Konnektivität** — `memesh kg backfill-relations --all-rules` verknüpft verwaiste Entitäten über Tag-Kookurrenz, Projekt-Clustering, Sitzungskontext und Namensähnlichkeit — ohne LLM.
 
-**📦 Team-Freigabe** — `memesh export > team-knowledge.json` → mit Team teilen → `memesh import team-knowledge.json`
-Importierte Bundles bleiben durchsuchbar, aber MeMesh injiziert importierte Memories nicht automatisch in Claude Hooks, bis Sie sie überprüfen oder lokal neu speichern.
+**📦 Persönliches Backup und Migration** — `memesh export > memesh-backup.json` → auf einen anderen Rechner kopieren → `memesh import memesh-backup.json`
+Importierte Bundles bleiben durchsuchbar, aber MeMesh injiziert importierte Memories nicht automatisch in den Host-Kontext, bis Sie sie überprüfen oder lokal neu speichern.
 
 ---
 
@@ -416,8 +427,8 @@ Importierte Bundles bleiben durchsuchbar, aber MeMesh injiziert importierte Memo
 > "MeMesh hat sich daran erinnert, dass wir vor drei Wochen PKCE gegenüber Implicit Flow gewählt haben. Als ich Claude erneut nach Auth fragte, wusste es bereits Bescheid — keine Wiederholungen nötig."
 > — **Einzelentwickler, baut eine SaaS**
 
-> "Wir exportieren unseren Team-Memory jeden Freitag und importieren ihn Montag. Jedes Claude des Teams startet die Woche mit dem Wissen aus der Vorwoche."
-> — **3er-Startup mit gemeinsamer Wissensbasis**
+> "Eine in Claude Code gespeicherte Entscheidung war am nächsten Tag aus Codex abrufbar. Dieselbe lokale Memory folgt meiner Arbeit statt einem einzelnen Agenten."
+> — **Einzelentwickler mit mehreren Coding-Agenten**
 
 > "Das Dashboard zeigte mir, dass 90 % meiner Memories automatisch generierte Session-Logs waren. Ich begann, `remember` bewusst für Architekturentscheidungen zu nutzen. Ein Spielwechsel."
 > — **Entwickler, der das Analytics-Panel entdeckte**
@@ -471,7 +482,7 @@ Wechselst du zu einer anderen Dimension (z. B. 768 → 1536), wird **nichts gel�
 | `remember` | Wissen mit Beobachtungen, Relationen und Tags speichern |
 | `recall` | FTS5 + sqlite-vec Suche mit Multi-Faktor-Bewertung (Relevanz, Aktualität, Häufigkeit, Konfidenz, Abruf-Auswirkung) — kein LLM auf dem Hot Path |
 | `forget` | Soft-Archivierung (löscht nie) oder entfernt spezifische Beobachtungen |
-| `export` | Memories als JSON zwischen Projekten oder Teamkollegen teilen |
+| `export` | Memories als JSON sichern, migrieren oder zwischen kompatiblen Agenten übertragen |
 | `import` | Memories mit Merge-Strategien importieren (Skip / Overwrite / Append) |
 | `learn` | Strukturierte Lektionen aus Fehlern erfassen (Fehler, Grundursache, Behebung, Prävention) |
 | `task_state` | Arbeitsstand lesen oder festhalten — Ziel, nächster Schritt, Blocker, gerade Erledigtes |

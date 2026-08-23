@@ -195,9 +195,74 @@ if (!db) throw new Error('openDatabase returned nothing');
   }
 );
 
+// Exercise the actual MCP wire contract from the installed consumer tree.
+// Importing handlers directly would miss the stdio initialize handshake,
+// tool-list schema, and the server lifecycle that every host depends on.
+const protocolHome = path.join(smokeDir, 'protocol-home');
+fs.mkdirSync(protocolHome, { recursive: true });
+const protocolServer = path.join(installedRoot, 'dist', 'mcp', 'server.js');
+execFileSync(
+  process.execPath,
+  [
+    '--input-type=module',
+    '-e',
+    `import assert from 'node:assert/strict';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+
+const transport = new StdioClientTransport({
+  command: process.execPath,
+  args: [${JSON.stringify(protocolServer)}],
+  env: { ...process.env, HOME: ${JSON.stringify(protocolHome)}, MEMESH_AUTO_CAPTURE: 'false' },
+});
+const client = new Client({ name: 'memesh-packaged-smoke', version: '1.0.0' });
+try {
+  await client.connect(transport);
+
+  const listed = await client.listTools();
+  const names = listed.tools.map((tool) => tool.name).sort();
+  assert.deepEqual(
+    names,
+    ['briefing', 'export', 'forget', 'import', 'learn', 'recall', 'remember', 'task_state', 'user_patterns'],
+    'installed MCP server exposed an unexpected tool surface'
+  );
+
+  const remembered = await client.callTool({
+    name: 'remember',
+    arguments: {
+      name: 'packaged-protocol-smoke',
+      type: 'fact',
+      observations: ['The installed MCP protocol path is alive.'],
+      tags: ['smoke'],
+    },
+  });
+  assert.notEqual(remembered.isError, true, 'remember returned an MCP tool error');
+
+  const recalled = await client.callTool({
+    name: 'recall',
+    arguments: { query: 'packaged-protocol-smoke', limit: 5 },
+  });
+  assert.notEqual(recalled.isError, true, 'recall returned an MCP tool error');
+  assert.match(
+    JSON.stringify(recalled),
+    /packaged-protocol-smoke/,
+    'recall did not return the memory written through MCP'
+  );
+} finally {
+  await client.close();
+}
+`,
+  ],
+  {
+    cwd: consumerDir,
+    stdio: 'inherit',
+    env: { ...process.env, HOME: protocolHome },
+  }
+);
+
 fs.rmSync(smokeDir, { recursive: true, force: true });
 
 // Say something on success. A check that prints nothing when it passes is
 // indistinguishable from one that did not run — the exact failure mode this
 // repo has spent several releases removing from its own code.
-console.log('✅ Packaged artifact smoke test passed — tarball packs, installs outside the repo with production deps only, and opens a database');
+console.log('✅ Packaged artifact smoke test passed — tarball installs outside the repo, opens a database, and completes an MCP initialize/list/remember/recall exchange');
