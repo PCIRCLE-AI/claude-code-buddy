@@ -20,6 +20,50 @@ All notable changes to MeMesh are documented here.
   one being fixed: a pushed tag with no release publishes nothing, while the
   coherence gate now sees the tag and reports ok.
 
+### Fixed
+
+- **Three gates that could report success without checking anything.** Each was
+  found by the previous one.
+
+  `scripts/wait-for-checks.mjs` exists because `gh pr checks`' exit code cannot
+  be trusted as a verdict — and it carried the same hole one level down. It
+  asked "is pending zero?", which is only sound once every check has been
+  registered, and GitHub registers them in batches. Measured on PR #190: one
+  poll returned a single row while the other twelve did not exist yet. Had that
+  row been green at that instant, thirteen legs would have been reported green
+  on one of them. A PASS now also requires the set of check NAMES to be
+  identical across two consecutive polls; a FAIL is still immediate. Keyed on
+  the name set rather than the count, because `cancel-in-progress` can swap one
+  run's legs for another's at the same cardinality.
+
+  `check-doc-claims` verified that every `memesh <word>` in the agent docs
+  names a registered command, capturing only the first word — so a
+  two-word name was read as its first word only - a real command - and passed. It now checks
+  the child too, per parent (`patterns` is registered twice, top-level and
+  under `dream`, so one flat set would accept it under the wrong parent), across
+  every tracked markdown file rather than a hand-listed subset. The first
+  version scanned single-backtick spans only and missed 19 nested commands
+  living in fenced code blocks — more than the 25 it saw, and the fenced ones
+  are what an agent copies out of `llms-install.md` and runs.
+
+  The `C3` detector finds gate-like scripts that nothing runs, by counting how
+  often their basename appears. It counted raw text, so a filename written in a
+  COMMENT counted as a caller. This had already happened, been diagnosed, and
+  been worked around rather than fixed: one script's header sentence naming
+  another was enough to hide it, and the explanation was written into the other
+  entry's triage reason as a warning not to delete the comment. Comments now
+  come out before counting; over-stripping is the safe direction, because a
+  lost reference makes a script look UNcalled, which fails loudly.
+
+- **Two dead command names in the documents, both found by the gates above the
+  moment they were added.** `docs/api/API_REFERENCE.md` named a `kg` subcommand
+  that does not exist; the real one is `kg backfill-relations`.
+  The 4.5.1 release notes named a `dream` subcommand that shows the source
+  ids — `git log -S` finds no trace of that string in `cli.ts`'s entire
+  history, so it is not a retired command in frozen history but one that has
+  never existed. The passage means `memesh dream show`, whose output does print
+  the source ids.
+
 
 ## [4.6.1] — 2026-08-23
 
