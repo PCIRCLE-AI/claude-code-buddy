@@ -3,7 +3,6 @@
 // Finish a release in one operation: tag, GitHub Release, npm publish.
 //
 //   node scripts/finish-release.mjs --dry-run    # what it would do, and why it would refuse
-//   node scripts/finish-release.mjs --no-wait    # skip the final npm confirmation poll
 //   npm run release:finish
 //
 // WHY THIS IS ONE COMMAND
@@ -52,12 +51,10 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 
 const args = process.argv.slice(2);
 let dryRun = false;
-let waitForNpm = true;
 let notesFile = null;
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
   if (a === '--dry-run') dryRun = true;
-  else if (a === '--no-wait') waitForNpm = false;
   else if (a === '--notes-file') {
     notesFile = args[++i];
     if (!notesFile) {
@@ -66,8 +63,7 @@ for (let i = 0; i < args.length; i++) {
     }
   }
   else if (a === '-h' || a === '--help') {
-    console.log('Usage: node scripts/finish-release.mjs [--dry-run] [--no-wait] [--notes-file <path>]');
-    console.log('  --no-wait   skip the final poll that confirms npm is serving the new version');
+    console.log('Usage: node scripts/finish-release.mjs [--dry-run] [--notes-file <path>]');
     process.exit(0);
   } else {
     console.error(`unknown flag: ${a}`);
@@ -300,19 +296,21 @@ function publishedVersion() {
   return capture('npm', ['view', '@pcircle/memesh', 'version', '--prefer-online']);
 }
 
-if (!waitForNpm) {
-  console.log(`\n  npm check skipped (--no-wait). Confirm with:`);
-  console.log(`    npm view @pcircle/memesh version --prefer-online`);
-} else {
+{
   process.stdout.write(`\n  waiting for npm to serve ${pkgVersion} `);
   let seen = null;
   for (let attempt = 0; attempt < NPM_POLL_ATTEMPTS; attempt++) {
     seen = publishedVersion();
     if (seen === pkgVersion) break;
     process.stdout.write('.');
-    // Synchronous sleep: this script is a sequence of blocking commands and a
-    // timer would need the whole file to become async for no benefit.
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, NPM_POLL_INTERVAL_MS);
+    // Not after the LAST attempt — the loop is about to end and report, and a
+    // quarter-minute of dead wait on the failure path is the one place a
+    // release script must not add.
+    if (attempt < NPM_POLL_ATTEMPTS - 1) {
+      // Synchronous sleep: this script is a sequence of blocking commands and
+      // a timer would need the whole file to become async for no benefit.
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, NPM_POLL_INTERVAL_MS);
+    }
   }
   process.stdout.write('\n');
   if (seen === pkgVersion) {

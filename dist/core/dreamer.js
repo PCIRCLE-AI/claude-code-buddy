@@ -32,6 +32,10 @@ export const PROTECTED_TYPES = new Set([
     'release',
     'plan',
 ]);
+function collisionSafeName(db, proposed, kind, proposalId) {
+    const taken = db.prepare('SELECT 1 FROM entities WHERE name = ?').get(proposed) !== undefined;
+    return taken ? `${proposed} (${kind} #${proposalId})` : proposed;
+}
 export async function runDreamer(db, llm, opts = {}) {
     const start = Date.now();
     const result = {
@@ -150,7 +154,7 @@ function detectClusters(db, opts) {
     const rows = db.prepare(`
     SELECT id, name, type, created_at, metadata
     FROM entities
-    WHERE created_at >= ? AND status = 'active'
+    WHERE created_at >= datetime(?) AND status = 'active'
     ORDER BY created_at ASC
   `).all(cutoff);
     const tagStmt = db.prepare('SELECT tag FROM tags WHERE entity_id = ?');
@@ -543,7 +547,7 @@ function collectProjectEntitiesForPatterns(db, project, windowDays, minSignal) {
     FROM entities e
     JOIN tags t ON t.entity_id = e.id
     WHERE t.tag = ?
-      AND e.created_at >= ?
+      AND e.created_at >= datetime(?)
       AND e.status = 'active'
     ORDER BY e.created_at ASC
   `).all(`project:${project}`, cutoff);
@@ -675,8 +679,7 @@ function applyTranscriptProposal(db, row, kg) {
         ...digest.tags.filter((tag) => !tag.startsWith('project:')),
         `project:${row.project}`,
     ];
-    const nameTaken = db.prepare('SELECT 1 FROM entities WHERE name = ?').get(digest.name) !== undefined;
-    const entityName = nameTaken ? `${digest.name} (transcript #${row.id})` : digest.name;
+    const entityName = collisionSafeName(db, digest.name, 'transcript', row.id);
     const tx = db.transaction(() => {
         const digestId = kg.createEntity(entityName, digest.type, {
             observations: digest.observations,
@@ -728,8 +731,7 @@ export function applyProposal(db, proposalId, kg) {
         `project:${row.project}`,
     ];
     let ownedSourceIds = sourceIds;
-    const nameTaken = db.prepare('SELECT 1 FROM entities WHERE name = ?').get(digest.name) !== undefined;
-    const entityName = nameTaken ? `${digest.name} (digest #${row.id})` : digest.name;
+    const entityName = collisionSafeName(db, digest.name, 'digest', row.id);
     const tx = db.transaction(() => {
         const digestId = kg.createEntity(entityName, digest.type, {
             observations: digest.observations,

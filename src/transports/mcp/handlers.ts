@@ -328,7 +328,7 @@ function parseOrFail<T>(schema: z.ZodType<T>, args: unknown): { ok: true; data: 
   // (Gemini CLI does) means "left blank". That premise says nothing about a
   // field the schema does not declare, which is why the check is split.
   const strictPass = schema.safeParse(raw);
-  if (!strictPass.success && strictPass.error instanceof z.ZodError) {
+  if (!strictPass.success) {
     const unknownKeys = strictPass.error.issues.filter((i) => i.code === 'unrecognized_keys');
     if (unknownKeys.length > 0) {
       return {

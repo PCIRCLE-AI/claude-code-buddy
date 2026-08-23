@@ -22,6 +22,7 @@ import { MemeshDatabase } from '../storage/sqlite.js';
 import { AUTO_CAPTURE_TAG } from './types.js';
 import { parseSqliteUtcMs } from './time-utils.js';
 import { autoCaptureDecision } from './capture-flag.js';
+import { guardFromMetadata } from './guards.js';
 const EMBEDDING_PROBE_TIMEOUT_MS = 15000;
 const EXPECTED_HOOK_TYPES = ['PreToolUse', 'SessionStart', 'PostToolUse', 'Stop', 'PreCompact'];
 const LOCALE_README_FILES = [
@@ -642,8 +643,7 @@ async function inspectHttpProbe(httpBaseUrl, fetchImpl) {
     }
 }
 function verifySkillsManifest(packageRoot, existsSyncImpl, readFileSyncImpl, installSupport) {
-    const reinstall = installSupport?.guidance
-        ?? 'Reinstall memesh through whatever you installed it with.';
+    const reinstall = installSupport.guidance;
     const manifestPath = path.join(packageRoot, 'dist', 'skills-manifest.json');
     if (!existsSyncImpl(manifestPath)) {
         return createCheck('skills-manifest', 'Skills + hooks integrity', 'warn', 'No skills-manifest.json found. This is normal for source checkouts — packaged installs ship the manifest.', `Run \`npm run build\` to regenerate, or reinstall: ${reinstall}`, { code: 'skills-manifest.missing-dev' });
@@ -810,27 +810,28 @@ export async function runDoctor(options) {
         }
         try {
             const guardRows = db
-                .prepare(`SELECT name, metadata FROM entities
+                .prepare(`SELECT id, name, metadata FROM entities
            WHERE status = 'active'
-             AND metadata IS NOT NULL
-             AND json_extract(metadata, '$.guard.enabled') = 1`)
+             AND type IN ('lesson_learned', 'lesson', 'mistake')
+             AND metadata LIKE '%"guard"%'`)
                 .all();
-            if (guardRows.length > 0) {
-                const fired = guardRows
-                    .map((r) => {
-                    let fires = 0;
-                    try {
-                        const parsedMeta = JSON.parse(r.metadata);
-                        if (typeof parsedMeta.guard?.fires === 'number')
-                            fires = parsedMeta.guard.fires;
-                    }
-                    catch { }
-                    return { name: r.name, fires };
-                })
-                    .sort((a, b) => b.fires - a.fires);
+            const fired = guardRows
+                .filter((r) => guardFromMetadata(r.id, r.metadata) !== null)
+                .map((r) => {
+                let fires = 0;
+                try {
+                    const parsedMeta = JSON.parse(r.metadata);
+                    if (typeof parsedMeta.guard?.fires === 'number')
+                        fires = parsedMeta.guard.fires;
+                }
+                catch { }
+                return { name: r.name, fires };
+            })
+                .sort((a, b) => b.fires - a.fires);
+            if (fired.length > 0) {
                 const everFired = fired.filter((g) => g.fires > 0);
                 const top = everFired.slice(0, 3).map((g) => `${g.name} (${g.fires})`).join(', ');
-                dbChecks.push(createInfo('guard_activity', 'Guard activity', `${guardRows.length} active guard(s); ${everFired.length} have ever fired`
+                dbChecks.push(createInfo('guard_activity', 'Guard activity', `${fired.length} active guard(s); ${everFired.length} have ever fired`
                     + (top ? `. Most: ${top}.` : '. None has matched yet.')));
             }
         }

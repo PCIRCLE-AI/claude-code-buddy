@@ -41,9 +41,8 @@ function buildImportedMetadata(
   // future release adds) and an allowlist would silently drop it. Anything
   // added later that carries authority has to be added here too — that is
   // the cost, and it is written down rather than left implicit.
-  const { guard: _guard, trust: _trust, provenance: _provenance, ...bundledSafe } =
-    (args.bundled ?? {}) as Record<string, unknown>;
-  void _guard; void _trust; void _provenance;
+  const { guard: _guard, ...bundledSafe } = (args.bundled ?? {}) as Record<string, unknown>;
+  void _guard;
   return {
     ...(existingMetadata ?? {}),
     ...bundledSafe,
@@ -219,6 +218,8 @@ export function importMemories(args: ImportInput): ImportResult {
   let skipped = 0;
   let appended = 0;
   const errors: string[] = [];
+  /** Compiled once: a restore can create up to `limit` entities (1000). */
+  const setCreatedAt = db.prepare('UPDATE entities SET created_at = ? WHERE name = ?');
 
   for (const [index, entity] of args.data.entities.entries()) {
     const invalid = describeInvalidEntity(entity, index);
@@ -328,9 +329,17 @@ export function importMemories(args: ImportInput): ImportResult {
       // where a negative age passes every recency check.
       if (!existing) {
         const bundledCreatedAt = (entity as { created_at?: unknown }).created_at;
-        if (typeof bundledCreatedAt === 'string' && parseSqliteUtcMs(bundledCreatedAt) !== null) {
-          db.prepare('UPDATE entities SET created_at = ? WHERE name = ?')
-            .run(bundledCreatedAt, entity.name);
+        const bundledMs = typeof bundledCreatedAt === 'string'
+          ? parseSqliteUtcMs(bundledCreatedAt)
+          : null;
+        if (bundledMs !== null) {
+          // Stored in the COLUMN's format, not the bundle's. `parseSqliteUtcMs`
+          // accepts either separator, so a bundle carrying `...T...` validates
+          // and would be written back verbatim — recreating the two-format
+          // column that `demo.ts` was just fixed to stop producing, and that
+          // every `datetime(col)` workaround downstream exists to survive.
+          // One writer, one format.
+          setCreatedAt.run(new Date(bundledMs).toISOString().replace('T', ' ').slice(0, 19), entity.name);
         }
         if ((entity as { status?: unknown }).status === 'archived') {
           kg.archiveEntity(entity.name);

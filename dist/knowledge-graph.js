@@ -72,6 +72,9 @@ export class KnowledgeGraph {
             .run(nextMetadata ? JSON.stringify(nextMetadata) : null, name);
     }
     createEntity(name, type, opts) {
+        return this.db.transaction(() => this.createEntityInner(name, type, opts))();
+    }
+    createEntityInner(name, type, opts) {
         const incomingMetadata = (opts?.metadata && typeof opts.metadata === 'object') ? { ...opts.metadata } : {};
         if (incomingMetadata.signal_score === undefined) {
             incomingMetadata.signal_score = computeSignalScore({

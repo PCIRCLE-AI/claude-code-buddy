@@ -1506,11 +1506,13 @@ export function GraphTab() {
   // Search match count — over the SAME haystack the canvas highlights on
   // (name + headline). Counted over the machine name alone it reported "0
   // matches" for a query that the user took straight off this canvas.
-  const searchMatches = searchQuery
-    ? [...displayIndex.entries()].filter(([, d]) =>
-        d.search.includes(searchQuery.toLowerCase()),
-      )
-    : [];
+  // Memoized: this scans every node, and it used to run on every render with
+  // `searchQuery.toLowerCase()` recomputed per node.
+  const searchMatches = useMemo(() => {
+    if (!searchQuery) return [];
+    const q = searchQuery.toLowerCase();
+    return [...displayIndex.entries()].filter(([, d]) => d.search.includes(q));
+  }, [displayIndex, searchQuery]);
   const matchCount = searchMatches.length;
 
   /**
@@ -1529,12 +1531,18 @@ export function GraphTab() {
    * "find it and open it" is the thing the mouse does that the keyboard
    * could not do at all.
    */
-  const selectSoleMatch = useCallback(() => {
+  const selectSoleMatch = () => {
     if (searchMatches.length !== 1) return;
-    const [name, display] = searchMatches[0];
+    const [name] = searchMatches[0];
     setEgoNodeId(name);
-    setEvidenceNode({ id: name, display: display.display } as GNode);
-  }, [searchMatches]);
+    // The REAL node, not a two-field stand-in. `{ id, display } as GNode`
+    // left twelve of fourteen fields undefined on a node reached by keyboard
+    // and populated on the same node reached by click — nothing reads them
+    // today, and the next reader of `evidenceNode` would get `undefined` with
+    // no type error to warn them.
+    const node = nodesRef.current.find((n) => n.id === name);
+    if (node) setEvidenceNode(node);
+  };
 
   // Ego node name for banner
   const egoEntity = egoNodeId

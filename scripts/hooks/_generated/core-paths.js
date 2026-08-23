@@ -105,10 +105,11 @@ export const SECRET_PATTERN_SOURCES = [
     'xox[baprs]-[A-Za-z0-9-]{10,}',
     'Bearer(?:\\s|\\\\[nrt])+[A-Za-z0-9_.\\-]{16,}',
 ];
+const SECRET_PATTERNS = SECRET_PATTERN_SOURCES.map((s) => new RegExp(s, 'gi'));
 export function redactSecrets(input) {
     let out = input;
-    for (const s of SECRET_PATTERN_SOURCES)
-        out = out.replace(new RegExp(s, 'gi'), '***REDACTED***');
+    for (const pattern of SECRET_PATTERNS)
+        out = out.replace(pattern, '***REDACTED***');
     return out;
 }
 export function redactUserPaths(text) {

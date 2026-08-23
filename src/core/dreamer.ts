@@ -196,6 +196,28 @@ interface ProposedDigest {
   tags: string[];
 }
 
+/**
+ * A name `createEntity` is guaranteed to INSERT rather than merge into.
+ *
+ * `createEntity` uses `INSERT OR IGNORE`: when the name is already taken the
+ * insert is skipped, none of the caller's metadata is written, and the new
+ * observations merge into the existing row. Both dreamer apply paths need the
+ * same protection and had the same six lines, differing only in the suffix
+ * label — including the subtle invariant below, which was documented twice.
+ *
+ * No status filter, deliberately: an ARCHIVED row with this name is a
+ * collision too, because `createEntity` would reactivate it.
+ */
+function collisionSafeName(
+  db: MemeshDatabase,
+  proposed: string,
+  kind: 'digest' | 'transcript',
+  proposalId: number,
+): string {
+  const taken = db.prepare('SELECT 1 FROM entities WHERE name = ?').get(proposed) !== undefined;
+  return taken ? `${proposed} (${kind} #${proposalId})` : proposed;
+}
+
 export async function runDreamer(
   db: MemeshDatabase,
   llm: LLMConfig | null | undefined,
@@ -414,7 +436,7 @@ function detectClusters(db: MemeshDatabase, opts: DreamerOptions): ClusterDetect
   const rows = db.prepare(`
     SELECT id, name, type, created_at, metadata
     FROM entities
-    WHERE created_at >= ? AND status = 'active'
+    WHERE created_at >= datetime(?) AND status = 'active'
     ORDER BY created_at ASC
   `).all(cutoff) as EntityRow[];
 
@@ -1097,7 +1119,7 @@ function collectProjectEntitiesForPatterns(
     FROM entities e
     JOIN tags t ON t.entity_id = e.id
     WHERE t.tag = ?
-      AND e.created_at >= ?
+      AND e.created_at >= datetime(?)
       AND e.status = 'active'
     ORDER BY e.created_at ASC
   `).all(`project:${project}`, cutoff) as Array<{ id: number; name: string; title: string | null; type: string; metadata: string | null }>;
@@ -1364,8 +1386,7 @@ function applyTranscriptProposal(
   // status — the query has no status filter, so it also catches an archived
   // row createEntity would reactivate), give this digest a collision-safe name
   // so createEntity always inserts a FRESH, untrusted row and never merges.
-  const nameTaken = db.prepare('SELECT 1 FROM entities WHERE name = ?').get(digest.name) !== undefined;
-  const entityName = nameTaken ? `${digest.name} (transcript #${row.id})` : digest.name;
+  const entityName = collisionSafeName(db, digest.name, 'transcript', row.id);
   const tx = db.transaction(() => {
     const digestId = kg.createEntity(entityName, digest.type, {
       observations: digest.observations,
@@ -1491,8 +1512,7 @@ export function applyProposal(
   //
   // No status filter on the lookup, deliberately: an ARCHIVED row with this
   // name is a collision too, because `createEntity` would reactivate it.
-  const nameTaken = db.prepare('SELECT 1 FROM entities WHERE name = ?').get(digest.name) !== undefined;
-  const entityName = nameTaken ? `${digest.name} (digest #${row.id})` : digest.name;
+  const entityName = collisionSafeName(db, digest.name, 'digest', row.id);
 
   const tx = db.transaction(() => {
     const digestId = kg.createEntity(entityName, digest.type, {

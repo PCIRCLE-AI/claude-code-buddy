@@ -85,7 +85,7 @@ function derivedGlobalNpmRoot(execPath: string): string {
  */
 export function getGlobalNpmRoot(
   options: { execFileSyncImpl?: ExecFileSyncLike; execPathImpl?: string } = {},
-): string | null {
+): string {
   const { execFileSyncImpl = execFileSync, execPathImpl = process.execPath } = options;
 
   try {
@@ -94,7 +94,7 @@ export function getGlobalNpmRoot(
   } catch {
     // npm is not reachable from this process — fall through to the layout.
   }
-  return derivedGlobalNpmRoot(execPathImpl) || null;
+  return derivedGlobalNpmRoot(execPathImpl);
 }
 
 export function detectInstallChannel(options: DetectInstallChannelOptions): InstallChannel {

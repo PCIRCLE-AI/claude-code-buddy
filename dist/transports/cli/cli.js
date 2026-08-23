@@ -31,14 +31,28 @@ async function withDatabase(fn) {
         return await fn();
     }
     finally {
+        await flushPendingEmbeddings();
         closeDatabase();
     }
+}
+function unitFraction(flag) {
+    return (value) => {
+        const parsed = Number(value);
+        if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
+            console.error(`Error: ${flag} needs a number between 0 and 1, not "${value}".`);
+            process.exit(1);
+        }
+        return parsed;
+    };
+}
+function proposalId(raw) {
+    return wholeNumber('<id>')(raw);
 }
 function wholeNumber(flag, min = 1) {
     return (value) => {
         const parsed = Number(value);
         if (!Number.isInteger(parsed) || parsed < min) {
-            console.error(`Error: ${flag} needs a whole number${min === 0 ? ' of 0 or more' : ' of ' + min + ' or more'}, not "${value}".`);
+            console.error(`Error: ${flag} needs a whole number of ${min} or more, not "${value}".`);
             process.exit(1);
         }
         return parsed;
@@ -162,7 +176,6 @@ program
         }
         if (result.relationErrors?.length)
             process.exitCode = 1;
-        await flushPendingEmbeddings();
     });
 });
 program
@@ -666,7 +679,6 @@ program
             return;
         }
         const result = setTaskState({ project: opts.project, patch, sourceHost: 'cli' });
-        await flushPendingEmbeddings();
         if (opts.json) {
             console.log(JSON.stringify(result));
             return;
@@ -827,8 +839,9 @@ configCmd
         }
     }
     let coerced = value;
-    if (canonical === 'sessionLimit')
-        coerced = parseInt(value, 10);
+    if (canonical === 'sessionLimit') {
+        coerced = wholeNumber('sessionLimit')(value);
+    }
     if (canonical === 'llmFallbacks')
         coerced = JSON.parse(value);
     if (canonical === 'autoCapture') {
@@ -912,13 +925,13 @@ program
 program
     .command('serve')
     .description('Start the HTTP API server and web dashboard')
-    .option('--port <port>', 'Port number', '3737')
+    .option('--port <port>', 'Port number', wholeNumber('--port', 0), 3737)
     .option('--host <host>', 'Host to bind', '127.0.0.1')
     .option('--allow-remote', 'Permit binding to a non-loopback host. Pair it with --host; on a non-loopback bind a bearer token is generated and REQUIRED for every /v1 request, and the startup output says where it lives. On the default loopback host this flag changes nothing.')
     .action(async (opts) => {
     const { startServer } = await import('../http/server.js');
     try {
-        startServer(opts.host, parseInt(opts.port, 10), { allowRemote: opts.allowRemote, autoUpdateCheck: true });
+        startServer(opts.host, opts.port, { allowRemote: opts.allowRemote, autoUpdateCheck: true });
     }
     catch (err) {
         console.error(`MeMesh: ${err instanceof Error ? err.message : String(err)}`);
@@ -1087,7 +1100,7 @@ kgCmd
     .option('--include-archived', 'Also process archived entities')
     .option('--session-cooccurrence', 'Rule 3: link high-signal orphans co-created in the same session')
     .option('--name-tokens', 'Rule 4: link orphans sharing ≥3 name content tokens (or Jaccard ≥ 0.50)')
-    .option('--min-jaccard <n>', 'Jaccard threshold for name similarity (default 0.50)', parseFloat)
+    .option('--min-jaccard <n>', 'Jaccard threshold for name similarity (default 0.50)', unitFraction('--min-jaccard'))
     .option('--all-rules', 'Enable all heuristic rules (Rules 1–5)')
     .option('--no-evidence-links', 'Disable Rule 5: evidence → work-item links via shared session id (on by default — these edges feed the graph\'s evidence badges)')
     .option('--reset-idempotency', 'Clear the persistent "already-attempted" orphan cache before running (use after schema changes or to reconsider every orphan)')
@@ -1491,7 +1504,7 @@ dreamCmd
     .option('--dry-run', 'Compute proposals without writing to dream_proposals')
     .option('--max-llm-calls <n>', 'Hard cap on LLM calls (default 10)', wholeNumber('--max-llm-calls'))
     .option('--window-days <n>', 'Look-back window in days (default 30)', wholeNumber('--window-days'))
-    .option('--min-signal <n>', 'Minimum signal_score to include in scan (default 0.3)', (v) => parseFloat(v))
+    .option('--min-signal <n>', 'Minimum signal_score to include in scan (default 0.3)', unitFraction('--min-signal'))
     .action(async (opts) => {
     await withDatabase(async () => {
         const { runPatternDetector } = await import('../../core/dreamer.js');
@@ -1611,7 +1624,7 @@ dreamCmd
     await withDatabase(async () => {
         const { getProposalDetail } = await import('../../core/dreamer.js');
         const { getDatabase } = await import('../../db.js');
-        const detail = getProposalDetail(getDatabase(), parseInt(id, 10));
+        const detail = getProposalDetail(getDatabase(), proposalId(id));
         if (!detail) {
             console.error(`proposal #${id} not found`);
             console.error('See ids with: memesh dream list');
@@ -1672,14 +1685,13 @@ dreamCmd
         const kg = new KnowledgeGraph(getDatabase());
         let result;
         try {
-            result = applyProposal(getDatabase(), parseInt(id, 10), kg);
+            result = applyProposal(getDatabase(), proposalId(id), kg);
         }
         catch (err) {
             console.error(err instanceof Error ? err.message : String(err));
             console.error('See pending ids with: memesh dream list');
             process.exit(1);
         }
-        await flushPendingEmbeddings();
         console.log(`Applied proposal #${result.proposalId}`);
         console.log(`  digest entity: ${result.digestEntityName}`);
         console.log(`  sources archived: ${result.sourcesArchived}`);
@@ -1694,7 +1706,7 @@ dreamCmd
         const { rejectProposal } = await import('../../core/dreamer.js');
         const { getDatabase } = await import('../../db.js');
         try {
-            rejectProposal(getDatabase(), parseInt(id, 10), opts.reason);
+            rejectProposal(getDatabase(), proposalId(id), opts.reason);
         }
         catch (err) {
             console.error(err instanceof Error ? err.message : String(err));

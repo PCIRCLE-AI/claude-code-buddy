@@ -31,7 +31,7 @@ export function getGlobalNpmRoot(options = {}) {
     }
     catch {
     }
-    return derivedGlobalNpmRoot(execPathImpl) || null;
+    return derivedGlobalNpmRoot(execPathImpl);
 }
 export function detectInstallChannel(options) {
     const { packageRoot, globalNpmRoot, existsSyncImpl = fs.existsSync, } = options;

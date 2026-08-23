@@ -13,6 +13,7 @@ export declare class KnowledgeGraph {
         title?: string | null;
         trustOverride?: 'trusted' | 'untrusted';
     }): number;
+    private createEntityInner;
     createEntitiesBatch(entities: CreateEntityInput[]): void;
     createRelation(fromName: string, toName: string, relationType: string): void;
     getEntity(name: string): Entity | null;

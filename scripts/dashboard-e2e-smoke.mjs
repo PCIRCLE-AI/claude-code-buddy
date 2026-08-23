@@ -7,10 +7,10 @@ import path from 'node:path';
 import process from 'node:process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { chromium } from 'playwright';
+import { npmSync } from './lib/npm-bin.mjs';
 
 const repoRoot = process.cwd();
 const smokeDir = path.join(repoRoot, 'tmp', 'dashboard-e2e-smoke');
-const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const npmCacheDir = process.env.MEMESH_NPM_CACHE ?? path.join(os.tmpdir(), 'memesh-npm-cache');
 
 const pageErrors = [];
@@ -110,8 +110,7 @@ async function main() {
   cleanupDir(smokeDir);
   fs.mkdirSync(smokeDir, { recursive: true });
 
-  const packJson = execFileSync(
-    npmCommand,
+  const packJson = npmSync(
     ['pack', '--json', '--pack-destination', smokeDir],
     {
       cwd: repoRoot,
@@ -147,7 +146,7 @@ async function main() {
   // broke on the first real install. `smoke-packed-artifact.mjs` already
   // makes this distinction and says why in its own comment; this one
   // borrowed the dev tree instead.
-  execFileSync(npmCommand, ['install', '--omit=dev', '--no-audit', '--no-fund'], {
+  npmSync(['install', '--omit=dev', '--no-audit', '--no-fund'], {
     cwd: packageRoot,
     stdio: 'inherit',
     env: { ...process.env, npm_config_cache: npmCacheDir },

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'preact/hooks';
 import { api } from '../lib/api';
 import { t } from '../lib/i18n';
+import { classifyLoadError, failureMessage, type LoadFailure } from '../lib/failure';
 
 interface PmAnalytics {
   velocity: { decisionsPerWeek: number; releasesPerMonth: number; windowDays: number };
@@ -21,7 +22,11 @@ export function isPmAnalyticsRenderable(d: PmAnalytics | null): d is PmAnalytics
 
 export function PmAnalyticsPanel() {
   const [data, setData] = useState<PmAnalytics | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // The dashboard's shared classifier, not a raw `String(e)`. It already draws
+  // the distinction this panel's states need — `unreachable` / `unreadable` /
+  // `ratelimited` — and every sibling on this tab renders through it, so a 429
+  // and a dead server stop printing the same sentence.
+  const [failure, setFailure] = useState<LoadFailure | null>(null);
   // Three outcomes used to render the same thing — nothing.
   //
   // A failed request, a request still in flight, and a reply this bundle
@@ -49,21 +54,16 @@ export function PmAnalyticsPanel() {
         }
         setData(r);
       })
-      .catch((e) => setError(String(e)))
+      .catch((e) => setFailure(classifyLoadError(e)))
       .finally(() => setLoading(false));
   }, []);
 
   if (loading) return <div class="empty"><div class="loading" /></div>;
 
-  if (error) {
-    console.warn('[PmAnalyticsPanel]', error);
+  if (failure) {
     // role="alert" per DESIGN.md: a box that stands in for content has to
     // announce itself to a screen reader rather than repaint silently.
-    return (
-      <div class="error-box" role="alert">
-        {`${t('common.error')}: ${t('analytics.loadFailed')}`}
-      </div>
-    );
+    return <div class="error-box" role="alert">{failureMessage(failure)}</div>;
   }
   // Guard the LEAVES, not the groups. `{}` is truthy, so checking that
   // `velocity` / `staleness` / `connectedness` merely exist admits a payload
@@ -76,11 +76,7 @@ export function PmAnalyticsPanel() {
     // against a newer server, or the reverse. Saying so is the difference
     // between "reload the page" and "memesh is broken": the console warning
     // above is for whoever opens the console, and this is for everyone else.
-    return (
-      <div class="error-box" role="alert">
-        {`${t('common.error')}: ${t('analytics.unreadable')}`}
-      </div>
-    );
+    return <div class="error-box" role="alert">{failureMessage('unreadable')}</div>;
   }
 
   const orphanPct = (data.connectedness.orphanRate * 100).toFixed(1);

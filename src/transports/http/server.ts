@@ -1248,9 +1248,19 @@ app.get('/v1/entities', (req, res) => {
     const { type: typeFilter, limit, status } = query;
     const includeArchived = status === 'all';
     const kg = new KnowledgeGraph(getDatabase());
+    // Neither branch counts as a use.
+    //
+    // `listByType` never has (it documents itself as "a type browse is a
+    // catalogue read"), and `listRecent` did — so the SAME route re-ranked
+    // memories or not depending on whether a filter was set. This is the
+    // dashboard's Browse listing, and `EntitiesQuerySchema` caps `limit` at
+    // 5000 because "Browse legitimately fetches the full set": opening a tab
+    // bumped `access_count` and stamped `last_accessed_at = now` on up to
+    // five thousand memories, which is the export defect five times over and
+    // triggered by looking rather than by taking a backup.
     return typeFilter
       ? kg.listByType(typeFilter, limit, includeArchived)
-      : kg.listRecent(limit, includeArchived);
+      : kg.listRecent(limit, includeArchived, undefined, false);
   });
 });
 

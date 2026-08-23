@@ -4,10 +4,8 @@ import { truncateTitle } from './title.js';
 import { parseSqliteUtcMs } from './time-utils.js';
 import { NAMESPACES } from './types.js';
 function buildImportedMetadata(existingMetadata, args) {
-    const { guard: _guard, trust: _trust, provenance: _provenance, ...bundledSafe } = (args.bundled ?? {});
+    const { guard: _guard, ...bundledSafe } = (args.bundled ?? {});
     void _guard;
-    void _trust;
-    void _provenance;
     return {
         ...(existingMetadata ?? {}),
         ...bundledSafe,
@@ -93,6 +91,7 @@ export function importMemories(args) {
     let skipped = 0;
     let appended = 0;
     const errors = [];
+    const setCreatedAt = db.prepare('UPDATE entities SET created_at = ? WHERE name = ?');
     for (const [index, entity] of args.data.entities.entries()) {
         const invalid = describeInvalidEntity(entity, index);
         if (invalid) {
@@ -147,9 +146,11 @@ export function importMemories(args) {
             }
             if (!existing) {
                 const bundledCreatedAt = entity.created_at;
-                if (typeof bundledCreatedAt === 'string' && parseSqliteUtcMs(bundledCreatedAt) !== null) {
-                    db.prepare('UPDATE entities SET created_at = ? WHERE name = ?')
-                        .run(bundledCreatedAt, entity.name);
+                const bundledMs = typeof bundledCreatedAt === 'string'
+                    ? parseSqliteUtcMs(bundledCreatedAt)
+                    : null;
+                if (bundledMs !== null) {
+                    setCreatedAt.run(new Date(bundledMs).toISOString().replace('T', ' ').slice(0, 19), entity.name);
                 }
                 if (entity.status === 'archived') {
                     kg.archiveEntity(entity.name);

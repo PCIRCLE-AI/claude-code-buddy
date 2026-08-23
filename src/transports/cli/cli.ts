@@ -47,6 +47,19 @@ async function withDatabase<T>(fn: () => T | Promise<T>): Promise<T> {
   try {
     return await fn();
   } finally {
+    // Flush BEFORE closing, and here rather than in each command.
+    //
+    // `remember` SCHEDULES the embedding and returns; the write lands later.
+    // In the MCP and HTTP servers the process outlives the promise, but a CLI
+    // process does not — and `closeDatabase()` beats the pending write, so
+    // the vector is written against a closed handle and lost.
+    //
+    // Close and flush are inherently ordered against each other, which is
+    // exactly why one owner should hold both. Three commands had remembered
+    // to flush by hand and `memesh learn` had not, so every lesson recorded
+    // from the shell reached the graph with no vector — invisible to semantic
+    // recall, the same failure `memesh task` had.
+    await flushPendingEmbeddings();
     closeDatabase();
   }
 }
@@ -65,12 +78,40 @@ async function withDatabase<T>(fn: () => T | Promise<T>): Promise<T> {
  * exactly this. One owner now, so a new numeric flag inherits the guard
  * instead of re-deriving it.
  */
+/**
+ * A 0..1 threshold. `parseFloat('abc')` is NaN, and every comparison against
+ * NaN is false — so a mistyped threshold silently made the filter match
+ * nothing rather than refusing.
+ */
+function unitFraction(flag: string): (value: string) => number {
+  return (value: string): number => {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
+      console.error(`Error: ${flag} needs a number between 0 and 1, not "${value}".`);
+      process.exit(1);
+    }
+    return parsed;
+  };
+}
+
+/**
+ * A positional proposal id, refused when it is not one.
+ *
+ * `dream accept abc` ran `parseInt('abc', 10)` -> NaN straight into
+ * `applyProposal`, which archives source memories. `wholeNumber` covers the
+ * flags; a positional argument has no `.option()` to hang a coercion on, so
+ * it gets the same predicate explicitly rather than a fourth spelling of it.
+ */
+function proposalId(raw: string): number {
+  return wholeNumber('<id>')(raw);
+}
+
 function wholeNumber(flag: string, min = 1): (value: string) => number {
   return (value: string): number => {
     const parsed = Number(value);
     if (!Number.isInteger(parsed) || parsed < min) {
       console.error(
-        `Error: ${flag} needs a whole number${min === 0 ? ' of 0 or more' : ' of ' + min + ' or more'}, not "${value}".`,
+        `Error: ${flag} needs a whole number of ${min} or more, not "${value}".`,
       );
       process.exit(1);
     }
@@ -268,7 +309,6 @@ program
         for (const err of result.relationErrors ?? []) console.error(`   ⚠️  ${err}`);
       }
       if (result.relationErrors?.length) process.exitCode = 1;
-      await flushPendingEmbeddings();
     });
   });
 
@@ -897,14 +937,10 @@ program
         return;
       }
 
-      const result = setTaskState({ project: opts.project, patch, sourceHost: 'cli' });
       // `setTaskState` goes through `remember`, which SCHEDULES the embedding
-      // and returns. In the MCP and HTTP servers the process outlives the
-      // promise and it lands on its own; a CLI process exits and the write is
-      // simply lost. `remember` and `dream accept` already await this — `task`
-      // did not, so every task-state memory reached the graph with no vector
-      // and was invisible to semantic recall.
-      await flushPendingEmbeddings();
+      // and returns — `withDatabase` awaits it before closing, for this
+      // command and every other one.
+      const result = setTaskState({ project: opts.project, patch, sourceHost: 'cli' });
       if (opts.json) {
         console.log(JSON.stringify(result));
         return;
@@ -1113,7 +1149,13 @@ configCmd
     }
     // Coerce numeric string values for keys that take numbers
     let coerced: unknown = value;
-    if (canonical === 'sessionLimit') coerced = parseInt(value, 10);
+    if (canonical === 'sessionLimit') {
+      // The third failure `wholeNumber` was written for, and the one it did
+      // not reach: `parseInt('abc')` is NaN, the config writer stored null,
+      // and `config list` then hid the key entirely — so the user's setting
+      // vanished and nothing said why. Same predicate, same message.
+      coerced = wholeNumber('sessionLimit')(value);
+    }
     if (canonical === 'llmFallbacks') coerced = JSON.parse(value);
     if (canonical === 'autoCapture') {
       coerced = value === 'true' || value === '1';
@@ -1216,7 +1258,7 @@ program
 program
   .command('serve')
   .description('Start the HTTP API server and web dashboard')
-  .option('--port <port>', 'Port number', '3737')
+  .option('--port <port>', 'Port number', wholeNumber('--port', 0), 3737)
   .option('--host <host>', 'Host to bind', '127.0.0.1')
   // The token sentence is conditional and used not to say so. Auth is keyed to
   // the bind ADDRESS, not to this flag: `--allow-remote` on the default
@@ -1228,7 +1270,7 @@ program
     try {
       // autoUpdateCheck: a user-launched serve is online by definition, so it
       // fills the npm update cache itself instead of nagging the user to.
-      startServer(opts.host, parseInt(opts.port, 10), { allowRemote: opts.allowRemote, autoUpdateCheck: true });
+      startServer(opts.host, opts.port, { allowRemote: opts.allowRemote, autoUpdateCheck: true });
     } catch (err) {
       // startServer refuses a non-loopback bind without an opt-in, and the
       // refusal is a good actionable sentence. Thrown out of an async action
@@ -1453,7 +1495,7 @@ kgCmd
   .option('--include-archived', 'Also process archived entities')
   .option('--session-cooccurrence', 'Rule 3: link high-signal orphans co-created in the same session')
   .option('--name-tokens', 'Rule 4: link orphans sharing ≥3 name content tokens (or Jaccard ≥ 0.50)')
-  .option('--min-jaccard <n>', 'Jaccard threshold for name similarity (default 0.50)', parseFloat)
+  .option('--min-jaccard <n>', 'Jaccard threshold for name similarity (default 0.50)', unitFraction('--min-jaccard'))
   .option('--all-rules', 'Enable all heuristic rules (Rules 1–5)')
   .option('--no-evidence-links', 'Disable Rule 5: evidence → work-item links via shared session id (on by default — these edges feed the graph\'s evidence badges)')
   .option('--reset-idempotency', 'Clear the persistent "already-attempted" orphan cache before running (use after schema changes or to reconsider every orphan)')
@@ -1920,7 +1962,7 @@ dreamCmd
   .option('--dry-run', 'Compute proposals without writing to dream_proposals')
   .option('--max-llm-calls <n>', 'Hard cap on LLM calls (default 10)', wholeNumber('--max-llm-calls'))
   .option('--window-days <n>', 'Look-back window in days (default 30)', wholeNumber('--window-days'))
-  .option('--min-signal <n>', 'Minimum signal_score to include in scan (default 0.3)', (v) => parseFloat(v))
+  .option('--min-signal <n>', 'Minimum signal_score to include in scan (default 0.3)', unitFraction('--min-signal'))
   .action(async (opts) => {
     await withDatabase(async () => {
       const { runPatternDetector } = await import('../../core/dreamer.js');
@@ -2063,7 +2105,7 @@ dreamCmd
     await withDatabase(async () => {
       const { getProposalDetail } = await import('../../core/dreamer.js');
       const { getDatabase } = await import('../../db.js');
-      const detail = getProposalDetail(getDatabase(), parseInt(id, 10));
+      const detail = getProposalDetail(getDatabase(), proposalId(id));
       if (!detail) {
         console.error(`proposal #${id} not found`);
         console.error('See ids with: memesh dream list');
@@ -2131,7 +2173,7 @@ dreamCmd
       // print the throw as a raw stack trace. The message alone is enough.
       let result;
       try {
-        result = applyProposal(getDatabase(), parseInt(id, 10), kg);
+        result = applyProposal(getDatabase(), proposalId(id), kg);
       } catch (err) {
         console.error(err instanceof Error ? err.message : String(err));
         console.error('See pending ids with: memesh dream list');
@@ -2142,7 +2184,6 @@ dreamCmd
       // closes the DB in its finally, so flush BEFORE it does or the write lands
       // on a closing DB and the dedup gap stays open in the real path. remember
       // flushes for the same reason (see the remember command).
-      await flushPendingEmbeddings();
       console.log(`Applied proposal #${result.proposalId}`);
       console.log(`  digest entity: ${result.digestEntityName}`);
       console.log(`  sources archived: ${result.sourcesArchived}`);
@@ -2158,7 +2199,7 @@ dreamCmd
       const { rejectProposal } = await import('../../core/dreamer.js');
       const { getDatabase } = await import('../../db.js');
       try {
-        rejectProposal(getDatabase(), parseInt(id, 10), opts.reason);
+        rejectProposal(getDatabase(), proposalId(id), opts.reason);
       } catch (err) {
         console.error(err instanceof Error ? err.message : String(err));
         console.error('See pending ids with: memesh dream list');

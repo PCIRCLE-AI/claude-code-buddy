@@ -25,6 +25,7 @@ import { MemeshDatabase } from '../storage/sqlite.js';
 import { AUTO_CAPTURE_TAG } from './types.js';
 import { parseSqliteUtcMs } from './time-utils.js';
 import { autoCaptureDecision } from './capture-flag.js';
+import { guardFromMetadata } from './guards.js';
 
 export type DoctorCheckStatus = 'pass' | 'warn' | 'fail';
 export type DoctorOverallStatus = 'PASS' | 'PASS_WITH_CONCERNS' | 'FAIL';
@@ -1752,7 +1753,7 @@ function verifySkillsManifest(
   packageRoot: string,
   existsSyncImpl: typeof fs.existsSync,
   readFileSyncImpl: typeof fs.readFileSync,
-  installSupport?: import('./install-channel.js').InstallChannelSupport,
+  installSupport: import('./install-channel.js').InstallChannelSupport,
 ): DoctorCheck {
   // "Reinstall" is not one command. All four fix strings below said
   // `npm install -g @pcircle/memesh`, which is wrong for three of the four
@@ -1763,8 +1764,7 @@ function verifySkillsManifest(
   // SECOND one beside it, on a different code path, sharing one database.
   // `getInstallChannelSupport` already knows the right sentence per channel
   // and the update-status row already uses it.
-  const reinstall = installSupport?.guidance
-    ?? 'Reinstall memesh through whatever you installed it with.';
+  const reinstall = installSupport.guidance;
   const manifestPath = path.join(packageRoot, 'dist', 'skills-manifest.json');
   if (!existsSyncImpl(manifestPath)) {
     return createCheck(
@@ -2234,31 +2234,46 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
     // Informational, not a check: a guard that has never fired is not a
     // fault. It might be a guard for a mistake nobody has repeated.
     try {
+      // "Active guard" is decided by `guardFromMetadata`, not by a third SQL
+      // predicate of this row's own.
+      //
+      // `json_extract(metadata, '$.guard.enabled') = 1` is a WIDER set than
+      // the hooks load: `loadActiveGuards` also requires the entity to be a
+      // lesson/mistake type and `tool`, `pattern` and `message` to all be
+      // strings. A row with `enabled: true` and a missing `pattern` would
+      // have counted here and been loaded by nothing — so doctor could report
+      // "3 active guards, 0 have ever fired" about a set the hooks draw one
+      // guard from, and the fire count is precisely the number the block
+      // escalation is supposed to wait on. One definition, shared.
       const guardRows = db
         .prepare(
-          `SELECT name, metadata FROM entities
+          `SELECT id, name, metadata FROM entities
            WHERE status = 'active'
-             AND metadata IS NOT NULL
-             AND json_extract(metadata, '$.guard.enabled') = 1`,
+             AND type IN ('lesson_learned', 'lesson', 'mistake')
+             AND metadata LIKE '%"guard"%'`,
         )
-        .all() as Array<{ name: string; metadata: string }>;
-      if (guardRows.length > 0) {
-        const fired = guardRows
-          .map((r) => {
-            let fires = 0;
-            try {
-              const parsedMeta = JSON.parse(r.metadata) as { guard?: { fires?: unknown } };
-              if (typeof parsedMeta.guard?.fires === 'number') fires = parsedMeta.guard.fires;
-            } catch { /* a guard row with unreadable metadata counts as never fired */ }
-            return { name: r.name, fires };
-          })
-          .sort((a, b) => b.fires - a.fires);
+        .all() as Array<{ id: number; name: string; metadata: string }>;
+      const fired = guardRows
+        .filter((r) => guardFromMetadata(r.id, r.metadata) !== null)
+        .map((r) => {
+          // `guardFromMetadata` decides membership; the counter is not part
+          // of its shape, so it is read separately from the row it vouched
+          // for.
+          let fires = 0;
+          try {
+            const parsedMeta = JSON.parse(r.metadata) as { guard?: { fires?: unknown } };
+            if (typeof parsedMeta.guard?.fires === 'number') fires = parsedMeta.guard.fires;
+          } catch { /* vouched-for rows parse; this is belt and braces */ }
+          return { name: r.name, fires };
+        })
+        .sort((a, b) => b.fires - a.fires);
+      if (fired.length > 0) {
         const everFired = fired.filter((g) => g.fires > 0);
         const top = everFired.slice(0, 3).map((g) => `${g.name} (${g.fires})`).join(', ');
         dbChecks.push(createInfo(
           'guard_activity',
           'Guard activity',
-          `${guardRows.length} active guard(s); ${everFired.length} have ever fired`
+          `${fired.length} active guard(s); ${everFired.length} have ever fired`
           + (top ? `. Most: ${top}.` : '. None has matched yet.'),
         ));
       }

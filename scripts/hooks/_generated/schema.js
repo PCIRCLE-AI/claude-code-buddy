@@ -146,8 +146,8 @@ export function migrateEntitiesSchema(db) {
     addColumn('recall_hits', "ALTER TABLE entities ADD COLUMN recall_hits INTEGER DEFAULT 0");
     addColumn('recall_misses', "ALTER TABLE entities ADD COLUMN recall_misses INTEGER DEFAULT 0");
     addColumn('title', "ALTER TABLE entities ADD COLUMN title TEXT");
-    db.exec("CREATE INDEX IF NOT EXISTS idx_entities_status ON entities(status)");
-    db.exec("CREATE INDEX IF NOT EXISTS idx_entities_namespace ON entities(namespace)");
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_entities_status ON entities(status);
+     CREATE INDEX IF NOT EXISTS idx_entities_namespace ON entities(namespace);`);
 }
 export function ensureTagsUniqueIndex(db) {
     try {

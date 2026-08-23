@@ -208,8 +208,10 @@ export function migrateEntitiesSchema(db: MemeshDatabase): void {
   // Unconditional, because `IF NOT EXISTS` already makes them idempotent and
   // they were the other half of the group problem: an index created inside a
   // conditional that a partial failure skipped never got a second chance.
-  db.exec("CREATE INDEX IF NOT EXISTS idx_entities_status ON entities(status)");
-  db.exec("CREATE INDEX IF NOT EXISTS idx_entities_namespace ON entities(namespace)");
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_entities_status ON entities(status);
+     CREATE INDEX IF NOT EXISTS idx_entities_namespace ON entities(namespace);`,
+  );
 }
 
 /**

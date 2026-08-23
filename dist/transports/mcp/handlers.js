@@ -239,7 +239,7 @@ function stripNullProps(value) {
 function parseOrFail(schema, args) {
     const raw = args ?? {};
     const strictPass = schema.safeParse(raw);
-    if (!strictPass.success && strictPass.error instanceof z.ZodError) {
+    if (!strictPass.success) {
         const unknownKeys = strictPass.error.issues.filter((i) => i.code === 'unrecognized_keys');
         if (unknownKeys.length > 0) {
             return {

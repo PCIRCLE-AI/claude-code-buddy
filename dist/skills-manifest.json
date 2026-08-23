@@ -28,8 +28,8 @@
     },
     {
       "path": "scripts/hooks/_generated/core-paths.js",
-      "sha256": "f83cb1fee08b5d297d2c4cf94d491b70e5093095590891593ec1e755bb0c92d7",
-      "bytes": 5056
+      "sha256": "6c867a9765e3e469fd539cc002179ff4fe3b79a59fc2b8b9f7a10d126c621531",
+      "bytes": 5123
     },
     {
       "path": "scripts/hooks/_generated/fts-index.js",
@@ -43,8 +43,8 @@
     },
     {
       "path": "scripts/hooks/_generated/schema.js",
-      "sha256": "2bbba6b5ef85c1dd3369fa363f9c5c37e0171425f7cb63e124b06770ac842910",
-      "bytes": 12682
+      "sha256": "898b6121fd36e8fb423cfd32e1df40324c4d593def7df658c7aca80340866c64",
+      "bytes": 12673
     },
     {
       "path": "scripts/hooks/_generated/sqlite.js",

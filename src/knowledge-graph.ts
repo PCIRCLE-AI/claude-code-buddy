@@ -299,6 +299,31 @@ export class KnowledgeGraph {
       trustOverride?: 'trusted' | 'untrusted';
     }
   ): number {
+    // One transaction, for the same reason `archiveEntity`, `deleteEntity`
+    // and `clearEntityData` have one — and this is the writer that matters
+    // most, because it is the one every surface uses.
+    //
+    // The body below performs the same six-write sequence the hooks'
+    // `captureEntity` does: the entity row, a confidence update, the
+    // observations, the tags, and the contentless-FTS delete + insert that
+    // make them findable. In autocommit a throw in the middle commits the
+    // prefix, and the two likely resting places are both invisible —
+    // observations with no FTS row (a memory that exists and can never be
+    // recalled), or the old FTS row deleted and the new one not written. The
+    // `INSERT OR IGNORE` on the entity name then makes it permanent: the next
+    // write reports "already there" and never repairs the rest.
+    //
+    // Safe to nest: `MemeshDatabase` tracks depth and turns an inner
+    // transaction into a SAVEPOINT, so `createEntitiesBatch`'s outer
+    // transaction and the import/dreamer callers keep working unchanged.
+    return this.db.transaction(() => this.createEntityInner(name, type, opts))();
+  }
+
+  private createEntityInner(
+    name: string,
+    type: string,
+    opts?: Parameters<KnowledgeGraph['createEntity']>[2],
+  ): number {
     // Phase-1 of #39 (signal scorer): every entity gets a rule-based
     // signal_score at creation time so the dashboard can default-hide
     // empty session_keypoints, mechanical commits, and other captured

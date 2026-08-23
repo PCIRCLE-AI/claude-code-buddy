@@ -662,7 +662,7 @@ app.get('/v1/entities', (req, res) => {
         const kg = new KnowledgeGraph(getDatabase());
         return typeFilter
             ? kg.listByType(typeFilter, limit, includeArchived)
-            : kg.listRecent(limit, includeArchived);
+            : kg.listRecent(limit, includeArchived, undefined, false);
     });
 });
 app.get('/v1/entities/:name', (req, res) => handleGet(res, () => {
