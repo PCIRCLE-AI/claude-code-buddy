@@ -58,14 +58,37 @@ describe('/v1/analytics computation', () => {
     expect(computeAnalytics(db).citationCompliance).toEqual({ cited: 0, total: 4 });
   });
 
-  it('health score is 0 for empty database', () => {
-    const total = (
-      db
-        .prepare("SELECT COUNT(*) as c FROM entities WHERE status = 'active'")
-        .get() as { c: number }
-    ).c;
-    expect(total).toBe(0);
-    // With 0 entities, all ratios = 0, score = 0
+  it('health score is 0 for an empty database', () => {
+    // It used to run its own COUNT and assert THAT was zero — a statement
+    // about the fixture, not about `computeAnalytics`. `healthScore` is
+    // published on `/v1/analytics`, rendered as the dashboard's Health Score
+    // card, and was asserted nowhere in the suite: the whole four-factor
+    // computation could return a constant and nothing would notice.
+    expect(computeAnalytics(db).healthScore).toBe(0);
+  });
+
+  it('health score rises with the factors that feed it', () => {
+    // The anti-vacuity half. A score hardwired to 0 satisfies the test above
+    // and turns the dashboard's headline card into a decoration.
+    //
+    // `lessonRatio` is the cheapest of the four to move deterministically:
+    // `min(lessonCount / 5, 1) * 20`. Five lessons is a full 20 points, and
+    // the memories are freshly written so `freshnessRatio` contributes too.
+    for (let i = 0; i < 5; i++) {
+      remember({
+        name: `lesson-${i}`,
+        type: 'lesson_learned',
+        observations: [`a lesson worth keeping, number ${i}`],
+      });
+    }
+
+    const analytics = computeAnalytics(db);
+    expect(analytics.healthScore, 'the score did not move when its inputs did').toBeGreaterThan(0);
+    expect(analytics.healthScore).toBeLessThanOrEqual(100);
+    // And the factor that moved it says so — the card shows the breakdown,
+    // and a total that moves while its parts do not is unexplainable.
+    expect(analytics.healthFactors.lessons.score, 'the lessons factor did not account for them')
+      .toBeGreaterThan(0);
   });
 
   // The loop metric's honesty label. `reusedThisWeek` and `trend` are both

@@ -207,7 +207,16 @@ describe('finish-release cuts the release in one call', () => {
   it('refuses before it acts', () => {
     // The precondition check has to come first in the file, not after the
     // release call — an order this cheap to get wrong is worth pinning.
-    expect(code.indexOf('checkReleasePreconditions(')).toBeLessThan(code.indexOf("'release', 'create'"));
+    //
+    // Both indices are asserted to EXIST first. `indexOf` answers -1 for
+    // something that is not there, and -1 is less than every real index — so
+    // deleting the precondition call entirely satisfied the ordering
+    // assertion, which is the one thing this test exists to prevent.
+    const checkAt = code.indexOf('checkReleasePreconditions(');
+    const createAt = code.indexOf("'release', 'create'");
+    expect(checkAt, 'the precondition check is not called at all').toBeGreaterThan(-1);
+    expect(createAt, 'the release call is not there — this file is not what it was').toBeGreaterThan(-1);
+    expect(checkAt).toBeLessThan(createAt);
   });
 
   it('asks GitHub what exists before saying nothing was created', () => {

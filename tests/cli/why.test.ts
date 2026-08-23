@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { execFileSync } from 'child_process';
+import { execFileSync, spawnSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -19,22 +19,28 @@ const CLI_PATH = path.join(repoRoot, 'dist', 'transports', 'cli', 'cli.js');
 let home: string;
 let repoDir: string;
 
+/**
+ * Run the CLI and capture BOTH streams, whatever the exit code.
+ *
+ * `execFileSync` only surfaces stderr when the process throws, so the success
+ * path used to hardcode `stderr: ''`. Every "no stack trace reached the user"
+ * assertion in this file therefore checked stdout — where a stack trace never
+ * goes — and passed no matter what the command printed to stderr. `spawnSync`
+ * returns both streams on every outcome.
+ */
 function runCli(args: string[], cwd: string): { stdout: string; stderr: string; exitCode: number } {
-  try {
-    const stdout = execFileSync('node', [CLI_PATH, ...args], {
-      encoding: 'utf8',
-      cwd,
-      env: { ...process.env, HOME: home, USERPROFILE: home, MEMESH_AUTO_UPDATE: '0' },
-      timeout: 30_000,
-    });
-    return { stdout, stderr: '', exitCode: 0 };
-  } catch (err: any) {
-    return {
-      stdout: err.stdout?.toString() ?? '',
-      stderr: err.stderr?.toString() ?? '',
-      exitCode: typeof err.status === 'number' ? err.status : -1,
-    };
-  }
+  const result = spawnSync('node', [CLI_PATH, ...args], {
+    encoding: 'utf8',
+    cwd,
+    env: { ...process.env, HOME: home, USERPROFILE: home, MEMESH_AUTO_UPDATE: '0' },
+    timeout: 30_000,
+  });
+  return {
+    stdout: result.stdout ?? '',
+    stderr: result.stderr ?? '',
+    // `status` is null when a signal killed it (a timeout) — a failure, not 0.
+    exitCode: result.status ?? -1,
+  };
 }
 
 function git(args: string[]): void {
@@ -87,6 +93,9 @@ describe('CLI: memesh why', () => {
     const res = runCli(['why', 'notes.md'], repoDir);
     expect(res.exitCode, res.stderr).toBe(0);
     expect(res.stdout).toContain('not tracked by git');
-    expect(res.stdout).not.toMatch(/^\s+at /m);
+    // BOTH streams. A stack trace goes to stderr, which this helper used to
+    // hardcode as empty on the success path — so the assertion below was
+    // checking the one stream a trace never reaches.
+    expect(res.stdout + res.stderr, 'a stack trace reached the user').not.toMatch(/^\s+at /m);
   });
 });
