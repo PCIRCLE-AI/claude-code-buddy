@@ -216,15 +216,15 @@
       "reason": "index lookups where empty means no peers",
       "triaged": "2026-08-04 (re-keyed: UX-4 inserted Rule 5 above it; statement unchanged); re-keyed 2026-08-24 (R14 timestamp-format batch shifted lines; statements byte-identical, classification unchanged)"
     },
-    "C5 src/core/serializer.ts:23": {
+    "C5 src/core/serializer.ts:48": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "provenance spread identity; trust written unconditionally",
-      "triaged": "2026-08-04"
+      "triaged": "2026-08-04; re-keyed 2026-08-24 (R3 export/import batch shifted lines; statements byte-identical, classification unchanged)"
     },
-    "C5 src/core/serializer.ts:26": {
+    "C5 src/core/serializer.ts:52": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "provenance spread identity; trust written unconditionally",
-      "triaged": "2026-08-04"
+      "triaged": "2026-08-04; re-keyed 2026-08-24 (R3 export/import batch shifted lines; statements byte-identical, classification unchanged)"
     },
     "C5 src/core/llm-client.ts:125": {
       "class": "SAFE-ACCUMULATOR",
@@ -451,15 +451,15 @@
       "reason": "the `|| {}` is the else-arm of an explicit success+presence conjunction on the same line; capability absence renders defaults, and the failure path returned earlier. Newly visible after the C5 `||` regex fix.",
       "triaged": "2026-08-17 (surfaced by the C5 || regex fix)"
     },
-    "C5 src/core/serializer.ts:75": {
+    "C5 src/core/serializer.ts:119": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "`relations` is optional on Entity; empty means the entity has none, which is what the export should record. Newly visible after the C5 `||` regex fix.",
-      "triaged": "2026-08-17 (surfaced by the C5 || regex fix); re-keyed 2026-08-24 (dead toolPreferences/avgSessionMinutes fields removed; export gained countAsAccess — statements byte-identical, classification unchanged)"
+      "triaged": "2026-08-17 (surfaced by the C5 || regex fix); re-keyed 2026-08-24 (dead toolPreferences/avgSessionMinutes fields removed; export gained countAsAccess — statements byte-identical, classification unchanged); re-keyed 2026-08-24 (R3 export/import batch shifted lines; statements byte-identical, classification unchanged)"
     },
-    "C5 src/core/serializer.ts:261": {
+    "C5 src/core/serializer.ts:315": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "`relations` is optional on the imported bundle entry; empty means none to re-create. Newly visible after the C5 `||` regex fix.",
-      "triaged": "2026-08-17 (surfaced by the C5 || regex fix); re-keyed 2026-08-24 (dead toolPreferences/avgSessionMinutes fields removed; export gained countAsAccess — statements byte-identical, classification unchanged)"
+      "triaged": "2026-08-17 (surfaced by the C5 || regex fix); re-keyed 2026-08-24 (dead toolPreferences/avgSessionMinutes fields removed; export gained countAsAccess — statements byte-identical, classification unchanged); re-keyed 2026-08-24 (R3 export/import batch shifted lines; statements byte-identical, classification unchanged)"
     },
     "C6 tests/cli-reindex-vectors-guard.test.ts": {
       "class": "SAFE-DATA-EXTRACTION",
@@ -635,6 +635,11 @@
       "class": "SAFE-BY-CONSTRUCTION",
       "reason": "`opts?.countAsAccess ?? true` in search(): the default is the CONSERVATIVE direction, not the convenient one. Absent means 'this is an ordinary recall, count it' — the behaviour every caller had before the option existed. Only the one read that must NOT count (exportMemories: a backup is not a use) says so explicitly, and tests/core/reads-that-were-writes.test.ts pins both directions.",
       "triaged": "2026-08-24 (full-codebase review, R9-a)"
+    },
+    "C5 src/core/serializer.ts:45": {
+      "class": "SAFE-BY-CONSTRUCTION",
+      "reason": "`args.bundled ?? {}` in buildImportedMetadata: an absent `metadata` in the bundle genuinely means the bundle says nothing about it, and the empty object is the correct reading — the entity's own metadata (and the import's rebuilt trust/provenance) still apply. A bundle predating the field must not clear metadata the importer already had. Pinned by tests/core/export-import.test.ts 'carries metadata, but never a guard'.",
+      "triaged": "2026-08-24 (full-codebase review, R3-c)"
     }
   }
 }

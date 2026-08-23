@@ -32,6 +32,35 @@ All notable changes to MeMesh are documented here.
   used — the dreamer's compactable range, `kg-backfill`'s Rule 3 floor, the
   briefing — and is unchanged.
 
+### Changed
+
+- **The export bundle is version `3.1.0`, and it is now actually a backup.**
+  Three things a restore needs were missing from it, and a fourth was thrown
+  away on the way back in:
+
+  - `created_at` was not exported, so a restore stamped every memory with the
+    day of the restore. That is not cosmetic: creation time drives recency in
+    ranking, the dreamer's weekly clustering, `memesh why`, and every "what was
+    I doing then" question. Restored only for entities the import creates, and
+    only when `parseSqliteUtcMs` can read the value.
+  - **Archived entities were skipped**, so `memesh forget` followed by an
+    export and a restore brought the memory back to life.
+  - `metadata` was not exported, losing `signal_score`, `task_state`, the demo
+    marker and provenance. It round-trips now, minus `guard` — that field
+    controls what memesh warns about on your tool calls, and a bundle you were
+    sent must be able to bring memories, not to change what memesh does.
+  - **Relations were dropped on import.** They were created inside the
+    per-entity loop and skipped when the target "may not have been imported
+    yet". That is not an edge case: `export` writes newest-first and relations
+    point newer → older, so the target was almost always still further down the
+    file. A backup of a graph with relations restored with none of them and
+    reported success. They are created in a second pass now, after every entity
+    exists, and one that still cannot be created — a target genuinely outside
+    the bundle — is reported in `errors` instead of swallowed.
+
+  Bundles written by earlier versions import unchanged; every added field is
+  optional.
+
 ### Fixed
 
 - **`memesh doctor` no longer counts the Install ID row as something it

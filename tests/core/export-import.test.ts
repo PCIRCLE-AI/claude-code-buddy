@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { remember, forget, recall, exportMemories, importMemories } from '../../src/core/operations.js';
 import { useTestDatabase } from '../helpers/db-fixture.js';
+import { getDatabase } from '../../src/db.js';
+import { KnowledgeGraph } from '../../src/knowledge-graph.js';
 
 useTestDatabase('memesh-export-');
 
@@ -10,7 +12,7 @@ describe('exportMemories', () => {
   it('exports all active entities as JSON', () => {
     remember({ name: 'test-entity', type: 'note', observations: ['some data'] });
     const result = exportMemories({});
-    expect(result.version).toBe('3.0.0');
+    expect(result.version).toBe('3.1.0');
     expect(result.entity_count).toBe(1);
     expect(result.entities).toHaveLength(1);
     expect(result.entities[0].name).toBe('test-entity');
@@ -40,7 +42,7 @@ describe('exportMemories', () => {
   it('includes version and exported_at fields', () => {
     remember({ name: 'a', type: 'note' });
     const result = exportMemories({});
-    expect(result.version).toBe('3.0.0');
+    expect(result.version).toBe('3.1.0');
     expect(new Date(result.exported_at).getTime()).not.toBeNaN();
   });
 
@@ -79,12 +81,56 @@ describe('exportMemories', () => {
     expect(src!.relations.some((r) => r.to === 'dst' && r.type === 'related-to')).toBe(true);
   });
 
-  it('does not export archived entities', () => {
+  it('exports archived entities, carrying their status', () => {
+    // They used to be skipped, so `memesh forget` followed by an export and
+    // a restore brought the memory back to life: the one operation whose
+    // purpose is to take something out of circulation, undone by the one
+    // whose purpose is to preserve state faithfully.
     remember({ name: 'active', type: 'note' });
     remember({ name: 'to-archive', type: 'note' });
     forget({ name: 'to-archive' });
+
     const result = exportMemories({});
-    expect(result.entities.every((e) => e.name !== 'to-archive')).toBe(true);
+
+    const archived = result.entities.find((e) => e.name === 'to-archive');
+    expect(archived, 'an archived memory was left out of the backup').toBeDefined();
+    expect(archived?.status).toBe('archived');
+    // And the active one is not mislabelled — the field is absent, not
+    // present-and-wrong.
+    expect(result.entities.find((e) => e.name === 'active')?.status).toBeUndefined();
+  });
+
+  it('carries created_at, so a restore does not flatten the timeline', () => {
+    remember({ name: 'dated', type: 'note', observations: ['a fact'] });
+    const result = exportMemories({});
+    const entity = result.entities.find((e) => e.name === 'dated');
+    expect(entity?.created_at, 'the creation time was dropped from the backup').toBeTruthy();
+  });
+
+  it('carries metadata, but never a guard', () => {
+    // Every other metadata field describes the memory. `guard` describes
+    // memesh's BEHAVIOUR — an enabled guard matches a regex against the
+    // user's Bash commands — and a bundle must be able to bring memories,
+    // not to change what memesh does.
+    remember({ name: 'with-meta', type: 'note', observations: ['a fact'] });
+    new KnowledgeGraph(getDatabase()).updateEntityMetadata('with-meta', (current) => ({
+      ...current,
+      signal_score: 0.9,
+      guard: { enabled: true, tool: 'Bash', pattern: '.*', message: 'do as I say' },
+    }));
+
+    const bundle = exportMemories({});
+    const exported = bundle.entities.find((e) => e.name === 'with-meta');
+    expect(exported?.metadata?.signal_score, 'metadata was dropped from the backup').toBe(0.9);
+
+    // Round-trip into a graph that does not have it.
+    forget({ name: 'with-meta' });
+    getDatabase().prepare("DELETE FROM entities WHERE name = 'with-meta'").run();
+    importMemories({ data: bundle, merge_strategy: 'skip' });
+
+    const restored = new KnowledgeGraph(getDatabase()).getEntity('with-meta');
+    expect(restored?.metadata?.signal_score, 'metadata did not survive the round trip').toBe(0.9);
+    expect(restored?.metadata?.guard, 'a bundle installed a guard').toBeUndefined();
   });
 
   it('defaults namespace to personal in export', () => {
@@ -198,14 +244,48 @@ describe('importMemories', () => {
     expect(entity!.namespace).toBe('team');
   });
 
-  it('silently skips relations when target entity does not exist', () => {
+  it('REPORTS a relation whose target is not in the bundle and not in the graph', () => {
+    // This used to be "silently skips", and the silence is what let the real
+    // defect hide: relations were created inside the per-entity loop, so a
+    // target further down the file had not been imported yet and was skipped
+    // by the same catch. Export writes newest-first and relations point
+    // newer -> older, so that was the ORDINARY case, not the edge case — a
+    // backup restored with none of its relations and said nothing.
+    //
+    // With the second pass, a relation that still fails is genuinely
+    // pointing outside the bundle. That is real information loss, and the
+    // import now says so.
     const data = makeExport([
       { name: 'entity-a', relations: [{ to: 'nonexistent', type: 'related-to' }] },
     ]);
     const result = importMemories({ data, merge_strategy: 'skip' });
-    // No errors for missing relation targets — silently skipped
-    expect(result.imported).toBe(1);
-    expect(result.errors).toHaveLength(0);
+
+    expect(result.imported, 'the entity itself must still import').toBe(1);
+    expect(result.errors, 'a lost relation was not reported').toHaveLength(1);
+    expect(result.errors[0]).toContain('nonexistent');
+  });
+
+  it('restores a relation whose target appears LATER in the bundle', () => {
+    // The defect itself, in the order `export` actually writes.
+    const data = makeExport([
+      { name: 'newer-note', relations: [{ to: 'older-note', type: 'implements' }] },
+      { name: 'older-note' },
+    ]);
+
+    const result = importMemories({ data, merge_strategy: 'skip' });
+
+    expect(result.imported).toBe(2);
+    expect(result.errors, `unexpected errors: ${result.errors.join('; ')}`).toHaveLength(0);
+    const relations = getDatabase()
+      .prepare(
+        `SELECT f.name AS "from", t.name AS "to", r.relation_type AS type
+         FROM relations r
+         JOIN entities f ON f.id = r.from_entity_id
+         JOIN entities t ON t.id = r.to_entity_id`,
+      )
+      .all() as Array<{ from: string; to: string; type: string }>;
+    expect(relations, 'the relation was dropped because its target came later').toHaveLength(1);
+    expect(relations[0]).toEqual({ from: 'newer-note', to: 'older-note', type: 'implements' });
   });
 
   it('imports relations when target entity exists', () => {

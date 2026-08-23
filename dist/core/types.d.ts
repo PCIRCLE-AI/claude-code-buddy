@@ -119,6 +119,9 @@ export interface ExportResult {
         type: string;
         title?: string | null;
         namespace: string;
+        created_at?: string;
+        status?: string;
+        metadata?: Record<string, unknown>;
         observations: string[];
         tags: string[];
         relations: Array<{

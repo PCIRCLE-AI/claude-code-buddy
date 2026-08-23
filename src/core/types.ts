@@ -277,6 +277,29 @@ export interface ExportResult {
      *  in bundles written before titles existed, which import must tolerate. */
     title?: string | null;
     namespace: string;
+    /**
+     * When the memory was first recorded, in the column's own format.
+     *
+     * Without it a restore stamped every memory with the day of the restore,
+     * which is not a detail: `created_at` drives recency in ranking, the
+     * dreamer's weekly clustering, `memesh why`, and every "what was I doing
+     * then" question. A backup that flattens the timeline is not a backup.
+     * Optional, because bundles written before this field exist.
+     */
+    created_at?: string;
+    /**
+     * `archived` for a memory the user has forgotten but not deleted.
+     * Absent means active. Export used to skip archived rows entirely, so
+     * `memesh forget` followed by a restore brought the memory back to life.
+     */
+    status?: string;
+    /**
+     * Everything memesh knows about the memory that is not its text:
+     * provenance, `signal_score`, `task_state`, the demo marker. Import
+     * rebuilds trust and provenance for itself and drops `guard` — see
+     * `buildImportedMetadata`.
+     */
+    metadata?: Record<string, unknown>;
     observations: string[];
     tags: string[];
     relations: Array<{ to: string; type: string }>;

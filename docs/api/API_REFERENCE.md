@@ -270,7 +270,7 @@ Export memories to a portable JSON bundle. Use for personal backup, migrating be
 
 ```json
 {
-  "version": "3.0.0",
+  "version": "3.1.0",
   "exported_at": "2026-04-17T00:00:00.000Z",
   "entity_count": 12,
   "entities": [
@@ -279,6 +279,8 @@ Export memories to a portable JSON bundle. Use for personal backup, migrating be
       "title": "Why we chose OAuth 2.0",
       "type": "decision",
       "namespace": "team",
+      "created_at": "2026-04-01 09:12:33",
+      "metadata": {"signal_score": 0.8},
       "observations": ["Use OAuth 2.0"],
       "tags": ["project:myapp", "topic:auth"],
       "relations": []
@@ -288,6 +290,17 @@ Export memories to a portable JSON bundle. Use for personal backup, migrating be
 ```
 
 `title` is `null` for an entity that has none. Bundles written before titles existed carry no `title` key at all, and `import` reads that as "this bundle says nothing about the title" — it leaves an existing entity's title alone rather than clearing it.
+
+**What a bundle carries, and what import does with it (v3.1.0)**
+
+| field | on export | on import |
+|---|---|---|
+| `created_at` | always | restored for entities the import CREATES, and only when `parseSqliteUtcMs` can read the value. An entity you already had keeps its own creation time. |
+| `status` | present only for archived entities | the entity is archived after it is created. Archived memories are part of a backup: without them, `forget` then export then restore brought the memory back. |
+| `metadata` | present when the entity has any | merged, minus `guard`, `trust` and `provenance`. The last two are rebuilt by the import. `guard` is refused: it controls what memesh WARNS about on your tool calls, and a file you were sent must not be able to install one. |
+| `relations` | always | created in a SECOND pass, after every entity in the bundle exists. A relation that still cannot be created points outside the bundle, and that is reported in `errors` rather than dropped. |
+
+Bundles written by earlier versions (`3.0.0`) import unchanged — every added field is optional.
 
 **Examples**:
 
