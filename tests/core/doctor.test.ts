@@ -181,6 +181,13 @@ function makeDatabase(
     /** Opt a test into the citation-compliance row. Absent = no accounted
      *  sessions, which is what every test predating that row assumes. */
     citationCounters?: { total?: number; cited?: number };
+    /** Auto-capture memories written in the last 24 hours. Defaults to the
+     *  shared `count`, so every test that predates the split reads exactly
+     *  what it read before. */
+    capturedLast24h?: number;
+    /** Auto-capture memories written since heartbeat tracking began — the
+     *  legacy-hooks branch. Same default, same reason. */
+    capturedSinceTracking?: number;
     /** How many active memories the vector index still owes. Default 0 —
      *  every test predating the measured Vector Index row assumes a graph
      *  that is fully embedded. */
@@ -248,6 +255,22 @@ function makeDatabase(
       }
       if (sql.includes('source_host')) {
         return { get: () => ({ c: opts.recentClaudeCodeWrites ?? 1 }) };
+      }
+      // Three DIFFERENT questions used to share one canned answer.
+      //
+      // The default branch below returns `{ c: count }` for every query
+      // containing `COUNT(`, so `captured` (auto-capture tag, last 24h),
+      // `legacyCaptured` (same tag, since tracking began) and the total
+      // entity count all read the same number — and a row that consulted
+      // the wrong one of the three produced the right verdict for the wrong
+      // reason, with the test unable to tell. Each now has its own value,
+      // and a test that wants a specific branch has to seed the specific
+      // query that drives it.
+      if (sql.includes("e.created_at > datetime('now', '-24 hours')")) {
+        return { get: () => ({ c: opts.capturedLast24h ?? count }) };
+      }
+      if (sql.includes('e.created_at > ?')) {
+        return { get: () => ({ c: opts.capturedSinceTracking ?? count }) };
       }
       // hook-activity counts entities carrying the auto-capture provenance
       // tag, so its statement is `COUNT(DISTINCT e.id)` over a join. This
@@ -1306,6 +1329,36 @@ describe('doctor', () => {
     const result = await runDoctor(args);
     return { result, activity: result.checks.find(c => c.id === 'hook-activity')! };
   }
+
+  it('hook-activity: the 24h count and the since-tracking count are different questions', async () => {
+    // Three probes shared one canned answer in this fixture, so a row that
+    // consulted the WRONG query produced the right verdict for the wrong
+    // reason and nothing could tell. Here the two counts disagree on
+    // purpose: nothing captured in the last 24 hours, five captured since
+    // tracking began.
+    //
+    // A hook that ran two hours ago and captured nothing in that window is
+    // the healthy quiet case, and the summary must say so — reading the
+    // all-time count instead would report "5 memories captured in the last
+    // 24h" about a day in which none were.
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+
+    const { activity } = await activityCheck({
+      ...hookActivityDoctorArgs(packageRoot, makeDatabase(0, {
+        hookRuns: [{ hook: 'session-summary', hoursAgo: 2 }],
+        capturedLast24h: 0,
+        capturedSinceTracking: 5,
+      })),
+      existsSyncImpl: noMarker,
+    });
+
+    expect(activity.status).toBe('pass');
+    expect(activity.summary, 'the 24h window reported the all-time count')
+      .not.toMatch(/5 memor/);
+    expect(activity.summary, 'the quiet-but-alive wording is gone')
+      .toMatch(/nothing was worth saving/i);
+  });
 
   it('hook-activity: PASS when session-summary ran recently even though it captured NOTHING', async () => {
     // The crying-wolf case, and the reason the old code was unusable. A hook

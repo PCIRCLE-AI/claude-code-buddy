@@ -110,9 +110,11 @@ describe('GraphTab — two layers', () => {
     const { container } = render(<GraphTab />);
     await waitFor(() => { expect(container.querySelector('canvas')).not.toBeNull(); });
 
-    // Enter focus mode the way the component does — clicking is a canvas
-    // gesture, so drive the state through the search box's auto-centre
-    // instead and assert on what the banner would render.
+    // Enter focus mode for real. Typing alone only HIGHLIGHTS, so the old
+    // version of this test never mounted the focus banner it was named for —
+    // and its only assertion was `not.toContain(name)`, which a page that
+    // rendered nothing at all satisfies. Enter selects the sole match (see
+    // the keyboard-access tests below), which is what mounts the banner.
     const search = container.querySelector(`input[placeholder="${t('graph.search')}"]`) as HTMLInputElement;
     expect(search, 'the graph search box moved').not.toBeNull();
     fireEvent.input(search, { target: { value: 'Why the graph' } });
@@ -120,7 +122,18 @@ describe('GraphTab — two layers', () => {
       expect(container.textContent, 'graph search cannot find a node by its headline')
         .toContain('1 matches');
     });
-    expect(container.textContent).not.toContain('pre-compact-9f3c2a1b');
+
+    fireEvent.keyDown(search, { key: 'Enter' });
+
+    await waitFor(() => {
+      // The POSITIVE assertion the old test lacked: the banner is up and it
+      // reads the headline.
+      expect(container.textContent, 'the focus banner never mounted')
+        .toContain('Why the graph opens on work');
+    });
+    // …and never the machine key, which is what UX-1's chain forbids.
+    expect(container.textContent, 'the focus banner named the entity by its dedup key')
+      .not.toContain('pre-compact-9f3c2a1b');
   });
 
   it('asks for the work layer first and never fetches the full graph when it is big enough', async () => {

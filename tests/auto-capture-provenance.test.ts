@@ -51,9 +51,19 @@ describe('the auto-capture provenance tag', () => {
     const missing: string[] = [];
     for (const file of CAPTURE_WRITERS) {
       const src = read(file);
-      // The constant by name, or the literal — either is fine, both are the
-      // tag. What is not fine is neither.
-      if (!src.includes('AUTO_CAPTURE_TAG') && !src.includes(AUTO_CAPTURE_TAG)) {
+      // Inside a `tags:` ARRAY, not merely somewhere in the file.
+      //
+      // The old check was `src.includes('AUTO_CAPTURE_TAG')` over the whole
+      // file, which the import line alone satisfies. A writer could keep the
+      // import, stop passing the tag, and pass — while `memesh doctor` counts
+      // this tag to answer "is the auto-capture loop alive" and would report
+      // a dead loop as healthy.
+      //
+      // Both spellings still count: the constant, or the literal. What does
+      // not count is the identifier sitting in an import with no call site.
+      const inTagsArray = /tags:\s*\[[^\]]*(?:AUTO_CAPTURE_TAG|['"`]source:auto-capture['"`])/s.test(src)
+        || /\.\.\.\s*baseTags/.test(src) && /baseTags\s*=\s*\[[^\]]*(?:AUTO_CAPTURE_TAG|['"`]source:auto-capture['"`])/s.test(src);
+      if (!inTagsArray) {
         missing.push(file);
       }
     }

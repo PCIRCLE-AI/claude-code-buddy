@@ -160,11 +160,21 @@ describe('ProjectTab — a failed project fetch is not an empty project list', (
     });
 
     const { container } = render(<ProjectTab />);
+
+    // Wait for a POSITIVE signal, not for the absence of one. `waitFor`
+    // resolves on its first synchronous check, and at that moment the tab is
+    // still loading — so "does not say the project list is empty" was true of
+    // a spinner, and a component that rendered a spinner forever satisfied
+    // this test completely.
     await waitFor(() => {
       expect(
-        container.textContent,
-        'a dead /v1/projects rendered as "no project memories yet"',
-      ).not.toContain(t('project.empty'));
+        container.querySelector('[role="alert"]'),
+        'a dead /v1/projects never surfaced an error',
+      ).not.toBeNull();
     });
+    expect(
+      container.textContent,
+      'a dead /v1/projects rendered as "no project memories yet"',
+    ).not.toContain(t('project.empty'));
   });
 });

@@ -121,12 +121,30 @@ describe('Scoring Engine', () => {
         resolve(__dirname, '../../scripts/hooks/session-start.js'),
         'utf8',
       );
-      const recencyStr = SESSION_START_WEIGHT_RATIO.recency.toFixed(4);
-      const frequencyStr = SESSION_START_WEIGHT_RATIO.frequency.toFixed(4);
-      const confidenceStr = SESSION_START_WEIGHT_RATIO.confidence.toFixed(4);
-      expect(hookSrc).toContain(`* ${recencyStr}`);
-      expect(hookSrc).toContain(`* ${frequencyStr}`);
-      expect(hookSrc).toContain(`* ${confidenceStr}`);
+      // Each weight is checked against the TERM it multiplies, not merely
+      // for its presence somewhere in the file.
+      //
+      // The old version asserted `hookSrc.toContain('* 0.4167')` three times
+      // over. Every constant occurs twice in that SQL (once per branch of the
+      // pinned/unpinned union), so swapping two of them — recency's ratio on
+      // the confidence term and vice versa — left all three strings present
+      // and the test green, while session-start ranked memories by a formula
+      // core ranking does not use.
+      const expectations: Array<[string, RegExp]> = [
+        ['recency', /last_accessed_at[\s\S]{0,220}?\* RATIO/],
+        ['frequency', /access_count[\s\S]{0,220}?\* RATIO/],
+        ['confidence', /confidence[\s\S]{0,120}?\* RATIO/],
+      ];
+      for (const [factor, shape] of expectations) {
+        const ratio = SESSION_START_WEIGHT_RATIO[factor as keyof typeof SESSION_START_WEIGHT_RATIO]
+          .toFixed(4);
+        const pattern = new RegExp(shape.source.replace('RATIO', ratio.replace('.', '\\.')));
+        expect(
+          pattern.test(hookSrc),
+          `session-start's ${factor} term is not multiplied by ${ratio} — the hook's ranking `
+          + 'has drifted from core ranking',
+        ).toBe(true);
+      }
     });
   });
 });

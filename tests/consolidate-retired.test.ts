@@ -16,6 +16,7 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
+import { spawnSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { TOOL_DEFINITIONS } from '../src/transports/mcp/handlers.js';
 import { exportOpenAITools } from '../src/core/schema-export.js';
@@ -23,6 +24,7 @@ import * as operations from '../src/core/operations.js';
 import { RETIRED_ROUTES } from '../src/transports/http/retired-routes.js';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const CLI_PATH = path.join(repoRoot, 'dist', 'transports', 'cli', 'cli.js');
 
 describe('consolidate is retired', () => {
   it('is not an MCP tool', () => {
@@ -48,11 +50,25 @@ describe('consolidate is retired', () => {
     // Deleting the block would make Commander print "unknown command", which
     // is why this asserts on the message and not merely on the command's
     // existence.
-    const cli = fs.readFileSync(path.join(repoRoot, 'src/transports/cli/cli.ts'), 'utf8');
-    const block = cli.slice(cli.indexOf("// --- consolidate (retired) ---"), cli.indexOf('// --- export ---'));
-    expect(block, 'the retirement signpost is gone from the CLI').toContain("has been retired");
-    expect(block, 'the signpost does not name where to go instead').toContain('memesh dream');
-    expect(block, 'the signpost exits 0, so scripts cannot tell it failed').toContain('process.exitCode = 1');
+    // RUN it. This used to slice the source from the consolidate marker to
+    // `// --- export ---`, a window that also contains the verify/patterns
+    // retirement block — which carries the same "has been retired" wording
+    // and its own `process.exitCode = 1`. So deleting the consolidate command
+    // outright left every needle in the window and the test green, which is
+    // the single thing it exists to prevent.
+    const result = spawnSync('node', [CLI_PATH, 'consolidate'], {
+      encoding: 'utf8',
+      env: { ...process.env, MEMESH_AUTO_UPDATE: '0' },
+      timeout: 30_000,
+    });
+    const output = (result.stdout ?? '') + (result.stderr ?? '');
+
+    expect(output, 'the retirement signpost is gone from the CLI').toContain('has been retired');
+    expect(output, 'the signpost does not name where to go instead').toContain('memesh dream');
+    expect(result.status, 'the signpost exits 0, so scripts cannot tell it failed').toBe(1);
+    // And Commander did not answer with its own "unknown command", which is
+    // what a deleted command produces and reads to a user as a broken install.
+    expect(output, 'the command was deleted, not retired').not.toMatch(/unknown command/i);
   });
 
   it('answers POST /v1/consolidate with 410, not 404', () => {
