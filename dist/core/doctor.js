@@ -808,7 +808,6 @@ export async function runDoctor(options) {
             let rule;
             try {
                 rule = citationRuleState('user', homeDir(), process.cwd(), {
-                    existsSync: existsSyncImpl,
                     readFileSync: readFileSyncImpl,
                 });
             }

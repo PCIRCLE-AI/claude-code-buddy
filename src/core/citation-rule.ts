@@ -125,6 +125,28 @@ export function citationRulePath(scope: CitationRuleScope, home: string, cwd: st
   return path.join(citationRuleDir(scope, home, cwd), CITATION_RULE_FILENAME);
 }
 
+/**
+ * Read the rule file in ONE syscall, or report that it is not there.
+ *
+ * Not `existsSync` then `readFileSync`. That pair is a time-of-check /
+ * time-of-use race (CodeQL `js/file-system-race`, reported high on this file):
+ * between the two calls the path can be replaced, and this path lives inside
+ * the user's own `~/.claude/` tree. Reading first and classifying ENOENT has
+ * no window at all — and it is also simply more correct, because "the file
+ * vanished between the check and the read" stops being a crash.
+ */
+function readRule(
+  filePath: string,
+  fsImpl: Pick<typeof fs, 'readFileSync'>,
+): { kind: 'absent' } | { kind: 'read'; text: string } {
+  try {
+    return { kind: 'read', text: String(fsImpl.readFileSync(filePath, 'utf8')) };
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') return { kind: 'absent' };
+    throw err;
+  }
+}
+
 export type CitationRuleAction = 'created' | 'updated' | 'unchanged' | 'foreign-file';
 
 export interface CitationRuleResult {
@@ -144,16 +166,16 @@ export function writeCitationRule(
   scope: CitationRuleScope,
   home: string,
   cwd: string,
-  fsImpl: Pick<typeof fs, 'existsSync' | 'readFileSync' | 'writeFileSync' | 'mkdirSync'> = fs,
+  fsImpl: Pick<typeof fs, 'readFileSync' | 'writeFileSync' | 'mkdirSync'> = fs,
 ): CitationRuleResult {
   const filePath = citationRulePath(scope, home, cwd);
+  const existing = readRule(filePath, fsImpl);
 
-  if (fsImpl.existsSync(filePath)) {
-    const current = String(fsImpl.readFileSync(filePath, 'utf8'));
-    if (!current.includes(CITATION_RULE_MARKER)) {
+  if (existing.kind === 'read') {
+    if (!existing.text.includes(CITATION_RULE_MARKER)) {
       return { path: filePath, action: 'foreign-file' };
     }
-    if (current === CITATION_RULE_BODY) return { path: filePath, action: 'unchanged' };
+    if (existing.text === CITATION_RULE_BODY) return { path: filePath, action: 'unchanged' };
     fsImpl.writeFileSync(filePath, CITATION_RULE_BODY);
     return { path: filePath, action: 'updated' };
   }
@@ -170,12 +192,12 @@ export function removeCitationRule(
   scope: CitationRuleScope,
   home: string,
   cwd: string,
-  fsImpl: Pick<typeof fs, 'existsSync' | 'readFileSync' | 'rmSync'> = fs,
+  fsImpl: Pick<typeof fs, 'readFileSync' | 'rmSync'> = fs,
 ): { path: string; action: CitationRuleRemoval } {
   const filePath = citationRulePath(scope, home, cwd);
-  if (!fsImpl.existsSync(filePath)) return { path: filePath, action: 'absent' };
-  const current = String(fsImpl.readFileSync(filePath, 'utf8'));
-  if (!current.includes(CITATION_RULE_MARKER)) return { path: filePath, action: 'foreign-file' };
+  const existing = readRule(filePath, fsImpl);
+  if (existing.kind === 'absent') return { path: filePath, action: 'absent' };
+  if (!existing.text.includes(CITATION_RULE_MARKER)) return { path: filePath, action: 'foreign-file' };
   fsImpl.rmSync(filePath);
   return { path: filePath, action: 'removed' };
 }
@@ -194,11 +216,11 @@ export function citationRuleState(
   scope: CitationRuleScope,
   home: string,
   cwd: string,
-  fsImpl: Pick<typeof fs, 'existsSync' | 'readFileSync'> = fs,
+  fsImpl: Pick<typeof fs, 'readFileSync'> = fs,
 ): { path: string; state: CitationRuleState } {
   const filePath = citationRulePath(scope, home, cwd);
-  if (!fsImpl.existsSync(filePath)) return { path: filePath, state: 'missing' };
-  const current = String(fsImpl.readFileSync(filePath, 'utf8'));
-  if (!current.includes(CITATION_RULE_MARKER)) return { path: filePath, state: 'foreign-file' };
-  return { path: filePath, state: current === CITATION_RULE_BODY ? 'current' : 'stale' };
+  const existing = readRule(filePath, fsImpl);
+  if (existing.kind === 'absent') return { path: filePath, state: 'missing' };
+  if (!existing.text.includes(CITATION_RULE_MARKER)) return { path: filePath, state: 'foreign-file' };
+  return { path: filePath, state: existing.text === CITATION_RULE_BODY ? 'current' : 'stale' };
 }

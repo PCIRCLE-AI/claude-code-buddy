@@ -23,14 +23,24 @@ export function citationRuleDir(scope, home, cwd) {
 export function citationRulePath(scope, home, cwd) {
     return path.join(citationRuleDir(scope, home, cwd), CITATION_RULE_FILENAME);
 }
+function readRule(filePath, fsImpl) {
+    try {
+        return { kind: 'read', text: String(fsImpl.readFileSync(filePath, 'utf8')) };
+    }
+    catch (err) {
+        if (err?.code === 'ENOENT')
+            return { kind: 'absent' };
+        throw err;
+    }
+}
 export function writeCitationRule(scope, home, cwd, fsImpl = fs) {
     const filePath = citationRulePath(scope, home, cwd);
-    if (fsImpl.existsSync(filePath)) {
-        const current = String(fsImpl.readFileSync(filePath, 'utf8'));
-        if (!current.includes(CITATION_RULE_MARKER)) {
+    const existing = readRule(filePath, fsImpl);
+    if (existing.kind === 'read') {
+        if (!existing.text.includes(CITATION_RULE_MARKER)) {
             return { path: filePath, action: 'foreign-file' };
         }
-        if (current === CITATION_RULE_BODY)
+        if (existing.text === CITATION_RULE_BODY)
             return { path: filePath, action: 'unchanged' };
         fsImpl.writeFileSync(filePath, CITATION_RULE_BODY);
         return { path: filePath, action: 'updated' };
@@ -41,21 +51,21 @@ export function writeCitationRule(scope, home, cwd, fsImpl = fs) {
 }
 export function removeCitationRule(scope, home, cwd, fsImpl = fs) {
     const filePath = citationRulePath(scope, home, cwd);
-    if (!fsImpl.existsSync(filePath))
+    const existing = readRule(filePath, fsImpl);
+    if (existing.kind === 'absent')
         return { path: filePath, action: 'absent' };
-    const current = String(fsImpl.readFileSync(filePath, 'utf8'));
-    if (!current.includes(CITATION_RULE_MARKER))
+    if (!existing.text.includes(CITATION_RULE_MARKER))
         return { path: filePath, action: 'foreign-file' };
     fsImpl.rmSync(filePath);
     return { path: filePath, action: 'removed' };
 }
 export function citationRuleState(scope, home, cwd, fsImpl = fs) {
     const filePath = citationRulePath(scope, home, cwd);
-    if (!fsImpl.existsSync(filePath))
+    const existing = readRule(filePath, fsImpl);
+    if (existing.kind === 'absent')
         return { path: filePath, state: 'missing' };
-    const current = String(fsImpl.readFileSync(filePath, 'utf8'));
-    if (!current.includes(CITATION_RULE_MARKER))
+    if (!existing.text.includes(CITATION_RULE_MARKER))
         return { path: filePath, state: 'foreign-file' };
-    return { path: filePath, state: current === CITATION_RULE_BODY ? 'current' : 'stale' };
+    return { path: filePath, state: existing.text === CITATION_RULE_BODY ? 'current' : 'stale' };
 }
 //# sourceMappingURL=citation-rule.js.map

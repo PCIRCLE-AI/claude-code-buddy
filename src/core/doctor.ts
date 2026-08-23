@@ -2186,8 +2186,10 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
       // `database.broken`, sending them to debug a database that is fine.
       let rule: { path: string; state: string };
       try {
+        // Only readFileSync now — `citationRuleState` reads first and
+        // classifies ENOENT rather than checking existence separately, so
+        // there is no existsSync seam left to inject.
         rule = citationRuleState('user', homeDir(), process.cwd(), {
-          existsSync: existsSyncImpl,
           readFileSync: readFileSyncImpl,
         } as never);
       } catch {

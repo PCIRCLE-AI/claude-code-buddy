@@ -10,14 +10,14 @@ export interface CitationRuleResult {
     path: string;
     action: CitationRuleAction;
 }
-export declare function writeCitationRule(scope: CitationRuleScope, home: string, cwd: string, fsImpl?: Pick<typeof fs, 'existsSync' | 'readFileSync' | 'writeFileSync' | 'mkdirSync'>): CitationRuleResult;
+export declare function writeCitationRule(scope: CitationRuleScope, home: string, cwd: string, fsImpl?: Pick<typeof fs, 'readFileSync' | 'writeFileSync' | 'mkdirSync'>): CitationRuleResult;
 export type CitationRuleRemoval = 'removed' | 'absent' | 'foreign-file';
-export declare function removeCitationRule(scope: CitationRuleScope, home: string, cwd: string, fsImpl?: Pick<typeof fs, 'existsSync' | 'readFileSync' | 'rmSync'>): {
+export declare function removeCitationRule(scope: CitationRuleScope, home: string, cwd: string, fsImpl?: Pick<typeof fs, 'readFileSync' | 'rmSync'>): {
     path: string;
     action: CitationRuleRemoval;
 };
 export type CitationRuleState = 'current' | 'stale' | 'missing' | 'foreign-file';
-export declare function citationRuleState(scope: CitationRuleScope, home: string, cwd: string, fsImpl?: Pick<typeof fs, 'existsSync' | 'readFileSync'>): {
+export declare function citationRuleState(scope: CitationRuleScope, home: string, cwd: string, fsImpl?: Pick<typeof fs, 'readFileSync'>): {
     path: string;
     state: CitationRuleState;
 };

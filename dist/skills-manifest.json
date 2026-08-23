@@ -23,8 +23,8 @@
     },
     {
       "path": "scripts/hooks/_generated/citation-rule.js",
-      "sha256": "a7b9b2bddff23a93dcdb0b84a1ed894b598b93611eb1123e1c20579f47748605",
-      "bytes": 3349
+      "sha256": "213a3c779ed646cecc4008236b8ac93d4f6e6322392b8bdc28352601746b5fb6",
+      "bytes": 3574
     },
     {
       "path": "scripts/hooks/_generated/core-paths.js",

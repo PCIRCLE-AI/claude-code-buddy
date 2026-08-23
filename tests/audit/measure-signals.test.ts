@@ -68,7 +68,7 @@ function census(): { signals: Signal[]; exitCode: number } {
     return { signals: (JSON.parse(out) as { signals: Signal[] }).signals, exitCode: 0 };
   } catch (err) {
     const e = err as { status?: number; stdout?: string; stderr?: string };
-    throw new Error(`census failed (${e.status}): ${e.stderr || e.stdout}`);
+    throw new Error(`census failed (${e.status}): ${e.stderr || e.stdout}`, { cause: err });
   }
 }
 
