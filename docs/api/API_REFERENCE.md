@@ -264,7 +264,7 @@ Export memories to a portable JSON bundle. Use for personal backup, migrating be
 |-----------|------|----------|-------------|
 | `namespace` | string | No | Export only entities from this namespace (`"personal"`, `"team"`, `"global"`). Omit to export all namespaces. |
 | `tag` | string | No | Export only entities matching this tag (e.g., `"project:myapp"`) |
-| `limit` | number | No | Maximum number of active entities to export (default: 1000) |
+| `limit` | number | No | Maximum number of entities to export, archived ones included (default: 1000). The default is a **subset**, not a backup: a graph larger than the limit exports the newest `limit` memories and sets `truncated: true`. For a full backup, pass a limit above your graph size. |
 
 **Response**:
 
@@ -273,6 +273,7 @@ Export memories to a portable JSON bundle. Use for personal backup, migrating be
   "version": "3.1.0",
   "exported_at": "2026-04-17T00:00:00.000Z",
   "entity_count": 12,
+  "truncated": false,
   "entities": [
     {
       "name": "auth-decision",
@@ -298,7 +299,7 @@ Export memories to a portable JSON bundle. Use for personal backup, migrating be
 | `created_at` | always | restored for entities the import CREATES, and only when `parseSqliteUtcMs` can read the value. An entity you already had keeps its own creation time. |
 | `status` | present only for archived entities | the entity is archived after it is created. Archived memories are part of a backup: without them, `forget` then export then restore brought the memory back. |
 | `metadata` | present when the entity has any | merged, minus `guard`, `trust` and `provenance`. The last two are rebuilt by the import. `guard` is refused: it controls what memesh WARNS about on your tool calls, and a file you were sent must not be able to install one. |
-| `relations` | always | created in a SECOND pass, after every entity in the bundle exists. A relation that still cannot be created points outside the bundle, and that is reported in `errors` rather than dropped. |
+| `relations` | always | created in a SECOND pass, after every entity in the bundle exists. A relation that still cannot be created points outside the bundle, and is named in `skipped_relations` rather than dropped — reported, but not an error, because every narrowed bundle has them. |
 
 Bundles written by earlier versions (`3.0.0`) import unchanged — every added field is optional.
 
@@ -356,9 +357,16 @@ bundle.
   "imported": 10,
   "skipped": 2,
   "appended": 0,
-  "errors": []
+  "errors": [],
+  "skipped_relations": ["older-note -supersedes-> a-memory-not-in-this-bundle"]
 }
 ```
+
+`skipped_relations` names each link the restore could not rebuild, as
+`from -type-> to`. It is reported but is **not** an error and does not fail the
+command: every bundle narrowed by `--tag`, `--namespace` or `--limit` has
+relations that point outside it. `errors` is for entries that genuinely failed,
+and only `errors` makes the CLI exit non-zero.
 
 **Examples**:
 

@@ -66,9 +66,18 @@ export function exportMemories(args: ExportInput): ExportResult {
   const db = getDatabase();
   const kg = new KnowledgeGraph(db);
 
+  const limit = args.limit || 1000;
   const entities = kg.search(undefined, {
     tag: args.tag,
-    limit: args.limit || 1000,
+    // One MORE than asked for, so "there is more" is a fact rather than an
+    // inference. `entities.length === limit` cannot tell a graph of exactly
+    // `limit` memories from one that was cut short, and it is the cut-short
+    // case that matters: measured on a real graph of 1272 memories, the
+    // default export carried 1000 and reported `✅ Exported 1000 entities`,
+    // so a backup was missing 21% of the thing it was taken to preserve and
+    // said nothing. The extra row costs one query, not a second copy of the
+    // filter.
+    limit: limit + 1,
     // Archived memories ARE part of a backup. They were skipped, so
     // `memesh forget` followed by an export and a restore brought the
     // memory back to life — the one operation whose whole purpose is to
@@ -85,11 +94,18 @@ export function exportMemories(args: ExportInput): ExportResult {
     countAsAccess: false,
   });
 
+  const truncated = entities.length > limit;
+  const exported = truncated ? entities.slice(0, limit) : entities;
+
   return {
     version: '3.1.0',
     exported_at: new Date().toISOString(),
-    entity_count: entities.length,
-    entities: entities.map((e) => ({
+    entity_count: exported.length,
+    // Carried in the RESULT, not printed by the CLI alone: the MCP and HTTP
+    // callers export too, and an agent taking a backup on the user's behalf
+    // is exactly who must not be told a truncated bundle is the whole graph.
+    truncated,
+    entities: exported.map((e) => ({
       name: e.name,
       type: e.type,
       // The bundle carries `title` because without it the round trip is not a
@@ -218,8 +234,11 @@ export function importMemories(args: ImportInput): ImportResult {
   let skipped = 0;
   let appended = 0;
   const errors: string[] = [];
+  /** Relations whose target is not in the bundle and not already stored. */
+  const skippedRelations: string[] = [];
   /** Compiled once: a restore can create up to `limit` entities (1000). */
   const setCreatedAt = db.prepare('UPDATE entities SET created_at = ? WHERE name = ?');
+  const entityExists = db.prepare('SELECT 1 FROM entities WHERE name = ?');
 
   for (const [index, entity] of args.data.entities.entries()) {
     const invalid = describeInvalidEntity(entity, index);
@@ -356,7 +375,20 @@ export function importMemories(args: ImportInput): ImportResult {
   // still cannot be created is genuinely pointing outside it. That is real
   // information loss and it is REPORTED — the old code could not tell the
   // two cases apart, so it had to swallow both.
+  //
+  // Reported, but NOT an error. A relation leaving the bundle is a property
+  // of the bundle, not a failure of the import: any `--tag`/`--namespace`
+  // filter produces them, and so does a bundle cut short by `--limit`. Put
+  // in `errors` they set exit 1, which turns the round trip this project
+  // documents — `memesh export > b.json && memesh import b.json` — into a
+  // failing command on a restore that did exactly what it should. Measured:
+  // a full backup of a 1272-memory graph restored 1000 entities and 142 of
+  // 151 relations, and exited 1.
   for (const rel of pendingRelations) {
+    if (!entityExists.get(rel.to)) {
+      skippedRelations.push(`${rel.from} -${rel.type}-> ${rel.to}`);
+      continue;
+    }
     try {
       kg.createRelation(rel.from, rel.to, rel.type);
     } catch (err) {
@@ -367,5 +399,5 @@ export function importMemories(args: ImportInput): ImportResult {
     }
   }
 
-  return { imported, skipped, appended, errors };
+  return { imported, skipped, appended, errors, skipped_relations: skippedRelations };
 }

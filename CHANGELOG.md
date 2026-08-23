@@ -34,6 +34,29 @@ All notable changes to MeMesh are documented here.
 
 ### Changed
 
+- **`memesh export` now tells you when the bundle is only part of your
+  graph.** The `--limit` default is 1000 and always has been, but nothing
+  said so: on a real graph of 1272 memories the command printed
+  `✅ Exported 1000 entities` and produced a bundle missing 21% of what it was
+  taken to preserve. `entity_count` could not distinguish that from a graph
+  that happens to be exactly 1000. The result now carries `truncated`
+  (`true`/`false`) — visible to the MCP and HTTP callers as well as the CLI —
+  and the CLI prints a warning on **stderr**, so `memesh export > b.json`
+  still writes a clean bundle. For a full backup, pass a limit above your
+  graph size: `memesh export --limit 100000 -o backup.json`.
+
+- **`memesh import` no longer exits 1 for a relation that points outside the
+  bundle.** *(Behaviour change — scripts that check the exit code are
+  affected.)* Those relations are real information loss and are still
+  reported, by name, in a new `skipped_relations` field and on stderr. But
+  they are not an error: every bundle narrowed by `--tag`, `--namespace` or
+  `--limit` has them, so counting them as errors made
+  `memesh export > b.json && memesh import b.json` — the round trip this
+  project's own help text recommends — a failing command on a restore that
+  did exactly what it should. Measured: a full backup of a 1272-memory graph
+  restored 1000 entities and 142 of 151 relations, and exited 1. `errors`
+  still means an entry that genuinely failed, and still exits 1.
+
 - **The export bundle is version `3.1.0`, and it is now actually a backup.**
   Three things a restore needs were missing from it, and a fourth was thrown
   away on the way back in:

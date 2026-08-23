@@ -138,6 +138,33 @@ describe('exportMemories', () => {
     const result = exportMemories({});
     expect(result.entities[0].namespace).toBe('personal');
   });
+
+  describe('a bundle that is only part of the graph says so', () => {
+    // Measured on the real graph before this fix: 1272 memories, a default
+    // export carried 1000, and the CLI printed `✅ Exported 1000 entities`.
+    // A backup was missing 21% of the thing it was taken to preserve and
+    // nothing anywhere said so — including the MCP `export` tool, which an
+    // agent calls on the user's behalf.
+    it('sets truncated when the graph holds more than the limit', () => {
+      for (const n of ['a', 'b', 'c']) remember({ name: n, type: 'note', observations: ['x'] });
+
+      const result = exportMemories({ limit: 2 });
+
+      expect(result.truncated, 'a short bundle claimed to be the whole graph').toBe(true);
+      expect(result.entity_count, 'the limit was not honoured').toBe(2);
+      expect(result.entities, 'the probe row leaked into the bundle').toHaveLength(2);
+    });
+
+    it('does not set it when the graph fits — including when it fits EXACTLY', () => {
+      // The anti-vacuity half, and the case a `length === limit` check gets
+      // wrong: three memories under a limit of three is a complete backup.
+      for (const n of ['a', 'b', 'c']) remember({ name: n, type: 'note', observations: ['x'] });
+
+      expect(exportMemories({ limit: 10 }).truncated, 'a complete bundle was called short').toBe(false);
+      expect(exportMemories({ limit: 3 }).truncated, 'an exactly-full bundle was called short').toBe(false);
+      expect(exportMemories({ limit: 3 }).entity_count).toBe(3);
+    });
+  });
 });
 
 // ── Import ───────────────────────────────────────────────────────────────────
@@ -254,15 +281,48 @@ describe('importMemories', () => {
     //
     // With the second pass, a relation that still fails is genuinely
     // pointing outside the bundle. That is real information loss, and the
-    // import now says so.
+    // import now says so — in `skipped_relations`, NOT in `errors`.
+    //
+    // The distinction is the whole point. Every bundle narrowed by `--tag`,
+    // `--namespace` or `--limit` has relations leaving it: measured, a full
+    // backup of a 1272-memory graph restored 1000 entities and 142 of its
+    // 151 relations, all nine losses being targets the limit cut off. In
+    // `errors` those set exit 1, so the round trip this project documents —
+    // `memesh export > b.json && memesh import b.json` — became a failing
+    // command on a restore that did exactly what it should.
     const data = makeExport([
       { name: 'entity-a', relations: [{ to: 'nonexistent', type: 'related-to' }] },
     ]);
     const result = importMemories({ data, merge_strategy: 'skip' });
 
     expect(result.imported, 'the entity itself must still import').toBe(1);
-    expect(result.errors, 'a lost relation was not reported').toHaveLength(1);
-    expect(result.errors[0]).toContain('nonexistent');
+    expect(result.skipped_relations, 'a lost relation was not reported').toHaveLength(1);
+    expect(result.skipped_relations[0]).toContain('nonexistent');
+    expect(result.errors, 'a link leaving the bundle was counted as a failure').toHaveLength(0);
+  });
+
+  it('a target already in the GRAPH is restored, not reported as lost', () => {
+    // The anti-vacuity half: `skipped_relations` must mean "the target is
+    // nowhere", not "the target was not in the bundle". A bundle that brings
+    // one memory linked to one you already keep must rebuild that link.
+    remember({ name: 'already-here', type: 'note', observations: ['kept'] });
+    const data = makeExport([
+      { name: 'incoming', relations: [{ to: 'already-here', type: 'related-to' }] },
+    ]);
+
+    const result = importMemories({ data, merge_strategy: 'skip' });
+
+    expect(result.skipped_relations, 'a restorable link was reported lost').toHaveLength(0);
+    expect(result.errors).toHaveLength(0);
+    const relations = getDatabase()
+      .prepare(
+        `SELECT f.name AS "from", t.name AS "to" FROM relations r
+         JOIN entities f ON f.id = r.from_entity_id
+         JOIN entities t ON t.id = r.to_entity_id
+         WHERE f.name = 'incoming'`,
+      )
+      .all();
+    expect(relations, 'the link to an entity already stored was not rebuilt').toHaveLength(1);
   });
 
   it('restores a relation whose target appears LATER in the bundle', () => {

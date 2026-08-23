@@ -270,6 +270,18 @@ export interface ExportResult {
   version: string;
   exported_at: string;
   entity_count: number;
+  /**
+   * True when the graph holds more memories than `limit` let through, so the
+   * bundle is a subset and a restore from it will be incomplete. Without it
+   * the only signal was `entity_count`, which a caller cannot tell from a
+   * graph that happens to be exactly that size — and a backup that is
+   * silently short is the one failure a backup must not have.
+   *
+   * Optional because this type doubles as the BUNDLE format that `import`
+   * reads, and a bundle written before this release does not carry it.
+   * `exportMemories` always sets it.
+   */
+  truncated?: boolean;
   entities: Array<{
     name: string;
     type: string;
@@ -317,6 +329,13 @@ export interface ImportResult {
   skipped: number;
   appended: number;
   errors: string[];
+  /**
+   * Relations whose target is in neither the bundle nor the graph, as
+   * `from -type-> to`. Real information loss, so it is reported — but not an
+   * error: every filtered or `--limit`-truncated bundle has them, and
+   * counting them as errors made a correct restore exit 1.
+   */
+  skipped_relations: string[];
 }
 
 export interface LearnInput {

@@ -23,18 +23,22 @@ function buildImportedMetadata(existingMetadata, args) {
 export function exportMemories(args) {
     const db = getDatabase();
     const kg = new KnowledgeGraph(db);
+    const limit = args.limit || 1000;
     const entities = kg.search(undefined, {
         tag: args.tag,
-        limit: args.limit || 1000,
+        limit: limit + 1,
         includeArchived: true,
         namespace: args.namespace,
         countAsAccess: false,
     });
+    const truncated = entities.length > limit;
+    const exported = truncated ? entities.slice(0, limit) : entities;
     return {
         version: '3.1.0',
         exported_at: new Date().toISOString(),
-        entity_count: entities.length,
-        entities: entities.map((e) => ({
+        entity_count: exported.length,
+        truncated,
+        entities: exported.map((e) => ({
             name: e.name,
             type: e.type,
             title: e.title ?? null,
@@ -91,7 +95,9 @@ export function importMemories(args) {
     let skipped = 0;
     let appended = 0;
     const errors = [];
+    const skippedRelations = [];
     const setCreatedAt = db.prepare('UPDATE entities SET created_at = ? WHERE name = ?');
+    const entityExists = db.prepare('SELECT 1 FROM entities WHERE name = ?');
     for (const [index, entity] of args.data.entities.entries()) {
         const invalid = describeInvalidEntity(entity, index);
         if (invalid) {
@@ -163,6 +169,10 @@ export function importMemories(args) {
         }
     }
     for (const rel of pendingRelations) {
+        if (!entityExists.get(rel.to)) {
+            skippedRelations.push(`${rel.from} -${rel.type}-> ${rel.to}`);
+            continue;
+        }
         try {
             kg.createRelation(rel.from, rel.to, rel.type);
         }
@@ -171,6 +181,6 @@ export function importMemories(args) {
                 + `(${err instanceof Error ? err.message : String(err)})`);
         }
     }
-    return { imported, skipped, appended, errors };
+    return { imported, skipped, appended, errors, skipped_relations: skippedRelations };
 }
 //# sourceMappingURL=serializer.js.map

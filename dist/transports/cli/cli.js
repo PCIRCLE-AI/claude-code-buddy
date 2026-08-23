@@ -381,6 +381,10 @@ program
         else {
             console.log(json);
         }
+        if (result.truncated) {
+            process.stderr.write(`⚠️  This is NOT the whole graph — ${result.entity_count} entities is the --limit, and there are more.\n`
+                + `   For a full backup, raise it: memesh export --limit 100000${opts.out ? ` -o ${opts.out}` : ''}\n`);
+        }
     });
 });
 program
@@ -436,6 +440,11 @@ program
             process.exit(1);
         }
         console.log(`Imported: ${result.imported}, Skipped: ${result.skipped}, Appended: ${result.appended}`);
+        if (result.skipped_relations.length > 0) {
+            console.error(`Note: ${result.skipped_relations.length} relation(s) not restored — the target is not in this bundle:\n  `
+                + `${result.skipped_relations.join('\n  ')}`);
+            console.error(`       Export those entities too (widen --limit, or drop --tag/--namespace) to keep the links.`);
+        }
         if (result.errors.length > 0) {
             console.error(`Errors:\n  ${result.errors.join('\n  ')}`);
             process.exitCode = 1;

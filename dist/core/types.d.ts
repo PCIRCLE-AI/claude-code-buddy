@@ -114,6 +114,7 @@ export interface ExportResult {
     version: string;
     exported_at: string;
     entity_count: number;
+    truncated?: boolean;
     entities: Array<{
         name: string;
         type: string;
@@ -140,6 +141,7 @@ export interface ImportResult {
     skipped: number;
     appended: number;
     errors: string[];
+    skipped_relations: string[];
 }
 export interface LearnInput {
     error: string;
