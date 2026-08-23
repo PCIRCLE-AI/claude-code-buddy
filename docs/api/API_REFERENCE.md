@@ -256,7 +256,7 @@ Use [`dream`](#dream) instead: it proposes digests and applies nothing until a p
 
 ### export
 
-Export memories to a portable JSON bundle. Use for backup, sharing with teammates, or migrating between machines.
+Export memories to a portable JSON bundle. Use for personal backup, migrating between machines, or optional manual transfer between compatible agents.
 
 **Input Schema**:
 
