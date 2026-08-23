@@ -135,8 +135,23 @@ async function main() {
   });
 
   const packageRoot = path.join(extractDir, 'package');
-  const packagedNodeModules = path.join(packageRoot, 'node_modules');
-  fs.symlinkSync(path.join(repoRoot, 'node_modules'), packagedNodeModules, 'junction');
+
+  // Install the tarball's PRODUCTION dependencies, rather than symlinking
+  // this repo's `node_modules` in.
+  //
+  // The symlink handed the packaged CLI the whole dev tree — vitest, the
+  // TypeScript compiler, every transitive dev dependency — so an import that
+  // resolved here would also resolve for a user only if that package
+  // happened to be a runtime dependency too. A `dependencies` entry moved to
+  // `devDependencies`, or forgotten entirely, passed this smoke test and
+  // broke on the first real install. `smoke-packed-artifact.mjs` already
+  // makes this distinction and says why in its own comment; this one
+  // borrowed the dev tree instead.
+  execFileSync(npmCommand, ['install', '--omit=dev', '--no-audit', '--no-fund'], {
+    cwd: packageRoot,
+    stdio: 'inherit',
+    env: { ...process.env, npm_config_cache: npmCacheDir },
+  });
   const cliEntry = path.join(packageRoot, 'dist', 'transports', 'cli', 'cli.js');
   const dbPath = path.join(smokeDir, 'knowledge-graph.db');
   const commonEnv = {

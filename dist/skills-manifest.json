@@ -73,8 +73,8 @@
     },
     {
       "path": "scripts/hooks/_shared.js",
-      "sha256": "ebad435c3e3b8395cfd6eecae3f196c3c8914dd16ed7506136f04ff4614d04cb",
-      "bytes": 41066
+      "sha256": "e81aec2454a2b681193d583df7f9fe67491a45f7e87a576cf77e879e0352089f",
+      "bytes": 42029
     },
     {
       "path": "scripts/hooks/guard-check.js",

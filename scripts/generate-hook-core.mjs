@@ -111,10 +111,35 @@ function generate() {
     // absent. Matches `import ... from 'spec'` AND bare `import 'spec'` (spans
     // newlines for multi-line specifier lists via the newline-inclusive [^;]
     // class).
+    // Two forms, because a leaf can leave the leaf set either way and only
+    // one was checked. The static form is `import ... from 'spec'` (and bare
+    // `import 'spec'`); the DYNAMIC form is `import('spec')`, which is a
+    // runtime call the static regex cannot see. A copied module reaching for
+    // `await import('../db.js')` would pass this gate and then throw at hook
+    // runtime, where `dist/` and `node_modules` may not exist at all — the
+    // exact failure the gate was written to prevent.
+    //
+    // Only a LITERAL dynamic specifier is checkable. A computed one
+    // (`import(somePath)`) cannot be resolved here, and it is refused rather
+    // than waved through: a leaf that computes its imports is not a leaf.
     const importRe = /^\s*import\b\s*(?:[^;]*?\bfrom\s+)?['"]([^'"]+)['"]/gm;
+    const dynamicRe = /\bimport\s*\(\s*(?:(['"])([^'"]+)\1)?/g;
+    const specs = [];
     let imp;
-    while ((imp = importRe.exec(code)) !== null) {
-      const spec = imp[1];
+    while ((imp = importRe.exec(code)) !== null) specs.push(imp[1]);
+    let dyn;
+    while ((dyn = dynamicRe.exec(code)) !== null) {
+      if (dyn[2] === undefined) {
+        console.error(
+          `generate-hook-core: ${from} uses a dynamic import with a computed specifier. ` +
+          `${src} must stay a runtime-leaf module, and a computed import cannot be checked ` +
+          `against the leaf set — make the specifier a string literal or drop the import.`,
+        );
+        process.exit(1);
+      }
+      specs.push(dyn[2]);
+    }
+    for (const spec of specs) {
       const isBuiltin = spec.startsWith('node:') || NODE_BUILTINS.has(spec);
       if (!isBuiltin && !REWRITES.has(spec)) {
         const kind = spec.startsWith('.') ? 'a relative import' : 'an external package';

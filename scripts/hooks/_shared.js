@@ -798,9 +798,25 @@ export function decideAutoUpdateHook(currentVersion, cache, policy) {
   const policyAllows = (POLICY_RANK[policy] ?? 0) >= BUMP_RANK[bump];
   if (policyAllows) return { run: true, latest, bump, deprecationOverride: false };
 
+  // The deprecation override does NOT apply when the policy is `off`.
+  //
+  // Look at what the override could ever do: it fires only for a `patch`
+  // bump, and any policy above `off` already permits a patch. So its ONLY
+  // effect was to defeat `off` — the one setting whose whole meaning is
+  // "never install anything without me asking".
+  //
+  // And its trigger is `currentVersionDeprecation`, a string the PUBLISHER
+  // writes into the npm registry. Anyone able to publish the package could
+  // therefore make every user who had turned auto-update OFF run a detached
+  // `npm install -g`, unattended, from a Stop hook. That is not a security
+  // override; it is a remote switch on a user's explicit refusal.
+  //
+  // A deprecated version still gets said out loud: `memesh doctor` escalates
+  // the update-status row to FAIL for it (there is a test named for that),
+  // and the session banner reports it. The user decides.
   const deprecated = typeof cache.currentVersionDeprecation === 'string'
     && cache.currentVersionDeprecation.length > 0;
-  if (deprecated && bump === 'patch') {
+  if (deprecated && bump === 'patch' && policy !== 'off') {
     return { run: true, latest, bump, deprecationOverride: true };
   }
 

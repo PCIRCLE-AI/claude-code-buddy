@@ -3,6 +3,7 @@
 // Finish a release in one operation: tag, GitHub Release, npm publish.
 //
 //   node scripts/finish-release.mjs --dry-run    # what it would do, and why it would refuse
+//   node scripts/finish-release.mjs --no-wait    # skip the final npm confirmation poll
 //   npm run release:finish
 //
 // WHY THIS IS ONE COMMAND
@@ -51,10 +52,12 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 
 const args = process.argv.slice(2);
 let dryRun = false;
+let waitForNpm = true;
 let notesFile = null;
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
   if (a === '--dry-run') dryRun = true;
+  else if (a === '--no-wait') waitForNpm = false;
   else if (a === '--notes-file') {
     notesFile = args[++i];
     if (!notesFile) {
@@ -63,7 +66,8 @@ for (let i = 0; i < args.length; i++) {
     }
   }
   else if (a === '-h' || a === '--help') {
-    console.log('Usage: node scripts/finish-release.mjs [--dry-run] [--notes-file <path>]');
+    console.log('Usage: node scripts/finish-release.mjs [--dry-run] [--no-wait] [--notes-file <path>]');
+    console.log('  --no-wait   skip the final poll that confirms npm is serving the new version');
     process.exit(0);
   } else {
     console.error(`unknown flag: ${a}`);
@@ -267,4 +271,60 @@ console.log(
     ? `\n  publish run:  ${runUrl}`
     : `\n  publish run:  not listed yet — https://github.com/${repoSlug}/actions/workflows/publish-npm.yml`
 );
-console.log(`  then:         npm view @pcircle/memesh version --prefer-online`);
+
+// --- did npm actually receive it? -------------------------------------------
+//
+// This step used to be a printed instruction — "then: npm view …" — and a
+// printed instruction is not a check. The release could end here with the tag
+// written, the GitHub Release created, the workflow red, and this script
+// exiting 0. Nothing else looks: `verify:release` is satisfied the moment the
+// tag exists, which is precisely the state that makes main look released while
+// npm does not have it.
+//
+// It POLLS rather than asking once, because the two ways this looked like a
+// failure when it was not are both timing:
+//   - the registry lags a green publish by minutes, so one `npm view` right
+//     after the workflow starts answers with the OLD version;
+//   - npm's LOCAL metadata cache answers stale, which `--prefer-online` gets
+//     past.
+// Both were measured on earlier releases and both were mistaken for a broken
+// publish.
+//
+// A miss is reported as UNCONFIRMED and exits non-zero. Not "failed": the
+// publish may still land after this window. What it must not do is report
+// success for something it did not see.
+const NPM_POLL_ATTEMPTS = 20;
+const NPM_POLL_INTERVAL_MS = 15_000;
+
+function publishedVersion() {
+  return capture('npm', ['view', '@pcircle/memesh', 'version', '--prefer-online']);
+}
+
+if (!waitForNpm) {
+  console.log(`\n  npm check skipped (--no-wait). Confirm with:`);
+  console.log(`    npm view @pcircle/memesh version --prefer-online`);
+} else {
+  process.stdout.write(`\n  waiting for npm to serve ${pkgVersion} `);
+  let seen = null;
+  for (let attempt = 0; attempt < NPM_POLL_ATTEMPTS; attempt++) {
+    seen = publishedVersion();
+    if (seen === pkgVersion) break;
+    process.stdout.write('.');
+    // Synchronous sleep: this script is a sequence of blocking commands and a
+    // timer would need the whole file to become async for no benefit.
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, NPM_POLL_INTERVAL_MS);
+  }
+  process.stdout.write('\n');
+  if (seen === pkgVersion) {
+    console.log(`  npm serves ${pkgVersion} — the release is live.`);
+  } else {
+    const waited = Math.round((NPM_POLL_ATTEMPTS * NPM_POLL_INTERVAL_MS) / 60_000);
+    console.error(
+      `  UNCONFIRMED: after ~${waited} minutes npm still serves ` +
+      `${seen ?? 'an unreadable answer'}, not ${pkgVersion}.`,
+    );
+    console.error(`  The tag and the GitHub Release exist. Check the publish run above,`);
+    console.error(`  then re-check with: npm view @pcircle/memesh version --prefer-online`);
+    process.exit(1);
+  }
+}

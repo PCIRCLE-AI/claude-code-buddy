@@ -141,13 +141,24 @@ export function decideAutoUpdate(input: AutoUpdateDecisionInput): AutoUpdateDeci
     };
   }
 
-  // Deprecation override: maintainers flagged this version (typically
-  // a security advisory). Even with policy 'off' we elevate to patch
-  // - but never silently skip a major or minor jump, since those can
-  // carry behaviour changes the user didn't agree to. If the only way
-  // out of the deprecated state is a minor/major jump, surface that
-  // through the warning channel and leave the upgrade manual.
-  if (currentVersionDeprecated && bump === 'patch') {
+  // Deprecation override: maintainers flagged this version (typically a
+  // security advisory), so a patch bump is elevated past a policy that would
+  // otherwise refuse it — but never a minor or major jump, which can carry
+  // behaviour changes the user did not agree to.
+  //
+  // NOT past `off`. The override fires only for a `patch` bump and every
+  // policy above `off` already permits one, so `off` was the only setting it
+  // could ever override — the one whose whole meaning is "never install
+  // anything without me asking". Its trigger is a string the PUBLISHER writes
+  // into the registry, which made it a remote switch on a user's explicit
+  // refusal. `memesh doctor` reports a deprecated version as a FAIL either
+  // way; the user decides.
+  //
+  // This function has no caller outside its own test today — the live path is
+  // `decideAutoUpdateHook`, which runs unattended from the Stop hook and
+  // spawns a detached `npm install -g`. Both are fixed, so wiring this one up
+  // later cannot reintroduce the hazard.
+  if (currentVersionDeprecated && bump === 'patch' && policy !== 'off') {
     return {
       shouldUpdate: true,
       bump,
