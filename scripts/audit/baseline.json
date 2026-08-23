@@ -620,6 +620,11 @@
       "class": "SAFE-DATA-EXTRACTION",
       "reason": "One test reads src/db.ts and asserts that markReindexOwed() is NOT inside the once-only notice brace. That is a structural pin chosen ON PURPOSE: the behavioural scenario (a fresh open while the notice flag is already set) is unreachable in one process — openDatabase returns the existing singleton, and the only reopen path (closeDatabase) resets the flag. Two behavioural tests were written first and both passed for the wrong reason; the review's brace-move mutant survived them. The text IS the property here.",
       "triaged": "2026-08-23"
+    },
+    "C6 tests/release-preconditions.test.ts": {
+      "class": "WIRING-PIN",
+      "reason": "The decision itself is behavioural: checkReleasePreconditions is a pure function and 21 tests in the same file drive both directions through it. What is read as text is scripts/finish-release.mjs, and only to pin five wiring properties whose happy path cannot be run — cutting the release creates a public GitHub Release and publishes to npm. The regression guarded is someone splitting the single `gh release create --target` back into `git tag` + `git push` + `gh release create`, whose middle leaves a pushed tag with no release: nothing publishes, and the coherence gate now sees the tag and reports ok. Break-tested 2026-08-23: 7/7 mutants killed, including both directions of this pin.",
+      "triaged": "2026-08-23"
     }
   }
 }
