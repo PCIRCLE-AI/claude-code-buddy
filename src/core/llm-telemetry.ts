@@ -144,7 +144,10 @@ export function summariseTelemetry(windowDays = 30, db?: MemeshDatabase): Teleme
   const rows = conn.prepare(`
     SELECT flow, provider, model, project, status, latency_ms, error_class, error_message, attempt_index, fallback_used
     FROM llm_telemetry
-    WHERE ts >= ?
+    -- The mirror image of the prune's bug: with a raw ISO parameter, every
+    -- row from the window's first day compared as BELOW the cutoff and was
+    -- dropped from the scorecard. Same normalisation, same reason.
+    WHERE ts >= datetime(?)
     ORDER BY ts ASC
   `).all(since) as Array<{
     flow: string;
@@ -257,8 +260,12 @@ export function pruneTelemetry(opts: PruneOptions = {}): PruneResult {
   const db = opts.db ?? getDatabase();
   const cutoffIso = new Date(Date.now() - olderThanDays * 86400000).toISOString();
 
+  // See src/db.ts's prune for the full reasoning: `ts` is stored in
+  // SQLite's 'YYYY-MM-DD HH:MM:SS' and the cutoff is an ISO string, which
+  // first differ at the separator — ' ' sorts before 'T' — so an un-normalised
+  // comparison deleted every row from the cutoff day.
   const result = db.prepare(
-    'DELETE FROM llm_telemetry WHERE ts < ?'
+    'DELETE FROM llm_telemetry WHERE ts < datetime(?)'
   ).run(cutoffIso);
 
   const totalRowsAfter = (

@@ -1001,7 +1001,17 @@ function runAutoTelemetryPrune(db: MemeshDatabase): void {
     Date.now() - TELEMETRY_PRUNE_DEFAULT_DAYS * 86400000
   ).toISOString();
   try {
-    db.prepare('DELETE FROM llm_telemetry WHERE ts < ?').run(cutoffIso);
+    // `datetime(?)`, because the two sides are written in two formats.
+    // `llm_telemetry.ts` is `DEFAULT CURRENT_TIMESTAMP`, i.e.
+    // 'YYYY-MM-DD HH:MM:SS'; the cutoff is `toISOString()`, i.e.
+    // 'YYYY-MM-DDTHH:MM:SS.sssZ'. SQLite compares TEXT, and the two strings
+    // first differ at index 10 — ' ' (0x20) against 'T' (0x54) — so a stored
+    // row on the cutoff DAY always sorted before the cutoff whatever its
+    // time. Every row from the cutoff day was deleted, including rows newer
+    // than the cutoff. `datetime()` normalises the parameter to the stored
+    // format; the column is untouched, so `idx_llm_telemetry_ts` still
+    // covers the scan.
+    db.prepare('DELETE FROM llm_telemetry WHERE ts < datetime(?)').run(cutoffIso);
   } catch {
     // If the table is missing for any reason, don't crash openDatabase.
     return;

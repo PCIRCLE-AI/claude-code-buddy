@@ -151,10 +151,10 @@
       "reason": "the .toBe(0)/exit-code assertions are paired with positive stdout content checks in the same tests (needle text, headers)",
       "triaged": "2026-08-04"
     },
-    "C5 src/core/demo.ts:185": {
+    "C5 src/core/demo.ts:203": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "spreads an in-repo literal DEMO_DATA entry (line shifted by the DEMO_RELATIONS insert; same code as the prior demo.ts entry)",
-      "triaged": "2026-08-04"
+      "triaged": "2026-08-04; re-keyed 2026-08-24 (R14 timestamp-format batch shifted lines; statements byte-identical, classification unchanged)"
     },
     "C4 .github/workflows/ci.yml:239": {
       "class": "SAFE",
@@ -206,15 +206,15 @@
       "reason": "index lookups where empty means no peers",
       "triaged": "2026-08-04 (re-keyed: UX-4 inserted Rule 5 above it; statement unchanged)"
     },
-    "C5 src/core/kg-backfill.ts:582": {
+    "C5 src/core/kg-backfill.ts:590": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "index lookups where empty means no peers",
-      "triaged": "2026-08-04 (re-keyed: UX-4 inserted Rule 5 above it; statement unchanged)"
+      "triaged": "2026-08-04 (re-keyed: UX-4 inserted Rule 5 above it; statement unchanged); re-keyed 2026-08-24 (R14 timestamp-format batch shifted lines; statements byte-identical, classification unchanged)"
     },
-    "C5 src/core/kg-backfill.ts:589": {
+    "C5 src/core/kg-backfill.ts:597": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "index lookups where empty means no peers",
-      "triaged": "2026-08-04 (re-keyed: UX-4 inserted Rule 5 above it; statement unchanged)"
+      "triaged": "2026-08-04 (re-keyed: UX-4 inserted Rule 5 above it; statement unchanged); re-keyed 2026-08-24 (R14 timestamp-format batch shifted lines; statements byte-identical, classification unchanged)"
     },
     "C5 src/core/serializer.ts:23": {
       "class": "SAFE-ACCUMULATOR",
@@ -391,30 +391,30 @@
       "reason": "the empty-result assertions ARE the contract under test (archived pointer readmits nothing), and every scenario pairs them with positive name-list assertions",
       "triaged": "2026-08-16 (UX-3 readmission rule)"
     },
-    "C5 src/core/kg-backfill.ts:740": {
+    "C5 src/core/kg-backfill.ts:748": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "session tag index; empty means the entity carries no session tag, which is a real state — it falls through to the temporal project match",
-      "triaged": "2026-08-17 (UX-4 Rule 5)"
+      "triaged": "2026-08-17 (UX-4 Rule 5); re-keyed 2026-08-24 (R14 timestamp-format batch shifted lines; statements byte-identical, classification unchanged)"
     },
-    "C5 src/core/kg-backfill.ts:754": {
+    "C5 src/core/kg-backfill.ts:762": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "project tag index; empty means the work item is untagged and simply joins no project bucket",
-      "triaged": "2026-08-17 (UX-4 Rule 5)"
+      "triaged": "2026-08-17 (UX-4 Rule 5); re-keyed 2026-08-24 (R14 timestamp-format batch shifted lines; statements byte-identical, classification unchanged)"
     },
-    "C5 src/core/kg-backfill.ts:804": {
+    "C5 src/core/kg-backfill.ts:812": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "session bucket lookup; empty means no work item shares that session, and the fallback branch below handles it",
-      "triaged": "2026-08-17 (UX-4 Rule 5)"
+      "triaged": "2026-08-17 (UX-4 Rule 5); re-keyed 2026-08-24 (R14 timestamp-format batch shifted lines; statements byte-identical, classification unchanged)"
     },
-    "C5 src/core/kg-backfill.ts:834": {
+    "C5 src/core/kg-backfill.ts:842": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "project tag index for the evidence row; empty means no project fallback is possible and no edge is proposed",
-      "triaged": "2026-08-17 (UX-4 Rule 5)"
+      "triaged": "2026-08-17 (UX-4 Rule 5); re-keyed 2026-08-24 (R14 timestamp-format batch shifted lines; statements byte-identical, classification unchanged)"
     },
-    "C5 src/core/kg-backfill.ts:835": {
+    "C5 src/core/kg-backfill.ts:843": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "project bucket lookup; empty means the project has no work items, so `.find` yields undefined and no edge is proposed",
-      "triaged": "2026-08-17 (UX-4 Rule 5)"
+      "triaged": "2026-08-17 (UX-4 Rule 5); re-keyed 2026-08-24 (R14 timestamp-format batch shifted lines; statements byte-identical, classification unchanged)"
     },
     "C5 src/cli/view-live.ts:668": {
       "class": "SAFE-GUARDED",

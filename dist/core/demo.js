@@ -40,7 +40,7 @@ function demoMetadata() {
     };
 }
 function isoForDaysAgo(days) {
-    return new Date(Date.now() - days * 86400000).toISOString();
+    return new Date(Date.now() - days * 86400000).toISOString().replace('T', ' ').slice(0, 19);
 }
 export const DEMO_RELATIONS = [
     ['feature-auth-flow', 'implements', 'auth-decision'],

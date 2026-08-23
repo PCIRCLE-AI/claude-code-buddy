@@ -744,6 +744,43 @@ describe('kg-backfill integration', () => {
     db.prepare('UPDATE entities SET created_at = ? WHERE id = ?').run(iso, entityId);
   }
 
+  it('R2: the newest anchor is chosen by instant, not by string', () => {
+    // Rule 2 links each orphan to the MOST RECENT release/feature in its
+    // project, and it picked that anchor with `created_at.localeCompare`.
+    // The column holds two formats — `CURRENT_TIMESTAMP` writes
+    // 'YYYY-MM-DD HH:MM:SS', and demo.ts used to write a full ISO string —
+    // and they first differ at the separator, where 'T' (0x54) sorts after
+    // ' ' (0x20). So an ISO-stamped anchor beat every SQLite-stamped one
+    // from the same day, whichever was actually newer. Rule 5 below already
+    // used `parseSqliteUtcMs`; Rule 2 was the one left behind.
+    const older = insertEntity('release-old', 'release');
+    insertTag(older, 'project:alpha');
+    setCreatedAt(older, '2026-08-01 09:00:00');
+    const newer = insertEntity('release-new', 'release');
+    insertTag(newer, 'project:alpha');
+    setCreatedAt(newer, '2026-08-05 09:00:00');
+    // An untrusted stamp that a TEXT sort would rank first: newest-looking
+    // string, unparseable value.
+    const untrusted = insertEntity('release-imported', 'release');
+    insertTag(untrusted, 'project:alpha');
+    // The SAME DATE as the newest trusted anchor, so only the separator
+    // decides: 'T' (0x54) sorts after ' ' (0x20), and localeCompare puts
+    // this row first. A date that merely differs would not discriminate.
+    setCreatedAt(untrusted, '2026-08-05T09:00:00.000Z');
+
+    const orphan = insertEntity('decision-alpha', 'decision');
+    insertTag(orphan, 'project:alpha');
+
+    backfillRelations({});
+
+    const linked = db.prepare(
+      `SELECT e.name FROM relations r JOIN entities e ON e.id = r.to_entity_id
+       WHERE r.from_entity_id = ?`,
+    ).all(orphan) as Array<{ name: string }>;
+    expect(linked, 'Rule 2 drew no edge at all').toHaveLength(1);
+    expect(linked[0].name, 'the anchor was chosen by string order').toBe('release-new');
+  });
+
   it('R5: links evidence to a work node sharing its session: tag', () => {
     const ev = insertEntity('insight-x', 'session-insight');
     insertTag(ev, 'session:sess-42');

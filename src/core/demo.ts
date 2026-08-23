@@ -94,8 +94,26 @@ function demoMetadata() {
   };
 }
 
+/**
+ * A back-dated `created_at`, in the format the COLUMN holds.
+ *
+ * `'YYYY-MM-DD HH:MM:SS'`, not `toISOString()`. This was the one writer in
+ * the codebase putting a full ISO string into `created_at`, and the repo has
+ * already decided what an unrecognised timestamp means: `parseSqliteUtcMs`
+ * anchors both ends and returns null, and `kg-backfill`'s Rule 5 refuses to
+ * anchor on a value it cannot trust (there is a test named for it). So every
+ * demo entity was, by construction, invisible to the relation backfill and
+ * out of order in every TEXT comparison against its `CURRENT_TIMESTAMP`
+ * siblings — the demo tour being the one dataset a new user's first
+ * impressions are built from.
+ *
+ * Fixing the writer rather than widening the parser is deliberate: the
+ * parser's strictness is load-bearing (a `+08:00` suffix read as UTC is
+ * eight hours wrong and looks fine), and only this one function ever
+ * disagreed with it.
+ */
 function isoForDaysAgo(days: number): string {
-  return new Date(Date.now() - days * 86400000).toISOString();
+  return new Date(Date.now() - days * 86400000).toISOString().replace('T', ' ').slice(0, 19);
 }
 
 /**
