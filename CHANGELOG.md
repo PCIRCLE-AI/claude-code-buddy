@@ -4,6 +4,23 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- **`npm run release:finish` — the release is one command now.** Merging a
+  release PR leaves `main` declaring a version nobody can install, and the gate
+  that catches it (`scripts/lib/published-version.mjs`) could only shout about
+  the window, never shorten it: the remedy it named was prose in an error
+  string, and the three commands that prose described were typed by hand.
+  v4.2.11 spent five days between the first and the last. `release:finish`
+  refuses unless it is on `main`, the tree is clean, `HEAD` matches
+  `origin/main`, the tag is free both locally and on `origin`, `gh` is
+  authenticated, and `CHANGELOG.md` has a section to publish — and otherwise
+  creates the tag and the GitHub Release in a single `gh release create` call.
+  One call, because the hand-typed sequence had a worse failure mode than the
+  one being fixed: a pushed tag with no release publishes nothing, while the
+  coherence gate now sees the tag and reports ok.
+
+
 ## [4.6.1] — 2026-08-23
 
 ### Added

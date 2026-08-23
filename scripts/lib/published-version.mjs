@@ -13,6 +13,11 @@
 // declares an uninstallable version is minutes, and this check is what makes
 // those minutes loud instead of silent.
 //
+// Loud is not short, though: this check can only shout, and the remedy it
+// names used to be prose nobody had automated. `scripts/finish-release.mjs`
+// (`npm run release:finish`) is that remedy as one command, so the window is
+// the length of one API call rather than however long the next person takes.
+//
 // Kept as a pure function, separate from the script that runs it, so both
 // directions can be pinned by a test without a repository to mutate. A gate
 // nobody break-tested is the defect class this repository keeps finding.
@@ -57,8 +62,9 @@ export function checkMainDeclaresPublishedVersion({ branch, pkgVersion, tags }) 
     message:
       `main declares ${pkgVersion} and no \`v${pkgVersion}\` tag exists — ` +
       'that version is not installable by anyone. Either finish the release ' +
-      `(tag v${pkgVersion} and \`gh release create\`, which is what triggers ` +
-      'publish-npm.yml — a bare tag push does not), or revert the bump and put ' +
-      'the work back under `## [Unreleased]`.',
+      '(`npm run release:finish` — one call that creates the tag and the ' +
+      'GitHub Release together; the release is what triggers publish-npm.yml, ' +
+      'a bare tag push does not), or revert the bump and put the work back ' +
+      'under `## [Unreleased]`.',
   };
 }
