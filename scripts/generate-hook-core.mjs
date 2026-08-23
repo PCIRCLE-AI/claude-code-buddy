@@ -50,6 +50,10 @@ const SOURCES = [
   { from: 'dist/core/task-state.js', to: 'task-state.js', src: 'src/core/task-state.ts' },
   { from: 'dist/core/guards.js', to: 'guards.js', src: 'src/core/guards.ts' },
   { from: 'dist/core/time-utils.js', to: 'time-utils.js', src: 'src/core/time-utils.ts' },
+  // The citation contract. Mirrored because a PLUGIN install never runs
+  // `install-hooks` — the npm-only path — so the hooks are the only place
+  // that can put the rule on disk for those users, and they are the majority.
+  { from: 'dist/core/citation-rule.js', to: 'citation-rule.js', src: 'src/core/citation-rule.ts' },
   { from: 'dist/storage/fts-index.js', to: 'fts-index.js', src: 'src/storage/fts-index.ts' },
   { from: 'dist/storage/schema.js', to: 'schema.js', src: 'src/storage/schema.ts' },
   // The SQLite driver. A leaf by construction — it imports `node:module` and

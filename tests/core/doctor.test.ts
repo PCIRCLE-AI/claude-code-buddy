@@ -178,6 +178,9 @@ function makeDatabase(
      * pass 0 for the moved-to-another-agent hedge.
      */
     recentClaudeCodeWrites?: number;
+    /** Opt a test into the citation-compliance row. Absent = no accounted
+     *  sessions, which is what every test predating that row assumes. */
+    citationCounters?: { total?: number; cited?: number };
   } = {},
 ) {
   const sqliteTs = (hoursAgo: number) =>
@@ -215,6 +218,20 @@ function makeDatabase(
             return trackingSinceHours === null ? undefined : { value: sqliteTs(trackingSinceHours) };
           },
         };
+      }
+      // The citation-compliance row reads two counters the Stop hook keeps.
+      // Default is ABSENT for both, which is what every test written before
+      // that row assumed: no accounted sessions, so no row is emitted and no
+      // verdict moves. `citationCounters` opts a test into the other states.
+      if (sql.includes('citation_sessions_total')) {
+        return { get: () => (opts.citationCounters?.total === undefined
+          ? undefined
+          : { value: String(opts.citationCounters.total) }) };
+      }
+      if (sql.includes('citation_sessions_cited')) {
+        return { get: () => (opts.citationCounters?.cited === undefined
+          ? undefined
+          : { value: String(opts.citationCounters.cited) }) };
       }
       if (sql.includes('source_host')) {
         return { get: () => ({ c: opts.recentClaudeCodeWrites ?? 1 }) };

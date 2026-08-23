@@ -410,6 +410,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'doctor.msg.vector-index.stale.fix': 'Run `memesh reindex` to rebuild it.',
     'doctor.msg.vector-generation.open.summary': 'An unfinished index rebuild is holding disk space.',
     'doctor.msg.vector-generation.open.fix': 'Run `memesh reindex` to finish it, or `memesh reindex --discard-generation` to reclaim the space.',
+    'doctor.msg.citation.none.summary': 'Sessions received injected memories and none cited one.',
+    'doctor.msg.citation.none.fix': 'Check the citation contract at ~/.claude/rules/memesh-citations.md, then re-check after a few sessions.',
     'doctor.msg.database.broken.summary': 'The database is not usable: {detail}',
     // Doctor checks - complete coverage for all 15 checks
     'doctor.update_status.prerelease': 'Running pre-release version ({current}), npm latest is {latest}',
@@ -1095,6 +1097,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'doctor.msg.vector-index.stale.fix': '執行 `memesh reindex` 重建。',
     'doctor.msg.vector-generation.open.summary': '有一個未完成的索引重建正佔著磁碟空間。',
     'doctor.msg.vector-generation.open.fix': '執行 `memesh reindex` 完成它，或 `memesh reindex --discard-generation` 回收空間。',
+    'doctor.msg.citation.none.summary': '有 session 收到注入的記憶，但沒有任何一筆被引用。',
+    'doctor.msg.citation.none.fix': '檢查 ~/.claude/rules/memesh-citations.md 的引用約定，過幾個 session 後再看一次。',
     'doctor.msg.database.broken.summary': '資料庫無法使用：{detail}',
     // Doctor 檢查項目 - 完整覆蓋所有 15 項檢查
     'doctor.update_status.prerelease': '正在使用預發布版本（{current}），npm 最新版為 {latest}',
@@ -1780,6 +1784,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'doctor.msg.vector-index.stale.fix': '运行 `memesh reindex` 重建。',
     'doctor.msg.vector-generation.open.summary': '有一个未完成的索引重建正占着磁盘空间。',
     'doctor.msg.vector-generation.open.fix': '执行 `memesh reindex` 完成它，或 `memesh reindex --discard-generation` 回收空间。',
+    'doctor.msg.citation.none.summary': '有 session 收到注入的记忆，但没有任何一笔被引用。',
+    'doctor.msg.citation.none.fix': '检查 ~/.claude/rules/memesh-citations.md 的引用约定，过几个 session 后再看一次。',
     'doctor.msg.database.broken.summary': '数据库无法使用：{detail}',
     // Doctor checks - English fallback (translate when locale-specific copy is ready)
     'doctor.update_status.prerelease': 'Running pre-release version ({current}), npm latest is {latest}',
@@ -2465,6 +2471,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'doctor.msg.vector-index.stale.fix': '`memesh reindex` を実行して再構築してください。',
     'doctor.msg.vector-generation.open.summary': '未完了のインデックス再構築がディスク領域を占有しています。',
     'doctor.msg.vector-generation.open.fix': '`memesh reindex` で完了させるか、`memesh reindex --discard-generation` で領域を解放してください。',
+    'doctor.msg.citation.none.summary': 'セッションに記憶が注入されましたが、引用されたものはありません。',
+    'doctor.msg.citation.none.fix': '~/.claude/rules/memesh-citations.md の引用規約を確認し、数セッション後に再確認してください。',
     'doctor.msg.database.broken.summary': 'データベースが使えません: {detail}',
     // Doctor checks - English fallback (translate when locale-specific copy is ready)
     'doctor.update_status.prerelease': 'Running pre-release version ({current}), npm latest is {latest}',
@@ -3150,6 +3158,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'doctor.msg.vector-index.stale.fix': '`memesh reindex`를 실행해 다시 만드세요.',
     'doctor.msg.vector-generation.open.summary': '완료되지 않은 색인 재구성이 디스크 공간을 차지하고 있습니다.',
     'doctor.msg.vector-generation.open.fix': '`memesh reindex`로 마무리하거나 `memesh reindex --discard-generation`으로 공간을 회수하세요.',
+    'doctor.msg.citation.none.summary': '세션에 메모리가 주입되었지만 인용된 것이 없습니다.',
+    'doctor.msg.citation.none.fix': '~/.claude/rules/memesh-citations.md의 인용 규약을 확인한 뒤 몇 세션 후 다시 확인하세요.',
     'doctor.msg.database.broken.summary': '데이터베이스를 사용할 수 없습니다: {detail}',
     // Doctor checks - English fallback (translate when locale-specific copy is ready)
     'doctor.update_status.prerelease': 'Running pre-release version ({current}), npm latest is {latest}',
@@ -3835,6 +3845,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'doctor.msg.vector-index.stale.fix': 'Execute `memesh reindex` para reconstruí-lo.',
     'doctor.msg.vector-generation.open.summary': 'Uma reconstrução de índice inacabada está ocupando espaço em disco.',
     'doctor.msg.vector-generation.open.fix': 'Execute `memesh reindex` para concluí-la, ou `memesh reindex --discard-generation` para liberar o espaço.',
+    'doctor.msg.citation.none.summary': 'As sessões receberam memórias injetadas, mas nenhuma foi citada.',
+    'doctor.msg.citation.none.fix': 'Verifique o contrato de citação em ~/.claude/rules/memesh-citations.md e reavalie após algumas sessões.',
     'doctor.msg.database.broken.summary': 'O banco de dados não está utilizável: {detail}',
     // Doctor checks - English fallback (translate when locale-specific copy is ready)
     'doctor.update_status.prerelease': 'Running pre-release version ({current}), npm latest is {latest}',
@@ -4520,6 +4532,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'doctor.msg.vector-index.stale.fix': 'Exécutez `memesh reindex` pour le reconstruire.',
     'doctor.msg.vector-generation.open.summary': 'Une reconstruction d\'index inachevée occupe de l\'espace disque.',
     'doctor.msg.vector-generation.open.fix': 'Lancez `memesh reindex` pour la terminer, ou `memesh reindex --discard-generation` pour libérer l\'espace.',
+    'doctor.msg.citation.none.summary': 'Des sessions ont reçu des mémoires injectées, mais aucune n\'a été citée.',
+    'doctor.msg.citation.none.fix': 'Vérifiez le contrat de citation dans ~/.claude/rules/memesh-citations.md, puis revérifiez après quelques sessions.',
     'doctor.msg.database.broken.summary': 'La base de données est inutilisable : {detail}',
     // Doctor checks - English fallback (translate when locale-specific copy is ready)
     'doctor.update_status.prerelease': 'Running pre-release version ({current}), npm latest is {latest}',
@@ -5205,6 +5219,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'doctor.msg.vector-index.stale.fix': 'Führen Sie `memesh reindex` aus, um ihn neu aufzubauen.',
     'doctor.msg.vector-generation.open.summary': 'Ein unvollendeter Index-Neuaufbau belegt Speicherplatz.',
     'doctor.msg.vector-generation.open.fix': 'Führe `memesh reindex` aus, um ihn abzuschließen, oder `memesh reindex --discard-generation`, um den Platz freizugeben.',
+    'doctor.msg.citation.none.summary': 'Sitzungen erhielten eingefügte Memories, aber keines wurde zitiert.',
+    'doctor.msg.citation.none.fix': 'Prüfen Sie den Zitationsvertrag in ~/.claude/rules/memesh-citations.md und kontrollieren Sie nach einigen Sitzungen erneut.',
     'doctor.msg.database.broken.summary': 'Die Datenbank ist nicht nutzbar: {detail}',
     // Doctor checks - English fallback (translate when locale-specific copy is ready)
     'doctor.update_status.prerelease': 'Running pre-release version ({current}), npm latest is {latest}',
@@ -5890,6 +5906,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'doctor.msg.vector-index.stale.fix': 'Chạy `memesh reindex` để xây lại.',
     'doctor.msg.vector-generation.open.summary': 'Một lần xây lại chỉ mục chưa hoàn tất đang chiếm dung lượng đĩa.',
     'doctor.msg.vector-generation.open.fix': 'Chạy `memesh reindex` để hoàn tất, hoặc `memesh reindex --discard-generation` để thu hồi dung lượng.',
+    'doctor.msg.citation.none.summary': 'Các phiên đã nhận ký ức được chèn nhưng không có ký ức nào được trích dẫn.',
+    'doctor.msg.citation.none.fix': 'Kiểm tra quy ước trích dẫn tại ~/.claude/rules/memesh-citations.md rồi kiểm tra lại sau vài phiên.',
     'doctor.msg.database.broken.summary': 'Cơ sở dữ liệu không dùng được: {detail}',
     // Doctor checks - English fallback (translate when locale-specific copy is ready)
     'doctor.update_status.prerelease': 'Running pre-release version ({current}), npm latest is {latest}',
@@ -6575,6 +6593,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'doctor.msg.vector-index.stale.fix': 'Ejecuta `memesh reindex` para reconstruirlo.',
     'doctor.msg.vector-generation.open.summary': 'Una reconstrucción de índice sin terminar está ocupando espacio en disco.',
     'doctor.msg.vector-generation.open.fix': 'Ejecuta `memesh reindex` para terminarla, o `memesh reindex --discard-generation` para liberar el espacio.',
+    'doctor.msg.citation.none.summary': 'Las sesiones recibieron memorias inyectadas, pero ninguna fue citada.',
+    'doctor.msg.citation.none.fix': 'Revisa el contrato de citación en ~/.claude/rules/memesh-citations.md y vuelve a comprobarlo tras algunas sesiones.',
     'doctor.msg.database.broken.summary': 'La base de datos no se puede usar: {detail}',
     // Doctor checks - English fallback (translate when locale-specific copy is ready)
     'doctor.update_status.prerelease': 'Running pre-release version ({current}), npm latest is {latest}',
@@ -7260,6 +7280,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'doctor.msg.vector-index.stale.fix': 'รัน `memesh reindex` เพื่อสร้างใหม่',
     'doctor.msg.vector-generation.open.summary': 'การสร้างดัชนีใหม่ที่ยังไม่เสร็จกำลังใช้พื้นที่ดิสก์อยู่',
     'doctor.msg.vector-generation.open.fix': 'รัน `memesh reindex` เพื่อทำให้เสร็จ หรือ `memesh reindex --discard-generation` เพื่อคืนพื้นที่',
+    'doctor.msg.citation.none.summary': 'เซสชันได้รับความทรงจำที่ถูกแทรกเข้ามา แต่ไม่มีรายการใดถูกอ้างอิง',
+    'doctor.msg.citation.none.fix': 'ตรวจสอบข้อตกลงการอ้างอิงที่ ~/.claude/rules/memesh-citations.md แล้วตรวจอีกครั้งหลังผ่านไปหลายเซสชัน',
     'doctor.msg.database.broken.summary': 'ฐานข้อมูลใช้งานไม่ได้: {detail}',
     // Doctor checks - English fallback (translate when locale-specific copy is ready)
     'doctor.update_status.prerelease': 'Running pre-release version ({current}), npm latest is {latest}',

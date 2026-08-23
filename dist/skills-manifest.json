@@ -22,6 +22,11 @@
       "bytes": 901
     },
     {
+      "path": "scripts/hooks/_generated/citation-rule.js",
+      "sha256": "a7b9b2bddff23a93dcdb0b84a1ed894b598b93611eb1123e1c20579f47748605",
+      "bytes": 3349
+    },
+    {
       "path": "scripts/hooks/_generated/core-paths.js",
       "sha256": "f83cb1fee08b5d297d2c4cf94d491b70e5093095590891593ec1e755bb0c92d7",
       "bytes": 5056
@@ -68,8 +73,8 @@
     },
     {
       "path": "scripts/hooks/_shared.js",
-      "sha256": "f12eac50863669b044345707725e8a1c4cf0c2fefab0ea5755adca250a9026a1",
-      "bytes": 38023
+      "sha256": "e47bada1e7f677e451a82a55417fd899bd5dce71f14656a314a6ab31fccd708a",
+      "bytes": 38148
     },
     {
       "path": "scripts/hooks/guard-check.js",
@@ -93,13 +98,13 @@
     },
     {
       "path": "scripts/hooks/session-start.js",
-      "sha256": "fa405a6a9851f61ff1dcd51bafb44429971f41870abba82c49b7861f5bc1cd0c",
-      "bytes": 52469
+      "sha256": "b2dac91f8c8aed5ebf64f5202fd5a5101bfddf0e9f4654f8fa75f68211c58952",
+      "bytes": 53997
     },
     {
       "path": "scripts/hooks/session-summary.js",
-      "sha256": "9b59b8daeb806843739fbc1ee7da92b2db1b5d38208dc76fde17891f37e6e54c",
-      "bytes": 44328
+      "sha256": "2546b8aaed0155936848fcebd4ddda7c73cf06098e4d46fc64746a68acf20e65",
+      "bytes": 44903
     },
     {
       "path": "scripts/hooks/user-prompt-intent.js",

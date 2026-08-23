@@ -36,6 +36,7 @@
 import fs from 'fs';
 import path from 'path';
 import { homeDir, memeshDir } from './paths.js';
+import { citationRulePath, removeCitationRule, writeCitationRule, type CitationRuleResult } from './citation-rule.js';
 
 type HookCommand = { type: 'command'; command: string; timeout?: number; _memesh?: boolean };
 type HookEntry = { matcher?: string; hooks: HookCommand[] };
@@ -110,12 +111,18 @@ export interface InstallResult {
     installPath: string;
     version: string;
   } | null;
+  /** Where the citation contract landed, and whether it changed. Written on
+   *  the plugin path too — see the note in `installHooks`. */
+  citationRule: CitationRuleResult;
 }
 
 export interface UninstallResult {
   settingsPath: string;
   backupPath: string | null;
   removed: number;
+  /** `foreign-file` means a file exists at that path that memesh did not
+   *  write, so it was left alone rather than deleted. */
+  citationRule: { path: string; action: 'removed' | 'absent' | 'foreign-file' };
 }
 
 const MARKER_FILE = 'install-hooks.json';
@@ -262,6 +269,16 @@ export function installHooks(opts: InstallOptions): InstallResult {
   const cwd = opts.cwd ?? process.cwd();
   const settingsPath = settingsPathFor(opts.scope, cwd);
 
+  // The citation rule is written BEFORE the plugin-runtime check, and on the
+  // plugin path too. Those are different problems with different owners: the
+  // plugin runtime loads `hooks/hooks.json`, so hooks must not be written
+  // twice — but nothing in the plugin runtime writes a rules file, so a
+  // plugin user would never get the citation contract at all. Skipping it
+  // there is how the whole ROI signal stayed at zero for plugin installs.
+  const citationRule = opts.dryRun
+    ? { path: citationRulePath(opts.scope, homeDir(), cwd), action: 'unchanged' as const }
+    : writeCitationRule(opts.scope, homeDir(), cwd);
+
   // Detect existing Claude Code plugin install BEFORE doing any work.
   // If `/plugin install memesh@pcircle-memesh` already wired the hooks
   // through the plugin runtime, writing user-level hooks here would
@@ -282,6 +299,7 @@ export function installHooks(opts: InstallOptions): InstallResult {
       conflicts: [],
       markerPath: path.join(memeshDir(), MARKER_FILE),
       pluginRuntimeDetected: pluginRuntime,
+      citationRule,
     };
   }
 
@@ -377,6 +395,7 @@ export function installHooks(opts: InstallOptions): InstallResult {
   }
 
   return {
+    citationRule,
     settingsPath,
     backupPath,
     scope: opts.scope,
@@ -397,8 +416,17 @@ export interface UninstallOptions {
 export function uninstallHooks(opts: UninstallOptions): UninstallResult {
   const cwd = opts.cwd ?? process.cwd();
   const settingsPath = settingsPathFor(opts.scope, cwd);
+
+  // Removed on BOTH exits, including the one where settings.json does not
+  // exist: a plugin install never writes settings.json but does get the rule
+  // file, so returning early without this would leave the contract behind on
+  // exactly the install shape that owns it.
+  const citationRule = opts.dryRun
+    ? { path: citationRulePath(opts.scope, homeDir(), cwd), action: 'absent' as const }
+    : removeCitationRule(opts.scope, homeDir(), cwd);
+
   if (!fs.existsSync(settingsPath)) {
-    return { settingsPath, backupPath: null, removed: 0 };
+    return { settingsPath, backupPath: null, removed: 0, citationRule };
   }
 
   const settings = readSettings(settingsPath);
@@ -430,7 +458,7 @@ export function uninstallHooks(opts: UninstallOptions): UninstallResult {
     }
   }
 
-  return { settingsPath, backupPath, removed };
+  return { settingsPath, backupPath, removed, citationRule };
 }
 
 /**

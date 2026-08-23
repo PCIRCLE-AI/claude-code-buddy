@@ -13,7 +13,8 @@ import {
 import { getUpdateCheck } from './version-check.js';
 import { getCurrentInstallChannel, getInstallChannelSupport, type InstallChannel } from './install-channel.js';
 import { getInstallRecord } from './install-id.js';
-import { getDbPath, memeshDir, getProjectName } from './paths.js';
+import { citationRuleState } from './citation-rule.js';
+import { getDbPath, homeDir, memeshDir, getProjectName } from './paths.js';
 import { detectPluginRuntime } from './install-hooks.js';
 import { lastTranscriptMineAt } from './transcript-source.js';
 import { UNSPACED_SCRIPT_GLOB_RUN3 } from '../storage/fts-index.js';
@@ -2152,6 +2153,64 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
           { code: 'vector-generation.open', params: { staged } },
         ),
       );
+    }
+
+    // Injection ROI: is anything the hooks inject actually being cited?
+    //
+    // This row exists because the numbers behind it were correct, readable,
+    // and seen by nobody. `citation_sessions_total` / `citation_sessions_cited`
+    // are written by the Stop hook and read by `analytics.ts`, with tests on
+    // both — but the tests seed the values, so the only figures anyone had
+    // ever looked at were fixtures. Measured on a real database on
+    // 2026-08-24: total=4, cited=0. A metric that has to be gone looking for
+    // is a metric that reports nothing.
+    const citationTotalRow = db
+      .prepare(`SELECT value FROM memesh_metadata WHERE key = 'citation_sessions_total'`)
+      .get() as { value?: string } | undefined;
+    const citedRow = db
+      .prepare(`SELECT value FROM memesh_metadata WHERE key = 'citation_sessions_cited'`)
+      .get() as { value?: string } | undefined;
+    const citationTotal = Number.parseInt(String(citationTotalRow?.value ?? ''), 10);
+    if (Number.isInteger(citationTotal) && citationTotal > 0) {
+      // An absent `cited` key is NOT zero — it means the counter predates the
+      // unconditional initialisation, so the rate is unknown rather than 0%.
+      const citedKnown = citedRow?.value !== undefined;
+      const cited = Number.parseInt(String(citedRow?.value ?? ''), 10);
+      const rate = citedKnown && Number.isInteger(cited)
+        ? Math.round((cited / citationTotal) * 100)
+        : null;
+      const rule = citationRuleState('user', homeDir(), process.cwd(), {
+        existsSync: existsSyncImpl,
+        readFileSync: readFileSyncImpl,
+      } as never);
+
+      if (rate === null) {
+        dbChecks.push(createInfo(
+          'citation_compliance',
+          'Memory citation rate',
+          `${citationTotal} session(s) received injected memories; how many cited one is not recorded `
+          + `(this database predates the counter that would say). The rate will be measurable from the next session on.`,
+        ));
+      } else if (rate === 0) {
+        dbChecks.push(createCheck(
+          'citation_compliance',
+          'Memory citation rate',
+          'warn',
+          `${citationTotal} session(s) received injected memories and NONE cited one. Every injection is `
+          + `costing tokens with no evidence any of it was used — and with no citations, ranking cannot `
+          + `learn which memories are worth injecting.`,
+          rule.state === 'current'
+            ? `The citation contract is installed at ${rule.path}. If this stays at 0% across several more sessions, the injected memories are not earning their tokens — consider narrowing what is injected.`
+            : `The citation contract is ${rule.state} at ${rule.path}. Run 'memesh install-hooks' (or start a new session) to write it, then re-check after a few sessions.`,
+          { code: 'citation.none', params: { total: citationTotal } },
+        ));
+      } else {
+        dbChecks.push(createInfo(
+          'citation_compliance',
+          'Memory citation rate',
+          `${cited} of ${citationTotal} session(s) with injected memories cited at least one (${rate}%).`,
+        ));
+      }
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'unknown database error';

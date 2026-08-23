@@ -26,6 +26,7 @@ import { fileURLToPath, pathToFileURL } from 'url';
 // Re-exported here so all 6 hooks keep importing these names from `_shared.js`
 // unchanged.
 import {
+  homeDir,
   memeshDir,
   getDbPath,
   getMemeshDirFromDbPath,
@@ -35,6 +36,7 @@ import {
 import { autoCaptureDecision } from './_generated/capture-flag.js';
 export { assembleTopologyBlock, buildReferenceContext, extractCitedMemoryIds, DEFAULT_TOPOLOGY_BUDGET, SNIPPET_FETCH_CHARS, TOPOLOGY_CANDIDATE_CAP } from './_generated/work-topology.js';
 export { matchingGuards, guardFromMetadata } from './_generated/guards.js';
+export { writeCitationRule, citationRulePath, CITATION_RULE_BODY } from './_generated/citation-rule.js';
 import { guardFromMetadata as guardFromMetadataLocal } from './_generated/guards.js';
 
 /**
@@ -114,7 +116,7 @@ import {
   tokenizeQuery,
 } from './_generated/fts-index.js';
 
-export { memeshDir, getDbPath, getMemeshDirFromDbPath, getProjectName, slugFromRemoteUrl };
+export { homeDir, memeshDir, getDbPath, getMemeshDirFromDbPath, getProjectName, slugFromRemoteUrl };
 
 const require = createRequire(import.meta.url);
 
