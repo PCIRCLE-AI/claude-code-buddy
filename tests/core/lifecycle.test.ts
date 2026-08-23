@@ -55,10 +55,35 @@ describe('Auto-Decay', () => {
   it('should skip if last decay was less than 24h ago', () => {
     const db = getDatabase();
 
-    // openDatabase() already ran decay and recorded last_decay_at.
-    // Running again immediately should skip (throttle active).
+    // openDatabase() already ran decay and recorded last_decay_at, so the
+    // throttle is active. A DECAYABLE row is seeded first, deliberately:
+    // without one this asserted `0` against an empty candidate set, and
+    // deleting the throttle entirely left it green — while decay ran on
+    // every `openDatabase`, which is seven hooks plus the CLI plus two
+    // servers, on every invocation.
+    db.prepare('INSERT INTO entities (name, type, confidence, last_accessed_at) VALUES (?, ?, ?, ?)')
+      .run('decayable-while-throttled', 'note', 1.0, new Date(Date.now() - 40 * 86400000).toISOString());
+
     const result = runAutoDecay(db);
-    expect(result.decayed).toBe(0);
+
+    expect(result.decayed, 'the throttle did not stop the run').toBe(0);
+    const row = db.prepare('SELECT confidence FROM entities WHERE name = ?')
+      .get('decayable-while-throttled') as { confidence: number };
+    expect(row.confidence, 'a throttled run decayed a row anyway').toBe(1.0);
+  });
+
+  it('does decay that same row once the throttle has expired', () => {
+    // The anti-vacuity half. A `runAutoDecay` that had simply stopped
+    // working would satisfy the test above and quietly disable confidence
+    // decay for everyone.
+    const db = getDatabase();
+    db.prepare('INSERT INTO entities (name, type, confidence, last_accessed_at) VALUES (?, ?, ?, ?)')
+      .run('decayable-after-throttle', 'note', 1.0, new Date(Date.now() - 40 * 86400000).toISOString());
+    db.exec("DELETE FROM memesh_metadata WHERE key = 'last_decay_at'");
+
+    const result = runAutoDecay(db);
+
+    expect(result.decayed, 'decay did not run with the throttle cleared').toBeGreaterThan(0);
   });
 
   it('should not decay archived entities', () => {

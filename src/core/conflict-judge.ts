@@ -114,7 +114,18 @@ function sharedProject(db: MemeshDatabase, aId: number, bId: number): string {
   return shared ?? 'cross-project';
 }
 
-function buildPrompt(
+/**
+ * The judge prompt for one pair.
+ *
+ * Exported for tests. Not because the wording needs pinning — it does not —
+ * but because the A/B CORRESPONDENCE does: the verdict comes back as
+ * `direction: 'a_supersedes_b' | 'b_supersedes_a'`, and the caller records it
+ * against the `(a, b)` it passed in. Swap the two sides here and every
+ * SUPERSEDES verdict names the wrong survivor — and the row is written to
+ * `conflict_judged_pairs`, which is never re-judged, so the mistake is
+ * permanent and costs an LLM call to make.
+ */
+export function buildPrompt(
   a: EntityRow & { observations: string[] },
   b: EntityRow & { observations: string[] },
 ): string {

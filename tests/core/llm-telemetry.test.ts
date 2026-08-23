@@ -224,4 +224,34 @@ describe('llm-telemetry persistence + summarise', () => {
     reader.close();
     expect(count).toBe(1);
   });
+
+  it('openDatabase auto-prune DOES run once the throttle has expired', async () => {
+    // The anti-vacuity half of the test above, and the reason it was needed:
+    // "the throttle suppressed the prune" and "openDatabase never prunes at
+    // all" produce the same observation — the old row survives. Only the
+    // positive case tells them apart, and without it the whole auto-prune
+    // could be deleted with the suite still green.
+    const { closeDatabase, openDatabase } = await import('../../src/db.js');
+    closeDatabase();
+    const writer = new Database(dbPath);
+    const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+    writer.prepare(
+      `INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('last_telemetry_prune_at', ?)`
+    ).run(twoDaysAgo);
+    const oldTs = new Date(Date.now() - 365 * 86400000).toISOString().replace('T', ' ').slice(0, 19);
+    writer.prepare(
+      `INSERT INTO llm_telemetry (ts, flow, provider, attempt_index, status, latency_ms, fallback_used)
+       VALUES (?, 'dreamer', 'anthropic', 0, 'ok', 100, 0)`
+    ).run(oldTs);
+    const before = (writer.prepare('SELECT COUNT(*) AS c FROM llm_telemetry').get() as { c: number }).c;
+    writer.close();
+    expect(before, 'fixture: no old row to prune').toBeGreaterThan(0);
+
+    openDatabase();
+
+    const reader = new Database(dbPath, { readOnly: true });
+    const count = (reader.prepare('SELECT COUNT(*) AS c FROM llm_telemetry').get() as { c: number }).c;
+    reader.close();
+    expect(count, 'the auto-prune never ran, throttle or no throttle').toBe(0);
+  });
 });
