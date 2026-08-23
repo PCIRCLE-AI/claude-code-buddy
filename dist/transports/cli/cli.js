@@ -1716,6 +1716,15 @@ program
             console.log('Hooks are active. Verify with: memesh doctor');
             console.log('');
             console.log('If you really want a second copy in ~/.claude/settings.json on top of the plugin, re-run with --force-over-plugin. (Not recommended — every session-start / Stop / PreToolUse event will fire memesh\'s hooks twice.)');
+            if (result.citationRule.action === 'foreign-file') {
+                console.log('');
+                console.log(`WARNING: the citation contract was NOT installed — a file memesh did not write already exists at ${result.citationRule.path}.`);
+                console.log('  memesh will not overwrite it. Move or rename that file and re-run, or add the contract to it by hand.');
+                console.log('  Until then, memesh cannot tell whether the memories it injects are ever used.');
+            }
+            else if (result.citationRule.action !== 'unchanged') {
+                console.log(`Citation contract ${result.citationRule.action}: ${result.citationRule.path}`);
+            }
             return;
         }
         console.log(`${opts.dryRun ? '[dry-run] ' : ''}Settings: ${result.settingsPath}`);
@@ -1725,6 +1734,15 @@ program
         }
         if (result.backupPath)
             console.log(`Backup: ${result.backupPath}`);
+        if (result.citationRule.action === 'foreign-file') {
+            console.log('');
+            console.log(`WARNING: the citation contract was NOT installed — a file memesh did not write already exists at ${result.citationRule.path}.`);
+            console.log('  memesh will not overwrite it. Move or rename that file and re-run, or add the contract to it by hand.');
+            console.log('  Until then, memesh cannot tell whether the memories it injects are ever used.');
+        }
+        else if (result.citationRule.action !== 'unchanged') {
+            console.log(`Citation contract ${result.citationRule.action}: ${result.citationRule.path}`);
+        }
         if (result.conflicts.length > 0) {
             console.log('');
             console.log('Note: memesh hooks now coexist with the following pre-existing entries:');

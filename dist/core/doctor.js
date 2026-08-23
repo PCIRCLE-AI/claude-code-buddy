@@ -10,7 +10,7 @@ import { openDatabase, closeDatabase, getPendingReindexInfo, isDatabaseOpen, rea
 import { getUpdateCheck } from './version-check.js';
 import { getCurrentInstallChannel, getInstallChannelSupport } from './install-channel.js';
 import { getInstallRecord } from './install-id.js';
-import { citationRuleState } from './citation-rule.js';
+import { citationRulePath, citationRuleState } from './citation-rule.js';
 import { getDbPath, homeDir, memeshDir, getProjectName } from './paths.js';
 import { detectPluginRuntime } from './install-hooks.js';
 import { lastTranscriptMineAt } from './transcript-source.js';
@@ -805,10 +805,16 @@ export async function runDoctor(options) {
             const rate = citedKnown && Number.isInteger(cited)
                 ? Math.round((cited / citationTotal) * 100)
                 : null;
-            const rule = citationRuleState('user', homeDir(), process.cwd(), {
-                existsSync: existsSyncImpl,
-                readFileSync: readFileSyncImpl,
-            });
+            let rule;
+            try {
+                rule = citationRuleState('user', homeDir(), process.cwd(), {
+                    existsSync: existsSyncImpl,
+                    readFileSync: readFileSyncImpl,
+                });
+            }
+            catch {
+                rule = { path: citationRulePath('user', homeDir(), process.cwd()), state: 'unreadable' };
+            }
             if (rate === null) {
                 dbChecks.push(createInfo('citation_compliance', 'Memory citation rate', `${citationTotal} session(s) received injected memories; how many cited one is not recorded `
                     + `(this database predates the counter that would say). The rate will be measurable from the next session on.`));

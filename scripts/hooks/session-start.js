@@ -554,7 +554,22 @@ process.stdin.on('end', async () => {
     // touch a file memesh did not write, and never blocks the session: a
     // failure here traces and the hook carries on.
     try {
-      writeCitationRule('user', homeDir(), data.cwd || process.cwd());
+      // Scope comes from the install marker, NOT hardcoded to 'user'. A
+      // `--scope project` install keeps everything inside that project, and
+      // writing the contract to ~/.claude/rules/ anyway would leak it into
+      // every OTHER project on the machine — and survive
+      // `uninstall-hooks --scope project`, which only knows about the
+      // project path. No marker means a plugin install, which is user-level
+      // by construction.
+      let ruleScope = 'user';
+      try {
+        const markerPath = join(memeshHomeDir(), 'install-hooks.json');
+        if (existsSync(markerPath)) {
+          const marker = JSON.parse(readFileSync(markerPath, 'utf8'));
+          if (marker?.scope === 'project') ruleScope = 'project';
+        }
+      } catch { /* unreadable marker → user scope, the safe default */ }
+      writeCitationRule(ruleScope, homeDir(), data.cwd || process.cwd());
     } catch (err) {
       try { process.stderr.write(`[memesh session-start] citation rule: ${err?.message || err}\n`); } catch {}
     }

@@ -13,7 +13,7 @@ import {
 import { getUpdateCheck } from './version-check.js';
 import { getCurrentInstallChannel, getInstallChannelSupport, type InstallChannel } from './install-channel.js';
 import { getInstallRecord } from './install-id.js';
-import { citationRuleState } from './citation-rule.js';
+import { citationRulePath, citationRuleState } from './citation-rule.js';
 import { getDbPath, homeDir, memeshDir, getProjectName } from './paths.js';
 import { detectPluginRuntime } from './install-hooks.js';
 import { lastTranscriptMineAt } from './transcript-source.js';
@@ -2179,10 +2179,20 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
       const rate = citedKnown && Number.isInteger(cited)
         ? Math.round((cited / citationTotal) * 100)
         : null;
-      const rule = citationRuleState('user', homeDir(), process.cwd(), {
-        existsSync: existsSyncImpl,
-        readFileSync: readFileSyncImpl,
-      } as never);
+      // Read the rule file inside its OWN try. It lives on the filesystem,
+      // not in the database, and this block runs inside the database
+      // try/catch — so an unreadable rule file (wrong permissions, or a
+      // directory at that path) would be reported to the user as
+      // `database.broken`, sending them to debug a database that is fine.
+      let rule: { path: string; state: string };
+      try {
+        rule = citationRuleState('user', homeDir(), process.cwd(), {
+          existsSync: existsSyncImpl,
+          readFileSync: readFileSyncImpl,
+        } as never);
+      } catch {
+        rule = { path: citationRulePath('user', homeDir(), process.cwd()), state: 'unreadable' };
+      }
 
       if (rate === null) {
         dbChecks.push(createInfo(
