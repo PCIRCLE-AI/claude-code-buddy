@@ -40,6 +40,7 @@ import path from 'path';
 import { execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { listHookFiles } from './lib/hook-files.mjs';
+import { extractChangelogSection } from './lib/release-preconditions.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = p => fs.readFileSync(path.join(repoRoot, p), 'utf8');
@@ -560,6 +561,67 @@ if (!hasBearerAuth) {
   if (agentDocs.length && mentions === 0) fail('found no `memesh <subcommand>` mentions in the agent docs — the extraction stopped matching');
   else if (badCommands.length) fail(`agent docs name CLI subcommands that do not exist:\n      ${badCommands.join('\n      ')}`);
   else if (agentDocs.length) ok(`${mentions} \`memesh <subcommand>\` mentions in agent docs all resolve to registered CLI commands`);
+
+  // (a1) a NESTED subcommand must exist under its parent.
+  //
+  // (a) above captures only the first word after `memesh`, so `memesh kg
+  // backfill` reads as `kg` — a real command — and passed. The real name is
+  // `kg backfill-relations`, and that bullet survived every gate in the 4.6.1
+  // release notes until somebody happened to read it while promoting the
+  // section. A gate that checks the parent and ignores the child is a gate for
+  // the half of the name that is hardly ever wrong.
+  //
+  // Parents and children are both derived from cli.ts. `patterns` is
+  // registered twice — top-level and under `dream` — which is why the child
+  // sets are per-parent rather than one flat set.
+  const parentVars = new Map(
+    [...cliSrc.matchAll(/const (\w+)\s*=\s*program\s*\.command\('([\w-]+)'/g)].map(m => [m[1], m[2]]),
+  );
+  const childrenOf = new Map();
+  for (const [varName, parentName] of parentVars) {
+    const re = new RegExp(`(?:^|\\n)${varName}\\s*\\.command\\('([\\w-]+)`, 'g');
+    childrenOf.set(parentName, new Set([...cliSrc.matchAll(re)].map(m => m[1])));
+  }
+  // Absence is not evidence: an extraction that stopped matching would report
+  // "no bad nested commands found" forever.
+  if (parentVars.size === 0) fail('no `const xCmd = program.command(...)` parents matched — the nested-command extraction stopped working');
+  for (const [parentName, kids] of childrenOf) {
+    if (kids.size === 0) fail(`\`${parentName}\` matched no subcommands — the nested-command extraction stopped working`);
+  }
+
+  // Scanned in prose docs, plus the CHANGELOG sections still being WRITTEN.
+  // Older CHANGELOG sections are frozen history and may legitimately name a
+  // command that has since been retired; `[Unreleased]` and the current
+  // version's section are the ones a typo is still cheap to fix in.
+  const changelogForNested = read('CHANGELOG.md');
+  const liveChangelog = [
+    extractChangelogSection(changelogForNested, 'Unreleased'),
+    extractChangelogSection(changelogForNested, pkg.version),
+  ].filter(Boolean).join('\n');
+  const nestedTargets = [
+    ...livingDocs.map(d => [d, read(d)]),
+    ...(liveChangelog ? [['CHANGELOG.md (live sections)', liveChangelog]] : []),
+  ];
+
+  // Only inside backticks. That is how every document here writes a command,
+  // and it keeps prose like `memesh dream to consolidate` from being read as a
+  // subcommand named `to`.
+  let nestedMentions = 0;
+  const badNested = [];
+  for (const [label, text] of nestedTargets) {
+    for (const m of text.matchAll(/`memesh ([a-z][a-z-]*)(?: ([a-z][a-z-]*))?[^`]*`/g)) {
+      const [, parent, child] = m;
+      if (!childrenOf.has(parent) || !child) continue;
+      nestedMentions++;
+      if (!childrenOf.get(parent).has(child)) badNested.push(`${label} -> memesh ${parent} ${child}`);
+    }
+  }
+  // Zero mentions is not a pass. If the backtick pattern ever stops matching —
+  // a doc style change, a regex edit — this would print "0 mentions all
+  // resolve" forever, which is the exact shape of gate it was added to close.
+  if (nestedMentions === 0) fail('found no nested `memesh <parent> <sub>` mentions in any document — the extraction stopped matching');
+  else if (badNested.length) fail(`documents name nested subcommands that do not exist:\n      ${badNested.join('\n      ')}`);
+  else ok(`${nestedMentions} nested \`memesh <${[...childrenOf.keys()].join('|')}> <sub>\` mentions all resolve`);
 
   // (a2) every CLI flag an option table documents is a flag cli.ts registers.
   //
