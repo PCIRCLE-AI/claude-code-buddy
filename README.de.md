@@ -413,7 +413,7 @@ Wenn npm eine installierte Version als veraltet kennzeichnet (typischerweise ein
 
 **🔄 Wissensentwicklung** — Entscheidungen ändern sich. `forget` archiviert alte Memories (löscht nie). `supersedes`-Relationen verbinden alt → neu. Ihr KI sieht immer die aktuelle Version.
 
-**⚠️ Konflikterkennung** — Wenn Sie zwei Memories haben, die sich widersprechen, warnt Sie MeMesh.
+**⚠️ Konflikterkennung** — `memesh dream conflicts` lässt das LLM Ihre semantisch nächstliegenden Memory-Paare auf Widerspruch, Supersession oder Duplikat prüfen und legt die Treffer als Vorschläge ab. Nichts wird von selbst übernommen: Sie prüfen mit `dream list` / `dream show`, und erst ein akzeptierter Vorschlag erstellt die Relation — danach trägt jedes `recall`, das eine der beiden Memories betrifft, die Warnung. Kausalität wird nie aus Zeitstempeln abgeleitet; die Urteile beruhen darauf, was die Memories tatsächlich aussagen.
 
 **🕸️ Wissensgraph-Konnektivität** — `memesh kg backfill-relations --all-rules` verknüpft verwaiste Entitäten über Tag-Kookurrenz, Projekt-Clustering, Sitzungskontext und Namensähnlichkeit — ohne LLM.
 
@@ -432,6 +432,45 @@ Importierte Bundles bleiben durchsuchbar, aber MeMesh injiziert importierte Memo
 
 > "Das Dashboard zeigte mir, dass 90 % meiner Memories automatisch generierte Session-Logs waren. Ich begann, `remember` bewusst für Architekturentscheidungen zu nutzen. Ein Spielwechsel."
 > — **Entwickler, der das Analytics-Panel entdeckte**
+
+---
+
+## Rezepte
+
+### Einen Widerspruch erkennen, bevor er zum Problem wird
+
+Zwei Entscheidungen, Wochen auseinander getroffen, die nicht beide wahr sein können — genau das Fehlerbild, das eine Memory-Schicht abfangen soll:
+
+```bash
+memesh remember --name retry-policy --type decision \
+  --obs "Alle HTTP-Clients wiederholen fehlgeschlagene Requests bis zu 5-mal mit exponentiellem Backoff."
+# ...Wochen später entscheidet jemand das Gegenteil...
+memesh remember --name retry-policy-v2 --type decision \
+  --obs "HTTP-Clients dürfen niemals automatisch wiederholen — sofort fehlschlagen und den Fehler melden."
+
+memesh dream conflicts        # markiert das Paar, mit Begründung
+memesh dream show 1           # Urteil, Auszüge und Folgen der Annahme lesen
+memesh dream accept 1         # SIE entscheiden — nichts wird je automatisch verknüpft
+memesh recall "retry policy"  # → Warnung: Konflikte erkannt
+```
+
+Ab dann wird jedem Assistenten, der eine der beiden Entscheidungen abruft, gesagt, dass sie im Widerspruch stehen — statt selbstbewusst die zuerst gefundene zu zitieren.
+
+### Eine Erinnerung, drei Assistenten
+
+MeMesh ist ein MCP-Server, daher bedient dieselbe SQLite-Datei jeden MCP-Client auf der Maschine. Einmal pro Tool registrieren (die genauen Befehle stehen oben unter „In 60 Sekunden starten") — und eine in Claude Code gespeicherte Entscheidung wird mitten in der Session von Codex oder Gemini CLI abgerufen: kein erneutes Erklären, kein Kontext zwischen Anbietern hin- und herkopieren.
+
+### Entscheidungen so festhalten, dass sie auffindbar bleiben
+
+Auto-Capture hält die Session-Historie fest, aber die Erinnerungen, die sich wirklich auszahlen, sind die bewusst gespeicherten:
+
+```bash
+memesh remember --name auth-approach --type decision \
+  --obs "JWT mit RS256; PKCE statt Implicit Flow, weil der Client öffentlich ist." \
+  --tags "project:myapp" "topic:auth"
+```
+
+Verknüpfen Sie dann Folgen mit ihren Ursachen, sobald sie eintreten — von jedem MCP-Client aus, in normalen Worten: „diesen Vorfall als Lektion speichern, beeinflusst von auth-approach". Das `remember`-Tool nimmt frei formulierte Relationen entgegen, und `caused` / `influenced` sind das dokumentierte Kausal-Vokabular (Ursache → Wirkung, explizit angegeben — MeMesh leitet Kausalität nie aus Zeitstempeln ab). Wochen später liefert `memesh recall "warum haben wir uns für PKCE entschieden"` die Entscheidung samt der aufgezeichneten Folgen — nachvollziehbare Begründung, nicht nur zufällig passender Text.
 
 ---
 

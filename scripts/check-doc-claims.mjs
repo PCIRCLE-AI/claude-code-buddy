@@ -308,9 +308,17 @@ else ok(`server.ts and ARCHITECTURE.md agree on ${routesInCode} HTTP endpoints`)
 // All eleven said "630 tests" while the suite had grown past 1400. The fix is
 // not a checker for eleven copies of a number — it is to stop writing the number
 // down. `npm test` prints the current one.
+//
+// The English pattern alone missed a live case: README.zh-TW.md carried "630
+// 項測試" (630, counter word, "tests") next to a plain `npm test` in the other
+// two READMEs — same stale claim, phrased so the English-only regex never saw
+// it. README.de.md's own word for the same claim ("Tests") is already an
+// English loanword the case-insensitive flag catches; 項測試 needed its own
+// branch because it shares no substring with "tests" at all.
 const readmes = fs.readdirSync(repoRoot).filter(f => /^README(\.[a-zA-Z-]+)?\.md$/.test(f));
 if (readmes.length === 0) fail('no README*.md found — this check stopped looking at anything');
-const withCounts = readmes.filter(f => /\b\d[\d,]*\s*(tests|test cases)\b/i.test(read(f)));
+const testCountRe = /\b\d[\d,]*\s*(tests|test cases)\b|\d[\d,]*\s*項測試/i;
+const withCounts = readmes.filter(f => testCountRe.test(read(f)));
 if (withCounts.length) fail(`README(s) state a hardcoded test count: ${withCounts.join(', ')}`);
 else ok(`${readmes.length} READMEs state no hardcoded test count`);
 
