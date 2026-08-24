@@ -11,11 +11,12 @@ const titleField = z
     .transform(sanitizeName)
     .transform(s => (s.length > 0 ? s : undefined))
     .optional();
+const observationField = z.string().max(10000).refine((s) => s.trim().length > 0, { message: 'an observation must not be empty or whitespace-only' });
 export const RememberSchema = z.object({
     name: nameField,
     type: z.string().min(1).max(100),
     title: titleField,
-    observations: z.array(z.string().max(10000)).max(100).optional(),
+    observations: z.array(observationField).max(100).optional(),
     tags: z.array(z.string().max(255)).max(50).optional(),
     relations: z
         .array(z.object({ to: z.string().min(1).max(255), type: z.string().min(1).max(100) }).strict())

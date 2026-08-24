@@ -25,6 +25,7 @@ import path from 'path';
 import os from 'os';
 import { createRequire } from 'module';
 import { MemeshDatabase as Database } from '../../src/storage/sqlite.js';
+import { removeTempDir } from '../helpers/temp-dir.js';
 
 const require = createRequire(import.meta.url);
 const { getProjectName: mirrorProjectName } = require('../../scripts/hooks/_shared.js');
@@ -42,7 +43,7 @@ describe('the compliance numerator counts what the denominator counts', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(testDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    removeTempDir(testDir);
   });
 
   function writeTranscript(entries: object[]): void {

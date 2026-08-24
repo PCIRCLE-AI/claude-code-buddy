@@ -20,10 +20,13 @@ import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { spawnSync } from 'child_process';
 import { createRequire } from 'module';
+import { removeTempDir } from '../helpers/temp-dir.js';
 
 const require = createRequire(import.meta.url);
 const { openHookDb } = require('../../scripts/hooks/_shared.js');
+const { MemeshDatabase } = require('../../scripts/hooks/_generated/sqlite.js');
 
 interface HookEntry { matcher?: string; hooks: Array<{ command: string; timeout?: number }> }
 
@@ -72,9 +75,141 @@ describe('the SQLite lock wait fits inside the smallest budget', () => {
         db.close();
       }
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      removeTempDir(dir);
     }
   });
+});
+
+describe('the read-only hooks apply the same cap they cannot get from openHookDb', () => {
+  // guard-check.js, session-start.js and pre-edit-recall.js each need a
+  // `readOnly` handle, which `openHookDb` cannot express, so all three
+  // open `MemeshDatabase` directly and must set the busy_timeout pragma
+  // themselves. Proving the constant exists (the describe block above)
+  // does not prove these three call sites apply it — only running them
+  // does. `locking_mode = EXCLUSIVE` makes a second connection hold the
+  // file exclusively (even against readers, unlike a plain WAL writer),
+  // which is the one lock a `readOnly` SELECT can actually be made to
+  // wait on.
+  //
+  // What "one busy_timeout wait" costs in wall-clock time is NOT a
+  // portable number, even after subtracting each script's own unlocked
+  // floor (process-spawn time). This test's history, in this same file:
+  //   - a flat 4000ms ceiling failed on macOS CI at 4516ms / 4378ms for
+  //     scripts that pay exactly one wait — pure process-spawn noise.
+  //   - "floor-subtracted, must be under 1.5x HOOK_BUSY_TIMEOUT_MS (3000ms)"
+  //     then failed on the SAME macOS CI at 3013 / 3169 / 3092ms — for all
+  //     three scripts, including the two with nothing left to fix. A
+  //     contended busy_timeout wait apparently costs ~50% more than its
+  //     nominal 2000ms under real lock contention (retry granularity, WAL
+  //     file/journal state the unlocked floor run never touches), and that
+  //     premium itself varies by runner.
+  // Guessing a third constant would just move the flake. Instead,
+  // guard-check.js can only structurally ever pay ONE wait (it makes
+  // exactly one query), so it is measured FRESH, in the same test run, as
+  // the reference "what does one wait cost right now" — and every other
+  // script's own paid-wait is compared to THAT, not to a number written
+  // down in this file.
+  const guardCheckInput = () => ({ tool_input: { command: 'echo hi' } });
+
+  function runHookOnce(script: string, input: object, dbPath: string): number {
+    const hookPath = path.resolve('scripts/hooks', script);
+    const startedAt = Date.now();
+    const result = spawnSync('node', [hookPath], {
+      input: JSON.stringify(input),
+      env: { ...process.env, MEMESH_DB_PATH: dbPath },
+      encoding: 'utf8',
+      timeout: 25_000,
+    });
+    const elapsedMs = Date.now() - startedAt;
+    if (result.error) throw result.error;
+    expect(result.status, `hook exited ${result.status}\nstderr:\n${result.stderr}`).toBe(0);
+    return elapsedMs;
+  }
+
+  // Unlocked run minus exclusive-locked run, for one script, in one shared
+  // temp database. The subtraction cancels process-spawn noise (module
+  // load, disk cache state) that a raw elapsed-ms reading could not
+  // survive — see the block comment above.
+  function measureWaitedMs(script: string, makeInput: (tag: string) => object, dbPath: string): number {
+    const floorMs = runHookOnce(script, makeInput('floor'), dbPath);
+    const locker = new MemeshDatabase(dbPath);
+    locker.pragma('journal_mode = WAL');
+    locker.pragma('locking_mode = EXCLUSIVE');
+    // `locking_mode = EXCLUSIVE` only escalates to (and holds) the OS-level
+    // exclusive lock on this connection's first WRITE — a read alone stays
+    // at a shared lock, which does not block another reader. A scratch
+    // table keeps this write out of the schema the hooks themselves query.
+    locker.exec('CREATE TABLE __contention_probe (id INTEGER)');
+    try {
+      const contendedMs = runHookOnce(script, makeInput('contended'), dbPath);
+      return contendedMs - floorMs;
+    } finally {
+      locker.close();
+    }
+  }
+
+  function withTempDb<T>(fn: (dbPath: string) => T): T {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-readonly-budget-'));
+    const dbPath = path.join(dir, 'kg.db');
+    // Create the schema (and close) before taking the exclusive lock — an
+    // exclusive holder refuses even the migration this would run.
+    const { db: seedDb } = openHookDb({ ...process.env, MEMESH_DB_PATH: dbPath });
+    seedDb.close();
+    try {
+      return fn(dbPath);
+    } finally {
+      removeTempDir(dir);
+    }
+  }
+
+  it.each([
+    { script: 'guard-check.js', makeInput: guardCheckInput },
+    { script: 'session-start.js', makeInput: () => ({ cwd: '/tmp/hook-budget-probe' }) },
+  ])('$script does not inherit the 30s default meant for long-lived writers', ({ script, makeInput }) => {
+    // The regression this rules out is coarse — a pragma never applied at
+    // all — so it does not need fine calibration against a live reference:
+    // any number this large only happens by inheriting the 30s default (or
+    // hitting spawnSync's own 25s timeout on the way there), never by
+    // paying a correctly-capped 2s wait plus runner noise.
+    const waitedMs = withTempDb((dbPath) => measureWaitedMs(script, makeInput, dbPath));
+    expect(waitedMs, `${script} paid ${waitedMs}ms above its own unlocked floor — looks like the busy_timeout pragma never reached the handle`)
+      .toBeLessThan(15_000);
+  }, 60_000);
+
+  it("pre-edit-recall.js pays at most one busy_timeout wait, calibrated against guard-check.js's own wait measured in this same run", () => {
+    // `loadActiveGuards` swallows the guard query's own failure, so a
+    // still-contended lock could pay the busy_timeout wait TWICE in
+    // sequence (once hidden, once fatal) before this hook gives up — the
+    // regression the upfront probe in pre-edit-recall.js exists to
+    // prevent. guard-check.js can only ever pay one wait (one query, no
+    // swallow-and-continue), so its OWN paid-wait — measured fresh, right
+    // here, on the same runner under the same load — is the "what does 1x
+    // cost right now" reference. 1.6x comfortably clears the ~5% spread
+    // observed between different single-wait scripts in the same run,
+    // while sitting well under the 2x a regression would produce.
+    //
+    // Distinct file_path per run: pre-edit-recall.js throttles repeat
+    // recalls of the same file within a session
+    // (`session-recalled-files.json`, keyed on memeshDir — which the floor
+    // and contended runs deliberately share, same dbPath). A fixed
+    // file_path would let the floor run's throttle write silently skip the
+    // recall query on the contended run, collapsing the very second query
+    // this test exists to keep contended — caught by this test's own
+    // break-test, not by inspection.
+    const makePreEditInput = (tag: string) => ({
+      tool_name: 'Edit',
+      tool_input: { file_path: `/tmp/hook-budget-probe/${tag}.ts`, new_string: 'x' },
+      cwd: '/tmp/hook-budget-probe',
+    });
+
+    const referenceWaitedMs = withTempDb((dbPath) => measureWaitedMs('guard-check.js', guardCheckInput, dbPath));
+    const targetWaitedMs = withTempDb((dbPath) => measureWaitedMs('pre-edit-recall.js', makePreEditInput, dbPath));
+
+    expect(
+      targetWaitedMs,
+      `pre-edit-recall.js paid ${targetWaitedMs}ms vs guard-check.js's own ${referenceWaitedMs}ms single-wait reference (measured in this same run) — looks like more than one busy_timeout wait`,
+    ).toBeLessThan(referenceWaitedMs * 1.6);
+  }, 60_000);
 });
 
 describe('the PreCompact budget is the external one', () => {

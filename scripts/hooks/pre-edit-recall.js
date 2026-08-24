@@ -18,6 +18,7 @@ import {
   getDbPath,
   getMemeshDirFromDbPath,
   getProjectName,
+  HOOK_BUSY_TIMEOUT_MS,
   isTrustedForAutoContext,
   writePrivateJson,
   hookMatchExpression,
@@ -82,6 +83,27 @@ process.stdin.on('end', () => {
     // and hands back a WRITABLE handle. This hook only reads; the guard
     // fire counter opens its own writable handle for its one UPDATE.
     const db = new MemeshDatabase(dbPath, { readOnly: true });
+    // MemeshDatabase's constructor always sets busy_timeout to the 30s that
+    // is correct for the CLI/MCP/HTTP writers; this hook's own budget
+    // (hooks.json) is 5s, so left alone a contended lock outlives the hook.
+    db.pragma(`busy_timeout = ${HOOK_BUSY_TIMEOUT_MS}`);
+    // A single probe before either pass below. `loadActiveGuards` swallows
+    // a query failure internally — by design, so a guard-matching problem
+    // can never be the reason this hook crashes — which means a lock still
+    // held after the busy_timeout wait comes back as "no guards matched"
+    // rather than as an error this hook can see. Unlike guard-check.js,
+    // this hook still has the recall pass to run after the guard pass, and
+    // that query is NOT swallowed — so a genuinely contended connection
+    // paid the full busy_timeout wait TWICE in sequence, once hidden and
+    // once fatal, before giving up. Probing once here means a contended
+    // database is discovered (and given up on) after paying that wait
+    // exactly once.
+    try {
+      db.prepare('SELECT 1').get();
+    } catch {
+      db.close();
+      return pass();
+    }
     let guardMatches = [];
     const recallLines = [];
     try {

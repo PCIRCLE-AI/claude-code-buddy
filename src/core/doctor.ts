@@ -228,14 +228,25 @@ function inspectLocaleReadmeParity(
     );
   }
 
+  // README.md alone is not the "packaged install" signal it looks like:
+  // npm always includes README.md in a published tarball (and this
+  // package's `files` lists it explicitly), so every real end-user install
+  // has it — while the locale READMEs are development-only translations,
+  // absent from `files` and never shipped. Without this, `missing` below
+  // named all of them on every real install, and a maintainer-only "keep
+  // the translations in sync" check reached ordinary users as a WARN in
+  // their own doctor output — noise in exactly the report someone pastes
+  // into a support issue.
   const missing: string[] = [];
   const drift: Array<{ name: string; count: number }> = [];
+  let anyLocalePresent = false;
   for (const filename of LOCALE_README_FILES) {
     const localePath = path.join(packageRoot, filename);
     if (!existsSyncImpl(localePath)) {
       missing.push(filename);
       continue;
     }
+    anyLocalePresent = true;
     try {
       const count = countH2Headings(readFileSyncImpl(localePath, 'utf8'));
       if (Math.abs(count - englishCount) > LOCALE_H2_TOLERANCE) {
@@ -245,6 +256,15 @@ function inspectLocaleReadmeParity(
       // unreadable locale — treat as drift so it surfaces in the report
       drift.push({ name: filename, count: -1 });
     }
+  }
+
+  if (!anyLocalePresent) {
+    return createCheck(
+      'readme_locale_parity',
+      'README locale parity',
+      'pass',
+      'Locale READMEs not present in this install (packaged installs ship README.md only); locale-parity check skipped.',
+    );
   }
 
   if (missing.length === 0 && drift.length === 0) {
@@ -1538,6 +1558,25 @@ function inspectDashboardArtifact(
   );
 }
 
+/**
+ * True when the install is younger than the same 24h grace period the
+ * hook-wiring check already gives a fresh install (line ~873): "no
+ * successful update check yet" is expected for a install a few minutes
+ * old and is not evidence of anything. `install.json`'s `created_at` is
+ * ISO-8601 (`toISOString()`), NOT the SQLite `YYYY-MM-DD HH:MM:SS` shape
+ * `hoursSince` parses — reusing that helper on this value would silently
+ * return null (unparseable) and read as "unknown age" on every call.
+ */
+function isFreshInstall(): boolean {
+  try {
+    const createdAt = new Date(getInstallRecord().created_at).getTime();
+    if (!Number.isFinite(createdAt)) return false;
+    return (Date.now() - createdAt) / (60 * 60 * 1000) < 24;
+  } catch {
+    return false;
+  }
+}
+
 async function inspectUpdateStatus(
   packageVersion: string,
   getUpdateCheckImpl: typeof getUpdateCheck,
@@ -1545,6 +1584,14 @@ async function inspectUpdateStatus(
 ): Promise<DoctorCheck> {
   const update = await getUpdateCheckImpl(packageVersion, { preferFresh: false });
   if (!update) {
+    if (isFreshInstall()) {
+      return createCheck(
+        'update-status',
+        'Update status',
+        'pass',
+        'Installed recently — memesh has not had a chance to check for updates yet. This resolves itself on the first successful check.',
+      );
+    }
     return createCheck(
       'update-status',
       'Update status',
@@ -1617,6 +1664,14 @@ async function inspectUpdateStatus(
   // is the right answer for users who haven't completed a successful
   // check yet (and have no security advisory waiting).
   if (update.freshness === 'unavailable') {
+    if (isFreshInstall()) {
+      return createCheck(
+        'update-status',
+        'Update status',
+        'pass',
+        'Installed recently — memesh has not had a chance to check for updates yet. This resolves itself on the first successful check.',
+      );
+    }
     return createCheck(
       'update-status',
       'Update status',
@@ -2531,7 +2586,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
       createInfo(
         'install_id',
         'Install ID',
-        `Anonymous install ID: ${record.install_id} (created ${record.created_at}). Stored locally at ~/.memesh/install.json. Never transmitted automatically; included only in feedback issues you submit with the "Include system info" checkbox on.`,
+        `Anonymous install ID: ${record.install_id} (created ${record.created_at}). Stored locally at ${path.join(memeshDir(), 'install.json')}. Never transmitted automatically; included only in feedback issues you submit with the "Include system info" checkbox on.`,
       ),
     );
   } catch {

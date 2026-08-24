@@ -60,12 +60,14 @@ function inspectLocaleReadmeParity(packageRoot, existsSyncImpl, readFileSyncImpl
     }
     const missing = [];
     const drift = [];
+    let anyLocalePresent = false;
     for (const filename of LOCALE_README_FILES) {
         const localePath = path.join(packageRoot, filename);
         if (!existsSyncImpl(localePath)) {
             missing.push(filename);
             continue;
         }
+        anyLocalePresent = true;
         try {
             const count = countH2Headings(readFileSyncImpl(localePath, 'utf8'));
             if (Math.abs(count - englishCount) > LOCALE_H2_TOLERANCE) {
@@ -75,6 +77,9 @@ function inspectLocaleReadmeParity(packageRoot, existsSyncImpl, readFileSyncImpl
         catch {
             drift.push({ name: filename, count: -1 });
         }
+    }
+    if (!anyLocalePresent) {
+        return createCheck('readme_locale_parity', 'README locale parity', 'pass', 'Locale READMEs not present in this install (packaged installs ship README.md only); locale-parity check skipped.');
     }
     if (missing.length === 0 && drift.length === 0) {
         return createCheck('readme_locale_parity', 'README locale parity', 'pass', `All ${LOCALE_README_FILES.length} locale READMEs match English H2 count (${englishCount}).`);
@@ -562,9 +567,23 @@ function inspectDashboardArtifact(packageRoot, existsSyncImpl) {
     }
     return createCheck('dashboard', 'Dashboard artifact', 'pass', 'dashboard/dist/index.html is present.');
 }
+function isFreshInstall() {
+    try {
+        const createdAt = new Date(getInstallRecord().created_at).getTime();
+        if (!Number.isFinite(createdAt))
+            return false;
+        return (Date.now() - createdAt) / (60 * 60 * 1000) < 24;
+    }
+    catch {
+        return false;
+    }
+}
 async function inspectUpdateStatus(packageVersion, getUpdateCheckImpl, installSupport) {
     const update = await getUpdateCheckImpl(packageVersion, { preferFresh: false });
     if (!update) {
+        if (isFreshInstall()) {
+            return createCheck('update-status', 'Update status', 'pass', 'Installed recently — memesh has not had a chance to check for updates yet. This resolves itself on the first successful check.');
+        }
         return createCheck('update-status', 'Update status', 'warn', 'memesh has not been able to check for newer versions yet, so it cannot tell you whether an update exists.', 'Run `memesh status` once while connected to the internet — that stores the answer and this notice goes away.', { code: 'update-status.no-cache' });
     }
     if (update.currentVersionDeprecated && update.deprecationMessage) {
@@ -590,6 +609,9 @@ async function inspectUpdateStatus(packageVersion, getUpdateCheckImpl, installSu
         return createCheck('update-status', 'Update status', 'fail', `Installed version ${packageVersion} is DEPRECATED by maintainers: ${update.deprecationMessage}`, fix, { code: 'update-status.deprecated', params: { version: packageVersion, detail: update.deprecationMessage ?? '' } });
     }
     if (update.freshness === 'unavailable') {
+        if (isFreshInstall()) {
+            return createCheck('update-status', 'Update status', 'pass', 'Installed recently — memesh has not had a chance to check for updates yet. This resolves itself on the first successful check.');
+        }
         return createCheck('update-status', 'Update status', 'warn', 'memesh has not been able to check for newer versions yet, so it cannot tell you whether an update exists.', 'Run `memesh status` once while connected to the internet — that stores the answer and this notice goes away.', { code: 'update-status.no-cache' });
     }
     if (update.checkSucceeded && update.lastError) {
@@ -973,7 +995,7 @@ export async function runDoctor(options) {
     checks.push(await inspectUpdateStatus(packageVersion, getUpdateCheckImpl, installSupport));
     try {
         const record = getInstallRecord();
-        checks.push(createInfo('install_id', 'Install ID', `Anonymous install ID: ${record.install_id} (created ${record.created_at}). Stored locally at ~/.memesh/install.json. Never transmitted automatically; included only in feedback issues you submit with the "Include system info" checkbox on.`));
+        checks.push(createInfo('install_id', 'Install ID', `Anonymous install ID: ${record.install_id} (created ${record.created_at}). Stored locally at ${path.join(memeshDir(), 'install.json')}. Never transmitted automatically; included only in feedback issues you submit with the "Include system info" checkbox on.`));
     }
     catch {
     }

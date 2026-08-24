@@ -385,6 +385,21 @@ describe('HTTP Transport: POST /v1/config', () => {
     expect(check.body.data.config.sessionLimit).toBe(33);
   });
 
+  it('rejects a mistyped key instead of silently discarding it (M-13)', async () => {
+    // ConfigBody used `.strip()`: an unrecognized key (a typo, or a field
+    // the client meant for a different route) was silently dropped and the
+    // response still said `success: true` — a write that changed nothing,
+    // reported as one that worked.
+    const res = await req('POST', '/v1/config', { sesionLimit: 77 });
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error).toMatch(/sesionLimit/i);
+
+    // Anti-vacuity: nothing was written under either spelling.
+    const check = await req('GET', '/v1/config');
+    expect(check.body.data.config.sessionLimit).not.toBe(77);
+  });
+
   it('POST response masks apiKey across the whole fallback chain, not just llm', async () => {
     // Regression (security): the POST response used to mask only llm.apiKey, so
     // a saved llmFallbacks[].apiKey was echoed back to the SPA in plaintext.

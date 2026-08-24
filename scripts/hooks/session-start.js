@@ -11,6 +11,7 @@ import {
   getDbPath,
   getMemeshDirFromDbPath,
   getProjectName,
+  HOOK_BUSY_TIMEOUT_MS,
   importFromPluginRoot,
   assembleTopologyBlock,
   DEFAULT_TOPOLOGY_BUDGET,
@@ -650,6 +651,10 @@ process.stdin.on('end', async () => {
     // property of the database file that the writing side already set, and a
     // reader opens a WAL database perfectly well without asking for it.
     const db = new MemeshDatabase(dbPath, { readOnly: true });
+    // MemeshDatabase's constructor always sets busy_timeout to the 30s that
+    // is correct for the CLI/MCP/HTTP writers; this hook's own budget
+    // (hooks.json) is 10s, so left alone a contended lock outlives the hook.
+    db.pragma(`busy_timeout = ${HOOK_BUSY_TIMEOUT_MS}`);
     // Whether the noise-compression epilogue below should run at all —
     // pre-read from this readonly handle before it closes. Defaults to
     // true so any early exit still lets the epilogue's own throttle decide.

@@ -158,6 +158,17 @@ describe('remember', () => {
     expect(result.content[0].text).toContain('name');
   });
 
+  it('rejects a whitespace-only observation instead of storing an empty memory (M-05)', async () => {
+    const result = await handleTool('remember', {
+      name: 'blank-mcp-test', type: 'note', observations: ['   '],
+    });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/whitespace-only/i);
+
+    const recall = await handleTool('recall', { query: 'blank-mcp-test' });
+    expect(recallEntities(recall)).toEqual([]);
+  });
+
   it('returns validation error when name is empty', async () => {
     const result = await handleTool('remember', { name: '', type: 'decision' });
 
@@ -396,11 +407,28 @@ describe('forget', () => {
     expect(recallEntities(recall)).toHaveLength(1);
   });
 
-  it('returns not-found for non-existent entity', async () => {
+  it('returns not-found for non-existent entity, as an error the CLI already reports as one', async () => {
+    // The CLI's `forget` command has always exited 1 for this (a forget
+    // that forgot nothing) — MCP's `ok()` reported `isError: false`
+    // regardless, so a caller checking `isError` alone could not tell a
+    // typo'd name from a real removal. M-17.
     const result = await handleTool('forget', { name: 'ghost' });
-    const data = JSON.parse(result.content[0].text);
-    expect(data.archived).toBe(false);
-    expect(data.message).toContain('not found');
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('not found');
+  });
+
+  it('MCP forget reports isError for a mistyped observation, same as a missing entity (M-17)', async () => {
+    await handleTool('remember', {
+      name: 'typo-target', type: 'decision', observations: ['the real text'],
+    });
+    const result = await handleTool('forget', { name: 'typo-target', observation: 'text that is not there' });
+    expect(result.isError, 'a mistyped observation reported success').toBe(true);
+    expect(result.content[0].text).toContain('no observation matching that text');
+
+    // Anti-vacuity: the entity's own untouched observation is still there —
+    // this is a caller-mistake report, not a partial success.
+    const recall = await handleTool('recall', { query: 'the real text' });
+    expect(recallEntities(recall)).toHaveLength(1);
   });
 
   it('rejects forget with empty name', async () => {

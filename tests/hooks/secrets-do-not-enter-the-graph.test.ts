@@ -23,6 +23,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { MemeshDatabase as Database } from '../../src/storage/sqlite.js';
+import { removeTempDir } from '../helpers/temp-dir.js';
 
 describe('secrets do not enter the graph', () => {
   let testDir: string;
@@ -40,7 +41,7 @@ describe('secrets do not enter the graph', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(testDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    removeTempDir(testDir);
   });
 
   function writeTranscript(entries: object[]): void {

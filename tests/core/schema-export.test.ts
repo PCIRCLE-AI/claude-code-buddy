@@ -112,4 +112,18 @@ describe('exportOpenAITools', () => {
       }
     }
   });
+
+  it('every namespace field publishes the enum the runtime actually enforces (M-12)', () => {
+    // remember/recall's namespace fields carried `enum: ['personal', 'team',
+    // 'global']`; export/import's did not — a bare `{type: 'string'}` next
+    // to a description that only MENTIONED the three values in prose. A
+    // client (or a model reading the schema, not the docs) had no
+    // machine-readable way to know 'prod' would be rejected until it tried.
+    const withNamespace = TOOL_DEFINITIONS.filter((t: any) => 'namespace' in t.inputSchema.properties);
+    expect(withNamespace.length, 'fixture: no registered tool declares a namespace field').toBeGreaterThan(0);
+    for (const def of withNamespace) {
+      const field = (def.inputSchema.properties as any).namespace;
+      expect(field.enum, `${def.name}.namespace has no enum`).toEqual(['personal', 'team', 'global']);
+    }
+  });
 });

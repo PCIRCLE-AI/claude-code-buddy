@@ -23,6 +23,7 @@ import {
   validateHookOutput,
   HOOK_SPECIFIC_OUTPUT_EVENTS,
 } from '../helpers/hook-output-contract.js';
+import { removeTempDir } from '../helpers/temp-dir.js';
 
 interface HookCase {
   /** Filename under scripts/hooks/ */
@@ -179,7 +180,7 @@ describe('Feature: Claude Code hook-output contract', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(testDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    removeTempDir(testDir);
   });
 
   // Seed memories into the test DB via the real CLI so the schema matches

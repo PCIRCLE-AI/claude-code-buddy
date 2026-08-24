@@ -10,6 +10,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { execFileSync } from 'child_process';
 
 describe('install-hooks', () => {
   let tmpDir: string;
@@ -362,5 +363,44 @@ describe('install-hooks', () => {
     // Plugin runtime not detected for memesh specifically — installs.
     expect(result.added).toBeGreaterThan(0);
     expect(result.pluginRuntimeDetected).toBeUndefined();
+  });
+});
+
+describe('memesh install-hooks (CLI output) — M-11', () => {
+  // `installHooks()` writes ~/.memesh/install-hooks.json in the same branch
+  // as the settings.json backup (see the marker-writing block above this
+  // describe block's sibling tests), and the CLI already reports the
+  // settings path and the backup path — but not this one, so a user reading
+  // the command's own output had no idea it wrote a second file at all.
+  const cliPath = path.resolve('dist', 'transports', 'cli', 'cli.js');
+  let cwd: string;
+  let memeshDir: string;
+
+  beforeEach(() => {
+    // realpathSync: macOS resolves `/var` -> `/private/var`, and the
+    // marker path the CLI reports is realpath-resolved (via memeshDir's
+    // own path.join chain) while a bare mkdtempSync result on this
+    // platform is not — an unresolved comparison here would fail on
+    // every macOS run for a reason that has nothing to do with M-11.
+    cwd = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-installhooks-cli-')));
+    memeshDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-installhooks-cli-home-')));
+  });
+
+  afterEach(() => {
+    fs.rmSync(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    fs.rmSync(memeshDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  });
+
+  it('names the marker path it just wrote', () => {
+    // --scope project keeps the settings write inside `cwd` — no touching
+    // the real ~/.claude/settings.json from a test.
+    const out = execFileSync('node', [cliPath, 'install-hooks', '--scope', 'project'], {
+      cwd,
+      env: { ...process.env, MEMESH_DIR: memeshDir },
+      encoding: 'utf8',
+    });
+    const markerPath = path.join(memeshDir, 'install-hooks.json');
+    expect(fs.existsSync(markerPath), 'fixture: the marker was not actually written').toBe(true);
+    expect(out).toContain(`Marker: ${markerPath}`);
   });
 });

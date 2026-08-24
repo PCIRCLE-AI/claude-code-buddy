@@ -22,6 +22,8 @@
 // =============================================================================
 
 import { execFileSync } from 'child_process';
+import { existsSync } from 'fs';
+import { resolve } from 'path';
 import type { MemeshDatabase } from '../storage/sqlite.js';
 
 /** Everything this module can decline to answer, as machine-readable codes.
@@ -29,6 +31,7 @@ import type { MemeshDatabase } from '../storage/sqlite.js';
 export type WhyAbstention =
   | 'git_unavailable'
   | 'not_a_git_repo'
+  | 'file_not_found'
   | 'file_not_tracked'
   /** `git log` did not answer — see the catch in resolveFileCommits. An empty
    *  commit list under this code means "unknown", never "none". */
@@ -118,6 +121,13 @@ export function resolveFileCommits(
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     return { commits: [], abstention: code === 'ENOENT' ? 'git_unavailable' : 'not_a_git_repo' };
+  }
+
+  // `git ls-files --error-unmatch` fails identically for "not tracked" and
+  // "does not exist" — it only checks the index, never the disk. Checked
+  // first so a typo'd path is not reported as a real, untracked file.
+  if (!existsSync(resolve(repoDir, file))) {
+    return { commits: [], abstention: 'file_not_found' };
   }
 
   try {

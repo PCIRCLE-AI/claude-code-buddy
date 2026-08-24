@@ -6,6 +6,7 @@ import path from 'path';
 import os from 'os';
 import { expectPrivateDir, expectPrivateFile } from '../helpers/permissions.js';
 import { MemeshDatabase as Database } from '../../src/storage/sqlite.js';
+import { removeTempDir } from '../helpers/temp-dir.js';
 
 const require = createRequire(import.meta.url);
 // Non-git identity is basename + real-path hash; derive seeds through the
@@ -26,7 +27,7 @@ describe('Feature: Session Start Hook', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(testDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    removeTempDir(testDir);
   });
 
   function runHook(input: object, env: Record<string, string> = {}): Record<string, unknown> {

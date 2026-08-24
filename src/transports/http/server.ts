@@ -858,7 +858,14 @@ const ConfigBody = z.object({
     })
     .optional(),
   setupCompleted: z.boolean().optional(),
-}).strip();
+  // `.strict()`, not `.strip()`: every current caller (SettingsTab.tsx)
+  // posts a small, purpose-built object — `{ llm }`, `{ autoUpdate: next }`
+  // — never a superset read back from GET, so nothing legitimate relies on
+  // an unrecognized key being tolerated. `.strip()` silently discarded a
+  // mistyped key (`sesionLimit`) and still answered 200 — success, for a
+  // write that changed nothing. `.strict()` answers the same 400
+  // `validation.bad-body` every other malformed POST here already does.
+}).strict();
 
 app.post('/v1/config', (req, res) => handlePost(ConfigBody, req, res, (data) => {
   // NOTE: the read-modify-write across `before`/`updateConfig` is non-atomic.

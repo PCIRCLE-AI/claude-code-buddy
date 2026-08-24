@@ -150,6 +150,7 @@ export function assembleBriefing(project?: string): BriefingResult {
     `SELECT DISTINCT ${CANDIDATE_COLUMNS}
      FROM entities e JOIN tags t ON t.entity_id = e.id
      WHERE t.tag = ? AND e.status = 'active'
+     ORDER BY e.id DESC
      LIMIT ?`,
   ).all(`project:${projectName}`, TOPOLOGY_CANDIDATE_CAP) as unknown as CandidateRow[];
   const projectPool = selectPool(projectRows, PROJECT_LIMIT);

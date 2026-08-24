@@ -122,7 +122,8 @@ export declare const TOOL_DEFINITIONS: readonly [{
             };
             readonly namespace: {
                 readonly type: "string";
-                readonly description: "Export only from this namespace (personal, team, global)";
+                readonly enum: readonly ["personal", "team", "global"];
+                readonly description: "Export only from this namespace";
             };
             readonly limit: {
                 readonly type: "number";
@@ -143,6 +144,7 @@ export declare const TOOL_DEFINITIONS: readonly [{
             };
             readonly namespace: {
                 readonly type: "string";
+                readonly enum: readonly ["personal", "team", "global"];
                 readonly description: "Override namespace for all imported entities";
             };
             readonly merge_strategy: {
