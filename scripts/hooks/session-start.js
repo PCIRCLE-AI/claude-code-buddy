@@ -264,7 +264,15 @@ function buildUpdateAvailableBanner(currentVersion, cache, getChannel) {
   if (channel === 'npm-global') {
     lines.push(`    Run: memesh update`);
   } else if (channel === 'plugin-marketplace') {
-    lines.push(`    Run: memesh upgrade-plugin   (no CLI? npx @pcircle/memesh upgrade-plugin — or reinstall from /plugin UI)`);
+    // `upgrade-plugin` drives Claude Code's layout only — it reads
+    // ~/.claude/plugins/marketplaces and patches installed_plugins.json,
+    // neither of which Codex creates. Prescribing it to a Codex user
+    // produces "marketplace cache not found", so ask which runtime this is.
+    if (pluginHostOf(resolvePluginRoot(import.meta.url)) === 'codex') {
+      lines.push(`    Run: codex plugin marketplace upgrade pcircle-memesh && codex plugin add memesh@pcircle-memesh`);
+    } else {
+      lines.push(`    Run: memesh upgrade-plugin   (no CLI? npx @pcircle/memesh upgrade-plugin — or reinstall from /plugin UI)`);
+    }
   } else if (channel === 'source-checkout') {
     lines.push(`    Source checkout: \`git pull && npm install && npm run build\`.`);
   } else if (channel === 'npm-local') {
@@ -313,6 +321,22 @@ function detectInstallChannelHook(pluginRoot) {
     // process so the reason is visible.
     try { process.stderr.write(`[memesh session-start] install-channel detection: ${err?.message || err}\n`); } catch {}
     return 'unknown';
+  }
+}
+
+/**
+ * Which plugin runtime owns this copy: 'claude-code', 'codex', or null.
+ *
+ * Only consulted to pick the remediation command a plugin user is shown,
+ * so null (dist absent, old dist without the export) falls back to the
+ * Claude Code wording rather than suppressing the hint entirely — the
+ * banner is more useful naming the majority host than naming none.
+ */
+function pluginHostOf(pluginRoot) {
+  try {
+    return _installChannelMod?.detectPluginHost?.(pluginRoot) ?? null;
+  } catch {
+    return null;
   }
 }
 

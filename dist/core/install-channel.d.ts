@@ -20,12 +20,14 @@ export interface InstallChannelSupport {
     recommendedCommand: string | null;
     guidance: string;
 }
+export type PluginHost = 'claude-code' | 'codex';
+export declare function detectPluginHost(packageRoot: string): PluginHost | null;
 export declare function getGlobalNpmRoot(options?: {
     execFileSyncImpl?: ExecFileSyncLike;
     execPathImpl?: string;
 }): string;
 export declare function detectInstallChannel(options: DetectInstallChannelOptions): InstallChannel;
 export declare function getCurrentInstallChannel(options: GetCurrentInstallChannelOptions): InstallChannel;
-export declare function getInstallChannelSupport(channel: InstallChannel): InstallChannelSupport;
+export declare function getInstallChannelSupport(channel: InstallChannel, packageRoot: string): InstallChannelSupport;
 export {};
 //# sourceMappingURL=install-channel.d.ts.map

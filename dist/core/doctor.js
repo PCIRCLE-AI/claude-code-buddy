@@ -9,7 +9,7 @@ import { probeProvider } from './llm-validator.js';
 import { openDatabase, closeDatabase, getPendingReindexInfo, isDatabaseOpen, readVectorGeneration, generationRowIds, } from '../db.js';
 import { getUpdateCheck } from './version-check.js';
 import { classifyBump } from './updater.js';
-import { getCurrentInstallChannel, getInstallChannelSupport } from './install-channel.js';
+import { getCurrentInstallChannel, getInstallChannelSupport, detectPluginHost } from './install-channel.js';
 import { getInstallRecord } from './install-id.js';
 import { citationRulePath, citationRuleState } from './citation-rule.js';
 import { getDbPath, homeDir, memeshDir, getProjectName } from './paths.js';
@@ -227,11 +227,12 @@ function inspectHooksConfig(packageRoot, platform, existsSyncImpl, readFileSyncI
         createCheck('hook-scripts', 'Hook scripts', 'pass', `All ${scriptPaths.length} hook scripts are present${platform === 'win32' ? '' : ' and executable'}.`),
     ];
 }
-function inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir, installChannel, installedPluginsPath) {
+function inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir, installChannel, installedPluginsPath, pluginHost) {
     const markerPath = path.join(memeshDir, 'install-hooks.json');
     if (!existsSyncImpl(markerPath)) {
         if (installChannel === 'plugin-marketplace') {
-            return createCheck('hook-wiring', 'Hooks wired into Claude Code', 'pass', 'Wired via the Claude Code plugin runtime (this is a plugin-marketplace install). The install-hooks marker is not used on this install path.');
+            const runtime = pluginHost === 'codex' ? 'Codex CLI' : 'Claude Code';
+            return createCheck('hook-wiring', 'Hooks wired into Claude Code', 'pass', `Wired via the ${runtime} plugin runtime (this is a plugin-marketplace install). The install-hooks marker is not used on this install path.`);
         }
         if (detectPluginRuntime(installedPluginsPath)) {
             return createCheck('hook-wiring', 'Hooks wired into Claude Code', 'pass', 'Wired via the Claude Code plugin runtime (found in installed_plugins.json). This copy is not the one doing the capturing — the plugin manages the hooks.');
@@ -546,8 +547,9 @@ function inspectShellCli(installChannel, packageRoot, resolveShellMemeshImpl) {
         return createCheck('shell-cli', 'Shell CLI on PATH', 'pass', `\`memesh\` resolves to ${shellPath} (separate from this install at ${packageRoot}). Both paths coexist and share the same DB.`);
     }
     if (installChannel === 'plugin-marketplace') {
+        const host = detectPluginHost(packageRoot) === 'codex' ? 'Codex CLI' : 'Claude Code';
         return createCheck('shell-cli', 'Shell CLI on PATH', 'warn', 'Plugin is installed but `memesh` is not on the shell PATH. Typing `memesh` in a regular terminal will report `command not found`. '
-            + 'Claude Code MCP / hooks / `/memesh` skill still work — this only affects standalone shell usage and other MCP clients (Cursor, Cline, etc.).', 'Run `npm install -g @pcircle/memesh` to add the shell CLI. Both paths coexist; they share the same `~/.memesh/knowledge-graph.db`.', { code: 'shell-cli.not-on-path' });
+            + `${host} MCP / hooks / \`/memesh\` skill still work — this only affects standalone shell usage and other MCP clients (Cursor, Cline, etc.).`, 'Run `npm install -g @pcircle/memesh` to add the shell CLI. Both paths coexist; they share the same `~/.memesh/knowledge-graph.db`.', { code: 'shell-cli.not-on-path' });
     }
     return createCheck('shell-cli', 'Shell CLI on PATH', 'pass', shellPath
         ? `\`memesh\` resolves to ${shellPath}.`
@@ -752,7 +754,7 @@ export async function runDoctor(options) {
         : closeDatabaseImpl;
     const checks = [];
     const install = getCurrentInstallChannelImpl({ packageRoot });
-    const installSupport = getInstallChannelSupportImpl(install);
+    const installSupport = getInstallChannelSupportImpl(install, packageRoot);
     checks.push(createCheck('install-channel', 'Install method', install === 'unknown' ? 'warn' : 'pass', `Install method detected: ${installSupport.label}.`, install === 'unknown'
         ? 'If this is a source checkout, run MeMesh from the repo root. If this is a packaged install, reinstall with `npm install -g @pcircle/memesh`.'
         : undefined, install === 'unknown' ? { code: 'install-channel.unknown' } : undefined));
@@ -944,7 +946,7 @@ export async function runDoctor(options) {
     checks.push(inspectConfigFile(existsSyncImpl, readFileSyncImpl, getConfigPathImpl, detectCapabilitiesImpl().llm));
     checks.push(inspectMcpConfig(packageRoot, existsSyncImpl, readFileSyncImpl));
     checks.push(...inspectHooksConfig(packageRoot, platform, existsSyncImpl, readFileSyncImpl, statSyncImpl));
-    const wiring = inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir(), install, installedPluginsPathImpl);
+    const wiring = inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir(), install, installedPluginsPathImpl, detectPluginHost(packageRoot));
     checks.push(wiring);
     const captureWired = wiring.status === 'pass'
         && (wiring.params === undefined || wiring.params.captureWired === 1);

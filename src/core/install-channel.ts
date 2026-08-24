@@ -43,13 +43,40 @@ function getRootBeforeNodeModules(packageRoot: string): string | null {
   return packageRoot.slice(0, index);
 }
 
-// Claude Code installs plugins under <home>/.claude/plugins/cache/<marketplace>/<plugin>/<version>.
-// Match that suffix anchored to the .claude/plugins/cache/ segment so we
-// don't false-positive on a user repo path that happens to contain
-// "plugins/cache". Using path.sep keeps the matcher Windows-correct.
+/** Which agent runtime installed this plugin copy. */
+export type PluginHost = 'claude-code' | 'codex';
+
+const PLUGIN_HOST_DIRS: ReadonlyArray<readonly [PluginHost, string]> = [
+  ['claude-code', '.claude'],
+  ['codex', '.codex'],
+];
+
+/**
+ * Which plugin runtime owns this package root, or null if none does.
+ *
+ * Claude Code installs plugins under
+ * <home>/.claude/plugins/cache/<marketplace>/<plugin>/<version>. Codex CLI
+ * adopted the same plugin manifest format and the same cache layout, one
+ * directory over: <home>/.codex/plugins/cache/<marketplace>/<plugin>/<version>.
+ * Only matching `.claude` meant a Codex-hosted install fell all the way
+ * through to `unknown`, and `memesh update` answered a real user with
+ * "does not support this install method (unknown)" on an install it
+ * fully supports.
+ *
+ * Match anchored to the `<dir>/plugins/cache/` segment so a user repo whose
+ * path merely contains "plugins/cache" is not a false positive. path.sep
+ * keeps the matcher Windows-correct.
+ */
+export function detectPluginHost(packageRoot: string): PluginHost | null {
+  for (const [host, dir] of PLUGIN_HOST_DIRS) {
+    const segment = `${path.sep}${dir}${path.sep}plugins${path.sep}cache${path.sep}`;
+    if (packageRoot.includes(segment)) return host;
+  }
+  return null;
+}
+
 function isPluginMarketplacePath(packageRoot: string): boolean {
-  const segment = `${path.sep}.claude${path.sep}plugins${path.sep}cache${path.sep}`;
-  return packageRoot.includes(segment);
+  return detectPluginHost(packageRoot) !== null;
 }
 
 /**
@@ -109,8 +136,9 @@ export function detectInstallChannel(options: DetectInstallChannelOptions): Inst
   // Plugin-marketplace cache wins over .git / npm-global checks because
   // a plugin install can legitimately contain a `.git` directory (the
   // marketplace cache is a git clone of the source repo) AND can sit
-  // under a custom npm prefix path. Anchor on the .claude/plugins/cache/
-  // path segment, which only Claude Code's plugin runtime writes.
+  // under a custom npm prefix path. Anchor on the plugins/cache path
+  // segment, which only a plugin runtime writes — see detectPluginHost
+  // for the two runtimes that do.
   if (isPluginMarketplacePath(normalizedPackageRoot)) {
     return 'plugin-marketplace';
   }
@@ -169,7 +197,20 @@ export function getCurrentInstallChannel(
   return channel;
 }
 
-export function getInstallChannelSupport(channel: InstallChannel): InstallChannelSupport {
+/**
+ * @param packageRoot - the same root that produced `channel`. Required, not
+ *   optional, because the `plugin-marketplace` remediation is only correct
+ *   once you know the host: the bundled `upgrade-plugin` script drives Claude
+ *   Code's layout (it reads `~/.claude/plugins/marketplaces/` and patches
+ *   `~/.claude/plugins/installed_plugins.json`, neither of which Codex
+ *   creates), while Codex ships its own plugin CLI. Every caller already has
+ *   this path — it is what produced `channel` — so there is no honest reason
+ *   to let one omit it and be answered with a guess.
+ */
+export function getInstallChannelSupport(
+  channel: InstallChannel,
+  packageRoot: string,
+): InstallChannelSupport {
   switch (channel) {
     case 'npm-global':
       return {
@@ -195,7 +236,26 @@ export function getInstallChannelSupport(channel: InstallChannel): InstallChanne
         recommendedCommand: null,
         guidance: 'Update this source checkout from its repository and rebuild it.',
       };
-    case 'plugin-marketplace':
+    case 'plugin-marketplace': {
+      // channel === 'plugin-marketplace' is derived from this same path, so
+      // detectPluginHost cannot miss here.
+      if (detectPluginHost(packageRoot) === 'codex') {
+        return {
+          channel,
+          label: 'Codex CLI plugin marketplace',
+          canSelfUpdate: false,
+          // NOT `memesh upgrade-plugin`. That script reconciles Claude
+          // Code's layout specifically: it reads
+          // ~/.claude/plugins/marketplaces/pcircle-memesh and patches
+          // ~/.claude/plugins/installed_plugins.json. Codex creates
+          // neither, so pointing a Codex user at it hands them
+          // "ERROR: marketplace cache not found" — worse than saying
+          // nothing. Codex ships its own plugin CLI; use that.
+          recommendedCommand: 'codex plugin marketplace upgrade pcircle-memesh',
+          guidance:
+            'Run `codex plugin marketplace upgrade pcircle-memesh` to refresh the snapshot, then `codex plugin add memesh@pcircle-memesh` to install the new version. The plugin marketplace pins versions, so a new release does not auto-update.',
+        };
+      }
       return {
         channel,
         label: 'Claude Code plugin marketplace',
@@ -213,6 +273,7 @@ export function getInstallChannelSupport(channel: InstallChannel): InstallChanne
         guidance:
           'Run `memesh upgrade-plugin` (no npm CLI? `npx @pcircle/memesh upgrade-plugin`), or reinstall the plugin from the Claude Code /plugin UI. The plugin marketplace pins versions, so a new release does not auto-update.',
       };
+    }
     default:
       return {
         channel: 'unknown',

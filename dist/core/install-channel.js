@@ -12,9 +12,20 @@ function getRootBeforeNodeModules(packageRoot) {
         return null;
     return packageRoot.slice(0, index);
 }
+const PLUGIN_HOST_DIRS = [
+    ['claude-code', '.claude'],
+    ['codex', '.codex'],
+];
+export function detectPluginHost(packageRoot) {
+    for (const [host, dir] of PLUGIN_HOST_DIRS) {
+        const segment = `${path.sep}${dir}${path.sep}plugins${path.sep}cache${path.sep}`;
+        if (packageRoot.includes(segment))
+            return host;
+    }
+    return null;
+}
 function isPluginMarketplacePath(packageRoot) {
-    const segment = `${path.sep}.claude${path.sep}plugins${path.sep}cache${path.sep}`;
-    return packageRoot.includes(segment);
+    return detectPluginHost(packageRoot) !== null;
 }
 function derivedGlobalNpmRoot(execPath) {
     const prefix = path.dirname(path.dirname(execPath));
@@ -70,7 +81,7 @@ export function getCurrentInstallChannel(options) {
         channelCache.set(packageRoot, channel);
     return channel;
 }
-export function getInstallChannelSupport(channel) {
+export function getInstallChannelSupport(channel, packageRoot) {
     switch (channel) {
         case 'npm-global':
             return {
@@ -96,7 +107,16 @@ export function getInstallChannelSupport(channel) {
                 recommendedCommand: null,
                 guidance: 'Update this source checkout from its repository and rebuild it.',
             };
-        case 'plugin-marketplace':
+        case 'plugin-marketplace': {
+            if (detectPluginHost(packageRoot) === 'codex') {
+                return {
+                    channel,
+                    label: 'Codex CLI plugin marketplace',
+                    canSelfUpdate: false,
+                    recommendedCommand: 'codex plugin marketplace upgrade pcircle-memesh',
+                    guidance: 'Run `codex plugin marketplace upgrade pcircle-memesh` to refresh the snapshot, then `codex plugin add memesh@pcircle-memesh` to install the new version. The plugin marketplace pins versions, so a new release does not auto-update.',
+                };
+            }
             return {
                 channel,
                 label: 'Claude Code plugin marketplace',
@@ -104,6 +124,7 @@ export function getInstallChannelSupport(channel) {
                 recommendedCommand: 'memesh upgrade-plugin',
                 guidance: 'Run `memesh upgrade-plugin` (no npm CLI? `npx @pcircle/memesh upgrade-plugin`), or reinstall the plugin from the Claude Code /plugin UI. The plugin marketplace pins versions, so a new release does not auto-update.',
             };
+        }
         default:
             return {
                 channel: 'unknown',

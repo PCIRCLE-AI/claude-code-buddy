@@ -962,7 +962,7 @@ program
     .action(async () => {
     const { getCurrentInstallChannel, getInstallChannelSupport } = await import('../../core/install-channel.js');
     const install = getCurrentInstallChannel({ packageRoot });
-    const installSupport = getInstallChannelSupport(install);
+    const installSupport = getInstallChannelSupport(install, packageRoot);
     if (!installSupport.canSelfUpdate) {
         console.error(`❌ memesh update does not support this install method (${installSupport.label}).`);
         console.error(`   ${installSupport.guidance}`);
@@ -2053,7 +2053,7 @@ program
     const caps = detectCapabilities();
     const { getCurrentInstallChannel, getInstallChannelSupport } = await import('../../core/install-channel.js');
     const install = getCurrentInstallChannel({ packageRoot });
-    const installSupport = getInstallChannelSupport(install);
+    const installSupport = getInstallChannelSupport(install, packageRoot);
     const { getUpdateCheck, formatUpdateCheckStatus } = await import('../../core/version-check.js');
     const update = await getUpdateCheck(pkg.version, { preferFresh: !opts.cached });
     console.log(`MeMesh v${pkg.version}`);
