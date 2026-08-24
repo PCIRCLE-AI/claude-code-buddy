@@ -2,9 +2,63 @@
 
 All notable changes to MeMesh are documented here.
 
-## [Unreleased]
+## [4.7.2] — 2026-08-24
 
 ### Fixed
+
+- **Three hooks could be killed by a lock they were told to wait 30 seconds
+  for.** `guard-check`, `session-start` and `pre-edit-recall` each need a
+  read-only database handle, which the shared opener cannot express, so all
+  three opened the database directly and inherited the 30-second busy-timeout
+  meant for long-lived writers — against their own 5- and 10-second budgets. A
+  contended lock therefore ended with the agent harness killing the hook rather
+  than the hook giving up cleanly. All three now apply the 2-second cap.
+  `pre-edit-recall` had a second fault on top: it paid that wait twice, once
+  for a guard query whose failure is swallowed by design and again for the
+  recall query, measured at ~4.4s against a 5s budget. It now probes once and
+  gives up once.
+
+- **`memesh status` never opened the database it was reporting on.** Every line
+  it printed came from somewhere other than the graph, so a corrupt or
+  unreadable database was invisible to it — `status` printed a healthy report
+  while `doctor` diagnosed the same file as broken.
+
+- **`memesh config set` could store the opposite of what you typed.** Only
+  `true` and `1` were read as true, so `yes`, `on` and `True` all became
+  `false` — and the confirmation line echoed what you typed rather than what
+  was stored, so `Set autoCapture = yes` looked like it had worked. Those keys
+  now reject a spelling they cannot read.
+
+- **`memesh remember --obs "   "` stored a memory with nothing in it.** Found
+  by dogfooding. Whitespace-only observations are now rejected.
+
+- **A recall that found nothing could not say whether semantic search had even
+  run.** A zero-hit answer looked identical whether the vector index was
+  working, absent, or degraded to keyword-only.
+
+- **`memesh import --merge append` duplicated observations without bound.**
+  Re-importing the same export repeatedly grew the entity every time.
+
+- **`memesh why` reported a typo'd path as a real, uncommitted file** rather
+  than saying the path does not exist.
+
+- **`install-hooks` wrote a second file and never mentioned it**, so a user who
+  wanted to undo the install had no way to know it was there.
+
+- **MCP `forget` could not report failure** — it always answered success,
+  including when it had removed nothing.
+
+- **`POST /v1/config` reported success for a mistyped key it silently
+  discarded.**
+
+- **Three doctor rows fired on installs that were fine.** The locale-README
+  parity check warned about translation files that npm never ships; the install
+  ID row named a hardcoded path instead of honouring `MEMESH_DIR`; and a
+  minutes-old install failed the update check it had not yet had time to run.
+
+- **The German and Traditional Chinese READMEs were missing a whole section**
+  (Recipes) and carried an abbreviated conflict-detection description, so
+  readers of those two were shown less than readers of the English one.
 
 - **A Codex CLI plugin install was classified as `unknown`, and every piece of
   advice that followed was wrong.** Codex adopted Claude Code's plugin manifest

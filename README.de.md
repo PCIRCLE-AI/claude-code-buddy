@@ -16,11 +16,13 @@
 
 ---
 
-**MeMesh** — Open-Source-**agentischer Speicher** für einzelne KI-Coding-Agenten: kompatibel mit Claude Code, Codex, Gemini, Cursor und anderen MCP-Clients. Erfasst aus der echten Arbeit des Agenten, injiziert in dem Moment, in dem er handelt, ehrlich gehalten, wenn er sich selbst widerspricht. Eine SQLite-Datei. Keine Cloud.
+**MeMesh** ist eine **Open-Source-Speicherschicht** für KI-Coding-Agenten — für Claude Code, Codex, Gemini, Cursor und andere MCP-Clients.
+
+Sie erfasst Memories aus dem, was der Agent wirklich tut, und gibt das Passende genau dann zurück, wenn er handelt. Widersprechen sich zwei Memories, sagt sie es. Alles liegt in einer SQLite-Datei, ohne Cloud.
 
 ## Installation
 
-**In Claude Code** — diese zwei Zeilen im Chat eingeben (Hooks, Memory-Tools und der `/memesh`-Skill werden automatisch verdrahtet):
+**In Claude Code** — diese zwei Zeilen im Chat eingeben (Hooks, Memory-Tools und der `/memesh`-Skill werden automatisch eingerichtet):
 
 ```
 /plugin marketplace add PCIRCLE-AI/memesh
@@ -36,15 +38,26 @@ npm install -g @pcircle/memesh
 memesh doctor        # prüft diese Installation Ende-zu-Ende
 ```
 
-Die meisten Claude-Code-Nutzer wollen am Ende **beides** — gemeinsame Datenbank, kein Konflikt. Details, weitere Agenten, Upgrades: siehe „In 60 Sekunden starten" unten.
+Die meisten Claude-Code-Nutzer installieren am Ende **beides**. Beide nutzen dieselbe Datenbank und kommen sich nicht in die Quere. Details, weitere Agenten und Upgrades stehen unten unter „In 60 Sekunden starten".
 
 ## Das Problem
 
-Ihr Coding-Agent vergisst nicht nur Fakten zwischen Sessions — er **wiederholt Arbeit**. Er schlägt erneut den Ansatz vor, den Sie letzten Monat abgelehnt haben, stolpert über denselben fehlschlagenden Test, entdeckt die Constraint wieder, die im März die Produktion kaputt gemacht hat, und bittet Sie, die Architektur erneut zu erklären, die er selbst mitentworfen hat.
+Ihr Coding-Agent vergisst zwischen zwei Sessions nicht nur Fakten. Schlimmer: er **macht dieselbe Arbeit noch einmal**.
 
-Das ist kein Chatverlauf-Problem, sondern ein Agenten-Speicher-Problem. Was zwischen Sessions überleben muss, ist die *Arbeit*: Entscheidungen mit ihren Gründen, Fehlschläge mit ihren Behebungen und die Verbindungen dazwischen.
+- Er schlägt wieder den Ansatz vor, den Sie letzten Monat abgelehnt haben
+- Er stolpert erneut über denselben fehlschlagenden Test
+- Er „entdeckt" die Einschränkung wieder, die im März die Produktion lahmgelegt hat
+- Er bittet Sie, ihm die Architektur zu erklären, die er selbst mitentworfen hat
 
-**MeMesh ist dieser Speicher.** Hooks erfassen ihn aus dem, was der Agent tatsächlich tut (Sessions, Commits, Fehlschläge — keine manuellen Notizen), Recall injiziert ihn in dem Moment, in dem der Agent handelt (Session-Start, vor Dateibearbeitungen), und die Wissensgraph-Schicht hält ihn über die Zeit ehrlich (Supersession, LLM-beurteilte Konflikterkennung). Installation via npm, der Speicher liegt in `~/.memesh/knowledge-graph.db`, Anbindung an Claude Code oder jeden MCP-kompatiblen Client.
+Das ist kein Problem des Chatverlaufs. Was zwischen Sessions überleben muss, ist nicht das Gespräch, sondern die *Arbeit*: welche Entscheidungen gefallen sind, warum, was fehlgeschlagen ist, wie es behoben wurde — und wie das alles zusammenhängt.
+
+**Genau diese Lücke füllt MeMesh.** Es tut drei Dinge:
+
+- **Automatisch festhalten**: Hooks erfassen, was der Agent wirklich tut — Sessions, Commits, Fehlschläge. Keine handgeschriebenen Notizen
+- **Zurückgeben, wenn es zählt**: beim Session-Start und vor jeder Dateibearbeitung landen die passenden Memories vor dem Agenten
+- **Nicht verrotten lassen**: neue Entscheidungen lösen alte ab, und widersprechen sich zwei Memories, beurteilt ein LLM den Konflikt und markiert ihn
+
+Installation über npm, gespeichert wird in `~/.memesh/knowledge-graph.db`, angebunden an Claude Code oder jeden MCP-fähigen Client.
 
 > [!IMPORTANT]
 > **Aktiv entwickeltes Projekt** — Funktionen entwickeln sich kontinuierlich weiter und können sich zwischen Releases ändern. Bei Bugs oder Feature-Wünschen bitte [ein Issue eröffnen](https://github.com/PCIRCLE-AI/memesh/issues).
