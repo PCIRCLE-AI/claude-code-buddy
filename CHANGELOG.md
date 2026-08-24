@@ -2,6 +2,27 @@
 
 All notable changes to MeMesh are documented here.
 
+## [4.7.1] — 2026-08-24
+
+### Fixed
+
+- **A test fixture whose verdict depended on the time of day.**
+  `tests/core/timestamp-format-comparisons.test.ts` built a "just past the
+  cutoff" timestamp as `cutoff - 1 hour` and then asserted it fell on the
+  cutoff's calendar day — which is false for any run between 00:00 and 01:00
+  UTC, because the cutoff carries the current time of day. It cost 4.7.0: the
+  local suite, the release gate and all thirteen CI legs ran green at other
+  hours, and the npm publish job — which started at 00:06 UTC — went red on
+  it. The stamp is clamped to midnight of the cutoff's own UTC day, which is
+  inside the window at every hour, and a second fixture guard in the same file
+  now compares at the second resolution the product actually works at instead
+  of a stricter millisecond one.
+
+  No shipped behaviour changes. **4.7.0 was tagged and released on GitHub but
+  never reached npm**, because this is the test that stopped the publish. Its
+  entire contents ship here, in 4.7.1 — the `[4.7.0]` section below is the
+  right place to read what changed.
+
 ## [4.7.0] — 2026-08-24
 
 ### Removed

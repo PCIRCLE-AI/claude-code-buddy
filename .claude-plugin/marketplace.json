@@ -8,7 +8,7 @@
       "name": "memesh",
       "source": "./",
       "description": "MeMesh — agentic memory for coding agents. Captured from the agent's real work via hooks, recalled when it acts. One SQLite file, zero cloud required.",
-      "version": "4.7.0",
+      "version": "4.7.1",
       "author": {
         "name": "PCIRCLE AI"
       },
