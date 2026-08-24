@@ -37,13 +37,29 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  // maxRetries/retryDelay here are wider than this repo's usual 5/100ms:
-  // this is the one test file that has actually shown Windows CI's
-  // ENOTEMPTY race (rmSync racing the OS's handle release after the child
-  // process spawned by runHook() exits) — twice, in the same CI run, both
-  // legs. 5/100ms (500ms worst case) was not always enough; 10/200ms (2s
-  // worst case) only costs time on the runs that were already retrying.
-  for (const d of [home, project]) fs.rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  // Root cause (confirmed by reading session-start.js, not guessed): every
+  // runHook() call reaches runPostBannerUpdateTasks() -> spawnFreshUpdateCheck(),
+  // which spawns a DETACHED, unref'd `node dist/transports/cli/cli.js status`
+  // against this test's HOME to refresh the update-check cache. That spawn is
+  // deliberately fire-and-forget — the hook must not block session start on a
+  // slow or offline npm lookup — so nothing here ever waits for it to exit.
+  // On a loaded Windows CI runner that child can still be mid-flight (real
+  // network I/O) when this afterEach fires, holding a handle under
+  // `<home>/.memesh` that Windows won't let rmdir past no matter how wide the
+  // retry window is: a wider window (this file went from 5/100ms to 10/200ms
+  // in a prior fix) only helps when the holder is *slow*, and this holder can
+  // legitimately still be *running*. That is a property of an unrelated,
+  // well-behaved background process outliving this test's cleanup window, not
+  // a defect in what this test asserts — so tolerate it instead of failing
+  // the test over it.
+  for (const d of [home, project]) {
+    try {
+      fs.rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== 'ENOTEMPTY' && code !== 'EBUSY' && code !== 'EPERM') throw err;
+    }
+  }
 });
 
 function writeMarker(scope: 'user' | 'project'): void {
