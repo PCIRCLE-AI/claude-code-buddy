@@ -652,8 +652,19 @@ process.stdin.on('end', async () => {
   // so npm install -g doesn't overwrite dist/ while peer hooks are reading it.
   await runAutoUpdateAtStop();
 
-  // Silent output — don't clutter Claude's response
-  console.log(JSON.stringify({ suppressOutput: true }));
+  // Emit NOTHING on success — not `{"suppressOutput": true}`.
+  //
+  // That field is valid Claude Code hook output, and it was doing no work:
+  // this hook writes nothing else to stdout, so there was never any output
+  // to suppress. But Codex CLI validates hook output per event against its
+  // own schema, and rejects the field on Stop — reported from a live
+  // Codex session as "hook returned invalid stop hook JSON output",
+  // once per turn, with the capture itself having already succeeded.
+  //
+  // Empty stdout with exit 0 is the "no opinion" signal in BOTH contracts,
+  // and it is what `validateHookOutput` already classifies as `kind: 'empty'`.
+  // So the portable answer is silence, and the field's only remaining effect
+  // was to fail one host for no benefit on the other.
   exit0();
 });
 

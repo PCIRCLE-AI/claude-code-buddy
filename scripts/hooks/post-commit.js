@@ -188,7 +188,19 @@ process.stdin.on('end', () => {
     // Never crash Claude Code — but leave a trace for debugging
     try { process.stderr.write(`[memesh post-commit] ${err?.message || err}\n`); } catch {}
   }
-  console.log(JSON.stringify({ suppressOutput: true }));
+  // Emit NOTHING on success — not `{"suppressOutput": true}`.
+  //
+  // That field is valid Claude Code hook output, and it was doing no work:
+  // this hook writes nothing else to stdout, so there was never any output
+  // to suppress. But Codex CLI validates hook output per event against its
+  // own schema, and rejects the field on PostToolUse — reported from a live
+  // Codex session as "PostToolUse hook returned unsupported suppressOutput",
+  // once per Bash tool call, with the capture itself having already succeeded.
+  //
+  // Empty stdout with exit 0 is the "no opinion" signal in BOTH contracts,
+  // and it is what `validateHookOutput` already classifies as `kind: 'empty'`.
+  // So the portable answer is silence, and the field's only remaining effect
+  // was to fail one host for no benefit on the other.
   exit0();
 });
 
