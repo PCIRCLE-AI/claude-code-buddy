@@ -113,4 +113,28 @@ describe('CLI error envelopes: caller mistakes are one line, not a crash', () =>
     expect(r.stderr).toContain('must be one of: true, false, 1, 0');
     expectNoStackTrace(r.stderr, 'config set transcriptMining');
   });
+
+  it('remember --obs "   " is refused, not stored as a memory with nothing in it (M-05)', () => {
+    // Dogfooded on the real v4.7.1 release: `--obs "   "` was accepted and
+    // stored `"observations": ["   "]` — a memory with no actual content.
+    // The CLI calls `remember()` directly and never passes through
+    // RememberSchema, so the MCP/HTTP fix alone would not have reached it.
+    const r = runCli(['remember', '--name', 'blank-test', '--type', 'note', '--obs', '   ']);
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toContain('whitespace-only');
+    expectNoStackTrace(r.stderr, 'remember --obs whitespace-only');
+
+    // Nothing was stored under that name.
+    const check = runCli(['recall', 'blank-test', '--json']);
+    const parsed = JSON.parse(check.stdout) as { entities: unknown[] };
+    expect(parsed.entities).toHaveLength(0);
+  });
+
+  it('remember with one real and one blank --obs refuses the whole call, not a partial store', () => {
+    const r = runCli(['remember', '--name', 'mixed-test', '--type', 'note', '--obs', 'a real fact', '   ']);
+    expect(r.exitCode).toBe(1);
+    const check = runCli(['recall', 'mixed-test', '--json']);
+    const parsed = JSON.parse(check.stdout) as { entities: unknown[] };
+    expect(parsed.entities, 'the real observation was stored despite the refusal').toHaveLength(0);
+  });
 });

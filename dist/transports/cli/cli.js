@@ -148,6 +148,10 @@ program
             '  memesh remember "Use OAuth 2.0 with PKCE"');
         process.exit(1);
     }
+    if (opts.obs?.some((o) => o.trim() === '')) {
+        console.error('Error: --obs needs some text. An empty or whitespace-only observation is not a memory.');
+        process.exit(1);
+    }
     const relations = [
         ...(opts.supersedes ?? []).map(to => ({ to, type: 'supersedes' })),
         ...(opts.contradicts ?? []).map(to => ({ to, type: 'contradicts' })),
@@ -212,7 +216,15 @@ program
             console.log(JSON.stringify(conflicts.length > 0 ? { entities, retrieval, conflicts } : { entities, retrieval }));
         }
         else if (entities.length === 0) {
-            console.log('No results found.');
+            if (query && retrieval.degraded) {
+                console.log('No results found. Semantic search is configured but could not run for this query (provider or index issue) — this was keyword-only. Run `memesh doctor` to check.');
+            }
+            else if (query && retrieval.mode === 'fts') {
+                console.log('No results found. This was a keyword-only search — no semantic search is configured. See `memesh doctor` for Smart Mode.');
+            }
+            else {
+                console.log('No results found.');
+            }
         }
         else {
             const allSemantic = query && entities.every((e) => e.match?.source === 'semantic');
@@ -439,7 +451,8 @@ program
             console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
             process.exit(1);
         }
-        console.log(`Imported: ${result.imported}, Skipped: ${result.skipped}, Appended: ${result.appended}`);
+        const overwriteNote = result.overwritten > 0 ? ` (${result.overwritten} overwritten)` : '';
+        console.log(`Imported: ${result.imported}${overwriteNote}, Skipped: ${result.skipped}, Appended: ${result.appended}`);
         if (result.skipped_relations.length > 0) {
             console.error(`Note: ${result.skipped_relations.length} relation(s) not restored — the target is not in this bundle:\n  `
                 + `${result.skipped_relations.join('\n  ')}`);

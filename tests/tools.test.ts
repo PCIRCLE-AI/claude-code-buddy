@@ -158,6 +158,17 @@ describe('remember', () => {
     expect(result.content[0].text).toContain('name');
   });
 
+  it('rejects a whitespace-only observation instead of storing an empty memory (M-05)', async () => {
+    const result = await handleTool('remember', {
+      name: 'blank-mcp-test', type: 'note', observations: ['   '],
+    });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/whitespace-only/i);
+
+    const recall = await handleTool('recall', { query: 'blank-mcp-test' });
+    expect(recallEntities(recall)).toEqual([]);
+  });
+
   it('returns validation error when name is empty', async () => {
     const result = await handleTool('remember', { name: '', type: 'decision' });
 

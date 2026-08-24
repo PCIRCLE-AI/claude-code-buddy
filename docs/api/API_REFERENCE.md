@@ -337,7 +337,7 @@ Imported entities are marked with import provenance and treated as untrusted for
 |----------|------------------------------|---------------------------|
 | `skip` | Keep existing entity unchanged, discard imported copy | **No** — "unchanged" includes its namespace |
 | `overwrite` | Replace existing entity's observations and tags with imported values | Yes |
-| `append` | Append imported observations to existing, deduplicate tags | Yes |
+| `append` | Append imported observations to existing (skipping any already present verbatim), deduplicate tags | Yes |
 
 `skip` is the exception because it is the one strategy that promises to touch
 nothing that is already there, and a namespace move is a change — it takes the
@@ -355,12 +355,17 @@ bundle.
 ```json
 {
   "imported": 10,
+  "overwritten": 0,
   "skipped": 2,
   "appended": 0,
   "errors": [],
   "skipped_relations": ["older-note -supersedes-> a-memory-not-in-this-bundle"]
 }
 ```
+
+`overwritten` is a subset of `imported`: how many of those entities already
+existed and had their data replaced (`merge_strategy: "overwrite"` hitting a
+name already in the graph) rather than being created from nothing.
 
 `skipped_relations` names each link the restore could not rebuild, as
 `from -type-> to`. It is reported but is **not** an error and does not fail the

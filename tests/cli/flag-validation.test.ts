@@ -95,6 +95,34 @@ describe('CLI: flags reject values they do not understand', () => {
       expect(after.entities.length).toBe(1);
       expect(after.entities[0].observations.length).toBeGreaterThanOrEqual(1);
     });
+
+    it('overwriting an existing entity prints a different line than creating one from nothing (M-18)', () => {
+      // Dogfooded: both cases printed the identical
+      // "Imported: N, Skipped: 0, Appended: 0" — no way to tell a
+      // destructive overwrite from a harmless first-time create.
+      const bundle = seedAndBundle();
+      const overwrite = runCli(['import', bundle, '--merge', 'overwrite']);
+      expect(overwrite.stdout).toContain('overwritten');
+
+      const freshBundle = path.join(home, 'fresh.json');
+      fs.writeFileSync(freshBundle, JSON.stringify({
+        version: '3.0.0', exported_at: '2026-08-10T00:00:00.000Z', entity_count: 1,
+        entities: [{ name: 'never-existed-before', type: 'note', observations: ['brand new'], tags: [] }],
+      }));
+      const create = runCli(['import', freshBundle, '--merge', 'overwrite']);
+      expect(create.stdout).not.toContain('overwritten');
+    });
+
+    it('append does not duplicate an observation already present, and stays that way on re-import', () => {
+      const bundle = seedAndBundle();
+      runCli(['import', bundle, '--merge', 'append']);
+      // Re-import the SAME bundle again — dogfooded: this duplicated the
+      // observation a second time, unbounded on further re-runs.
+      runCli(['import', bundle, '--merge', 'append']);
+      const json = JSON.parse(runCli(['recall', 'alpha', '--json']).stdout) as { entities: Array<{ observations: string[] }> };
+      const replacementCount = json.entities[0].observations.filter((o) => o === 'REPLACEMENT').length;
+      expect(replacementCount, 'the same observation duplicated across re-imports').toBe(1);
+    });
   });
 
   describe('--namespace', () => {

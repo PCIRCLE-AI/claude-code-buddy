@@ -229,6 +229,13 @@ export function importMemories(args: ImportInput): ImportResult {
   const kg = new KnowledgeGraph(db);
 
   let imported = 0;
+  /** Of `imported`, how many REPLACED an entity that already existed
+   *  (merge_strategy 'overwrite' hitting a name already in the graph) —
+   *  destructive, versus a genuinely new entity. Both used to increment
+   *  the same `imported` counter, so "Imported: 4" printed identically
+   *  whether it overwrote four existing memories or created four new
+   *  ones from nothing. */
+  let overwritten = 0;
   /** (from, to, type) triples held back until every entity exists. */
   const pendingRelations: Array<{ from: string; to: string; type: string }> = [];
   let skipped = 0;
@@ -285,6 +292,18 @@ export function importMemories(args: ImportInput): ImportResult {
           continue;
         }
         if (args.merge_strategy === 'append') {
+          // Exact-text dedupe against what the entity already has.
+          // `createEntity` INSERTs every observation it is handed with no
+          // dedupe of its own — correct for `remember`, where a caller
+          // stating the same fact again may be a deliberate re-assertion,
+          // but wrong for import, whose whole point is merging a bundle
+          // that may already have been imported once (the same backup
+          // restored twice, or two bundles that share entities). Without
+          // this, re-running `import --merge append` on the same file
+          // grows every shared entity's observation list without bound —
+          // dogfooded: the same sentence duplicated on every re-run.
+          const existingText = new Set(existing.observations);
+          const newObservations = (entity.observations ?? []).filter((o) => !existingText.has(o));
           // Pass trustOverride directly so the createEntity confidence-
           // bump gate denies the lift on untrusted imports. Codex
           // caught a P1 where the trust value was being set via
@@ -292,7 +311,7 @@ export function importMemories(args: ImportInput): ImportResult {
           // gate read undefined → defaulted to trusted → bumped.
           kg.createEntity(entity.name, entity.type, {
             title,
-            observations: entity.observations,
+            observations: newObservations,
             tags: entity.tags,
             namespace,
             trustOverride: 'untrusted',
@@ -366,6 +385,7 @@ export function importMemories(args: ImportInput): ImportResult {
       }
 
       imported++;
+      if (existing) overwritten++;
     } catch (err) {
       errors.push(`${entity.name}: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -399,5 +419,5 @@ export function importMemories(args: ImportInput): ImportResult {
     }
   }
 
-  return { imported, skipped, appended, errors, skipped_relations: skippedRelations };
+  return { imported, overwritten, skipped, appended, errors, skipped_relations: skippedRelations };
 }

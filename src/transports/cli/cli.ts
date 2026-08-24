@@ -287,6 +287,15 @@ program
       );
       process.exit(1);
     }
+    // Same rule RememberSchema enforces for MCP/HTTP (`.refine` on each
+    // element) — the CLI calls `remember()` directly and never passes
+    // through that schema, so without this the two surfaces disagreed:
+    // `--obs "   "` was accepted here and stored a memory with nothing in
+    // it, same defect class as `forget`'s `nonEmpty('--observation')`.
+    if (opts.obs?.some((o: string) => o.trim() === '')) {
+      console.error('Error: --obs needs some text. An empty or whitespace-only observation is not a memory.');
+      process.exit(1);
+    }
 
     const relations = [
       ...((opts.supersedes ?? []) as string[]).map(to => ({ to, type: 'supersedes' })),
@@ -371,7 +380,21 @@ program
           conflicts.length > 0 ? { entities, retrieval, conflicts } : { entities, retrieval },
         ));
       } else if (entities.length === 0) {
-        console.log('No results found.');
+        // A zero-hit on a keyword-only search (no semantic supplement ran)
+        // and a zero-hit after BOTH keyword and semantic ran are different
+        // levels of confidence — the first means "there might be something
+        // related this pass could not see", the second means "this really
+        // searched everything". Both used to print the identical line, so a
+        // caller had no way to tell a Core Mode gap from an exhaustive miss.
+        // `retrieval.mode` only means something for a real query — an empty
+        // query's zero-hit is "nothing in the graph yet", not a search gap.
+        if (query && retrieval.degraded) {
+          console.log('No results found. Semantic search is configured but could not run for this query (provider or index issue) — this was keyword-only. Run `memesh doctor` to check.');
+        } else if (query && retrieval.mode === 'fts') {
+          console.log('No results found. This was a keyword-only search — no semantic search is configured. See `memesh doctor` for Smart Mode.');
+        } else {
+          console.log('No results found.');
+        }
       } else {
         // Semantic-only result sets get an honest header instead of being
         // dressed as matches: the junk-vs-genuine distance distributions
@@ -665,7 +688,13 @@ program
         console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
         process.exit(1);
       }
-      console.log(`Imported: ${result.imported}, Skipped: ${result.skipped}, Appended: ${result.appended}`);
+      // `imported` alone did not say whether it REPLACED something already
+      // there — dogfooded: overwriting 4 existing memories and creating 4
+      // new ones from an empty graph printed the identical
+      // "Imported: 4, Skipped: 0, Appended: 0", with no way to tell which
+      // had happened from the output.
+      const overwriteNote = result.overwritten > 0 ? ` (${result.overwritten} overwritten)` : '';
+      console.log(`Imported: ${result.imported}${overwriteNote}, Skipped: ${result.skipped}, Appended: ${result.appended}`);
       // Named, not merely counted, and on stderr — a relation the restore
       // could not rebuild is information the user lost, and the only way to
       // get it back is to re-export with the entities it points at.

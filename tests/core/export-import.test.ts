@@ -260,6 +260,55 @@ describe('importMemories', () => {
     });
   });
 
+  it('append does not duplicate an observation that already reached the entity (M-18)', () => {
+    // Dogfooded on the real v4.7.1 release: running `import --merge append`
+    // on the same bundle twice duplicated every observation verbatim, with
+    // no bound on how many times — the exact shape of re-restoring the
+    // same backup, or two overlapping bundles that share an entity.
+    remember({ name: 'existing', type: 'note', observations: ['old'] });
+    const data = makeExport([{ name: 'existing', observations: ['old', 'genuinely new'] }]);
+    const result = importMemories({ data, merge_strategy: 'append' });
+    expect(result.appended).toBe(1);
+
+    const entity = recall({ query: 'existing' }).find((e) => e.name === 'existing');
+    // 'old' appears once, not twice — the bundle's copy of an observation
+    // the entity already had was skipped, not re-inserted.
+    expect(entity?.observations.filter((o) => o === 'old')).toHaveLength(1);
+    expect(entity?.observations).toContain('genuinely new');
+    expect(entity?.observations).toHaveLength(2);
+  });
+
+  it('re-importing the identical bundle with append is idempotent — no growth on a second run', () => {
+    remember({ name: 'existing', type: 'note', observations: ['old'] });
+    const data = makeExport([{ name: 'existing', observations: ['old', 'genuinely new'] }]);
+    importMemories({ data, merge_strategy: 'append' });
+    importMemories({ data, merge_strategy: 'append' });
+
+    const entity = recall({ query: 'existing' }).find((e) => e.name === 'existing');
+    expect(entity?.observations).toHaveLength(2);
+  });
+
+  it('distinguishes "overwrote an existing entity" from "created one from nothing" (M-18)', () => {
+    // Dogfooded: `Imported: 4, Skipped: 0, Appended: 0` printed identically
+    // whether it overwrote 4 pre-existing memories or created 4 from an
+    // empty graph — no signal in the output telling the two apart.
+    remember({ name: 'existing', type: 'note', observations: ['old'] });
+    const data = makeExport([
+      { name: 'existing', observations: ['fresh'] },
+      { name: 'brand-new', observations: ['from nothing'] },
+    ]);
+    const result = importMemories({ data, merge_strategy: 'overwrite' });
+    expect(result.imported).toBe(2);
+    expect(result.overwritten, 'only "existing" replaced a real entity').toBe(1);
+  });
+
+  it('a fresh-create import reports zero overwritten — the anti-vacuity half', () => {
+    const data = makeExport([{ name: 'never-seen-before', observations: ['new'] }]);
+    const result = importMemories({ data, merge_strategy: 'overwrite' });
+    expect(result.imported).toBe(1);
+    expect(result.overwritten).toBe(0);
+  });
+
   it('overrides namespace on import', () => {
     const data = makeExport([{ name: 'team-item', namespace: 'personal' }]);
     importMemories({ data, namespace: 'team', merge_strategy: 'skip' });
