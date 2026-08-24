@@ -34,6 +34,30 @@ All notable changes to MeMesh are documented here.
   — so an optional parameter only bought the ability to be answered with a
   guess.
 
+- **The security-advisory banner never learned about plugin installs.** The
+  SessionStart deprecation banner — the one that fires when maintainers flag
+  the installed version, typically for a security advisory — branched on
+  npm-global, source-checkout and project-local, and fell everything else
+  through to "fetch the latest from npm". It had no plugin-marketplace branch
+  at all, and it takes precedence over the routine "update available" banner,
+  which does have one. So the highest-stakes message carried the least
+  actionable instruction, on both Claude Code and Codex, while the ordinary
+  out-of-date message carried the right one.
+
+  The cause was that the decision had been written down twice. Both banners now
+  call one shared helper; that is what stops it recurring, not the added
+  branch.
+
+- **A plugin install under a relocated `CLAUDE_CONFIG_DIR` was classified as
+  `unknown`.** Install detection matched the literal `.claude` directory name.
+  Claude Code lets you move that whole directory with `CLAUDE_CONFIG_DIR`, and
+  when you do the name is absent from the path — so detection found nothing,
+  the install landed on `unknown`, and `memesh update` and `memesh doctor` both
+  answered a supported install with "update this from the tool that installed
+  MeMesh". Detection now resolves that variable as well as the path, keeping
+  the path match because the running process's home is not necessarily the home
+  the package lives under. The same handling covers Codex's `CODEX_HOME`.
+
 ### Changed
 
 - **`AGENTS.md` no longer states that Codex CLI has no hooks.** It can have
