@@ -421,7 +421,7 @@ MeMesh 的檢索引擎**只用 FTS5**（熱路徑上不使用 LLM、不使用嵌
 
 **🔄 知識演進** — 決策會改變。`forget` 歸檔舊記憶（永不刪除）。`supersedes` 關係連結舊 → 新。你的 AI 總是看到最新版本。
 
-**⚠️ 衝突偵測** — 如果你有兩個互相矛盾的記憶，MeMesh 會警告你。
+**⚠️ 衝突偵測** — `memesh dream conflicts` 會讓 LLM 判定語意上最接近的記憶配對，找出矛盾、汰換或重複，並把結果暫存成提案。沒有東西會自動套用：你用 `dream list` / `dream show` 檢視，只有被接受的提案才會建立關係 —— 之後每次 `recall` 碰到其中任一筆記憶都會帶上警告。因果關係從不從時間戳推論；判決依據的是記憶內容本身怎麼說。
 
 **🕸️ 知識圖連通性** — `memesh kg backfill-relations --all-rules` 使用標籤共現、專案叢集、會話上下文和名稱相似度連結孤立實體 — 無需 LLM。
 
@@ -440,6 +440,45 @@ MeMesh 的檢索引擎**只用 FTS5**（熱路徑上不使用 LLM、不使用嵌
 
 > 「儀表板顯示我 90% 的記憶是自動生成的對話日誌。我開始有意使用 `remember` 來記錄架構決策。改變了遊戲規則。」
 > — **發現分析面板的開發者**
+
+---
+
+## 食譜
+
+### 在矛盾咬你之前先抓到它
+
+兩個決策，隔了好幾週做的，卻不可能同時為真 — 這正是記憶層存在的目的，就是要抓到這種失敗模式：
+
+```bash
+memesh remember --name retry-policy --type decision \
+  --obs "所有 HTTP client 在請求失敗時都用指數退避重試，最多 5 次。"
+# ...幾週後，有人做了完全相反的決定...
+memesh remember --name retry-policy-v2 --type decision \
+  --obs "HTTP client 絕對不能自動重試 — 立刻失敗並把錯誤丟出來。"
+
+memesh dream conflicts        # 判定器標出這一對，附上判斷理由
+memesh dream show 1           # 看完整的判決、引用的段落，接受後會建立什麼
+memesh dream accept 1         # 由你決定 — 沒有東西會自動連起來
+memesh recall "retry policy"  # → 警告：偵測到衝突
+```
+
+從此之後，任何回憶到這兩個決策之一的代理都會被告知它們互相矛盾 — 而不是自信地引用剛好先找到的那一個。
+
+### 一份記憶，三個代理
+
+MeMesh 是一個 MCP server，所以同一個 SQLite 檔案能服務機器上的每一個 MCP 用戶端。每個工具只要註冊一次（確切指令見上方「60 秒快速開始」），在 Claude Code 記錄的決策，session 進行到一半時就能被 Codex 或 Gemini CLI 回憶起來 — 不用重新解釋，不用在不同廠商之間複製貼上 context。
+
+### 記錄決策讓它們保持可被找到
+
+自動擷取會保留 session 歷史，但真正划算的是那些刻意記下的記憶：
+
+```bash
+memesh remember --name auth-approach --type decision \
+  --obs "JWT 搭配 RS256；選 PKCE 而不是 implicit flow，因為 client 是公開的。" \
+  --tags "project:myapp" "topic:auth"
+```
+
+事情發生時，用平常講話的方式把結果連回原因 — 從任何 MCP 用戶端都行，像是：「把這次事故記成一個教訓，受 auth-approach 影響」。`remember` 工具接受自由格式的關係，`caused`／`influenced` 是文件裡定義的因果詞彙（因 → 果，要明確說出來 — MeMesh 從不從時間戳推論因果關係）。幾週後，`memesh recall "為什麼選 PKCE"` 會回傳那個決策，連同它記錄下來的後續影響一起 — 是可以追溯的推理，不只是剛好比對到的文字。
 
 ---
 
@@ -557,7 +596,7 @@ Session 開始時，有新版本可下載時會跳一行 banner（每版本每 2
 ```bash
 git clone https://github.com/PCIRCLE-AI/memesh
 cd memesh && npm install && npm run build
-npm test             # 630 項測試
+npm test
 npm run test:e2e-dashboard
 ```
 
