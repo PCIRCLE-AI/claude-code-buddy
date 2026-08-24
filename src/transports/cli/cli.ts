@@ -2312,6 +2312,19 @@ program
         console.log(`${opts.dryRun ? '[dry-run] Would remove ' : 'Removed '}${result.pruned} retired memesh hook entr${result.pruned === 1 ? 'y' : 'ies'} no longer shipped by this version.`);
       }
       if (result.backupPath) console.log(`Backup: ${result.backupPath}`);
+      // `installHooks` writes this marker whenever settings.json itself was
+      // written (added > 0 || skipped > 0, and not a dry-run) — the same
+      // condition as the settings write itself, NOT the same as the backup
+      // above: `backupSettings` returns null on a fresh install with no
+      // pre-existing settings.json to back up, so gating on `backupPath`
+      // would have hidden this line on exactly the install where a user
+      // most needs to know a new file appeared. Reported for the same
+      // reason the settings path and backup are: a file this command
+      // writes to disk should not be a surprise the user only discovers
+      // via `memesh doctor` or by reading the source.
+      if (!opts.dryRun && (result.added > 0 || result.skipped > 0)) {
+        console.log(`Marker: ${result.markerPath}`);
+      }
       // The citation contract's fate, reported on BOTH exits. `foreign-file`
       // is the one that matters: a file already sits at that path without
       // memesh's marker, so the contract was NOT installed — and the run

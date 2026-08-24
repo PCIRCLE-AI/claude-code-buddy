@@ -1778,6 +1778,9 @@ program
         }
         if (result.backupPath)
             console.log(`Backup: ${result.backupPath}`);
+        if (!opts.dryRun && (result.added > 0 || result.skipped > 0)) {
+            console.log(`Marker: ${result.markerPath}`);
+        }
         if (result.citationRule.action === 'foreign-file') {
             console.log('');
             console.log(`WARNING: the citation contract was NOT installed — a file memesh did not write already exists at ${result.citationRule.path}.`);
