@@ -153,11 +153,16 @@ export function isEmptyTaskState(state: TaskState): boolean {
   return TASK_STATE_FIELDS.every((field) => !state[field]);
 }
 
+// `done` was 'Just finished'. That phrase asserts recency the store cannot
+// know: the value is whatever was last SAID, and nothing says it again when the
+// work moves on. Injected on 2026-08-24 it read "Just finished: v4.6.0" while
+// 38 PRs had merged since and npm was serving 4.7.3. The label now describes
+// when the claim was made, not how recent the event is.
 const FIELD_LABELS: Record<TaskStateField, string> = {
   goal: 'Goal',
   next: 'Next',
   blocked: 'Blocked',
-  done: 'Just finished',
+  done: 'Had just finished',
 };
 
 /** Whole days between two instants, floored; null when the stamp is unusable. */
@@ -172,10 +177,21 @@ function ageInDays(updatedAt: string | undefined, now: Date): number | null {
 /**
  * The block injected at session start.
  *
- * The age is part of the heading, not decoration. "Where you left off" reads
- * as *yesterday* whatever the truth is, and a goal that was written six weeks
- * ago is likely finished or abandoned — an agent that knows the age can weigh
- * it; one that does not will act on a stale goal with full confidence.
+ * The age is part of the heading, not decoration. A goal written six weeks ago
+ * is likely finished or abandoned — an agent that knows the age can weigh it;
+ * one that does not will act on a stale goal with full confidence.
+ *
+ * The heading used to read `Where "<project>" was left off`, which is a claim
+ * about the project. It is not one: every field here is something a person
+ * SAID, recorded when they said it and never revisited, because nothing tells
+ * the store when the work moves on. Carrying the age was not enough to stop it
+ * being read as status — on 2026-08-24 this block opened a session with
+ * "Just finished: v4.6.0" against 38 merged PRs and a published 4.7.3, and the
+ * age was right there in the heading.
+ *
+ * So the heading now attributes rather than asserts. What the project is
+ * actually doing comes from `repo-state.ts`, which derives it from git on
+ * every call and therefore cannot go stale.
  */
 export function taskStateLines(
   state: TaskState,
@@ -184,8 +200,8 @@ export function taskStateLines(
 ): string[] {
   if (isEmptyTaskState(state)) return [];
   const days = ageInDays(state.updated_at, now);
-  const age = days === null ? '' : days === 0 ? ' (today)' : days === 1 ? ' (yesterday)' : ` (${days} days ago)`;
-  const lines = [`Where "${project}" was left off${age}:`];
+  const age = days === null ? 'at some point' : days === 0 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`;
+  const lines = [`Stated about "${project}" ${age}, and not revisited since:`];
   for (const field of TASK_STATE_FIELDS) {
     const value = state[field];
     if (value) lines.push(`- ${FIELD_LABELS[field]}: ${value}`);

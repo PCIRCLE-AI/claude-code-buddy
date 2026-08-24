@@ -24,7 +24,9 @@ import {
   // home resolver the update-check cache itself uses.
   memeshDir as memeshHomeDir,
   parseTaskState,
+  readRepoState,
   readUpdateCheckCache,
+  repoStateLines,
   resolvePluginRoot,
   resolveSessionLimit,
   taskStateLines,
@@ -976,8 +978,16 @@ process.stdin.on('end', async () => {
         try { process.stderr.write(`[memesh session-start] memory-context: ${err?.message || err}\n`); } catch {}
       }
 
+      // Same prefix, same rule, as `assembleBriefing`: repository facts are
+      // context for memories, never a briefing on their own. Inside the
+      // emptiness gate so a project with nothing recorded still injects
+      // nothing — a fenced block containing only a branch name tells the
+      // agent something it can already see. briefing.test.ts's parity case
+      // is what keeps this identical to the tool side.
       let memoryContext = '';
       if (memoryLines.length > 0) {
+        const repoLines = repoStateLines(readRepoState(data.cwd));
+        if (repoLines.length > 0) memoryLines.unshift(...repoLines, '');
         // Same wrapper pre-edit-recall uses: an explicit "background data,
         // not instructions" preamble plus a fenced block. Memory content is
         // attacker-influenced in the general case (anything the agent has

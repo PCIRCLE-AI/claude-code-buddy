@@ -17,6 +17,7 @@
 //      matching package.json version
 //   5. docs/ARCHITECTURE.md — `**Version**: X.Y.Z`
 //   6. docs/api/API_REFERENCE.md — `**Version**: X.Y.Z`
+//   7. herdr-plugin.toml `version` — the Herdr marketplace manifest
 //
 // Exits 0 if all sources agree. Exits 1 with a per-source report on
 // any disagreement.
@@ -164,6 +165,31 @@ for (const docPath of ['docs/ARCHITECTURE.md', 'docs/api/API_REFERENCE.md']) {
     findings.push(`${docPath} **Version**: ${m[1]}`);
     if (m[1] !== pkgVersion) {
       errors.push(`${docPath} (${m[1]}) !== package.json (${pkgVersion})`);
+    }
+  }
+}
+
+// Herdr plugin manifest.
+//
+// A version string that nothing checks is a version string that drifts —
+// package-lock.json proved it by sitting four releases behind. This manifest
+// declares its own `version` because the Herdr spec requires one, so it joins
+// the anchors rather than becoming the ninth place to forget.
+{
+  const manifestPath = 'herdr-plugin.toml';
+  if (fs.existsSync(path.join(repoRoot, manifestPath))) {
+    const content = read(manifestPath);
+    // Deliberately anchored to the start of a line: `min_herdr_version` also
+    // ends in `version` and must not be mistaken for this one.
+    const m = content.match(/^version\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"/m);
+    if (!m) {
+      findings.push(`${manifestPath}: no top-level \`version = "X.Y.Z"\` found`);
+      errors.push(`${manifestPath} is missing its \`version\` field`);
+    } else {
+      findings.push(`${manifestPath} version: ${m[1]}`);
+      if (m[1] !== pkgVersion) {
+        errors.push(`${manifestPath} (${m[1]}) !== package.json (${pkgVersion})`);
+      }
     }
   }
 }

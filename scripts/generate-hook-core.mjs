@@ -48,6 +48,7 @@ const SOURCES = [
   { from: 'dist/core/title.js', to: 'title.js', src: 'src/core/title.ts' },
   { from: 'dist/core/work-topology.js', to: 'work-topology.js', src: 'src/core/work-topology.ts' },
   { from: 'dist/core/task-state.js', to: 'task-state.js', src: 'src/core/task-state.ts' },
+  { from: 'dist/core/repo-state.js', to: 'repo-state.js', src: 'src/core/repo-state.ts' },
   { from: 'dist/core/guards.js', to: 'guards.js', src: 'src/core/guards.ts' },
   { from: 'dist/core/time-utils.js', to: 'time-utils.js', src: 'src/core/time-utils.ts' },
   // The citation contract. Mirrored because a PLUGIN install never runs

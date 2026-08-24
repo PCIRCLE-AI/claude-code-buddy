@@ -211,7 +211,7 @@ describe('Feature: Session Start Hook', () => {
       expect(injected).toContain('do not repeat these');
     });
 
-    it('leads with where the work was left off, and says it only once', () => {
+    it('leads with what was stated, attributed not asserted, and says it only once', () => {
       // The one line in this block someone stated on purpose. Everything else
       // is ranked, and ranking cannot know what you meant to do next — so it
       // goes first, before anything can push it past the character budget.
@@ -240,11 +240,19 @@ describe('Feature: Session Start Hook', () => {
       const output = runHook({ cwd: '/tmp/myproject' });
       const injected = (output.hookSpecificOutput as { additionalContext: string }).additionalContext;
 
-      expect(injected).toContain('was left off');
+      // The heading attributes rather than asserts. It read `was left off`
+      // until 2026-08-24, when it opened a session with "Just finished:
+      // v4.6.0" against 38 merged PRs and a published 4.7.3 — a claim about
+      // the project, made out of something a person had said eight days
+      // earlier. What the project is actually doing now comes from the
+      // repository block above it, derived from git on every injection.
+      expect(injected).toContain('Stated about');
+      expect(injected, 'the heading claims to describe the project rather than quote someone')
+        .not.toContain('was left off');
       expect(injected).toContain('Open the PR once Windows CI is green');
 
       // Before the ranked sections, not merely present in the block.
-      expect(injected.indexOf('was left off')).toBeLessThan(injected.indexOf('Decisions and direction'));
+      expect(injected.indexOf('Stated about')).toBeLessThan(injected.indexOf('Decisions and direction'));
 
       // And exactly once. The row carries the project tag (it must, or the
       // hook's project query would never see it), so without an explicit

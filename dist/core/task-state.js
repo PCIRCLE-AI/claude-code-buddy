@@ -64,7 +64,7 @@ const FIELD_LABELS = {
     goal: 'Goal',
     next: 'Next',
     blocked: 'Blocked',
-    done: 'Just finished',
+    done: 'Had just finished',
 };
 function ageInDays(updatedAt, now) {
     if (!updatedAt)
@@ -79,8 +79,8 @@ export function taskStateLines(state, project, now = new Date()) {
     if (isEmptyTaskState(state))
         return [];
     const days = ageInDays(state.updated_at, now);
-    const age = days === null ? '' : days === 0 ? ' (today)' : days === 1 ? ' (yesterday)' : ` (${days} days ago)`;
-    const lines = [`Where "${project}" was left off${age}:`];
+    const age = days === null ? 'at some point' : days === 0 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`;
+    const lines = [`Stated about "${project}" ${age}, and not revisited since:`];
     for (const field of TASK_STATE_FIELDS) {
         const value = state[field];
         if (value)

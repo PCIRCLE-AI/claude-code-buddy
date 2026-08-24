@@ -111,7 +111,7 @@ describe('task-state', () => {
       new Date('2026-08-16T12:00:00.000Z'),
     );
     const fields = lines.slice(1).map((l) => l.replace(/^- ([^:]+):.*$/, '$1'));
-    expect(fields).toEqual(['Goal', 'Next', 'Blocked', 'Just finished']);
+    expect(fields).toEqual(['Goal', 'Next', 'Blocked', 'Had just finished']);
     // Every declared field is renderable — a field added to the constant
     // without a label would silently never show up.
     expect(fields).toHaveLength(TASK_STATE_FIELDS.length);
