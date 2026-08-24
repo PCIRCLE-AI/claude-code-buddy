@@ -54,6 +54,7 @@ export function assembleBriefing(project) {
     const projectRows = db.prepare(`SELECT DISTINCT ${CANDIDATE_COLUMNS}
      FROM entities e JOIN tags t ON t.entity_id = e.id
      WHERE t.tag = ? AND e.status = 'active'
+     ORDER BY e.id DESC
      LIMIT ?`).all(`project:${projectName}`, TOPOLOGY_CANDIDATE_CAP);
     const projectPool = selectPool(projectRows, PROJECT_LIMIT);
     const recentRows = db.prepare(`SELECT ${CANDIDATE_COLUMNS}

@@ -395,6 +395,17 @@ describe('doctor', () => {
     // fresh dir with no install-hooks.json → returns warn, not fail.
     const memeshDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-doctor-mdir-'));
     tempRoots.push(memeshDir);
+    // This scenario is "an install that has been around a while and STILL
+    // has never completed an update check" (a real concern, e.g. no
+    // internet ever) — not a brand-new install, which gets a 24h grace
+    // period. Without this, the temp dir's install.json would be
+    // lazily created with created_at = now, and the fresh-install grace
+    // period would turn the WARN this test exists to pin into a PASS.
+    writeJson(path.join(memeshDir, 'install.json'), {
+      install_id: 'test-established-install',
+      created_at: '2020-01-01T00:00:00.000Z',
+      schema_version: 1,
+    });
     const originalMemeshDir = process.env.MEMESH_DIR;
     process.env.MEMESH_DIR = memeshDir;
 
@@ -435,6 +446,43 @@ describe('doctor', () => {
     expect(result.status).toBe('PASS_WITH_CONCERNS');
     expect(result.checks.find((check) => check.id === 'config')?.status).toBe('pass');
     expect(result.checks.find((check) => check.id === 'update-status')?.status).toBe('warn');
+  });
+
+  it('a fresh install with no update check yet is not a concern (M-10)', async () => {
+    // The same "no cache" state as the test above, but on an install
+    // still inside its 24h grace period — the same period
+    // inspectHookWiring already gives a brand-new hook install. It has
+    // not had a CHANCE to check yet, which is not evidence of anything.
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+    const memeshDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-doctor-fresh-'));
+    tempRoots.push(memeshDir);
+    const originalMemeshDir = process.env.MEMESH_DIR;
+    process.env.MEMESH_DIR = memeshDir;
+    // No install.json pre-seeded: getInstallRecord() lazily creates one
+    // with created_at = now, which IS the fresh-install shape.
+
+    const result = await runDoctor({
+      packageRoot,
+      packageVersion: '4.7.1',
+      openDatabaseImpl: () => makeDatabase() as never,
+      closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => caps({ searchLevel: 0, llm: null, embeddings: 'tfidf' }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => null,
+      getCurrentInstallChannelImpl: () => 'npm-global',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
+        recommendedCommand: 'memesh update', guidance: '',
+      }),
+      nativeBindingProbeImpl: () => ({ ok: true }),
+    });
+
+    if (originalMemeshDir === undefined) delete process.env.MEMESH_DIR;
+    else process.env.MEMESH_DIR = originalMemeshDir;
+
+    const updateCheck = result.checks.find((check) => check.id === 'update-status');
+    expect(updateCheck?.status, `a fresh install should not warn: ${updateCheck?.summary}`).toBe('pass');
   });
 
   it('the Config row agrees with the Capabilities row when an env key enables Smart Mode', async () => {
@@ -2119,7 +2167,11 @@ describe('README locale parity (doctor sub-check)', () => {
     expect(check.fix).toBeTruthy();
   });
 
-  it('warns when a locale README is missing entirely', async () => {
+  it('warns when a locale README is missing while at least one sibling is present', async () => {
+    // A real dev checkout has every locale present. If it doesn't — a
+    // translation was dropped, or a new locale was added to the list and
+    // one file forgotten — the AT-LEAST-ONE-PRESENT signal below distinguishes
+    // that genuine drift from a packaged install, which has none at all.
     const root = createPackageRoot();
     tempRoots.push(root);
     fs.writeFileSync(path.join(root, 'README.md'), buildReadme(15));
@@ -2134,15 +2186,72 @@ describe('README locale parity (doctor sub-check)', () => {
     expect(check.summary).toMatch(/missing: README\.zh-TW\.md/);
   });
 
-  it('skips silently when README.md is not present (packaged install)', async () => {
+  it('skips silently when README.md is not present (an even more minimal tarball)', async () => {
     const root = createPackageRoot();
     tempRoots.push(root);
-    // No README.md at all — simulates an npm-published tarball that
-    // didn't bundle docs.
+    // No README.md at all.
     const result = await doctorOn(root);
     const check = result.checks.find(c => c.id === 'readme_locale_parity')!;
     expect(check.status).toBe('pass');
     expect(check.summary).toMatch(/check skipped/);
+  });
+
+  it('skips silently when README.md is present but no locale READMEs are — the real shape of every npm install', async () => {
+    // npm always includes README.md in a published tarball (and this
+    // package's `files` lists it explicitly too), so it is NOT the signal
+    // for "packaged install without docs" the check above treats it as.
+    // The locale READMEs are the ones actually absent from `files` — this
+    // is what every real end-user's install looks like, and it must not
+    // warn "missing: README.de.md, README.zh-TW.md" at them.
+    const root = createPackageRoot();
+    tempRoots.push(root);
+    fs.writeFileSync(path.join(root, 'README.md'), buildReadme(15));
+    // No locale READMEs at all — the real packaged shape.
+
+    const result = await doctorOn(root);
+    const check = result.checks.find(c => c.id === 'readme_locale_parity')!;
+    expect(check.status, `a real npm install should never see: ${check.summary}`).toBe('pass');
+    expect(check.summary).toMatch(/check skipped/);
+  });
+});
+
+describe('Install ID (doctor sub-check)', () => {
+  it('names the resolved MEMESH_DIR, not a hardcoded ~/.memesh', async () => {
+    // Every other row that names a path on disk (database, hook markers)
+    // resolves it through memeshDir()/getDbPath(), which respect the
+    // MEMESH_DIR override the test harness (and MEMESH_DIR-configured
+    // installs) use. This row used to print the literal string
+    // `~/.memesh/install.json` regardless of where the file actually was.
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+    const customMemeshDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-doctor-installid-'));
+    tempRoots.push(customMemeshDir);
+    const original = process.env.MEMESH_DIR;
+    process.env.MEMESH_DIR = customMemeshDir;
+
+    try {
+      const result = await runDoctor({
+        packageRoot,
+        packageVersion: '4.7.1',
+        openDatabaseImpl: () => makeDatabase(3) as never,
+        closeDatabaseImpl: () => undefined,
+        detectCapabilitiesImpl: () => caps({ searchLevel: 0, llm: null, embeddings: 'ollama' }),
+        getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+        getUpdateCheckImpl: async () => makeUpdateCheck(),
+        getCurrentInstallChannelImpl: () => 'source-checkout',
+        getInstallChannelSupportImpl: () => ({
+          channel: 'source-checkout', label: 'source', canSelfUpdate: false,
+          recommendedCommand: '', guidance: 'source checkout',
+        }),
+      });
+      const check = result.checks.find(c => c.id === 'install_id')!;
+      expect(check).toBeDefined();
+      expect(check.summary).toContain(path.join(customMemeshDir, 'install.json'));
+      expect(check.summary).not.toContain('~/.memesh');
+    } finally {
+      if (original === undefined) delete process.env.MEMESH_DIR;
+      else process.env.MEMESH_DIR = original;
+    }
   });
 });
 

@@ -13,11 +13,13 @@ import { execFileSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { openDatabase, closeDatabase } from '../../src/db.js';
+import { openDatabase, closeDatabase, getDatabase } from '../../src/db.js';
 import { handleTool } from '../../src/mcp/tools.js';
 import { assembleBriefing } from '../../src/core/briefing.js';
 import { setTaskState } from '../../src/core/task-state-store.js';
 import { remember } from '../../src/core/operations.js';
+import { KnowledgeGraph } from '../../src/knowledge-graph.js';
+import { TOPOLOGY_CANDIDATE_CAP } from '../../src/core/work-topology.js';
 import { getProjectName } from '../../src/core/paths.js';
 
 let tmpDir: string;
@@ -150,4 +152,57 @@ describe('assembleBriefing', () => {
     expect(contentLines(briefing)).toEqual(contentLines(injected));
     expect(briefing).toContain('Prove the parity');
   });
+
+  it('the candidate window keeps the newest entities when a project exceeds the cap (M-19)', () => {
+    // Latent — the largest real project measured is 177, well under
+    // TOPOLOGY_CANDIDATE_CAP (400) — but the SQL `LIMIT ?` selecting a
+    // project's candidates had no `ORDER BY`. Below the cap this is
+    // invisible; above it, SQLite's DISTINCT dedup (not necessarily
+    // newest-first) decides which candidates ever reach ranking at all —
+    // measured: it returns ascending by id, oldest-first, with no
+    // `ORDER BY` present.
+    //
+    // Every entity below is identical in every ranking factor (type,
+    // confidence, access_count all default), so rankEntities' scores tie
+    // and Array.prototype.sort's stability preserves the SQL's row
+    // order — which is exactly what isolates this defect from ranking
+    // behaviour: whichever candidate survives the SQL-level LIMIT is
+    // whichever the briefing can possibly mention.
+    const db = getDatabase();
+    const kg = new KnowledgeGraph(db);
+    const total = TOPOLOGY_CANDIDATE_CAP + 20;
+    for (let i = 0; i < total; i++) {
+      kg.createEntity(`cap-entity-${String(i).padStart(4, '0')}`, 'note', {
+        title: `cap entity number ${i}`,
+        observations: ['filler observation'],
+        tags: [`project:${PROJECT}`],
+      });
+    }
+    // The "recent across all projects" pool (recentRows) is ALREADY
+    // ordered newest-first and would independently surface this
+    // project's newest entities regardless of whether the project-scoped
+    // query is fixed — masking the very defect this test exists to catch.
+    // A batch of newer, differently-tagged entities pushes every
+    // `cap-entity-*` id out of that global top-5, so anything the
+    // assembled text says about them can only have come through the
+    // project-scoped query under test.
+    for (let i = 0; i < 10; i++) {
+      kg.createEntity(`noise-entity-${String(i).padStart(3, '0')}`, 'note', {
+        title: `unrelated noise ${i}`,
+        observations: ['filler observation'],
+        tags: ['project:noise-unrelated'],
+      });
+    }
+
+    const text = assembleBriefing(PROJECT).text;
+    // The newest entity created (highest id) must have survived the
+    // SQL-level window to be eligible for ranking at all.
+    expect(text, 'the newest candidate never reached ranking — the SQL window dropped it')
+      .toContain(`cap entity number ${total - 1}`);
+    // Anti-vacuity: the oldest entity, created before the 400-row cap
+    // even started mattering, must NOT be the one occupying a ranking
+    // slot — if it is, the window kept the wrong end.
+    expect(text, 'the oldest candidate is still winning a ranking slot over the newest')
+      .not.toContain('cap entity number 0\n');
+  }, 30_000);
 });

@@ -73,8 +73,8 @@
     },
     {
       "path": "scripts/hooks/_shared.js",
-      "sha256": "90d2c0b90e98c4a022a758bb901c4cfda4f30378fc8664388da72fe58ee31395",
-      "bytes": 42912
+      "sha256": "55c7a597f19a2270cbf06d052d7889a1a1ce7fbdc9ba96dd9cc08d206ef887c1",
+      "bytes": 42209
     },
     {
       "path": "scripts/hooks/guard-check.js",
@@ -93,8 +93,8 @@
     },
     {
       "path": "scripts/hooks/pre-edit-recall.js",
-      "sha256": "d4ce1804cc48f925d1f56c0da919ffe6ca17350f72d165255a92cda7783f4a35",
-      "bytes": 12979
+      "sha256": "5e279623719878047eba4c2c1ba164b02e6a4ea8cff4896dd1048a3e48892978",
+      "bytes": 13852
     },
     {
       "path": "scripts/hooks/session-start.js",

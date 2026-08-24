@@ -1056,22 +1056,29 @@ function backfillSignalScores(db: MemeshDatabase): void {
   ).get(MARKER);
   if (done) return;
 
-  const rows = db.prepare(
-    'SELECT id, name, type, metadata FROM entities'
-  ).all() as Array<{ id: number; name: string; type: string; metadata: string | null }>;
-
-  if (rows.length === 0) {
-    db.prepare(
-      "INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)"
-    ).run(MARKER, new Date().toISOString());
-    return;
-  }
-
   const obsStmt = db.prepare('SELECT content FROM observations WHERE entity_id = ?');
   const tagStmt = db.prepare('SELECT tag FROM tags WHERE entity_id = ?');
   const updateStmt = db.prepare('UPDATE entities SET metadata = ? WHERE id = ?');
 
+  // The work list is read HERE, inside the write transaction, not before
+  // it. Reading it outside — as this used to — let a concurrent writer
+  // (another process holds no exclusive claim on this database file)
+  // insert a new, unscored entity between the read and this transaction's
+  // write lock; that row would never appear in `rows`, and the marker set
+  // at the end of a successful pass would still record the backfill as
+  // done, forever, for a row it never saw. `runOnceMigration` exists for
+  // exactly this: read the work list and commit the result under the same
+  // lock, so nothing can be inserted into the gap between them.
   const tx = db.transaction(() => {
+    // Re-check under the write lock — another process may have completed
+    // this same backfill (and set MARKER) between the pre-check above and
+    // this transaction acquiring the lock.
+    if (db.prepare('SELECT value FROM memesh_metadata WHERE key = ?').get(MARKER)) return;
+
+    const rows = db.prepare(
+      'SELECT id, name, type, metadata FROM entities'
+    ).all() as Array<{ id: number; name: string; type: string; metadata: string | null }>;
+
     let scored = 0;
     let skipped = 0;
     for (const row of rows) {
@@ -1201,29 +1208,36 @@ function backfillAcceptedProposalTrust(db: MemeshDatabase): void {
     db.prepare('INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)')
       .run(MARKER, JSON.stringify({ at: new Date().toISOString(), cleared, skipped }));
 
-  // json_extract rather than a LIKE scan: the two markers are structural, and
-  // a substring match would also hit an observation that merely quotes them.
-  let rows: Array<{ id: number; metadata: string | null }>;
-  try {
-    rows = db.prepare(
-      `SELECT id, metadata FROM entities
-        WHERE metadata IS NOT NULL
-          AND json_valid(metadata)
-          AND json_extract(metadata, '$.trust') = 'untrusted'
-          AND json_extract(metadata, '$.proposal_id') IS NOT NULL`,
-    ).all() as Array<{ id: number; metadata: string | null }>;
-  } catch {
-    // A SQLite build without JSON1 cannot run the predicate. Leaving the
-    // marker unset means a later open on a JSON1-capable build still does the
-    // work — the honest outcome, versus stamping "done" over a pass that
-    // never ran.
-    return;
-  }
-
-  if (rows.length === 0) { stamp(0, 0); return; }
-
   const updateStmt = db.prepare('UPDATE entities SET metadata = ? WHERE id = ?');
+  // The work list is read HERE, inside the write transaction — see the
+  // comment on the same shape in backfillSignalScores above. Read before
+  // the lock, and a concurrent process's `dream accept` between the read
+  // and this transaction's write lock inserts a row this pass would never
+  // see, permanently, once the marker below is set.
   const tx = db.transaction(() => {
+    if (db.prepare('SELECT value FROM memesh_metadata WHERE key = ?').get(MARKER)) return;
+
+    // json_extract rather than a LIKE scan: the two markers are structural,
+    // and a substring match would also hit an observation that merely
+    // quotes them.
+    let rows: Array<{ id: number; metadata: string | null }>;
+    try {
+      rows = db.prepare(
+        `SELECT id, metadata FROM entities
+          WHERE metadata IS NOT NULL
+            AND json_valid(metadata)
+            AND json_extract(metadata, '$.trust') = 'untrusted'
+            AND json_extract(metadata, '$.proposal_id') IS NOT NULL`,
+      ).all() as Array<{ id: number; metadata: string | null }>;
+    } catch {
+      // A SQLite build without JSON1 cannot run the predicate. Leaving the
+      // marker unset means a later open on a JSON1-capable build still does
+      // the work — the honest outcome, versus stamping "done" over a pass
+      // that never ran. Returning here commits an empty transaction: a
+      // no-op, not a rollback, which is what "nothing happened" should be.
+      return;
+    }
+
     let cleared = 0;
     let skipped = 0;
     for (const row of rows) {
@@ -1249,24 +1263,21 @@ function backfillTitles(db: MemeshDatabase): void {
   ).get(MARKER);
   if (done) return;
 
-  const rows = db.prepare(
-    'SELECT id, name, type, status, metadata FROM entities WHERE title IS NULL'
-  ).all() as Array<{ id: number; name: string; type: string; status: string; metadata: string | null }>;
-
-  const stamp = (titled: number, skipped: number) =>
-    db.prepare(
-      'INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)'
-    ).run(MARKER, JSON.stringify({ at: new Date().toISOString(), titled, skipped }));
-
-  if (rows.length === 0) {
-    stamp(0, 0);
-    return;
-  }
-
   const obsStmt = db.prepare('SELECT content FROM observations WHERE entity_id = ? ORDER BY id');
   const updateStmt = db.prepare('UPDATE entities SET title = ?, metadata = ? WHERE id = ?');
 
+  // The work list is read HERE, inside the write transaction — see the
+  // comment on the same shape in backfillSignalScores above. Read before
+  // the lock, and a concurrent process's `remember` between the read and
+  // this transaction's write lock inserts a title-less row this pass would
+  // never see, permanently, once the marker below is set.
   const tx = db.transaction(() => {
+    if (db.prepare('SELECT value FROM memesh_metadata WHERE key = ?').get(MARKER)) return;
+
+    const rows = db.prepare(
+      'SELECT id, name, type, status, metadata FROM entities WHERE title IS NULL'
+    ).all() as Array<{ id: number; name: string; type: string; status: string; metadata: string | null }>;
+
     let titled = 0;
     let skipped = 0;
     for (const row of rows) {

@@ -370,12 +370,17 @@ export function removeFromFts(
 }
 
 /**
- * FTS5 contentless `'delete'` raises SQLITE_ERROR with a "database
- * disk image is malformed" or "no such rowid" style message when the
- * indexed (name, observations) values don't match what the index has
- * stored for the rowid. That's still benign in our schema: the entity
- * either was never indexed (e.g. status='archived' from migration) or
- * was already cleaned up by a prior call. We treat those as no-ops.
+ * FTS5 contentless `'delete'` raises SQLITE_ERROR with a "no such rowid"
+ * style message when the indexed (name, observations) values don't match
+ * what the index has stored for the rowid. That's still benign in our
+ * schema: the entity either was never indexed (e.g. status='archived'
+ * from migration) or was already cleaned up by a prior call. We treat
+ * those as no-ops.
+ *
+ * "database disk image is malformed" is a DIFFERENT failure class — real
+ * corruption, not a values mismatch — and this schema's delete path
+ * cannot produce it as the benign case above; see the classifier's own
+ * exclusion list below, which is what actually runs.
  *
  * Anything else — disk full, locked DB, malformed schema, foreign-key
  * cascade failure — should reach the operator.
