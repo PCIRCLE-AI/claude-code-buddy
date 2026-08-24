@@ -90,8 +90,8 @@ export function assertSafeShellArg(value, what) {
  */
 function runSync(bin, args, opts) {
   if (!isWindows) return execFileSync(bin, args, opts);
-  args.forEach((arg, i) => assertSafeShellArg(arg, `${bin} argument ${i} (${arg})`));
-  return execSync([bin, ...args].join(' '), opts);
+  const safeArgs = args.map((arg, i) => assertSafeShellArg(arg, `${bin} argument ${i} (${arg})`));
+  return execSync([bin, ...safeArgs].join(' '), opts);
 }
 
 /** `npm <args>`, spawned correctly for the platform. */
