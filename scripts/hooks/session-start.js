@@ -138,6 +138,11 @@ function buildDeprecationBanner(currentVersion, cache) {
         ? `    Run: memesh update   (or set autoUpdate: memesh config set autoUpdate patch)`
         : `    Run: memesh update   (resolves @latest — or set: memesh config set autoUpdate patch)`,
     );
+  } else if (channel === 'plugin-marketplace') {
+    // Was missing entirely, so a plugin user under an active security
+    // advisory fell to the generic npm line below — advice that does not
+    // apply to a version-pinned plugin install on either host.
+    lines.push(pluginUpgradeLine(resolvePluginRoot(import.meta.url)));
   } else if (channel === 'source-checkout') {
     lines.push(`    Source checkout: pull and rebuild (\`git pull && npm install && npm run build\`).`);
   } else if (channel === 'npm-local') {
@@ -265,15 +270,7 @@ function buildUpdateAvailableBanner(currentVersion, cache, getChannel) {
   if (channel === 'npm-global') {
     lines.push(`    Run: memesh update`);
   } else if (channel === 'plugin-marketplace') {
-    // `upgrade-plugin` drives Claude Code's layout only — it reads
-    // ~/.claude/plugins/marketplaces and patches installed_plugins.json,
-    // neither of which Codex creates. Prescribing it to a Codex user
-    // produces "marketplace cache not found", so ask which runtime this is.
-    if (pluginHostOf(resolvePluginRoot(import.meta.url)) === 'codex') {
-      lines.push(`    Run: codex plugin marketplace upgrade pcircle-memesh && codex plugin add memesh@pcircle-memesh`);
-    } else {
-      lines.push(`    Run: memesh upgrade-plugin   (no CLI? npx @pcircle/memesh upgrade-plugin — or reinstall from /plugin UI)`);
-    }
+    lines.push(pluginUpgradeLine(resolvePluginRoot(import.meta.url)));
   } else if (channel === 'source-checkout') {
     lines.push(`    Source checkout: \`git pull && npm install && npm run build\`.`);
   } else if (channel === 'npm-local') {
@@ -339,6 +336,24 @@ function pluginHostOf(pluginRoot) {
   } catch {
     return null;
   }
+}
+
+/**
+ * The one upgrade line a plugin-marketplace install should be shown.
+ *
+ * Shared by BOTH banners on purpose. They drifted once: the routine
+ * "update available" banner learned that Codex needs a different command
+ * and the deprecation banner did not — and the deprecation banner is the
+ * one that fires on a security advisory AND takes precedence over the
+ * other. So the highest-stakes message carried the least actionable
+ * instruction, and a second copy of this logic is exactly how that
+ * happened. One owner, so it cannot happen again.
+ */
+function pluginUpgradeLine(pluginRoot) {
+  if (pluginHostOf(pluginRoot) === 'codex') {
+    return `    Run: codex plugin marketplace upgrade pcircle-memesh && codex plugin add memesh@pcircle-memesh`;
+  }
+  return `    Run: memesh upgrade-plugin   (no CLI? npx @pcircle/memesh upgrade-plugin — or reinstall from /plugin UI)`;
 }
 
 // Don't fire a fresh-check more often than this. Two parallel

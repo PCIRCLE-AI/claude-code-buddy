@@ -158,6 +158,39 @@ describe('plugin host detection', () => {
     expect(detectPluginHost('/home/bob/.claudex/plugins/cache/x/y/1.0.0')).toBeNull();
   });
 
+  it.each([
+    ['CODEX_HOME', 'codex', '/opt/agents/codex-home'],
+    ['CLAUDE_CONFIG_DIR', 'claude-code', '/opt/agents/claude-config'],
+  ])('follows a relocated home via %s', (envVar, expectedHost, relocated) => {
+    // Both runtimes let the user move their whole config directory. When they
+    // do, the literal `.codex` / `.claude` name is simply absent from the path,
+    // so the segment matcher returns null and the install lands back on
+    // `unknown` — the exact answer this detection exists to stop giving.
+    // src/core/setup.ts had already written the hazard down ("CODEX_HOME can
+    // relocate the whole directory") and rejected a substring check over it.
+    const packageRoot = `${relocated}/plugins/cache/pcircle-memesh/memesh/4.7.1`;
+
+    expect(detectPluginHost(packageRoot, { env: { [envVar]: relocated } })).toBe(expectedHost);
+    // And the negative half: without the env var there is nothing in the path
+    // to recognise, which is the pre-fix behaviour.
+    expect(detectPluginHost(packageRoot, { env: {} }), 'matched a relocated home with no env var set').toBeNull();
+  });
+
+  it('treats an empty env var as unset rather than as the process cwd', () => {
+    // paths.ts homeDir() carries the same reasoning: an env exporting "" is a
+    // broken environment, not an instruction to resolve against cwd.
+    const packageRoot = '/opt/agents/codex-home/plugins/cache/pcircle-memesh/memesh/4.7.1';
+
+    expect(detectPluginHost(packageRoot, { env: { CODEX_HOME: '' } })).toBeNull();
+  });
+
+  it('does not let one runtime\'s relocated home claim the other\'s install', () => {
+    const codexHome = '/opt/agents/codex-home';
+    const claudeInstall = '/Users/alice/.claude/plugins/cache/pcircle-memesh/memesh/4.7.1';
+
+    expect(detectPluginHost(claudeInstall, { env: { CODEX_HOME: codexHome } })).toBe('claude-code');
+  });
+
   it('normalises the path the same way detectInstallChannel does', () => {
     // detectInstallChannel matches against path.resolve(packageRoot), and
     // runDoctor takes packageRoot from its caller. If this helper matched the

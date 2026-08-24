@@ -46,9 +46,10 @@ function getRootBeforeNodeModules(packageRoot: string): string | null {
 /** Which agent runtime installed this plugin copy. */
 export type PluginHost = 'claude-code' | 'codex';
 
-const PLUGIN_HOST_DIRS: ReadonlyArray<readonly [PluginHost, string]> = [
-  ['claude-code', '.claude'],
-  ['codex', '.codex'],
+/** host, its default home directory name, and the env var that relocates it. */
+const PLUGIN_HOST_DIRS: ReadonlyArray<readonly [PluginHost, string, string]> = [
+  ['claude-code', '.claude', 'CLAUDE_CONFIG_DIR'],
+  ['codex', '.codex', 'CODEX_HOME'],
 ];
 
 /**
@@ -74,12 +75,43 @@ const PLUGIN_HOST_DIRS: ReadonlyArray<readonly [PluginHost, string]> = [
  * would be classified `plugin-marketplace` while an unresolved match for
  * `\.codex\plugins\cache\` found nothing, and the Codex user would be handed
  * `memesh upgrade-plugin`: the one command that cannot work for them.
+ *
+ * TWO matchers, because neither alone is right:
+ *
+ *   1. The `<dir>/plugins/cache/` path segment. This has to stay: the running
+ *      process's home is not necessarily the home the package lives under
+ *      (a shared or multi-user install), and the segment is what identifies
+ *      the layout regardless of whose home it sits in.
+ *   2. A relocated home, read from the env var each runtime documents.
+ *      `CODEX_HOME` and `CLAUDE_CONFIG_DIR` move the whole directory, so the
+ *      literal `.codex` / `.claude` name is simply absent from the path and
+ *      matcher 1 returns null — which lands back on `unknown`, the exact
+ *      answer this function exists to stop giving. `src/core/setup.ts` had
+ *      already written this hazard down ("CODEX_HOME can relocate the whole
+ *      directory") and rejected a substring check over it; matcher 1 alone
+ *      was that same rejected shape.
+ *
+ * `env` is a parameter so a test can describe a relocated layout without
+ * mutating the process it runs in.
  */
-export function detectPluginHost(packageRoot: string): PluginHost | null {
+export function detectPluginHost(
+  packageRoot: string,
+  options: { env?: NodeJS.ProcessEnv } = {},
+): PluginHost | null {
+  const { env = process.env } = options;
   const normalized = path.resolve(packageRoot);
-  for (const [host, dir] of PLUGIN_HOST_DIRS) {
+  for (const [host, dir, envVar] of PLUGIN_HOST_DIRS) {
     const segment = `${path.sep}${dir}${path.sep}plugins${path.sep}cache${path.sep}`;
     if (normalized.includes(segment)) return host;
+
+    // An env var exporting "" means "unset" here, not "the process cwd" —
+    // same reasoning as homeDir() in paths.ts, and the reason this is a
+    // truthiness check rather than `!== undefined`.
+    const relocated = env[envVar];
+    if (relocated) {
+      const cacheRoot = path.join(path.resolve(relocated), 'plugins', 'cache');
+      if (isSubpath(cacheRoot, normalized)) return host;
+    }
   }
   return null;
 }

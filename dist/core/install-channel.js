@@ -13,15 +13,22 @@ function getRootBeforeNodeModules(packageRoot) {
     return packageRoot.slice(0, index);
 }
 const PLUGIN_HOST_DIRS = [
-    ['claude-code', '.claude'],
-    ['codex', '.codex'],
+    ['claude-code', '.claude', 'CLAUDE_CONFIG_DIR'],
+    ['codex', '.codex', 'CODEX_HOME'],
 ];
-export function detectPluginHost(packageRoot) {
+export function detectPluginHost(packageRoot, options = {}) {
+    const { env = process.env } = options;
     const normalized = path.resolve(packageRoot);
-    for (const [host, dir] of PLUGIN_HOST_DIRS) {
+    for (const [host, dir, envVar] of PLUGIN_HOST_DIRS) {
         const segment = `${path.sep}${dir}${path.sep}plugins${path.sep}cache${path.sep}`;
         if (normalized.includes(segment))
             return host;
+        const relocated = env[envVar];
+        if (relocated) {
+            const cacheRoot = path.join(path.resolve(relocated), 'plugins', 'cache');
+            if (isSubpath(cacheRoot, normalized))
+                return host;
+        }
     }
     return null;
 }

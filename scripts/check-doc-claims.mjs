@@ -40,6 +40,7 @@ import path from 'path';
 import { execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { listHookFiles } from './lib/hook-files.mjs';
+import { statesTestCount } from './lib/test-count-claim.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = p => fs.readFileSync(path.join(repoRoot, p), 'utf8');
@@ -317,8 +318,7 @@ else ok(`server.ts and ARCHITECTURE.md agree on ${routesInCode} HTTP endpoints`)
 // branch because it shares no substring with "tests" at all.
 const readmes = fs.readdirSync(repoRoot).filter(f => /^README(\.[a-zA-Z-]+)?\.md$/.test(f));
 if (readmes.length === 0) fail('no README*.md found — this check stopped looking at anything');
-const testCountRe = /\b\d[\d,]*\s*(tests|test cases)\b|\d[\d,]*\s*項測試/i;
-const withCounts = readmes.filter(f => testCountRe.test(read(f)));
+const withCounts = readmes.filter(f => statesTestCount(read(f)));
 if (withCounts.length) fail(`README(s) state a hardcoded test count: ${withCounts.join(', ')}`);
 else ok(`${readmes.length} READMEs state no hardcoded test count`);
 
