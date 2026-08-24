@@ -5,6 +5,7 @@ import path from 'path';
 import os from 'os';
 import { MemeshDatabase as Database } from '../../src/storage/sqlite.js';
 import { createRequire } from 'module';
+import { removeTempDir } from '../helpers/temp-dir.js';
 
 const require = createRequire(import.meta.url);
 // Non-git identity = basename + real-path hash (tests/core/project-identity.test.ts).
@@ -22,7 +23,7 @@ describe('Feature: Session Summary (Stop Hook)', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(testDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    removeTempDir(testDir);
   });
 
   function writeTranscript(entries: object[]): void {

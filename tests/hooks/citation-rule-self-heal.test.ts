@@ -23,7 +23,7 @@ import { execFileSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { removeTempHome } from '../helpers/temp-home.js';
+import { removeTempDir } from '../helpers/temp-dir.js';
 
 const HOOK = path.join(__dirname, '..', '..', 'scripts', 'hooks', 'session-start.js');
 const RULE = 'memesh-citations.md';
@@ -38,7 +38,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  removeTempHome(home, project);
+  removeTempDir(home, project);
 });
 
 function writeMarker(scope: 'user' | 'project'): void {

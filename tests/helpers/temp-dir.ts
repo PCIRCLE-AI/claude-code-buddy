@@ -1,7 +1,7 @@
 import fs from 'fs';
 
 /**
- * Remove a throwaway HOME that a spawned SessionStart hook was pointed at.
+ * Remove a throwaway directory that a spawned hook was pointed at.
  *
  * Why this is not a plain `fs.rmSync`: the hook deliberately outlives itself.
  * `spawnFreshUpdateCheck` (scripts/hooks/session-start.js) starts a detached,
@@ -26,7 +26,7 @@ import fs from 'fs';
  * assert anything about cleanup, so the honest cleanup is: try, and let the
  * race lose quietly. Every other error still throws.
  */
-export function removeTempHome(...dirs: string[]): void {
+export function removeTempDir(...dirs: string[]): void {
   for (const dir of dirs) {
     try {
       fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });

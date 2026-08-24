@@ -22,7 +22,7 @@ import { createRequire } from 'module';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { removeTempHome } from '../helpers/temp-home.js';
+import { removeTempDir } from '../helpers/temp-dir.js';
 
 const require = createRequire(import.meta.url);
 // _shared.js is plain JS with no type declarations.
@@ -56,7 +56,7 @@ describe.skipIf(isRoot || isWindows)('session-start: an unwritable memesh dir is
   afterEach(() => {
     // Restore write permission first or the cleanup itself fails.
     try { fs.chmodSync(memeshDir, 0o700); } catch { /* already gone */ }
-    removeTempHome(home);
+    removeTempDir(home);
   });
 
   function runHook(): string {

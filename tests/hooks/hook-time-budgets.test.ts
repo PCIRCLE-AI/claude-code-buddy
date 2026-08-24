@@ -22,6 +22,7 @@ import os from 'os';
 import path from 'path';
 import { spawnSync } from 'child_process';
 import { createRequire } from 'module';
+import { removeTempDir } from '../helpers/temp-dir.js';
 
 const require = createRequire(import.meta.url);
 const { openHookDb } = require('../../scripts/hooks/_shared.js');
@@ -74,7 +75,7 @@ describe('the SQLite lock wait fits inside the smallest budget', () => {
         db.close();
       }
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      removeTempDir(dir);
     }
   });
 });
@@ -157,7 +158,7 @@ describe('the read-only hooks apply the same cap they cannot get from openHookDb
     try {
       return fn(dbPath);
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      removeTempDir(dir);
     }
   }
 

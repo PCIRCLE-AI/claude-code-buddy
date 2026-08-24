@@ -21,6 +21,7 @@ import { remember } from '../../src/core/operations.js';
 import { KnowledgeGraph } from '../../src/knowledge-graph.js';
 import { TOPOLOGY_CANDIDATE_CAP } from '../../src/core/work-topology.js';
 import { getProjectName } from '../../src/core/paths.js';
+import { removeTempDir } from '../helpers/temp-dir.js';
 
 let tmpDir: string;
 let dbPath: string;
@@ -33,7 +34,7 @@ beforeEach(() => {
 
 afterEach(() => {
   closeDatabase();
-  fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  removeTempDir(tmpDir);
 });
 
 // The assembler resolves the current project from cwd when none is given;
