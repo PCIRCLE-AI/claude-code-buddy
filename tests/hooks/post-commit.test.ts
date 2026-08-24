@@ -353,7 +353,13 @@ describe('Feature: Post-Commit Hook', () => {
     db.close();
   });
 
-  it('Scenario: Hook output includes suppressOutput flag', () => {
+  it('Scenario: Hook writes nothing to stdout', () => {
+    // Was 'Hook output includes suppressOutput flag', asserting
+    // `{"suppressOutput": true}`. That is valid Claude Code hook output, and
+    // Codex CLI rejects it per event — "PostToolUse hook returned unsupported
+    // suppressOutput", once per Bash call, with the capture already done. The
+    // field suppressed nothing (this hook has no other stdout write), so the
+    // portable answer is silence, which both contracts read as "no opinion".
     const c = commit('fix: something');
     const hookPath = path.resolve('scripts/hooks/post-commit.js');
     const input = {
@@ -368,8 +374,7 @@ describe('Feature: Post-Commit Hook', () => {
       encoding: 'utf8',
       timeout: 15000,
     });
-    const parsed = JSON.parse(result.trim());
-    expect(parsed.suppressOutput).toBe(true);
+    expect(result.trim(), 'stdout must stay empty — see tests/hooks/cross-host-output-contract.test.ts').toBe('');
   });
 
   it('Scenario: Invalid JSON input -> exits cleanly', () => {

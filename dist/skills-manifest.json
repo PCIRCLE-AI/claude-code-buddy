@@ -3,7 +3,7 @@
   "entries": [
     {
       "path": ".claude-plugin/plugin.json",
-      "sha256": "1a03a56bfb2e7d2fd3a2a04692604027d9dbfaed63f4c1d7afc6a35ff6dfafac",
+      "sha256": "773e152af2cbcfe41135dfb8e4535682257f3575ab30139bd09e2e2017c455bd",
       "bytes": 527
     },
     {
@@ -83,8 +83,8 @@
     },
     {
       "path": "scripts/hooks/post-commit.js",
-      "sha256": "6f7e4e66dcbf731aaa01074ec7e27fbf06945c0333e34671468efdc50f3fe711",
-      "bytes": 9537
+      "sha256": "987dd817a6f6310039aa97a7ea2798bca6097a9c7a943ae5c6ea1a9fb00c4264",
+      "bytes": 10309
     },
     {
       "path": "scripts/hooks/pre-compact.js",
@@ -103,8 +103,8 @@
     },
     {
       "path": "scripts/hooks/session-summary.js",
-      "sha256": "12d28e2524bb13b6cb709fe3510264058728d6299bd43a2c1dc5723d658a7806",
-      "bytes": 46696
+      "sha256": "2c13205539a0424ceeb11a7aed79dc8c0504e56e7a9e21661b007f2a504f5554",
+      "bytes": 47387
     },
     {
       "path": "scripts/hooks/user-prompt-intent.js",

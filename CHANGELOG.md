@@ -2,6 +2,27 @@
 
 All notable changes to MeMesh are documented here.
 
+## [4.7.3] — 2026-08-24
+
+### Fixed
+
+- **Two hooks errored on every Bash call and every turn under Codex CLI.**
+  `post-commit` (PostToolUse) and `session-summary` (Stop) each ended by
+  printing `{"suppressOutput": true}`. That is valid Claude Code hook output.
+  Codex validates hook output per event against its own schema and rejects the
+  field, so a Codex user saw `PostToolUse hook returned unsupported
+  suppressOutput` after every Bash command and `hook returned invalid stop hook
+  JSON output` at the end of every turn — while the capture itself had already
+  succeeded. The memory was written and the error appeared anyway.
+
+  Both hooks now print nothing. The field was never doing any work: neither
+  writes anything else to stdout, so there was no output to suppress. Empty
+  stdout with exit 0 is the "no opinion" signal in both contracts.
+
+  Affects 4.7.1 and 4.7.2 for anyone running MeMesh as a Codex plugin. Claude
+  Code behaviour is unchanged — a hook that prints nothing and one that asks
+  for its output to be hidden look identical to the user.
+
 ## [4.7.2] — 2026-08-24
 
 ### Fixed
