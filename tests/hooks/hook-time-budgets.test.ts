@@ -24,7 +24,7 @@ import { spawnSync } from 'child_process';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
-const { openHookDb } = require('../../scripts/hooks/_shared.js');
+const { openHookDb, HOOK_BUSY_TIMEOUT_MS } = require('../../scripts/hooks/_shared.js');
 const { MemeshDatabase } = require('../../scripts/hooks/_generated/sqlite.js');
 
 interface HookEntry { matcher?: string; hooks: Array<{ command: string; timeout?: number }> }
@@ -89,21 +89,60 @@ describe('the read-only hooks apply the same cap they cannot get from openHookDb
   // file exclusively (even against readers, unlike a plain WAL writer),
   // which is the one lock a `readOnly` SELECT can actually be made to
   // wait on.
-  const cases: Array<{ script: string; input: object; maxMs: number }> = [
-    { script: 'guard-check.js', input: { tool_input: { command: 'echo hi' } }, maxMs: 4_000 },
-    { script: 'session-start.js', input: { cwd: '/tmp/hook-budget-probe' }, maxMs: 4_000 },
-    // pre-edit-recall.js runs a guard query and then, on the same
-    // connection, a recall query. `loadActiveGuards` swallows the guard
-    // query's own failure, so a still-contended lock could pay the
-    // busy_timeout wait TWICE in sequence (once hidden, once fatal) before
-    // this hook gives up — roughly 2 * HOOK_BUSY_TIMEOUT_MS. 4s sits
-    // between one wait (~2.2s observed) and two (~4.4s observed), so this
-    // bound is the one that actually distinguishes a single probe from a
-    // compounding one — 8s would pass either way.
-    { script: 'pre-edit-recall.js', input: { tool_name: 'Edit', tool_input: { file_path: '/tmp/hook-budget-probe/a.ts', new_string: 'x' }, cwd: '/tmp/hook-budget-probe' }, maxMs: 4_000 },
+  //
+  // Each case is timed TWICE: once against an unlocked database (the
+  // process-spawn floor — module load, a couple of queries against empty
+  // tables, nothing to wait on) and once against one held EXCLUSIVE. The
+  // DIFFERENCE between the two, not either number alone, is what this
+  // asserts against — a flat ms ceiling could not survive a loaded macOS
+  // runner: guard-check.js, a script with nothing left to fix, measured
+  // 4516ms on one and 4378ms on another against a 4000ms flat cap, entirely
+  // from process-spawn noise unrelated to the lock wait. Timing the same
+  // script unlocked right next to it cancels that noise, because both
+  // spawns pay it about equally.
+  //
+  // pre-edit-recall.js is the sensitive case: `loadActiveGuards` swallows
+  // the guard query's own failure, so a still-contended lock could pay the
+  // busy_timeout wait TWICE in sequence (once hidden, once fatal) before
+  // this hook gives up. One wait reads as the floor plus ~1x
+  // HOOK_BUSY_TIMEOUT_MS; a regression back to the old double wait reads
+  // as the floor plus ~2x. 1.5x sits between them regardless of how slow
+  // the runner is, because the floor already absorbed the runner's own
+  // slowness on both sides of the subtraction. For guard-check.js and
+  // session-start.js, which only ever make one query, the same bound
+  // catches the coarser regression this block exists for — a pragma that
+  // was never applied at all inherits the 30s meant for long-lived
+  // writers, which clears 1.5x by an order of magnitude.
+  // `input` is a function of a run tag, not a fixed object: pre-edit-recall.js
+  // throttles repeat recalls of the same file within a session
+  // (`session-recalled-files.json`, keyed on memeshDir — which the floor and
+  // contended runs below deliberately share, same dbPath). A fixed file_path
+  // would let the floor run's throttle write silently skip the recall query
+  // on the contended run, collapsing the very second query this case exists
+  // to keep contended, and undetectably turning this into a same-as-before
+  // single-query measurement no matter which code is under test.
+  const cases: Array<{ script: string; makeInput: (tag: string) => object }> = [
+    { script: 'guard-check.js', makeInput: () => ({ tool_input: { command: 'echo hi' } }) },
+    { script: 'session-start.js', makeInput: () => ({ cwd: '/tmp/hook-budget-probe' }) },
+    { script: 'pre-edit-recall.js', makeInput: (tag) => ({ tool_name: 'Edit', tool_input: { file_path: `/tmp/hook-budget-probe/${tag}.ts`, new_string: 'x' }, cwd: '/tmp/hook-budget-probe' }) },
   ];
 
-  it.each(cases)('$script returns well inside its own budget while the db is held exclusively', ({ script, input, maxMs }) => {
+  function runHookOnce(script: string, input: object, dbPath: string): number {
+    const hookPath = path.resolve('scripts/hooks', script);
+    const startedAt = Date.now();
+    const result = spawnSync('node', [hookPath], {
+      input: JSON.stringify(input),
+      env: { ...process.env, MEMESH_DB_PATH: dbPath },
+      encoding: 'utf8',
+      timeout: 25_000,
+    });
+    const elapsedMs = Date.now() - startedAt;
+    if (result.error) throw result.error;
+    expect(result.status, `hook exited ${result.status}\nstderr:\n${result.stderr}`).toBe(0);
+    return elapsedMs;
+  }
+
+  it.each(cases)('$script pays the exclusive-lock wait once above its own unlocked floor, not twice', ({ script, makeInput }) => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-readonly-budget-'));
     const dbPath = path.join(dir, 'kg.db');
     // Create the schema (and close) before taking the exclusive lock —
@@ -111,33 +150,30 @@ describe('the read-only hooks apply the same cap they cannot get from openHookDb
     const { db: seedDb } = openHookDb({ ...process.env, MEMESH_DB_PATH: dbPath });
     seedDb.close();
 
-    const locker = new MemeshDatabase(dbPath);
-    locker.pragma('journal_mode = WAL');
-    locker.pragma('locking_mode = EXCLUSIVE');
-    // `locking_mode = EXCLUSIVE` only escalates to (and holds) the OS-level
-    // exclusive lock on this connection's first WRITE — a read alone stays
-    // at a shared lock, which does not block another reader. A scratch
-    // table keeps this write out of the schema the hooks themselves query.
-    locker.exec('CREATE TABLE __contention_probe (id INTEGER)');
     try {
-      const hookPath = path.resolve('scripts/hooks', script);
-      const startedAt = Date.now();
-      const result = spawnSync('node', [hookPath], {
-        input: JSON.stringify(input),
-        env: { ...process.env, MEMESH_DB_PATH: dbPath },
-        encoding: 'utf8',
-        timeout: 25_000,
-      });
-      const elapsedMs = Date.now() - startedAt;
-      if (result.error) throw result.error;
-      expect(result.status, `hook exited ${result.status}\nstderr:\n${result.stderr}`).toBe(0);
-      // The fix caps the wait at 2s; an unfixed direct `new MemeshDatabase`
-      // inherits the 30s meant for long-lived writers. `maxMs` is per-case:
-      // see the comment on pre-edit-recall.js above for why it is tighter
-      // than "comfortably below 30s" would otherwise suggest.
-      expect(elapsedMs, 'the hook waited past its own hooks.json budget for the exclusive lock').toBeLessThan(maxMs);
+      const floorMs = runHookOnce(script, makeInput('floor'), dbPath);
+
+      const locker = new MemeshDatabase(dbPath);
+      locker.pragma('journal_mode = WAL');
+      locker.pragma('locking_mode = EXCLUSIVE');
+      // `locking_mode = EXCLUSIVE` only escalates to (and holds) the OS-level
+      // exclusive lock on this connection's first WRITE — a read alone stays
+      // at a shared lock, which does not block another reader. A scratch
+      // table keeps this write out of the schema the hooks themselves query.
+      locker.exec('CREATE TABLE __contention_probe (id INTEGER)');
+      let contendedMs: number;
+      try {
+        contendedMs = runHookOnce(script, makeInput('contended'), dbPath);
+      } finally {
+        locker.close();
+      }
+
+      const waitedMs = contendedMs - floorMs;
+      expect(
+        waitedMs,
+        `paid ${waitedMs}ms above its own ${floorMs}ms unlocked floor (contended run took ${contendedMs}ms) — looks like more than one busy_timeout wait`,
+      ).toBeLessThan(HOOK_BUSY_TIMEOUT_MS * 1.5);
     } finally {
-      locker.close();
       fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   }, 30_000);
