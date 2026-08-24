@@ -37,7 +37,13 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  for (const d of [home, project]) fs.rmSync(d, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  // maxRetries/retryDelay here are wider than this repo's usual 5/100ms:
+  // this is the one test file that has actually shown Windows CI's
+  // ENOTEMPTY race (rmSync racing the OS's handle release after the child
+  // process spawned by runHook() exits) — twice, in the same CI run, both
+  // legs. 5/100ms (500ms worst case) was not always enough; 10/200ms (2s
+  // worst case) only costs time on the runs that were already retrying.
+  for (const d of [home, project]) fs.rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 });
 
 function writeMarker(scope: 'user' | 'project'): void {
