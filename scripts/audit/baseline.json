@@ -645,6 +645,11 @@
       "class": "SAFE",
       "reason": "the emptiness matches are `exitCode).toBe(0)` \u2014 a command that SUCCEEDED, not an empty result. The positive pins in the file are `entity_count).toBe(2)` and `.toBe(3)`, which the detector's pin pattern only recognises spelled `length).toBe(N)` or `toHaveLength(N)`. Every test here also asserts on actual stdout/stderr text.",
       "triaged": "2026-08-24"
+    },
+    "C1 tests/cli/error-envelopes.test.ts": {
+      "class": "SAFE",
+      "reason": "the emptiness pattern matched `.toBe(0)` on a CLI exitCode assertion, not on a collection \u2014 this file has no emptiness assertions at all. Every test asserts specific stdout/stderr text and an exact exit code (0 or 1); the detector's heuristic cannot distinguish an exit-code literal from a size assertion.",
+      "triaged": "2026-08-24"
     }
   }
 }

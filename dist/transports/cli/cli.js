@@ -753,6 +753,8 @@ const KEY_VALIDATORS = {
     },
     'embedder.provider': (v) => ['openai', 'ollama'].includes(v) ? null : `must be one of: openai, ollama`,
     'autoUpdate': (v) => ['off', 'patch', 'minor', 'major'].includes(v) ? null : `must be one of: off, patch, minor, major`,
+    'autoCapture': (v) => ['true', 'false', '1', '0'].includes(v) ? null : `must be one of: true, false, 1, 0`,
+    'transcriptMining': (v) => ['true', 'false', '1', '0'].includes(v) ? null : `must be one of: true, false, 1, 0`,
     'llmFallbacks': (v) => {
         let parsed;
         try {
@@ -2050,6 +2052,7 @@ program
     .description('Show MeMesh status and capabilities')
     .option('--cached', 'Use cached update info only (skip fresh npm lookup)')
     .action(async (opts) => {
+    await withDatabase(() => { });
     const caps = detectCapabilities();
     const { getCurrentInstallChannel, getInstallChannelSupport } = await import('../../core/install-channel.js');
     const install = getCurrentInstallChannel({ packageRoot });

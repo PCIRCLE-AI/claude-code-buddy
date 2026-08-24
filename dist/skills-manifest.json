@@ -73,13 +73,13 @@
     },
     {
       "path": "scripts/hooks/_shared.js",
-      "sha256": "e81aec2454a2b681193d583df7f9fe67491a45f7e87a576cf77e879e0352089f",
-      "bytes": 42029
+      "sha256": "90d2c0b90e98c4a022a758bb901c4cfda4f30378fc8664388da72fe58ee31395",
+      "bytes": 42912
     },
     {
       "path": "scripts/hooks/guard-check.js",
-      "sha256": "30ebfcd68bcff19a29b02783b9f9a69abdc2de5d62e580f6b40fb6a3641193c7",
-      "bytes": 2677
+      "sha256": "4a49015bc5937a66674905ee140cec909c869a3317e22c3d832d2c9198be59bf",
+      "bytes": 2983
     },
     {
       "path": "scripts/hooks/post-commit.js",
@@ -93,13 +93,13 @@
     },
     {
       "path": "scripts/hooks/pre-edit-recall.js",
-      "sha256": "f2a5dbc37c4968ee05ea441465191e3f7fda0aa16832dc50847a71f64ff20f3a",
-      "bytes": 12673
+      "sha256": "d4ce1804cc48f925d1f56c0da919ffe6ca17350f72d165255a92cda7783f4a35",
+      "bytes": 12979
     },
     {
       "path": "scripts/hooks/session-start.js",
-      "sha256": "5e8695ea67af7c8afd94b71cc5fef527f991d7aac6bfc548c4e19fa9010ec7bb",
-      "bytes": 55748
+      "sha256": "30509277ede3e0f9ebeec0c9e92faa4270846bb44424418c17ac303965f46104",
+      "bytes": 56055
     },
     {
       "path": "scripts/hooks/session-summary.js",

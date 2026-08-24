@@ -85,4 +85,32 @@ describe('CLI error envelopes: caller mistakes are one line, not a crash', () =>
     const listed = runCli(['config', 'list']);
     expect(listed.stdout).not.toContain('Disregard');
   });
+
+  it('config set autoCapture rejects a spelling the coercion cannot read', () => {
+    // The coercion only recognises 'true'/'1' as true — everything else,
+    // including 'yes', becomes false. Before the validator existed this
+    // exited 0 and printed "Set autoCapture = yes", echoing the raw value
+    // the user typed while silently storing the opposite.
+    const r = runCli(['config', 'set', 'autoCapture', 'yes']);
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toContain('must be one of: true, false, 1, 0');
+    expectNoStackTrace(r.stderr, 'config set autoCapture');
+
+    // Refused, so nothing was written — config list still shows the default.
+    const listed = runCli(['config', 'list']);
+    expect(listed.stdout).not.toContain('autoCapture: yes');
+  });
+
+  it('config set autoCapture false is accepted and echoes what was actually stored', () => {
+    expect(runCli(['config', 'set', 'autoCapture', 'false']).exitCode).toBe(0);
+    const listed = runCli(['config', 'list']);
+    expect(listed.stdout).toContain('autoCapture: false');
+  });
+
+  it('config set transcriptMining rejects the same unreadable spellings', () => {
+    const r = runCli(['config', 'set', 'transcriptMining', 'On']);
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toContain('must be one of: true, false, 1, 0');
+    expectNoStackTrace(r.stderr, 'config set transcriptMining');
+  });
 });

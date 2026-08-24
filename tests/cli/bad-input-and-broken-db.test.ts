@@ -144,4 +144,16 @@ describe('a database that will not open', () => {
     const r = run(['recall', 'anything', '--json']);
     expect(r.status, `a healthy database was reported broken: ${r.stderr}`).toBe(0);
   });
+
+  it('`status` reports the broken database instead of a clean-looking summary', () => {
+    // `status` touches capabilities, install channel and the update check —
+    // none of which open the database — so this used to print a
+    // healthy-looking report (search level, embeddings, install method) with
+    // no mention that the database underneath it could not be read at all.
+    const r = run(['status']);
+
+    expect(r.status, 'a broken database exited 0 from `status`').not.toBe(0);
+    expect(r.stderr, 'the user is not told what to do next').toContain('memesh doctor');
+    expect(r.stderr, 'a stack trace reached the user').not.toMatch(/\n\s+at /);
+  });
 });

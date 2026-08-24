@@ -1073,6 +1073,13 @@ const KEY_VALIDATORS: Record<string, (value: string) => string | null> = {
   },
   'embedder.provider': (v) => ['openai', 'ollama'].includes(v) ? null : `must be one of: openai, ollama`,
   'autoUpdate': (v) => ['off', 'patch', 'minor', 'major'].includes(v) ? null : `must be one of: off, patch, minor, major`,
+  // The coercion below only recognises 'true'/'1' as true; everything else
+  // — 'yes', 'on', 'True' — silently became false, printed as if it had
+  // been accepted verbatim (the success line echoes the raw value, not
+  // what was actually stored). Reject anything the coercion cannot read
+  // instead of storing the opposite of what the user asked for.
+  'autoCapture': (v) => ['true', 'false', '1', '0'].includes(v) ? null : `must be one of: true, false, 1, 0`,
+  'transcriptMining': (v) => ['true', 'false', '1', '0'].includes(v) ? null : `must be one of: true, false, 1, 0`,
   'llmFallbacks': (v) => {
     let parsed: unknown;
     try {
@@ -2677,6 +2684,15 @@ program
   .description('Show MeMesh status and capabilities')
   .option('--cached', 'Use cached update info only (skip fresh npm lookup)')
   .action(async (opts) => {
+    // Every other line below reports on capabilities, install channel and
+    // the update check — none of which touch the database — so a corrupt
+    // or unreadable file was invisible here and `status` printed as though
+    // everything were fine. `withDatabase` is the one open every other
+    // command already gets: it names the file and points at
+    // `memesh doctor` for the diagnosis, then exits 1, before this command
+    // prints a single "healthy-looking" line.
+    await withDatabase(() => {});
+
     const caps = detectCapabilities();
     const { getCurrentInstallChannel, getInstallChannelSupport } = await import('../../core/install-channel.js');
     const install = getCurrentInstallChannel({ packageRoot });
