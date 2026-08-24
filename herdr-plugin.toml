@@ -1,0 +1,45 @@
+# MeMesh as a Herdr plugin.
+#
+# Herdr owns where the agents run; MeMesh owns what they remember. This file is
+# the whole integration — a thin surface over the `memesh` CLI, which the user
+# installs separately (`npm install -g @pcircle/memesh`). There is deliberately
+# no [[build]] section: a build step here would install a global npm package as
+# a side effect of adding a plugin, which is not a thing to do quietly.
+#
+# min_herdr_version is 0.7.0 because that is the release that introduced
+# managed plugin panes (CHANGELOG "Added local plugin v1 support ... managed
+# plugin panes"). `placement` defaults to overlay, which has existed since the
+# same release — popup sizing arrived in 0.7.4 and is not used here, so 0.7.0
+# is the honest floor rather than a copied one.
+id = "memesh"
+name = "MeMesh"
+version = "4.7.3"
+min_herdr_version = "0.7.0"
+description = "Local SQLite memory shared across coding agents — decisions, lessons, and why the code looks the way it does."
+platforms = ["linux", "macos", "windows"]
+
+# The briefing, beside the agents rather than inside one of them.
+#
+# This is the pane worth having in Herdr specifically. Running several agents
+# at once is the whole point of the runtime, and the thing they do not share is
+# what the project already learned — each one starts from its own context. A
+# pane holding the assembled topology (decisions, lessons, recent activity) is
+# readable next to the panes doing the work.
+[[panes]]
+id = "briefing"
+title = "MeMesh briefing"
+command = ["memesh", "briefing"]
+
+# One action, not three.
+#
+# `recall` was drafted here and cut: `briefing` already carries recent activity,
+# and an argv-only action cannot take a search term anyway, so it would have
+# been a second button producing a subset of the first. `doctor` stays because
+# it answers a question a new install actually has — is this wired up — and
+# answers it with fixes rather than a status word.
+[[actions]]
+id = "doctor"
+title = "Check MeMesh install"
+description = "Verify the local MeMesh install end to end and print actionable fixes."
+contexts = ["workspace"]
+command = ["memesh", "doctor"]
