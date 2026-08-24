@@ -157,6 +157,25 @@ describe('plugin host detection', () => {
     expect(detectPluginHost('/home/bob/projects/plugins/cache/thing')).toBeNull();
     expect(detectPluginHost('/home/bob/.claudex/plugins/cache/x/y/1.0.0')).toBeNull();
   });
+
+  it('normalises the path the same way detectInstallChannel does', () => {
+    // detectInstallChannel matches against path.resolve(packageRoot), and
+    // runDoctor takes packageRoot from its caller. If this helper matched the
+    // raw string instead, the two would disagree on any unnormalised path —
+    // the channel would say `plugin-marketplace` while the host came back
+    // null, and a Codex user would be handed `memesh upgrade-plugin`, the one
+    // command that aborts for them.
+    // A raw literal, NOT path.join — join already collapses `..`, so a joined
+    // path is normalised before it ever reaches the helper and would pass with
+    // or without the resolve. Only an unnormalised string tells them apart.
+    const messy = '/Users/alice/.codex/plugins/other/../cache/pcircle-memesh/memesh/4.7.1';
+
+    expect(detectPluginHost(messy)).toBe('codex');
+    expect(
+      detectInstallChannel({ packageRoot: messy, globalNpmRoot: null, existsSyncImpl: existsFor([]) }),
+      'the two disagree on the same path',
+    ).toBe('plugin-marketplace');
+  });
 });
 
 describe('the global npm root when npm is not reachable', () => {

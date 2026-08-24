@@ -17,9 +17,10 @@ const PLUGIN_HOST_DIRS = [
     ['codex', '.codex'],
 ];
 export function detectPluginHost(packageRoot) {
+    const normalized = path.resolve(packageRoot);
     for (const [host, dir] of PLUGIN_HOST_DIRS) {
         const segment = `${path.sep}${dir}${path.sep}plugins${path.sep}cache${path.sep}`;
-        if (packageRoot.includes(segment))
+        if (normalized.includes(segment))
             return host;
     }
     return null;

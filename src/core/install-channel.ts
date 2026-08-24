@@ -66,11 +66,20 @@ const PLUGIN_HOST_DIRS: ReadonlyArray<readonly [PluginHost, string]> = [
  * Match anchored to the `<dir>/plugins/cache/` segment so a user repo whose
  * path merely contains "plugins/cache" is not a false positive. path.sep
  * keeps the matcher Windows-correct.
+ *
+ * Resolves first, and must: `detectInstallChannel` matches against
+ * `path.resolve(packageRoot)`, so anything less here lets the two disagree.
+ * `runDoctor` takes `packageRoot` from its caller, and on Windows
+ * `path.resolve` rewrites `/` to `\` — so `C:/Users/a/.codex/plugins/cache/…`
+ * would be classified `plugin-marketplace` while an unresolved match for
+ * `\.codex\plugins\cache\` found nothing, and the Codex user would be handed
+ * `memesh upgrade-plugin`: the one command that cannot work for them.
  */
 export function detectPluginHost(packageRoot: string): PluginHost | null {
+  const normalized = path.resolve(packageRoot);
   for (const [host, dir] of PLUGIN_HOST_DIRS) {
     const segment = `${path.sep}${dir}${path.sep}plugins${path.sep}cache${path.sep}`;
-    if (packageRoot.includes(segment)) return host;
+    if (normalized.includes(segment)) return host;
   }
   return null;
 }
