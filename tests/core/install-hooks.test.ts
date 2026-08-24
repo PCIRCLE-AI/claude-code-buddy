@@ -11,7 +11,6 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { execFileSync } from 'child_process';
-import { removeTempDir } from '../helpers/temp-dir.js';
 
 describe('install-hooks', () => {
   let tmpDir: string;
@@ -56,7 +55,7 @@ describe('install-hooks', () => {
     else process.env.HOME = originalEnv.HOME;
     if (originalEnv.USERPROFILE === undefined) delete process.env.USERPROFILE;
     else process.env.USERPROFILE = originalEnv.USERPROFILE;
-    removeTempDir(tmpDir);
+    fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   async function freshModule() {
@@ -388,8 +387,8 @@ describe('memesh install-hooks (CLI output) — M-11', () => {
   });
 
   afterEach(() => {
-    removeTempDir(cwd);
-    removeTempDir(memeshDir);
+    fs.rmSync(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    fs.rmSync(memeshDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   it('names the marker path it just wrote', () => {
