@@ -32,9 +32,9 @@ const FALLBACK: LLMConfig = { provider: 'ollama', model: 'llama3.2' };
 function stubChain(body: string): { hosts: string[] } {
   const hosts: string[] = [];
   vi.spyOn(globalThis, 'fetch').mockImplementation((async (input: RequestInfo | URL) => {
-    const url = String(input);
-    hosts.push(new URL(url).host);
-    if (url.includes('api.anthropic.com')) {
+    const host = new URL(String(input)).host;
+    hosts.push(host);
+    if (host === 'api.anthropic.com') {
       return new Response('upstream is having a bad day', { status: 500 });
     }
     // Ollama's shape: { response: "..." }
