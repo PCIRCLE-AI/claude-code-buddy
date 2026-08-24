@@ -21,7 +21,9 @@ export interface InstallChannelSupport {
     guidance: string;
 }
 export type PluginHost = 'claude-code' | 'codex';
-export declare function detectPluginHost(packageRoot: string): PluginHost | null;
+export declare function detectPluginHost(packageRoot: string, options?: {
+    env?: NodeJS.ProcessEnv;
+}): PluginHost | null;
 export declare function getGlobalNpmRoot(options?: {
     execFileSyncImpl?: ExecFileSyncLike;
     execPathImpl?: string;
