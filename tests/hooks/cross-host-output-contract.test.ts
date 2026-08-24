@@ -141,8 +141,16 @@ describe('hooks that must be silent on success', () => {
       .filter(l => !l.trim().startsWith('//'))
       .join('\n');
 
-    const offenders = fs.readdirSync(dir)
-      .filter(f => f.endsWith('.js'))
+    const hookFiles = fs.readdirSync(dir).filter(f => f.endsWith('.js'));
+
+    // Anti-vacuity pin. `toEqual([])` below passes just as happily when the
+    // scan found NO files — a wrong path, a moved directory — as when it found
+    // them all and none offended. Those are opposite outcomes and the
+    // assertion cannot tell them apart, so the count is pinned first.
+    expect(hookFiles.length, 'scanned no hook files — this check stopped looking at anything')
+      .toBeGreaterThan(5);
+
+    const offenders = hookFiles
       .filter(f => /suppressOutput/.test(stripComments(fs.readFileSync(path.join(dir, f), 'utf8'))));
 
     expect(offenders, `these hooks emit suppressOutput, which Codex rejects per event`)
