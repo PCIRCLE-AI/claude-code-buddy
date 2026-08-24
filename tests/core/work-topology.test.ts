@@ -196,7 +196,7 @@ describe('work-topology', () => {
   it('assembles state + sections once, with the spacer only between them', () => {
     // The assembly order and spacer discipline used to be restated in both
     // consumers (hook + briefing); this is the single owner's contract.
-    const state = ['Where "p" was left off (today):', '- Goal: ship it'];
+    const state = ['Stated about "p" today, and not revisited since:', '- Goal: ship it'];
     const pools = [
       { entities: [entity({ type: 'decision', name: 'd1', title: 'ours' })], foreign: false },
       // Same entity arriving again via the cross-project pool: claimed by
@@ -211,7 +211,7 @@ describe('work-topology', () => {
     ];
     const lines = assembleTopologyBlock(state, pools, 'p', { maxChars: 4000 });
 
-    expect(lines[0]).toBe('Where "p" was left off (today):');
+    expect(lines[0]).toBe('Stated about "p" today, and not revisited since:');
     expect(lines).toContain('');
     expect(lines[lines.length - 1]).not.toBe('');
     expect(lines.join('\n').split('ours').length - 1).toBe(1);

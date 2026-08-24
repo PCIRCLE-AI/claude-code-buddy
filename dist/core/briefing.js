@@ -1,5 +1,6 @@
 import { getDatabase } from '../db.js';
 import { getProjectName } from './paths.js';
+import { readRepoState, repoStateLines } from './repo-state.js';
 import { rankEntities } from './scoring.js';
 import { getTaskState } from './task-state-store.js';
 import { taskStateLines } from './task-state.js';
@@ -49,6 +50,9 @@ function toTopologyEntity(row, snippet) {
 export function assembleBriefing(project) {
     const projectName = project ?? getProjectName();
     const db = getDatabase();
+    const repoLines = (project === undefined || project === getProjectName())
+        ? repoStateLines(readRepoState())
+        : [];
     const { state } = getTaskState(projectName);
     const stateLines = taskStateLines(state, projectName);
     const projectRows = db.prepare(`SELECT DISTINCT ${CANDIDATE_COLUMNS}
@@ -83,9 +87,12 @@ export function assembleBriefing(project) {
         { entities: toEntities(projectPool), foreign: false },
         { entities: toEntities(recentPool), foreign: true },
     ], projectName);
+    const withRepo = lines.length > 0 && repoLines.length > 0
+        ? [...repoLines, '', ...lines]
+        : lines;
     return {
         project: projectName,
-        text: lines.length > 0 ? buildReferenceContext(lines) : '',
+        text: lines.length > 0 ? buildReferenceContext(withRepo) : '',
         entityCount: lines.filter((l) => l.startsWith('- [')).length,
         hasTaskState: stateLines.length > 0,
     };

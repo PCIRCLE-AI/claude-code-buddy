@@ -42,6 +42,11 @@
       "bytes": 3987
     },
     {
+      "path": "scripts/hooks/_generated/repo-state.js",
+      "sha256": "04c8df4a8565d114421fc40873d0105c0faa640a56ec0948222ad9291c73eead",
+      "bytes": 3367
+    },
+    {
       "path": "scripts/hooks/_generated/schema.js",
       "sha256": "898b6121fd36e8fb423cfd32e1df40324c4d593def7df658c7aca80340866c64",
       "bytes": 12673
@@ -53,8 +58,8 @@
     },
     {
       "path": "scripts/hooks/_generated/task-state.js",
-      "sha256": "937bb65e07ef82333857a8bc88e37013286644ec490ec788aa250db0b59a80d4",
-      "bytes": 3532
+      "sha256": "68e5cdfa1a8c0f76a5a65d0353e942f69aab7247e73b54e5cf7e79c39188b4f5",
+      "bytes": 3560
     },
     {
       "path": "scripts/hooks/_generated/time-utils.js",
@@ -73,8 +78,8 @@
     },
     {
       "path": "scripts/hooks/_shared.js",
-      "sha256": "55c7a597f19a2270cbf06d052d7889a1a1ce7fbdc9ba96dd9cc08d206ef887c1",
-      "bytes": 42209
+      "sha256": "a720d4c13741eebc2f37c382080f1e8fc1ccf29d1a1849337135f0479d662c8d",
+      "bytes": 42285
     },
     {
       "path": "scripts/hooks/guard-check.js",
@@ -98,8 +103,8 @@
     },
     {
       "path": "scripts/hooks/session-start.js",
-      "sha256": "99acf85c9461ab3b125308af3d807d1f1a2261db208d32e241d96133e9e5251c",
-      "bytes": 57738
+      "sha256": "e2fc0aed3d31f5b91941b6da5a28e2cf78bb336c5599e1d75ad8112eef0a760e",
+      "bytes": 58344
     },
     {
       "path": "scripts/hooks/session-summary.js",

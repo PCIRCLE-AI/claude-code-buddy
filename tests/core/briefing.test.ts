@@ -68,8 +68,14 @@ describe('assembleBriefing', () => {
 
     const t = result.text;
     // The stated line leads; ranked sections follow; the machine keys never appear.
-    expect(t.indexOf('was left off')).toBeGreaterThan(-1);
-    expect(t.indexOf('was left off')).toBeLessThan(t.indexOf('Decisions and direction'));
+    // The heading attributes rather than asserts: every field under it is
+    // something a person SAID and nothing revisits it when the work moves on.
+    // It read `Where "<project>" was left off` until 2026-08-24, when it opened
+    // a session with "Just finished: v4.6.0" against 38 merged PRs.
+    expect(t.indexOf('Stated about')).toBeGreaterThan(-1);
+    expect(t, 'the heading claims to describe the project rather than quote someone')
+      .not.toContain('was left off');
+    expect(t.indexOf('Stated about')).toBeLessThan(t.indexOf('Decisions and direction'));
     expect(t).toContain('Ship A1c');
     expect(t).toContain('Use PKCE for the CLI');
     expect(t).toContain('do not repeat these');

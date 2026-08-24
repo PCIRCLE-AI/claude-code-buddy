@@ -27,6 +27,7 @@
 
 import { getDatabase } from '../db.js';
 import { getProjectName } from './paths.js';
+import { readRepoState, repoStateLines } from './repo-state.js';
 import { rankEntities } from './scoring.js';
 import { getTaskState } from './task-state-store.js';
 import { taskStateLines } from './task-state.js';
@@ -141,6 +142,22 @@ export function assembleBriefing(project?: string): BriefingResult {
   const projectName = project ?? getProjectName();
   const db = getDatabase();
 
+  // Derived first, stated second, and in that order on purpose. Both blocks
+  // used to be one: the stated goal was injected under a heading that read as
+  // the project's status, and nothing else in the briefing said where the work
+  // actually was. Facts read from git on the way out cannot be stale; a
+  // recorded intention always can be, so it follows the facts rather than
+  // standing in for them.
+  // Only when the process is actually standing in that project. `project` is
+  // a NAME, not a path, so `process.cwd()` is the right repository for a CLI
+  // run and can be an entirely different one over MCP, where the server's cwd
+  // has nothing to do with the project being asked about. Reporting this
+  // repository's branch under another project's heading would be a new way of
+  // saying something false, which is the thing this module exists to stop.
+  const repoLines = (project === undefined || project === getProjectName())
+    ? repoStateLines(readRepoState())
+    : [];
+
   // The one stated line, before anything ranked — same reasoning as the
   // hook: ranking cannot know what you meant to do next.
   const { state } = getTaskState(projectName);
@@ -198,9 +215,18 @@ export function assembleBriefing(project?: string): BriefingResult {
     projectName,
   );
 
+  // Repository facts PREFIX a briefing; they never constitute one. Prepending
+  // them unconditionally made "nothing to say" impossible — every call inside
+  // a git repository returned a fenced block whose entire content was a branch
+  // name, which is the one thing the agent can already see. So the emptiness
+  // test comes first and the facts are context for memories, not a substitute.
+  const withRepo = lines.length > 0 && repoLines.length > 0
+    ? [...repoLines, '', ...lines]
+    : lines;
+
   return {
     project: projectName,
-    text: lines.length > 0 ? buildReferenceContext(lines) : '',
+    text: lines.length > 0 ? buildReferenceContext(withRepo) : '',
     entityCount: lines.filter((l) => l.startsWith('- [')).length,
     hasTaskState: stateLines.length > 0,
   };
