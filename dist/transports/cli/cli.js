@@ -502,6 +502,7 @@ program
 const WHY_ABSTENTION_TEXT = {
     git_unavailable: 'git is not installed or not on PATH — commit attribution unavailable.',
     not_a_git_repo: 'Not inside a git repository — commit attribution unavailable.',
+    file_not_found: 'No such file.',
     file_not_tracked: 'File is not tracked by git — commit attribution unavailable.',
     history_unreadable: "git could not read this file's history (too much output, too slow, or the repository has no commits yet) — nothing is listed because the question went unanswered, not because no commit touched the file.",
     no_commits_supplied: 'No commit hashes were supplied — only the file-tag half of this answer ran.',
@@ -531,6 +532,8 @@ program
             limit,
             abstentions: resolved.abstention ? [resolved.abstention] : [],
         });
+        if (result.abstentions.includes('file_not_found'))
+            process.exitCode = 1;
         if (opts.json) {
             console.log(JSON.stringify(result, null, 2));
             return;

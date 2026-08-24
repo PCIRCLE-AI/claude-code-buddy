@@ -85,6 +85,17 @@ describe('Feature: resolveFileCommits (the git half — CLI only)', () => {
     expect(r).toEqual({ commits: [], abstention: 'file_not_tracked' });
   });
 
+  it('Scenario: a file that does not exist on disk -> a DIFFERENT abstention than "untracked" (M-07)', () => {
+    // `git ls-files --error-unmatch` fails identically whether the path is
+    // untracked or simply does not exist — it never touches disk. Without
+    // the existence check, a typo'd path was reported "not tracked by
+    // git", which reads as "this real file just isn't committed" and sent
+    // a user looking in the wrong place entirely.
+    commitFile('tracked.ts', 'x\n', 'chore: seed');
+    const r = resolveFileCommits(repoDir, 'no-such-file.ts');
+    expect(r).toEqual({ commits: [], abstention: 'file_not_found' });
+  });
+
   it('Scenario: --line attributes exactly the commit that wrote that line', () => {
     const h1 = commitFile('multi.ts', 'line one\n', 'feat: first line');
     const h2 = commitFile('multi.ts', 'line one\nline two\n', 'feat: second line');

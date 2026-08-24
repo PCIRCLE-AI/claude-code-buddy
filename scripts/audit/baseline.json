@@ -341,16 +341,6 @@
       "reason": "client-side search haystack only (absorbs the retired BrowseTab:169 and LessonsTab:298 hay statements)",
       "triaged": "2026-08-16 (tab consolidation: statement moved verbatim from the retired LessonsTab/BrowseTab; original triage 2026-08-04); re-keyed 2026-08-16 (UX-3: local CLUSTER_DOT block removed above, statement unchanged \u2014 verified)"
     },
-    "C5 src/core/why.ts:312": {
-      "class": "SAFE-BY-CONSTRUCTION",
-      "reason": "`input.commits ?? []` \u2014 WhySchema documents commits as optional (a caller without a working tree resolves none); the result carries commits: [] visibly, and every real gap in the chain is a typed abstention, never a default.",
-      "triaged": "2026-08-16 (UX-3 memesh why)"
-    },
-    "C5 src/core/why.ts:308": {
-      "class": "SAFE-BY-CONSTRUCTION",
-      "reason": "`input.abstentions ?? []` \u2014 pass-through of caller-declared git-side abstentions into the response verbatim; absence means the caller declared none, and nothing here can convert a failure into silence (the CLI always passes its resolveFileCommits abstention in).",
-      "triaged": "2026-08-16 (UX-3 memesh why)"
-    },
     "C5 dashboard/src/components/ProjectRoadmap.tsx:342": {
       "class": "SAFE-DISPLAY",
       "reason": "`e.relations ?? []` while collecting lineage edges \u2014 relations are optional on the wire; absence draws no arc and the visible legend counts only DRAWN arcs, so missing input yields visible emptiness, not claimed success.",
@@ -506,21 +496,6 @@
       "reason": "remember() sets relationErrors only when non-empty (operations.ts spreads it conditionally), so absent means none at the single producer; the failure path exits 1 off the same field",
       "triaged": "2026-08-10 (P7 batch 2); re-keyed 2026-08-12 (shifted +1 by the sourceHost field added to the remember() call above, code unchanged); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-14 266->268 (causal-convention sentences in the relation-type description; same statement \u2014 verified); re-keyed 2026-08-14 177->183 (UX-1 --title flag + quick-capture title above; same relationErrors statement \u2014 verified); re-keyed 2026-08-16 (A1c briefing import added one line above; statement verified at the new line \u2014 145 changed OWNER from contradicts to supersedes, both siblings re-verified); re-keyed 2026-08-16 (+23: upgrade-plugin command and isOnPath helper added above; statements byte-identical \u2014 verified against HEAD); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main \u2014 NOTE C7 339 slid onto a colliding key, whole set re-verified); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position); re-keyed 2026-08-24 (R12 CLI batch: withDatabase message + wholeNumber coercion shifted lines; statements byte-identical, classification unchanged); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged)"
     },
-    "C5 src/transports/cli/cli.ts:900": {
-      "class": "SAFE-BY-CONSTRUCTION",
-      "reason": "`(a.args ?? []).join` in the planned-actions RENDER only; execution re-reads args itself.",
-      "triaged": "2026-08-16 (P1 memesh setup; re-applied after merge took main baseline); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD); re-keyed 2026-08-16 (UX-3: memesh why command added above; byte-identical \u2014 verified); re-keyed 2026-08-16 (R2: recall retrieval metadata lines added above; same statement \u2014 verified) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position); re-keyed 2026-08-24 (R12 CLI batch: withDatabase message + wholeNumber coercion shifted lines; statements byte-identical, classification unchanged); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged)"
-    },
-    "C5 src/transports/cli/cli.ts:928": {
-      "class": "SAFE-GUARDED",
-      "reason": "`action.args ?? []` when spawning: run-kind actions are constructed in core/setup.ts with args always set (pinned by unit tests asserting exact arrays); a hypothetical argless command would run as-is with its exit code reported honestly.",
-      "triaged": "2026-08-16 (P1 memesh setup; re-applied after merge took main baseline); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD); re-keyed 2026-08-16 (UX-3: memesh why command added above; byte-identical \u2014 verified); re-keyed 2026-08-16 (R2: recall retrieval metadata lines added above; same statement \u2014 verified) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position); re-keyed 2026-08-24 (R12 CLI batch: withDatabase message + wholeNumber coercion shifted lines; statements byte-identical, classification unchanged); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged)"
-    },
-    "C5 src/transports/cli/cli.ts:929": {
-      "class": "SAFE-BY-CONSTRUCTION",
-      "reason": "`(action.args ?? []).join` in the success-echo of the command that just ran on the line above (694, same triage); the exit-code branch is the verdict.",
-      "triaged": "2026-08-16 (P1 memesh setup; re-applied after merge took main baseline); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD); re-keyed 2026-08-16 (UX-3: memesh why command added above; byte-identical \u2014 verified); re-keyed 2026-08-16 (R2: recall retrieval metadata lines added above; same statement \u2014 verified) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position); re-keyed 2026-08-24 (R12 CLI batch: withDatabase message + wholeNumber coercion shifted lines; statements byte-identical, classification unchanged); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged)"
-    },
     "C3 scripts/wait-for-checks.mjs": {
       "class": "NOT-A-GATE",
       "reason": "CI-wait helper a human (or an agent acting for one) runs interactively after pushing; its caller is the person waiting. It is not a gate because nothing it decides is enforced \u2014 its only product is an exit code and a RESULT line for whoever invoked it. Added because every prior way of waiting for checks failed: `gh pr checks --watch` returned 0 with checks pending, `| grep -cv pass` returned grep's status, hand-rolled loops stalled.",
@@ -650,6 +625,31 @@
       "class": "SAFE-ACCUMULATOR",
       "reason": "spreads an in-repo literal DEMO_DATA entry (line shifted by the DEMO_RELATIONS insert; same code as the prior demo.ts entry)",
       "triaged": "2026-08-04; re-keyed 2026-08-24 (R14 timestamp-format batch shifted lines; statements byte-identical, classification unchanged); re-keyed 2026-08-24 (M-16 collision guard: demoNames set-building added above; statement byte-identical, classification unchanged)"
+    },
+    "C5 src/core/why.ts:318": {
+      "class": "SAFE-BY-CONSTRUCTION",
+      "reason": "`input.abstentions ?? []` \u2014 pass-through of caller-declared git-side abstentions into the response verbatim; absence means the caller declared none, and nothing here can convert a failure into silence (the CLI always passes its resolveFileCommits abstention in).",
+      "triaged": "2026-08-16 (UX-3 memesh why); re-keyed 2026-08-24 (M-07: file_not_found abstention + why.ts imports added above; statements byte-identical, classification unchanged)"
+    },
+    "C5 src/core/why.ts:322": {
+      "class": "SAFE-BY-CONSTRUCTION",
+      "reason": "`input.commits ?? []` \u2014 WhySchema documents commits as optional (a caller without a working tree resolves none); the result carries commits: [] visibly, and every real gap in the chain is a typed abstention, never a default.",
+      "triaged": "2026-08-16 (UX-3 memesh why); re-keyed 2026-08-24 (M-07: file_not_found abstention + why.ts imports added above; statements byte-identical, classification unchanged)"
+    },
+    "C5 src/transports/cli/cli.ts:906": {
+      "class": "SAFE-BY-CONSTRUCTION",
+      "reason": "`(a.args ?? []).join` in the planned-actions RENDER only; execution re-reads args itself.",
+      "triaged": "2026-08-16 (P1 memesh setup; re-applied after merge took main baseline); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD); re-keyed 2026-08-16 (UX-3: memesh why command added above; byte-identical \u2014 verified); re-keyed 2026-08-16 (R2: recall retrieval metadata lines added above; same statement \u2014 verified) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position); re-keyed 2026-08-24 (R12 CLI batch: withDatabase message + wholeNumber coercion shifted lines; statements byte-identical, classification unchanged); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged); re-keyed 2026-08-24 (M-07: file_not_found abstention + why.ts imports added above; statements byte-identical, classification unchanged)"
+    },
+    "C5 src/transports/cli/cli.ts:934": {
+      "class": "SAFE-GUARDED",
+      "reason": "`action.args ?? []` when spawning: run-kind actions are constructed in core/setup.ts with args always set (pinned by unit tests asserting exact arrays); a hypothetical argless command would run as-is with its exit code reported honestly.",
+      "triaged": "2026-08-16 (P1 memesh setup; re-applied after merge took main baseline); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD); re-keyed 2026-08-16 (UX-3: memesh why command added above; byte-identical \u2014 verified); re-keyed 2026-08-16 (R2: recall retrieval metadata lines added above; same statement \u2014 verified) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position); re-keyed 2026-08-24 (R12 CLI batch: withDatabase message + wholeNumber coercion shifted lines; statements byte-identical, classification unchanged); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged); re-keyed 2026-08-24 (M-07: file_not_found abstention + why.ts imports added above; statements byte-identical, classification unchanged)"
+    },
+    "C5 src/transports/cli/cli.ts:935": {
+      "class": "SAFE-BY-CONSTRUCTION",
+      "reason": "`(action.args ?? []).join` in the success-echo of the command that just ran on the line above (694, same triage); the exit-code branch is the verdict.",
+      "triaged": "2026-08-16 (P1 memesh setup; re-applied after merge took main baseline); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD); re-keyed 2026-08-16 (UX-3: memesh why command added above; byte-identical \u2014 verified); re-keyed 2026-08-16 (R2: recall retrieval metadata lines added above; same statement \u2014 verified) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position); re-keyed 2026-08-24 (R12 CLI batch: withDatabase message + wholeNumber coercion shifted lines; statements byte-identical, classification unchanged); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged); re-keyed 2026-08-24 (M-07: file_not_found abstention + why.ts imports added above; statements byte-identical, classification unchanged)"
     }
   }
 }
