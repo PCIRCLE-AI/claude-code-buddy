@@ -24,7 +24,7 @@ import { spawnSync } from 'child_process';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
-const { openHookDb, HOOK_BUSY_TIMEOUT_MS } = require('../../scripts/hooks/_shared.js');
+const { openHookDb } = require('../../scripts/hooks/_shared.js');
 const { MemeshDatabase } = require('../../scripts/hooks/_generated/sqlite.js');
 
 interface HookEntry { matcher?: string; hooks: Array<{ command: string; timeout?: number }> }
@@ -90,42 +90,25 @@ describe('the read-only hooks apply the same cap they cannot get from openHookDb
   // which is the one lock a `readOnly` SELECT can actually be made to
   // wait on.
   //
-  // Each case is timed TWICE: once against an unlocked database (the
-  // process-spawn floor — module load, a couple of queries against empty
-  // tables, nothing to wait on) and once against one held EXCLUSIVE. The
-  // DIFFERENCE between the two, not either number alone, is what this
-  // asserts against — a flat ms ceiling could not survive a loaded macOS
-  // runner: guard-check.js, a script with nothing left to fix, measured
-  // 4516ms on one and 4378ms on another against a 4000ms flat cap, entirely
-  // from process-spawn noise unrelated to the lock wait. Timing the same
-  // script unlocked right next to it cancels that noise, because both
-  // spawns pay it about equally.
-  //
-  // pre-edit-recall.js is the sensitive case: `loadActiveGuards` swallows
-  // the guard query's own failure, so a still-contended lock could pay the
-  // busy_timeout wait TWICE in sequence (once hidden, once fatal) before
-  // this hook gives up. One wait reads as the floor plus ~1x
-  // HOOK_BUSY_TIMEOUT_MS; a regression back to the old double wait reads
-  // as the floor plus ~2x. 1.5x sits between them regardless of how slow
-  // the runner is, because the floor already absorbed the runner's own
-  // slowness on both sides of the subtraction. For guard-check.js and
-  // session-start.js, which only ever make one query, the same bound
-  // catches the coarser regression this block exists for — a pragma that
-  // was never applied at all inherits the 30s meant for long-lived
-  // writers, which clears 1.5x by an order of magnitude.
-  // `input` is a function of a run tag, not a fixed object: pre-edit-recall.js
-  // throttles repeat recalls of the same file within a session
-  // (`session-recalled-files.json`, keyed on memeshDir — which the floor and
-  // contended runs below deliberately share, same dbPath). A fixed file_path
-  // would let the floor run's throttle write silently skip the recall query
-  // on the contended run, collapsing the very second query this case exists
-  // to keep contended, and undetectably turning this into a same-as-before
-  // single-query measurement no matter which code is under test.
-  const cases: Array<{ script: string; makeInput: (tag: string) => object }> = [
-    { script: 'guard-check.js', makeInput: () => ({ tool_input: { command: 'echo hi' } }) },
-    { script: 'session-start.js', makeInput: () => ({ cwd: '/tmp/hook-budget-probe' }) },
-    { script: 'pre-edit-recall.js', makeInput: (tag) => ({ tool_name: 'Edit', tool_input: { file_path: `/tmp/hook-budget-probe/${tag}.ts`, new_string: 'x' }, cwd: '/tmp/hook-budget-probe' }) },
-  ];
+  // What "one busy_timeout wait" costs in wall-clock time is NOT a
+  // portable number, even after subtracting each script's own unlocked
+  // floor (process-spawn time). This test's history, in this same file:
+  //   - a flat 4000ms ceiling failed on macOS CI at 4516ms / 4378ms for
+  //     scripts that pay exactly one wait — pure process-spawn noise.
+  //   - "floor-subtracted, must be under 1.5x HOOK_BUSY_TIMEOUT_MS (3000ms)"
+  //     then failed on the SAME macOS CI at 3013 / 3169 / 3092ms — for all
+  //     three scripts, including the two with nothing left to fix. A
+  //     contended busy_timeout wait apparently costs ~50% more than its
+  //     nominal 2000ms under real lock contention (retry granularity, WAL
+  //     file/journal state the unlocked floor run never touches), and that
+  //     premium itself varies by runner.
+  // Guessing a third constant would just move the flake. Instead,
+  // guard-check.js can only structurally ever pay ONE wait (it makes
+  // exactly one query), so it is measured FRESH, in the same test run, as
+  // the reference "what does one wait cost right now" — and every other
+  // script's own paid-wait is compared to THAT, not to a number written
+  // down in this file.
+  const guardCheckInput = () => ({ tool_input: { command: 'echo hi' } });
 
   function runHookOnce(script: string, input: object, dbPath: string): number {
     const hookPath = path.resolve('scripts/hooks', script);
@@ -142,41 +125,90 @@ describe('the read-only hooks apply the same cap they cannot get from openHookDb
     return elapsedMs;
   }
 
-  it.each(cases)('$script pays the exclusive-lock wait once above its own unlocked floor, not twice', ({ script, makeInput }) => {
+  // Unlocked run minus exclusive-locked run, for one script, in one shared
+  // temp database. The subtraction cancels process-spawn noise (module
+  // load, disk cache state) that a raw elapsed-ms reading could not
+  // survive — see the block comment above.
+  function measureWaitedMs(script: string, makeInput: (tag: string) => object, dbPath: string): number {
+    const floorMs = runHookOnce(script, makeInput('floor'), dbPath);
+    const locker = new MemeshDatabase(dbPath);
+    locker.pragma('journal_mode = WAL');
+    locker.pragma('locking_mode = EXCLUSIVE');
+    // `locking_mode = EXCLUSIVE` only escalates to (and holds) the OS-level
+    // exclusive lock on this connection's first WRITE — a read alone stays
+    // at a shared lock, which does not block another reader. A scratch
+    // table keeps this write out of the schema the hooks themselves query.
+    locker.exec('CREATE TABLE __contention_probe (id INTEGER)');
+    try {
+      const contendedMs = runHookOnce(script, makeInput('contended'), dbPath);
+      return contendedMs - floorMs;
+    } finally {
+      locker.close();
+    }
+  }
+
+  function withTempDb<T>(fn: (dbPath: string) => T): T {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-readonly-budget-'));
     const dbPath = path.join(dir, 'kg.db');
-    // Create the schema (and close) before taking the exclusive lock —
-    // an exclusive holder refuses even the migration this would run.
+    // Create the schema (and close) before taking the exclusive lock — an
+    // exclusive holder refuses even the migration this would run.
     const { db: seedDb } = openHookDb({ ...process.env, MEMESH_DB_PATH: dbPath });
     seedDb.close();
-
     try {
-      const floorMs = runHookOnce(script, makeInput('floor'), dbPath);
-
-      const locker = new MemeshDatabase(dbPath);
-      locker.pragma('journal_mode = WAL');
-      locker.pragma('locking_mode = EXCLUSIVE');
-      // `locking_mode = EXCLUSIVE` only escalates to (and holds) the OS-level
-      // exclusive lock on this connection's first WRITE — a read alone stays
-      // at a shared lock, which does not block another reader. A scratch
-      // table keeps this write out of the schema the hooks themselves query.
-      locker.exec('CREATE TABLE __contention_probe (id INTEGER)');
-      let contendedMs: number;
-      try {
-        contendedMs = runHookOnce(script, makeInput('contended'), dbPath);
-      } finally {
-        locker.close();
-      }
-
-      const waitedMs = contendedMs - floorMs;
-      expect(
-        waitedMs,
-        `paid ${waitedMs}ms above its own ${floorMs}ms unlocked floor (contended run took ${contendedMs}ms) — looks like more than one busy_timeout wait`,
-      ).toBeLessThan(HOOK_BUSY_TIMEOUT_MS * 1.5);
+      return fn(dbPath);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
-  }, 30_000);
+  }
+
+  it.each([
+    { script: 'guard-check.js', makeInput: guardCheckInput },
+    { script: 'session-start.js', makeInput: () => ({ cwd: '/tmp/hook-budget-probe' }) },
+  ])('$script does not inherit the 30s default meant for long-lived writers', ({ script, makeInput }) => {
+    // The regression this rules out is coarse — a pragma never applied at
+    // all — so it does not need fine calibration against a live reference:
+    // any number this large only happens by inheriting the 30s default (or
+    // hitting spawnSync's own 25s timeout on the way there), never by
+    // paying a correctly-capped 2s wait plus runner noise.
+    const waitedMs = withTempDb((dbPath) => measureWaitedMs(script, makeInput, dbPath));
+    expect(waitedMs, `${script} paid ${waitedMs}ms above its own unlocked floor — looks like the busy_timeout pragma never reached the handle`)
+      .toBeLessThan(15_000);
+  }, 60_000);
+
+  it("pre-edit-recall.js pays at most one busy_timeout wait, calibrated against guard-check.js's own wait measured in this same run", () => {
+    // `loadActiveGuards` swallows the guard query's own failure, so a
+    // still-contended lock could pay the busy_timeout wait TWICE in
+    // sequence (once hidden, once fatal) before this hook gives up — the
+    // regression the upfront probe in pre-edit-recall.js exists to
+    // prevent. guard-check.js can only ever pay one wait (one query, no
+    // swallow-and-continue), so its OWN paid-wait — measured fresh, right
+    // here, on the same runner under the same load — is the "what does 1x
+    // cost right now" reference. 1.6x comfortably clears the ~5% spread
+    // observed between different single-wait scripts in the same run,
+    // while sitting well under the 2x a regression would produce.
+    //
+    // Distinct file_path per run: pre-edit-recall.js throttles repeat
+    // recalls of the same file within a session
+    // (`session-recalled-files.json`, keyed on memeshDir — which the floor
+    // and contended runs deliberately share, same dbPath). A fixed
+    // file_path would let the floor run's throttle write silently skip the
+    // recall query on the contended run, collapsing the very second query
+    // this test exists to keep contended — caught by this test's own
+    // break-test, not by inspection.
+    const makePreEditInput = (tag: string) => ({
+      tool_name: 'Edit',
+      tool_input: { file_path: `/tmp/hook-budget-probe/${tag}.ts`, new_string: 'x' },
+      cwd: '/tmp/hook-budget-probe',
+    });
+
+    const referenceWaitedMs = withTempDb((dbPath) => measureWaitedMs('guard-check.js', guardCheckInput, dbPath));
+    const targetWaitedMs = withTempDb((dbPath) => measureWaitedMs('pre-edit-recall.js', makePreEditInput, dbPath));
+
+    expect(
+      targetWaitedMs,
+      `pre-edit-recall.js paid ${targetWaitedMs}ms vs guard-check.js's own ${referenceWaitedMs}ms single-wait reference (measured in this same run) — looks like more than one busy_timeout wait`,
+    ).toBeLessThan(referenceWaitedMs * 1.6);
+  }, 60_000);
 });
 
 describe('the PreCompact budget is the external one', () => {
