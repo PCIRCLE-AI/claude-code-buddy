@@ -132,6 +132,32 @@ describe('readRepoState', () => {
   it('returns null for a path that does not exist rather than throwing', () => {
     expect(readRepoState('/definitely/not/here/at/all')).toBeNull();
   });
+
+  it('returns null when git is not installed at all', () => {
+    // The case with no local symptom: everyone developing this has git, so a
+    // crash here would ship and only surface on a machine that does not — a
+    // slim container, a CI image without git, a user who installed memesh to
+    // take notes and has never used version control. `readRepoState` runs on
+    // the session-start path, so a throw there takes the whole injection with
+    // it and the session loses its memories over an optional block.
+    //
+    // Emptying PATH is what makes git genuinely unresolvable; a non-repository
+    // directory (tested above) exercises a DIFFERENT failure — git runs and
+    // answers "no". Both must land on null, and only one of them was covered.
+    const realPath = process.env.PATH;
+    process.env.PATH = '/nonexistent-so-git-cannot-be-found';
+    try {
+      expect(() => readRepoState(repo)).not.toThrow();
+      expect(readRepoState(repo), 'a missing git must read as "cannot tell", not as a state').toBeNull();
+      expect(repoStateLines(readRepoState(repo)), 'rendered a block with nothing to render').toEqual([]);
+    } finally {
+      process.env.PATH = realPath;
+    }
+
+    // And the guard on the guard: PATH really was restored, or every test
+    // after this one would be exercising a machine without git.
+    expect(readRepoState(repo), 'PATH was not restored').not.toBeNull();
+  });
 });
 
 describe('repoStateLines', () => {
