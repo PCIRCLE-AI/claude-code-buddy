@@ -106,7 +106,15 @@ describe('pruning telemetry keeps rows newer than the cutoff', () => {
     const boundary = sameDayButNewerThan(cutoff);
     // Fixture: the row really is inside the window AND really does share the
     // cutoff's date. Both have to hold or the test proves nothing.
-    expect(parseSqliteUtcMs(boundary)! > cutoff, 'fixture: the row is not inside the window').toBe(true);
+    // Compared at SECOND resolution, which is the resolution the product
+    // works at: `pruneTelemetry` binds `datetime(?)`, and `datetime()` drops
+    // the milliseconds. A strict `>` against a millisecond-precision cutoff is
+    // stricter than the query it is standing in for, and it has one instant a
+    // day where it is wrong — a run in the last second of a UTC day, where
+    // 23:59:59 IS the newest same-day stamp and is `=` rather than `>`. Same
+    // class as the `cutoff - HOUR` fixture below, which cost a release.
+    const cutoffSecond = Math.floor(cutoff / 1000) * 1000;
+    expect(parseSqliteUtcMs(boundary)! >= cutoffSecond, 'fixture: the row is not inside the window').toBe(true);
     expect(boundary.slice(0, 10), 'fixture: the row is not on the cutoff day')
       .toBe(new Date(cutoff).toISOString().slice(0, 10));
 
@@ -161,11 +169,33 @@ describe('a plan touched on the cutoff day is not stale', () => {
     const { computePmAnalytics } = await import('../../src/core/analytics.js');
     const db = getDatabase();
     db.prepare("INSERT INTO entities (name, type, status) VALUES ('a-plan', 'plan', 'active')").run();
-    // Just OUTSIDE the window, on the same calendar day as the cutoff.
+    // Just OUTSIDE the window, on the same calendar day as the cutoff. The
+    // day has to match or the defect cannot bite: the two formats first differ
+    // at index 10, so the separator only decides the comparison when the date
+    // halves are equal.
+    //
+    // This was `cutoff - HOUR`, and `cutoff` carries the CURRENT time of day —
+    // so between 00:00 and 01:00 UTC one hour earlier is the PREVIOUS day and
+    // the fixture guard failed. It fired in exactly one place: the npm publish
+    // run for v4.7.0, which started at 00:06 UTC. Every local run and all 13
+    // CI legs had passed, at other hours. A test whose verdict depends on the
+    // wall clock is not a test — it is a coin the clock flips.
+    //
+    // Clamped to midnight of the cutoff's own UTC day, which is inside the
+    // window at every hour. (The one instant it cannot express is a cutoff
+    // landing exactly on 00:00:00.000 UTC, where "on the cutoff day AND older
+    // than the cutoff" has no solution at all. One millisecond a day, stated
+    // here rather than left to be rediscovered.)
     const cutoff = cutoffMsFor(30);
-    const justStale = new Date(cutoff - HOUR).toISOString();
+    const cutoffDate = new Date(cutoff);
+    const dayStart = Date.UTC(
+      cutoffDate.getUTCFullYear(), cutoffDate.getUTCMonth(), cutoffDate.getUTCDate(),
+    );
+    const justStale = new Date(Math.max(cutoff - HOUR, dayStart)).toISOString();
     expect(justStale.slice(0, 10), 'fixture: not on the cutoff day')
-      .toBe(new Date(cutoff).toISOString().slice(0, 10));
+      .toBe(cutoffDate.toISOString().slice(0, 10));
+    expect(Date.parse(justStale), 'fixture: not actually older than the cutoff')
+      .toBeLessThan(cutoff);
     db.prepare("UPDATE entities SET last_accessed_at = ? WHERE name = 'a-plan'").run(justStale);
 
     expect(computePmAnalytics(db).staleness.stalePlanCount,
