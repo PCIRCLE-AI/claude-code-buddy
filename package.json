@@ -1,7 +1,7 @@
 {
   "name": "@pcircle/memesh",
-  "version": "4.7.1",
-  "description": "MeMesh \u2014 agentic memory for coding agents. Captured from the agent's real work via hooks, recalled when it acts. One SQLite file, zero cloud required.",
+  "version": "4.7.2",
+  "description": "MeMesh — agentic memory for coding agents. Captured from the agent's real work via hooks, recalled when it acts. One SQLite file, zero cloud required.",
   "main": "dist/index.js",
   "type": "module",
   "bin": {

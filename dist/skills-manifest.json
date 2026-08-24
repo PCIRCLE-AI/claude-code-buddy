@@ -3,8 +3,8 @@
   "entries": [
     {
       "path": ".claude-plugin/plugin.json",
-      "sha256": "66dd902ddfe00d4aca6d87e3b7b6559e8e2b77b59dafdff4cb6140533b726c75",
-      "bytes": 524
+      "sha256": "1a03a56bfb2e7d2fd3a2a04692604027d9dbfaed63f4c1d7afc6a35ff6dfafac",
+      "bytes": 527
     },
     {
       "path": ".mcp.json",
