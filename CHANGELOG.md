@@ -2,6 +2,45 @@
 
 All notable changes to MeMesh are documented here.
 
+## [Unreleased]
+
+### Fixed
+
+- **A Codex CLI plugin install was classified as `unknown`, and every piece of
+  advice that followed was wrong.** Codex adopted Claude Code's plugin manifest
+  format and its cache layout one directory over —
+  `~/.codex/plugins/cache/<marketplace>/<plugin>/<version>` against
+  `~/.claude/plugins/cache/…` — but `detectInstallChannel` matched only
+  `.claude`, so a Codex-hosted copy fell all the way through to `unknown`.
+  `memesh update` answered a real user with "does not support this install
+  method (unknown). Update this installation from the tool or workflow that
+  installed MeMesh", on an install it fully supports, and `memesh doctor`
+  carried the same non-answer into its summary.
+
+  Both runtimes now classify as `plugin-marketplace`, because the condition
+  every consumer asks — "is this wired by a plugin runtime" — is genuinely the
+  same for both. What differs is the remediation, so that is now host-aware
+  rather than assumed. A Codex install is told `codex plugin marketplace
+  upgrade pcircle-memesh` followed by `codex plugin add memesh@pcircle-memesh`;
+  it is deliberately **not** told to run `memesh upgrade-plugin`, which reads
+  `~/.claude/plugins/marketplaces/` and patches
+  `~/.claude/plugins/installed_plugins.json` — neither of which Codex creates,
+  so that command aborts with "marketplace cache not found". The doctor's
+  hook-wiring and shell-CLI rows, and the session-start update banner, name the
+  runtime they actually found instead of saying "Claude Code" to everyone.
+
+  `getInstallChannelSupport` now requires the package root rather than taking
+  it optionally. Every caller already had it — it is what produced the channel
+  — so an optional parameter only bought the ability to be answered with a
+  guess.
+
+### Changed
+
+- **`AGENTS.md` no longer states that Codex CLI has no hooks.** It can have
+  them: installed as a plugin it reads the same `hooks/hooks.json` manifest
+  Claude Code does and runs the same hook scripts. Wired as an MCP server it
+  still does not, and the manual loop still applies there.
+
 ## [4.7.1] — 2026-08-24
 
 ### Fixed

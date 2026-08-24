@@ -1,7 +1,7 @@
 import path from 'path';
 import type fs from 'fs';
 import { describe, expect, it } from 'vitest';
-import { detectInstallChannel, getGlobalNpmRoot, getInstallChannelSupport } from '../src/core/install-channel.js';
+import { detectInstallChannel, detectPluginHost, getGlobalNpmRoot, getInstallChannelSupport } from '../src/core/install-channel.js';
 
 function existsFor(paths: string[]) {
   const normalized = new Set(paths.map((entry) => path.resolve(entry)));
@@ -72,29 +72,109 @@ describe('install channel detection', () => {
 
     expect(channel).toBe('plugin-marketplace');
   });
+
+  it('detects Codex CLI plugin-marketplace cache paths', () => {
+    // Codex adopted the same plugin manifest and the same cache layout one
+    // directory over. Matching only `.claude` classified these as `unknown`,
+    // and `memesh update` told a real user it "does not support this install
+    // method (unknown)" on an install it fully supports.
+    const packageRoot = '/Users/alice/.codex/plugins/cache/pcircle-memesh/memesh/4.7.1';
+
+    const channel = detectInstallChannel({
+      packageRoot,
+      globalNpmRoot: null,
+      existsSyncImpl: existsFor([path.join(packageRoot, '.git')]),
+    });
+
+    expect(channel).toBe('plugin-marketplace');
+  });
 });
+
+const CLAUDE_PLUGIN_ROOT = '/Users/alice/.claude/plugins/cache/pcircle-memesh/memesh/4.7.1';
+const CODEX_PLUGIN_ROOT = '/Users/alice/.codex/plugins/cache/pcircle-memesh/memesh/4.7.1';
 
 describe('install channel support', () => {
   it('only enables self-update for npm global installs', () => {
-    expect(getInstallChannelSupport('npm-global')).toMatchObject({
+    expect(getInstallChannelSupport('npm-global', '/usr/local/lib/node_modules/@pcircle/memesh')).toMatchObject({
       canSelfUpdate: true,
       recommendedCommand: 'memesh update',
     });
 
-    expect(getInstallChannelSupport('npm-local')).toMatchObject({
+    expect(getInstallChannelSupport('npm-local', '/repo/node_modules/@pcircle/memesh')).toMatchObject({
       canSelfUpdate: false,
       recommendedCommand: null,
     });
 
-    expect(getInstallChannelSupport('source-checkout')).toMatchObject({
+    expect(getInstallChannelSupport('source-checkout', '/workspace/memesh')).toMatchObject({
       canSelfUpdate: false,
       recommendedCommand: null,
     });
 
-    expect(getInstallChannelSupport('plugin-marketplace')).toMatchObject({
+    expect(getInstallChannelSupport('plugin-marketplace', CLAUDE_PLUGIN_ROOT)).toMatchObject({
       canSelfUpdate: false,
       recommendedCommand: 'memesh upgrade-plugin',
     });
+  });
+
+  it('does NOT prescribe upgrade-plugin to a Codex-hosted install', () => {
+    // `scripts/upgrade-plugin.sh` reads ~/.claude/plugins/marketplaces and
+    // patches ~/.claude/plugins/installed_plugins.json. Codex creates
+    // neither, so that command aborts with "marketplace cache not found".
+    // Prescribing it would be a confidently wrong instruction.
+    const support = getInstallChannelSupport('plugin-marketplace', CODEX_PLUGIN_ROOT);
+
+    expect(support.recommendedCommand, 'a Codex user was handed the Claude Code upgrade command')
+      .not.toBe('memesh upgrade-plugin');
+    expect(support.guidance).not.toMatch(/memesh upgrade-plugin/);
+    expect(support.recommendedCommand).toBe('codex plugin marketplace upgrade pcircle-memesh');
+    expect(support.guidance, 'the guidance never says how to install the refreshed version')
+      .toMatch(/codex plugin add memesh@pcircle-memesh/);
+    expect(support.label).toMatch(/Codex/);
+  });
+
+  it('still prescribes upgrade-plugin to a Claude Code install', () => {
+    // The other half: the Codex branch must not swallow the majority case.
+    const support = getInstallChannelSupport('plugin-marketplace', CLAUDE_PLUGIN_ROOT);
+
+    expect(support.recommendedCommand).toBe('memesh upgrade-plugin');
+    expect(support.guidance).not.toMatch(/codex plugin/);
+  });
+});
+
+describe('plugin host detection', () => {
+  it('tells the two runtimes apart', () => {
+    expect(detectPluginHost(CLAUDE_PLUGIN_ROOT)).toBe('claude-code');
+    expect(detectPluginHost(CODEX_PLUGIN_ROOT)).toBe('codex');
+  });
+
+  it('is null for anything that is not a plugin cache', () => {
+    expect(detectPluginHost('/workspace/memesh')).toBeNull();
+    expect(detectPluginHost('/usr/local/lib/node_modules/@pcircle/memesh')).toBeNull();
+  });
+
+  it('does not fire on a user path that merely contains plugins/cache', () => {
+    // The anchor is `<runtime-dir>/plugins/cache/`, not the bare substring.
+    expect(detectPluginHost('/home/bob/projects/plugins/cache/thing')).toBeNull();
+    expect(detectPluginHost('/home/bob/.claudex/plugins/cache/x/y/1.0.0')).toBeNull();
+  });
+
+  it('normalises the path the same way detectInstallChannel does', () => {
+    // detectInstallChannel matches against path.resolve(packageRoot), and
+    // runDoctor takes packageRoot from its caller. If this helper matched the
+    // raw string instead, the two would disagree on any unnormalised path —
+    // the channel would say `plugin-marketplace` while the host came back
+    // null, and a Codex user would be handed `memesh upgrade-plugin`, the one
+    // command that aborts for them.
+    // A raw literal, NOT path.join — join already collapses `..`, so a joined
+    // path is normalised before it ever reaches the helper and would pass with
+    // or without the resolve. Only an unnormalised string tells them apart.
+    const messy = '/Users/alice/.codex/plugins/other/../cache/pcircle-memesh/memesh/4.7.1';
+
+    expect(detectPluginHost(messy)).toBe('codex');
+    expect(
+      detectInstallChannel({ packageRoot: messy, globalNpmRoot: null, existsSyncImpl: existsFor([]) }),
+      'the two disagree on the same path',
+    ).toBe('plugin-marketplace');
   });
 });
 

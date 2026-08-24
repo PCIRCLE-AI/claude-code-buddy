@@ -12,7 +12,7 @@ import {
 } from '../db.js';
 import { getUpdateCheck } from './version-check.js';
 import { classifyBump } from './updater.js';
-import { getCurrentInstallChannel, getInstallChannelSupport, type InstallChannel } from './install-channel.js';
+import { getCurrentInstallChannel, getInstallChannelSupport, detectPluginHost, type InstallChannel, type PluginHost } from './install-channel.js';
 import { getInstallRecord } from './install-id.js';
 import { citationRulePath, citationRuleState, type CitationRuleScope } from './citation-rule.js';
 import { getDbPath, homeDir, memeshDir, getProjectName } from './paths.js';
@@ -648,6 +648,7 @@ function inspectHookWiring(
   memeshDir: string,
   installChannel?: InstallChannel,
   installedPluginsPath?: string,
+  pluginHost?: PluginHost | null,
 ): DoctorCheck {
   const markerPath = path.join(memeshDir, 'install-hooks.json');
   if (!existsSyncImpl(markerPath)) {
@@ -664,15 +665,20 @@ function inspectHookWiring(
     // wired into Claude Code / PASS" — including a plain `npm i -g` where
     // nothing was wired and nothing would ever be remembered. The WARN below
     // was unreachable. The install channel is the honest signal: it is
-    // `plugin-marketplace` only when the package actually sits under
-    // `~/.claude/plugins/cache/`, which only Claude Code's plugin runtime
-    // writes.
+    // `plugin-marketplace` only when the package actually sits under a
+    // plugin runtime's cache (`~/.claude/plugins/cache/` or Codex's
+    // `~/.codex/plugins/cache/`), which only that runtime writes.
     if (installChannel === 'plugin-marketplace') {
+      // Naming the runtime matters here: this row is the answer to "are my
+      // hooks actually connected", and a Codex user told "wired via the
+      // Claude Code plugin runtime" has been handed a sentence about a
+      // product they are not running.
+      const runtime = pluginHost === 'codex' ? 'Codex CLI' : 'Claude Code';
       return createCheck(
         'hook-wiring',
         'Hooks wired into Claude Code',
         'pass',
-        'Wired via the Claude Code plugin runtime (this is a plugin-marketplace install). The install-hooks marker is not used on this install path.',
+        `Wired via the ${runtime} plugin runtime (this is a plugin-marketplace install). The install-hooks marker is not used on this install path.`,
       );
     }
     // A DIFFERENT copy may still be wired: on a plugin-managed machine the
@@ -1505,12 +1511,13 @@ function inspectShellCli(
   }
 
   if (installChannel === 'plugin-marketplace') {
+    const host = detectPluginHost(packageRoot) === 'codex' ? 'Codex CLI' : 'Claude Code';
     return createCheck(
       'shell-cli',
       'Shell CLI on PATH',
       'warn',
       'Plugin is installed but `memesh` is not on the shell PATH. Typing `memesh` in a regular terminal will report `command not found`. '
-        + 'Claude Code MCP / hooks / `/memesh` skill still work — this only affects standalone shell usage and other MCP clients (Cursor, Cline, etc.).',
+        + `${host} MCP / hooks / \`/memesh\` skill still work — this only affects standalone shell usage and other MCP clients (Cursor, Cline, etc.).`,
       'Run `npm install -g @pcircle/memesh` to add the shell CLI. Both paths coexist; they share the same `~/.memesh/knowledge-graph.db`.',
       { code: 'shell-cli.not-on-path' },
     );
@@ -2095,7 +2102,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   const checks: DoctorCheck[] = [];
 
   const install = getCurrentInstallChannelImpl({ packageRoot });
-  const installSupport = getInstallChannelSupportImpl(install);
+  const installSupport = getInstallChannelSupportImpl(install, packageRoot);
   checks.push(
     createCheck(
       'install-channel',
@@ -2504,7 +2511,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   // memesh's hooks at all).
   // installedPluginsPathImpl may be undefined — detectPluginRuntime owns the
   // default path; restating it here was a second copy of the same location.
-  const wiring = inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir(), install, installedPluginsPathImpl);
+  const wiring = inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir(), install, installedPluginsPathImpl, detectPluginHost(packageRoot));
   checks.push(wiring);
   // hook-activity's never-ran verdict only reds when wiring is actually in
   // place — otherwise the wiring row above already tells the story, and an

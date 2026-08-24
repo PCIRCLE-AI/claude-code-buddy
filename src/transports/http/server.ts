@@ -946,7 +946,7 @@ app.post('/v1/config/test', (req, res) => handlePost(ConfigTestBody, req, res, a
 app.get('/v1/update-status', (req, res) => handleGet(res, async () => {
     const cached = req.query.cached === '1' || req.query.cached === 'true';
     const install = getCurrentInstallChannel({ packageRoot });
-    const installSupport = getInstallChannelSupport(install);
+    const installSupport = getInstallChannelSupport(install, packageRoot);
     const update = await getUpdateCheck(packageVersion, { preferFresh: !cached });
 
     return {

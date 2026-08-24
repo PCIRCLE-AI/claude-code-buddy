@@ -91,8 +91,15 @@ injected), and do not `remember` commits or session summaries by hand. Manual
 calls are for what hooks cannot see — decisions and their rationale, lessons
 worth keeping, and user-stated task state.
 
-Other hosts (Codex CLI, Gemini CLI, Cursor, …) have no hooks: there the loop
-is fully manual, and it is worth running.
+On a host with no hooks (Gemini CLI, Cursor, an MCP-only setup, …) the loop is
+fully manual, and it is worth running.
+
+Codex CLI can be either. Wired as an MCP server it has no hooks, like the
+above. Installed as a plugin (`codex plugin add memesh@pcircle-memesh`) it
+reads the same `hooks/hooks.json` manifest Claude Code does and runs the same
+hook scripts, so the topology is injected for you there too. If you are unsure
+which one you are in, `memesh doctor` names it: the "Hooks wired into Claude
+Code" row says which plugin runtime it found.
 
 ## Working on this repository (contributing agents)
 
