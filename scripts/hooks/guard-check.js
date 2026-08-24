@@ -23,6 +23,7 @@ import { existsSync } from 'fs';
 import {
   buildReferenceContext,
   getDbPath,
+  HOOK_BUSY_TIMEOUT_MS,
   loadActiveGuards,
   matchingGuards,
   guardWarningLines,
@@ -46,6 +47,10 @@ process.stdin.on('end', () => {
     // spelling and hands back a WRITABLE handle. This hook only reads;
     // the fire counter opens its own writable handle for the one UPDATE.
     const db = new MemeshDatabase(dbPath, { readOnly: true });
+    // MemeshDatabase's constructor always sets busy_timeout to the 30s that
+    // is correct for the CLI/MCP/HTTP writers; this hook's own budget
+    // (hooks.json) is 5s, so left alone a contended lock outlives the hook.
+    db.pragma(`busy_timeout = ${HOOK_BUSY_TIMEOUT_MS}`);
     let matches;
     try {
       matches = matchingGuards(loadActiveGuards(db, 'Bash'), 'Bash', command);

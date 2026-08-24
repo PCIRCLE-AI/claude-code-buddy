@@ -419,7 +419,7 @@ const ConfigBody = z.object({
     })
         .optional(),
     setupCompleted: z.boolean().optional(),
-}).strip();
+}).strict();
 app.post('/v1/config', (req, res) => handlePost(ConfigBody, req, res, (data) => {
     const before = readConfig();
     if (data.llm && data.llm.apiKey === API_KEY_MASK) {

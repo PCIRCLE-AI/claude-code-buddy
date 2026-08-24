@@ -98,4 +98,16 @@ describe('CLI: memesh why', () => {
     // checking the one stream a trace never reaches.
     expect(res.stdout + res.stderr, 'a stack trace reached the user').not.toMatch(/^\s+at /m);
   });
+
+  it('Scenario: a nonexistent path exits 1 and says so — not "not tracked by git" (M-07)', () => {
+    // A typo'd path used to get the SAME message as `notes.md` above — a
+    // real, existing file that simply is not committed. That sentence
+    // reads as "this file is real, go commit it", not "you misspelled
+    // the path", and the caller-mistake convention `pin`/`forget` already
+    // follow (exit 1 for "the thing named does not exist") did not apply.
+    const res = runCli(['why', 'no-such-file.ts'], repoDir);
+    expect(res.exitCode, res.stderr).toBe(1);
+    expect(res.stdout).toContain('No such file');
+    expect(res.stdout).not.toContain('not tracked by git');
+  });
 });

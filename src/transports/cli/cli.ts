@@ -287,6 +287,15 @@ program
       );
       process.exit(1);
     }
+    // Same rule RememberSchema enforces for MCP/HTTP (`.refine` on each
+    // element) — the CLI calls `remember()` directly and never passes
+    // through that schema, so without this the two surfaces disagreed:
+    // `--obs "   "` was accepted here and stored a memory with nothing in
+    // it, same defect class as `forget`'s `nonEmpty('--observation')`.
+    if (opts.obs?.some((o: string) => o.trim() === '')) {
+      console.error('Error: --obs needs some text. An empty or whitespace-only observation is not a memory.');
+      process.exit(1);
+    }
 
     const relations = [
       ...((opts.supersedes ?? []) as string[]).map(to => ({ to, type: 'supersedes' })),
@@ -371,7 +380,21 @@ program
           conflicts.length > 0 ? { entities, retrieval, conflicts } : { entities, retrieval },
         ));
       } else if (entities.length === 0) {
-        console.log('No results found.');
+        // A zero-hit on a keyword-only search (no semantic supplement ran)
+        // and a zero-hit after BOTH keyword and semantic ran are different
+        // levels of confidence — the first means "there might be something
+        // related this pass could not see", the second means "this really
+        // searched everything". Both used to print the identical line, so a
+        // caller had no way to tell a Core Mode gap from an exhaustive miss.
+        // `retrieval.mode` only means something for a real query — an empty
+        // query's zero-hit is "nothing in the graph yet", not a search gap.
+        if (query && retrieval.degraded) {
+          console.log('No results found. Semantic search is configured but could not run for this query (provider or index issue) — this was keyword-only. Run `memesh doctor` to check.');
+        } else if (query && retrieval.mode === 'fts') {
+          console.log('No results found. This was a keyword-only search — no semantic search is configured. See `memesh doctor` for Smart Mode.');
+        } else {
+          console.log('No results found.');
+        }
       } else {
         // Semantic-only result sets get an honest header instead of being
         // dressed as matches: the junk-vs-genuine distance distributions
@@ -665,7 +688,13 @@ program
         console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
         process.exit(1);
       }
-      console.log(`Imported: ${result.imported}, Skipped: ${result.skipped}, Appended: ${result.appended}`);
+      // `imported` alone did not say whether it REPLACED something already
+      // there — dogfooded: overwriting 4 existing memories and creating 4
+      // new ones from an empty graph printed the identical
+      // "Imported: 4, Skipped: 0, Appended: 0", with no way to tell which
+      // had happened from the output.
+      const overwriteNote = result.overwritten > 0 ? ` (${result.overwritten} overwritten)` : '';
+      console.log(`Imported: ${result.imported}${overwriteNote}, Skipped: ${result.skipped}, Appended: ${result.appended}`);
       // Named, not merely counted, and on stderr — a relation the restore
       // could not rebuild is information the user lost, and the only way to
       // get it back is to re-export with the entities it points at.
@@ -751,6 +780,7 @@ program
 const WHY_ABSTENTION_TEXT: Record<string, string> = {
   git_unavailable: 'git is not installed or not on PATH — commit attribution unavailable.',
   not_a_git_repo: 'Not inside a git repository — commit attribution unavailable.',
+  file_not_found: 'No such file.',
   file_not_tracked: 'File is not tracked by git — commit attribution unavailable.',
   history_unreadable: "git could not read this file's history (too much output, too slow, or the repository has no commits yet) — nothing is listed because the question went unanswered, not because no commit touched the file.",
   no_commits_supplied: 'No commit hashes were supplied — only the file-tag half of this answer ran.',
@@ -792,6 +822,11 @@ program
         limit,
         abstentions: resolved.abstention ? [resolved.abstention] : [],
       });
+      // A typo'd path is a caller mistake, unlike every other abstention
+      // here (a real, existing file `why` merely cannot fully explain) —
+      // `pin`/`forget` already exit 1 for "the thing named does not
+      // exist", and a missing file is the same shape.
+      if (result.abstentions.includes('file_not_found')) process.exitCode = 1;
       if (opts.json) {
         console.log(JSON.stringify(result, null, 2));
         return;
@@ -1073,6 +1108,13 @@ const KEY_VALIDATORS: Record<string, (value: string) => string | null> = {
   },
   'embedder.provider': (v) => ['openai', 'ollama'].includes(v) ? null : `must be one of: openai, ollama`,
   'autoUpdate': (v) => ['off', 'patch', 'minor', 'major'].includes(v) ? null : `must be one of: off, patch, minor, major`,
+  // The coercion below only recognises 'true'/'1' as true; everything else
+  // — 'yes', 'on', 'True' — silently became false, printed as if it had
+  // been accepted verbatim (the success line echoes the raw value, not
+  // what was actually stored). Reject anything the coercion cannot read
+  // instead of storing the opposite of what the user asked for.
+  'autoCapture': (v) => ['true', 'false', '1', '0'].includes(v) ? null : `must be one of: true, false, 1, 0`,
+  'transcriptMining': (v) => ['true', 'false', '1', '0'].includes(v) ? null : `must be one of: true, false, 1, 0`,
   'llmFallbacks': (v) => {
     let parsed: unknown;
     try {
@@ -2305,6 +2347,19 @@ program
         console.log(`${opts.dryRun ? '[dry-run] Would remove ' : 'Removed '}${result.pruned} retired memesh hook entr${result.pruned === 1 ? 'y' : 'ies'} no longer shipped by this version.`);
       }
       if (result.backupPath) console.log(`Backup: ${result.backupPath}`);
+      // `installHooks` writes this marker whenever settings.json itself was
+      // written (added > 0 || skipped > 0, and not a dry-run) — the same
+      // condition as the settings write itself, NOT the same as the backup
+      // above: `backupSettings` returns null on a fresh install with no
+      // pre-existing settings.json to back up, so gating on `backupPath`
+      // would have hidden this line on exactly the install where a user
+      // most needs to know a new file appeared. Reported for the same
+      // reason the settings path and backup are: a file this command
+      // writes to disk should not be a surprise the user only discovers
+      // via `memesh doctor` or by reading the source.
+      if (!opts.dryRun && (result.added > 0 || result.skipped > 0)) {
+        console.log(`Marker: ${result.markerPath}`);
+      }
       // The citation contract's fate, reported on BOTH exits. `foreign-file`
       // is the one that matters: a file already sits at that path without
       // memesh's marker, so the contract was NOT installed — and the run
@@ -2677,6 +2732,15 @@ program
   .description('Show MeMesh status and capabilities')
   .option('--cached', 'Use cached update info only (skip fresh npm lookup)')
   .action(async (opts) => {
+    // Every other line below reports on capabilities, install channel and
+    // the update check — none of which touch the database — so a corrupt
+    // or unreadable file was invisible here and `status` printed as though
+    // everything were fine. `withDatabase` is the one open every other
+    // command already gets: it names the file and points at
+    // `memesh doctor` for the diagnosis, then exits 1, before this command
+    // prints a single "healthy-looking" line.
+    await withDatabase(() => {});
+
     const caps = detectCapabilities();
     const { getCurrentInstallChannel, getInstallChannelSupport } = await import('../../core/install-channel.js');
     const install = getCurrentInstallChannel({ packageRoot });

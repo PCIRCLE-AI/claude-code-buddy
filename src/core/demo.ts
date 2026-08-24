@@ -94,6 +94,19 @@ function demoMetadata() {
   };
 }
 
+/** Whether a raw `entities.metadata` column value is a row `demoMetadata()`
+ *  wrote — the same "this row is genuinely part of the demo tour" test the
+ *  `--reset` path's `json_extract(metadata, '$.demo') = 1` query makes. */
+function isDemoMetadata(raw: string | null): boolean {
+  if (!raw) return false;
+  try {
+    const parsed = JSON.parse(raw);
+    return Boolean(parsed && typeof parsed === 'object' && parsed.demo === true);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * A back-dated `created_at`, in the format the COLUMN holds.
  *
@@ -197,9 +210,23 @@ export function seedDemo(
   const stampStmt = db.prepare(
     'UPDATE entities SET created_at = ?, metadata = ? WHERE name = ?',
   );
+  // Names DEMO_RELATIONS may safely wire an edge onto: entities this run
+  // just seeded, plus ones a PRIOR run already seeded (metadata.demo = 1,
+  // so a re-run stays idempotent). The demo dataset's names — `auth-
+  // decision`, `db-choice` — are plausible names a real user's own memory
+  // could carry; `if (exists) continue` above already refuses to touch or
+  // duplicate that row, but `createRelation` resolves by NAME alone, with
+  // no notion of "who created this" — so without this set, a real memory
+  // that happened to collide would still get wired into the demo graph
+  // the moment any OTHER demo entity in the same run needed inserting.
+  const demoNames = new Set<string>();
   for (const entry of DEMO_DATA) {
-    const exists = db.prepare('SELECT id FROM entities WHERE name = ?').get(entry.name);
-    if (exists) continue;
+    const existing = db.prepare('SELECT metadata FROM entities WHERE name = ?')
+      .get(entry.name) as { metadata: string | null } | undefined;
+    if (existing) {
+      if (isDemoMetadata(existing.metadata)) demoNames.add(entry.name);
+      continue;
+    }
     const tags = [DEMO_TAG, ...(entry.tags ?? [])];
     kg.createEntity(entry.name, entry.type, {
       observations: entry.observations,
@@ -212,6 +239,7 @@ export function seedDemo(
       entry.name,
     );
     inserted++;
+    demoNames.add(entry.name);
   }
 
   // Edges only when this run actually inserted the tour (idempotent re-runs
@@ -221,6 +249,7 @@ export function seedDemo(
   if (inserted > 0) {
     db.transaction(() => {
       for (const [from, type, to] of DEMO_RELATIONS) {
+        if (!demoNames.has(from) || !demoNames.has(to)) continue;
         kg.createRelation(from, to, type);
       }
     })();

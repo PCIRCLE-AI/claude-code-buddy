@@ -91,6 +91,7 @@ export function importMemories(args) {
     const db = getDatabase();
     const kg = new KnowledgeGraph(db);
     let imported = 0;
+    let overwritten = 0;
     const pendingRelations = [];
     let skipped = 0;
     let appended = 0;
@@ -123,9 +124,11 @@ export function importMemories(args) {
                     continue;
                 }
                 if (args.merge_strategy === 'append') {
+                    const existingText = new Set(existing.observations);
+                    const newObservations = (entity.observations ?? []).filter((o) => !existingText.has(o));
                     kg.createEntity(entity.name, entity.type, {
                         title,
-                        observations: entity.observations,
+                        observations: newObservations,
                         tags: entity.tags,
                         namespace,
                         trustOverride: 'untrusted',
@@ -163,6 +166,8 @@ export function importMemories(args) {
                 }
             }
             imported++;
+            if (existing)
+                overwritten++;
         }
         catch (err) {
             errors.push(`${entity.name}: ${err instanceof Error ? err.message : String(err)}`);
@@ -181,6 +186,6 @@ export function importMemories(args) {
                 + `(${err instanceof Error ? err.message : String(err)})`);
         }
     }
-    return { imported, skipped, appended, errors, skipped_relations: skippedRelations };
+    return { imported, overwritten, skipped, appended, errors, skipped_relations: skippedRelations };
 }
 //# sourceMappingURL=serializer.js.map

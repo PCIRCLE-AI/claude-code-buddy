@@ -1,4 +1,6 @@
 import { execFileSync } from 'child_process';
+import { existsSync } from 'fs';
+import { resolve } from 'path';
 const GIT_TIMEOUT_MS = 5000;
 function runGit(cwd, args) {
     return execFileSync('git', ['-C', cwd, ...args], {
@@ -16,6 +18,9 @@ export function resolveFileCommits(repoDir, file, opts = {}) {
     catch (err) {
         const code = err.code;
         return { commits: [], abstention: code === 'ENOENT' ? 'git_unavailable' : 'not_a_git_repo' };
+    }
+    if (!existsSync(resolve(repoDir, file))) {
+        return { commits: [], abstention: 'file_not_found' };
     }
     try {
         runGit(repoDir, ['ls-files', '--error-unmatch', '--', file]);

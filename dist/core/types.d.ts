@@ -138,6 +138,7 @@ export interface ImportInput {
 }
 export interface ImportResult {
     imported: number;
+    overwritten: number;
     skipped: number;
     appended: number;
     errors: string[];

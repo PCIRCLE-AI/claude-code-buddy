@@ -154,7 +154,7 @@ export const TOOL_DEFINITIONS = [
       type: 'object' as const,
       properties: {
         tag: { type: 'string', description: 'Export only entities with this tag' },
-        namespace: { type: 'string', description: 'Export only from this namespace (personal, team, global)' },
+        namespace: { type: 'string', enum: ['personal', 'team', 'global'], description: 'Export only from this namespace' },
         limit: { type: 'number', description: 'Max entities to export (default: 1000). The default is a SUBSET, not a backup — check `truncated` in the response, and for a full backup pass a limit above the graph size.' },
       },
       additionalProperties: false,
@@ -167,7 +167,7 @@ export const TOOL_DEFINITIONS = [
       type: 'object' as const,
       properties: {
         data: { type: 'object', description: 'Export JSON data (from the export tool)' },
-        namespace: { type: 'string', description: 'Override namespace for all imported entities' },
+        namespace: { type: 'string', enum: ['personal', 'team', 'global'], description: 'Override namespace for all imported entities' },
         merge_strategy: {
           type: 'string',
           enum: ['skip', 'overwrite', 'append'],
@@ -405,7 +405,25 @@ export async function handleTool(name: string, args: Record<string, unknown> | u
     if (name === 'forget') {
       const r = parseOrFail(ForgetSchema, args);
       if (!r.ok) return r.result;
-      return ok(forget(r.data));
+      const result = forget(r.data);
+      // The CLI already gets this right (registerForgetCommand's
+      // exitCode = 1 branches): forget removing nothing is a caller
+      // mistake, not a success. `ok()` reports `isError: false`
+      // unconditionally, so a typo'd observation text or a missing
+      // entity name came back indistinguishable from an actual removal —
+      // a caller checking `isError` alone (rather than parsing the JSON
+      // body) could not tell it happened.
+      if (result.archived === false) {
+        return fail(result.message ?? `Entity "${r.data.name}" not found`);
+      }
+      if (result.observation_removed === false) {
+        return fail(
+          result.entity_found
+            ? `Entity "${r.data.name}" has no observation matching that text (${result.remaining_observations} observation(s) present).`
+            : `Entity "${r.data.name}" not found`,
+        );
+      }
+      return ok(result);
     }
     if (name === 'export') {
       const r = parseOrFail(ExportSchema, args);

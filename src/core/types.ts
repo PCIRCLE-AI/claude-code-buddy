@@ -326,6 +326,10 @@ export interface ImportInput {
 
 export interface ImportResult {
   imported: number;
+  /** Of `imported`, how many REPLACED an entity that already existed
+   *  (merge_strategy 'overwrite' hitting a name already in the graph) —
+   *  destructive, versus a genuinely new entity created from nothing. */
+  overwritten: number;
   skipped: number;
   appended: number;
   errors: string[];

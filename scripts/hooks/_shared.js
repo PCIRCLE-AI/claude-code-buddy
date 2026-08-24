@@ -345,8 +345,10 @@ import {
 // miss, so the failure mode and its whole recovery apparatus are gone.
 
 /** See the pragma in `openHookDb` for why this is not the 30s the shared
- *  database class uses. */
-const HOOK_BUSY_TIMEOUT_MS = 2000;
+ *  database class uses. Exported because the three hooks that open a
+ *  read-only handle directly (bypassing `openHookDb`, which cannot express
+ *  `readOnly`) must apply the same cap themselves. */
+export const HOOK_BUSY_TIMEOUT_MS = 2000;
 
 export function openHookDb(env = process.env, opts = {}) {
 

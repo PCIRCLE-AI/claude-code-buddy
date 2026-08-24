@@ -81,4 +81,39 @@ describe('recall presentation: disclose what geometry cannot certify', () => {
     expect(r.stdout).toContain('No keyword matches. Closest memories by meaning — may be unrelated:');
     expect(r.stdout).toContain('% semantic)');
   });
+
+  it('a zero-hit says whether it was keyword-only, not one generic line either way (M-06)', () => {
+    // Dogfooded on the real v4.7.1 release: an install with no embedder
+    // configured and one with a fully working semantic supplement both
+    // printed the identical "No results found." on a miss — no way to
+    // tell "there might be something related this pass could not see"
+    // from "this really searched everything". `retrieval.mode` already
+    // carries the answer (asserted directly above); this pins that the
+    // TEXT output says so too. Adaptive to whichever mode this
+    // environment's embedder config actually produces, same as the
+    // semantic-only test above — the assertion is that the line matches
+    // reality, not that a specific mode occurred.
+    runCli(['remember', 'irrelevant content for this fixture', '--name', 'unrelated-entry', '--type', 'note']);
+    const probe = runCli(['recall', 'zzznomatchzzz998877', '--json']);
+    const parsed = JSON.parse(probe.stdout);
+    expect(parsed.entities, 'fixture: this query must be a genuine zero-hit').toHaveLength(0);
+
+    const plain = runCli(['recall', 'zzznomatchzzz998877']);
+    if (parsed.retrieval.degraded) {
+      expect(plain.stdout).toContain('could not run for this query');
+    } else if (parsed.retrieval.mode === 'fts') {
+      expect(plain.stdout).toContain('No results found.');
+      expect(plain.stdout).toContain('keyword-only search');
+    } else {
+      expect(plain.stdout.trim()).toBe('No results found.');
+    }
+  });
+
+  it('an EMPTY query with an empty graph stays the plain generic line — no mode ever ran', () => {
+    // The `query &&` guard: an empty query is "list recent", not a search
+    // that could have gone keyword-only vs semantic — nothing to disclose.
+    const r = runCli(['recall']);
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout.trim()).toBe('No results found.');
+  });
 });

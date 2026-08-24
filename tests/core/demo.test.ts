@@ -105,6 +105,50 @@ describe('seedDemo', () => {
     expect(after).toBe(edges);
   });
 
+  it('a real memory whose name collides with a demo entity gets no demo edges (M-16)', async () => {
+    // `auth-decision` is a name a real user's own memory could plausibly
+    // carry (it is a plausible name, not a demo-specific one) — and DEMO_
+    // RELATIONS wires an edge onto it. `if (exists) continue` in seedDemo
+    // already refuses to touch or duplicate the row itself; this pins the
+    // OTHER half — createRelation resolves both endpoints by NAME alone,
+    // with no notion of who created the row, so without the collision
+    // guard the real memory still ends up wired into the demo graph the
+    // moment any other demo entity in the run needs inserting.
+    const { KnowledgeGraph } = await import('../../src/knowledge-graph.js');
+    const kg = new KnowledgeGraph(db);
+    const realId = kg.createEntity('auth-decision', 'decision', {
+      observations: ['This is the real user memory, not the demo one.'],
+    });
+
+    const { seedDemo, DEMO_RELATIONS } = await import('../../src/core/demo.js');
+    const result = seedDemo(db);
+
+    // The real row survives untouched — still not flagged demo, still the
+    // user's own observation, still the entity `createEntity` returned.
+    const real = db.prepare(
+      "SELECT id, metadata FROM entities WHERE name = 'auth-decision'",
+    ).get() as { id: number; metadata: string | null };
+    expect(real.id).toBe(realId);
+    expect(real.metadata ? JSON.parse(real.metadata).demo : undefined).not.toBe(true);
+
+    // Exactly one DEMO_RELATIONS triple names auth-decision as an endpoint
+    // (`feature-auth-flow implements auth-decision`) — every OTHER edge
+    // must still land, so this pins the one skip rather than a suite-wide
+    // relations failure.
+    const touchingAuthDecision = DEMO_RELATIONS.filter(([f, , t]) => f === 'auth-decision' || t === 'auth-decision');
+    expect(touchingAuthDecision.length, 'fixture: no DEMO_RELATIONS entry names auth-decision').toBeGreaterThan(0);
+    const edges = (db.prepare('SELECT COUNT(*) as c FROM relations').get() as { c: number }).c;
+    expect(edges).toBe(DEMO_RELATIONS.length - touchingAuthDecision.length);
+
+    const wired = db.prepare(
+      `SELECT COUNT(*) as c FROM relations WHERE from_entity_id = ? OR to_entity_id = ?`,
+    ).get(realId, realId) as { c: number };
+    expect(wired.c, 'the real memory was wired into the demo graph').toBe(0);
+
+    // The rest of the tour still seeded — one collision does not sink it.
+    expect(result.inserted).toBe(29);
+  });
+
   it('seeds at least one entity of every key type cluster (lessons, decisions, patterns, bug_fix, releases, plans)', async () => {
     const { seedDemo } = await import('../../src/core/demo.js');
     seedDemo(db);

@@ -39,6 +39,17 @@ function demoMetadata() {
         trust: 'trusted',
     };
 }
+function isDemoMetadata(raw) {
+    if (!raw)
+        return false;
+    try {
+        const parsed = JSON.parse(raw);
+        return Boolean(parsed && typeof parsed === 'object' && parsed.demo === true);
+    }
+    catch {
+        return false;
+    }
+}
 function isoForDaysAgo(days) {
     return new Date(Date.now() - days * 86400000).toISOString().replace('T', ' ').slice(0, 19);
 }
@@ -78,10 +89,15 @@ export function seedDemo(db, opts = {}) {
     const kg = new KnowledgeGraph(db);
     let inserted = 0;
     const stampStmt = db.prepare('UPDATE entities SET created_at = ?, metadata = ? WHERE name = ?');
+    const demoNames = new Set();
     for (const entry of DEMO_DATA) {
-        const exists = db.prepare('SELECT id FROM entities WHERE name = ?').get(entry.name);
-        if (exists)
+        const existing = db.prepare('SELECT metadata FROM entities WHERE name = ?')
+            .get(entry.name);
+        if (existing) {
+            if (isDemoMetadata(existing.metadata))
+                demoNames.add(entry.name);
             continue;
+        }
         const tags = [DEMO_TAG, ...(entry.tags ?? [])];
         kg.createEntity(entry.name, entry.type, {
             observations: entry.observations,
@@ -90,10 +106,13 @@ export function seedDemo(db, opts = {}) {
         });
         stampStmt.run(isoForDaysAgo(entry.daysAgo), JSON.stringify(demoMetadata()), entry.name);
         inserted++;
+        demoNames.add(entry.name);
     }
     if (inserted > 0) {
         db.transaction(() => {
             for (const [from, type, to] of DEMO_RELATIONS) {
+                if (!demoNames.has(from) || !demoNames.has(to))
+                    continue;
                 kg.createRelation(from, to, type);
             }
         })();

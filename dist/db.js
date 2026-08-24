@@ -395,15 +395,13 @@ function backfillSignalScores(db) {
     const done = db.prepare("SELECT value FROM memesh_metadata WHERE key = ?").get(MARKER);
     if (done)
         return;
-    const rows = db.prepare('SELECT id, name, type, metadata FROM entities').all();
-    if (rows.length === 0) {
-        db.prepare("INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)").run(MARKER, new Date().toISOString());
-        return;
-    }
     const obsStmt = db.prepare('SELECT content FROM observations WHERE entity_id = ?');
     const tagStmt = db.prepare('SELECT tag FROM tags WHERE entity_id = ?');
     const updateStmt = db.prepare('UPDATE entities SET metadata = ? WHERE id = ?');
     const tx = db.transaction(() => {
+        if (db.prepare('SELECT value FROM memesh_metadata WHERE key = ?').get(MARKER))
+            return;
+        const rows = db.prepare('SELECT id, name, type, metadata FROM entities').all();
         let scored = 0;
         let skipped = 0;
         for (const row of rows) {
@@ -471,23 +469,21 @@ function backfillAcceptedProposalTrust(db) {
         return;
     const stamp = (cleared, skipped) => db.prepare('INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)')
         .run(MARKER, JSON.stringify({ at: new Date().toISOString(), cleared, skipped }));
-    let rows;
-    try {
-        rows = db.prepare(`SELECT id, metadata FROM entities
-        WHERE metadata IS NOT NULL
-          AND json_valid(metadata)
-          AND json_extract(metadata, '$.trust') = 'untrusted'
-          AND json_extract(metadata, '$.proposal_id') IS NOT NULL`).all();
-    }
-    catch {
-        return;
-    }
-    if (rows.length === 0) {
-        stamp(0, 0);
-        return;
-    }
     const updateStmt = db.prepare('UPDATE entities SET metadata = ? WHERE id = ?');
     const tx = db.transaction(() => {
+        if (db.prepare('SELECT value FROM memesh_metadata WHERE key = ?').get(MARKER))
+            return;
+        let rows;
+        try {
+            rows = db.prepare(`SELECT id, metadata FROM entities
+          WHERE metadata IS NOT NULL
+            AND json_valid(metadata)
+            AND json_extract(metadata, '$.trust') = 'untrusted'
+            AND json_extract(metadata, '$.proposal_id') IS NOT NULL`).all();
+        }
+        catch {
+            return;
+        }
         let cleared = 0;
         let skipped = 0;
         for (const row of rows) {
@@ -517,15 +513,12 @@ function backfillTitles(db) {
     const done = db.prepare('SELECT value FROM memesh_metadata WHERE key = ?').get(MARKER);
     if (done)
         return;
-    const rows = db.prepare('SELECT id, name, type, status, metadata FROM entities WHERE title IS NULL').all();
-    const stamp = (titled, skipped) => db.prepare('INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)').run(MARKER, JSON.stringify({ at: new Date().toISOString(), titled, skipped }));
-    if (rows.length === 0) {
-        stamp(0, 0);
-        return;
-    }
     const obsStmt = db.prepare('SELECT content FROM observations WHERE entity_id = ? ORDER BY id');
     const updateStmt = db.prepare('UPDATE entities SET title = ?, metadata = ? WHERE id = ?');
     const tx = db.transaction(() => {
+        if (db.prepare('SELECT value FROM memesh_metadata WHERE key = ?').get(MARKER))
+            return;
+        const rows = db.prepare('SELECT id, name, type, status, metadata FROM entities WHERE title IS NULL').all();
         let titled = 0;
         let skipped = 0;
         for (const row of rows) {
