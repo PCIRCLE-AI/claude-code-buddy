@@ -10,7 +10,7 @@
 
 ## Tools
 
-MeMesh exposes 9 tools via MCP.
+MeMesh exposes 11 tools via MCP.
 
 ---
 
@@ -571,6 +571,93 @@ Analyze user work patterns from existing memory. Returns work schedule (peak hou
 {"categories": ["workflow", "workSchedule"]}
 ```
 
+---
+
+### improvement
+
+Turn active memories or lessons into a governed product-improvement proposal, or inspect an existing proposal's status. This is the memory-to-product bridge: source memories remain evidence, and staging is idempotent for the same normalized project, sources, problem, change, verification scenario, success criteria, and priority.
+
+Agents have proposal authority only. The MCP tool intentionally has no `accept` or `reject` action. A human reviews the full proposal with `memesh dream show <id>` or the dashboard, then applies or rejects it through the existing review surface. Acceptance means approved for product work; it does **not** mean implemented, effective, released, or deployed.
+
+**Propose input schema**:
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `action` | `"propose"` | Yes | Stage or find the idempotent proposal |
+| `project` | string | Yes | Project that would own the product work |
+| `source_names` | string[] | Yes | Stable names of 1–20 active source memories |
+| `title` | string | Yes | Human-readable improvement title |
+| `problem` | string | Yes | Evidence-backed problem observed |
+| `proposed_change` | string | Yes | Bounded product change to consider |
+| `verification_scenario` | string | Yes | Scenario capable of falsifying the change |
+| `success_criteria` | string[] | Yes | One or more observable success criteria |
+| `priority` | `p0` \| `p1` \| `p2` \| `p3` | No | Proposed priority; defaults to `p1` |
+
+**Propose response**:
+
+```json
+{
+  "proposal_id": 42,
+  "status": "pending",
+  "created": true,
+  "title": "Add claims and leases to shared work",
+  "source_ids": [7, 9],
+  "review": {
+    "required": true,
+    "authority": "human",
+    "state": "pending",
+    "inspect": "memesh dream show 42",
+    "accept": "memesh dream accept 42",
+    "reject": "memesh dream reject 42 --reason <text>"
+  }
+}
+```
+
+A retry of the same normalized proposal returns the same `proposal_id` with `created: false`. Missing or archived source memories fail the call and create no proposal.
+
+**Status input schema**:
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `action` | `"status"` | Yes | Read proposal state |
+| `proposal_id` | positive integer | Yes | ID returned by `propose` |
+
+Status returns the proposal state, source IDs, review timestamps/reason, and `accepted_entity_name` after human acceptance. Accepted improvements are linked to every source by `learned-from`, appear in project briefing as `product_improvement` work, and explicitly retain `implementation:unverified` and `outcome:unverified` until later product evidence changes those states.
+
+### message
+
+Exchange durable exact-recipient messages between local hosts connected to the same MeMesh SQLite instance. One tool owns the lifecycle so every transport uses the same validation and state semantics.
+
+The `action` field is one of:
+
+| Action | Required fields | Meaning |
+|--------|-----------------|---------|
+| `send` | `project`, `sender`, `recipient`, `idempotency_key`, `payload` | Transactionally create one canonical message, one recipient delivery, and one notification event. Exact retries return the same IDs; a conflicting retry is rejected. |
+| `poll` | `project`, `recipient` | Read a bounded batch after an optional opaque `cursor`. `wait_ms` is 0–30000 and `limit` is 1–100. Events contain routing metadata, never the payload. |
+| `fetch` | `project`, `recipient`, `message_id` | Return the payload routed to that logical recipient ID. Fetch is a read and does not imply intake or ACK. |
+| `intake` | receipt base plus `intake_state` | Record `fetched` or `ingested` without implying ACK. |
+| `ack` | receipt base | Record explicit recipient acknowledgement. |
+| `disposition` | receipt base plus `disposition` | Record `accepted`, `rejected`, `completed`, `cancelled`, or `deferred`. |
+| `activation` | receipt base plus `activation` | Record `woken`, `manual_resume_required`, `unsupported`, or `failed`. |
+| `receipts` | `project`, `recipient`, `message_id` | Read the separate receipt facts for a message routed to that logical recipient ID. |
+
+The receipt base is `project`, `recipient`, `message_id`, and a stable `idempotency_key`. `disposition` and `activation` also accept an optional bounded `detail` string.
+
+Additional `send` fields:
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `content_type` | `text/plain` \| `application/json` | No | Defaults to `text/plain`; text payloads must be strings. |
+| `privacy` | `private` \| `team` | No | Retained message metadata; defaults to `private`. Delivery remains exact-recipient in both cases. |
+| `correlation_id` | string | No | Conversation or task correlation without changing routing. |
+| `reply_to` | message ID | No | Links this message to another message without changing delivery. |
+
+Payload JSON is limited to 65,536 UTF-8 bytes. Sender-host provenance is supplied by the transport and cannot be provided in tool arguments. An opaque cursor is scoped to its exact project and recipient; an unknown or foreign cursor is rejected.
+
+Exact-recipient routing is not per-agent authentication or an ACL. A caller that can access the local MeMesh instance can assert a logical recipient ID, so all callers on a shared instance must be cooperative, trusted workspace participants. HTTP bearer authentication protects instance access; it does not establish a separate cryptographic identity for each agent.
+
+`poll` is bounded long polling, not host-initiated push. It does not resume a stopped model session, and no action executes payload content. Hosts persist `next_cursor`, restart their own wait loop, fetch explicitly, and record only receipt facts that actually occurred.
+
 ## Data Model
 
 ### Entity
@@ -1128,7 +1215,9 @@ Returns the full interactive MeMesh Dashboard as a self-contained HTML page. Ser
 
 **Usage**: Run `memesh serve` (prints the dashboard URL), then open `http://localhost:3737/dashboard` in a browser. Bare `memesh` with no subcommand prints the command list.
 
-Request/response bodies for `POST /v1/remember`, `/v1/recall`, and `/v1/forget` mirror the MCP tool schemas above (same field names, same types).
+Request/response bodies for `POST /v1/remember`, `/v1/recall`, `/v1/forget`, and `/v1/message` mirror the MCP tool schemas above (same field names, same types). HTTP responses wrap results as `{ "success": true, "data": ... }`.
+
+`POST /v1/message` supports every `message` action above. A waiting `poll` request ends when a targeted event arrives, the bounded timeout expires, or the HTTP request is cancelled. The server removes the wait listener when the request closes.
 
 **Example**:
 
@@ -1153,6 +1242,23 @@ curl -s http://localhost:3737/v1/health
 ---
 
 ## CLI Commands
+
+### memesh message
+
+The CLI exposes the same local lifecycle as the MCP and HTTP `message` surface:
+
+| Command | Purpose |
+|---------|---------|
+| `memesh message send` | Durably send one exact-recipient message under a stable idempotency key |
+| `memesh message watch` | Emit `ready`, then one bounded `events` or `timeout` JSONL record with `next_cursor` |
+| `memesh message fetch` | Fetch one authorized payload without acknowledging it |
+| `memesh message intake` | Record `fetched` or `ingested` |
+| `memesh message ack` | Record explicit acknowledgement |
+| `memesh message disposition` | Record workflow disposition independently from ACK |
+| `memesh message activation` | Record host activation independently from ACK/disposition |
+| `memesh message receipts` | Read receipt facts for an authorized message |
+
+Run `memesh message <command> --help` for flags. `watch` returns after one bounded batch; the caller persists the opaque cursor and owns restart/backoff policy.
 
 ### memesh remember — stating a relation
 
@@ -1581,7 +1687,7 @@ Validator verdicts are `pass` | `soften` | `reject` | `unavailable`. Only `rejec
 
 For applications that call the **Messages API directly** rather than through MCP. Claude gets a memory tool whose storage is MeMesh instead of a folder of text files, so it also gets search, ranking, decay, relations and namespaces without knowing they are there.
 
-This is **not** one of the nine MCP tools and is not exposed over HTTP or the CLI. The MCP surface serves an agent that already speaks MeMesh; this serves an application that speaks only the Messages API.
+This is **not** one of the eleven MCP tools and is not exposed over HTTP or the CLI. The MCP surface serves an agent that already speaks MeMesh; this serves an application that speaks only the Messages API.
 
 ### Wiring it up
 
@@ -1693,20 +1799,20 @@ Per-flow LLM telemetry scorecard for the last `window` days. Backs the "LLM acti
 
 ### GET /v1/dream/proposals
 
-Lists dream digest / pattern proposals from the staging table.
+Lists dream digest, pattern, relation, guard, and product-improvement proposals from the staging table.
 
 **Query parameters:**
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `status` | enum | `pending` | One of `pending`, `applied`, `rejected`, `all` |
 
-**Response:** array of `{ id, project, cluster_key, source_count, digest_name, digest_observations_preview, status, created_at, kind }` where `kind` is `digest | pattern_emergent`.
+**Response:** array of `{ id, project, cluster_key, source_count, digest_name, digest_observations_preview, status, created_at, kind, source_kind }` where `kind` is `digest | pattern_emergent | relation | guard | product_improvement`.
 
 ### GET /v1/dream/proposals/:id
 
 Full proposal detail for the Home tab's expanded card view.
 
-**Response:** `{ id, project, cluster_key, source_ids, proposed_digest, llm_model, prompt_version, status, reason, created_at, reviewed_at }`. `proposed_digest` includes `name`, `type`, `observations`, `tags`, and (when the validator ran with a `soften` verdict) `validation_warnings: Array<{claim, reason}>`.
+**Response:** `{ id, project, cluster_key, source_ids, proposed_digest, llm_model, prompt_version, status, reason, created_at, reviewed_at, kind, source_kind }`. `proposed_digest` includes the kind-specific full proposal payload. Digest payloads include `name`, `type`, `observations`, `tags`, and (when the validator ran with a `soften` verdict) `validation_warnings: Array<{claim, reason}>`.
 
 ### POST /v1/dream/run
 
@@ -1726,7 +1832,7 @@ Trigger a dream pass via HTTP. Same logic as `memesh dream run`; runs `runDreame
 
 ### POST /v1/dream/proposals/:id/accept
 
-Apply a pending dream proposal — creates the digest entity (or `pattern_emergent` entity for pattern proposals), inserts `summarizes` / `evidence_for` relation edges, and soft-archives source entities for digest proposals.
+Apply a pending reviewed proposal. Digest acceptance creates a digest entity, inserts `summarizes` / `evidence_for` edges, and soft-archives the claimed sources. Product-improvement acceptance instead creates one team-scoped `product_improvement`, links it to every source with `learned-from`, and preserves all sources as active evidence; the new work item remains explicitly implementation/outcome unverified.
 
 **Response:** `{ proposalId, digestEntityName, sourcesArchived, sourcesLinked, kind }`.
 

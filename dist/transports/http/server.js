@@ -13,7 +13,8 @@ import { computeAnalytics, computePmAnalytics } from '../../core/analytics.js';
 import { computeStats } from '../../core/stats.js';
 import { computeProjects } from '../../core/projects.js';
 import { computeGraph, computeWorkGraph, computeNodeEvidence } from '../../core/graph.js';
-import { RememberSchema as RememberBody, RecallSchema as RecallBody, ForgetSchema as ForgetBody, ExportSchema as ExportBody, ImportSchema as ImportBody, LearnSchema as LearnBody, WhySchema as WhyBody, } from '../schemas.js';
+import { RememberSchema as RememberBody, RecallSchema as RecallBody, ForgetSchema as ForgetBody, ExportSchema as ExportBody, ImportSchema as ImportBody, LearnSchema as LearnBody, WhySchema as WhyBody, MessageSchema as MessageBody, } from '../schemas.js';
+import { executeAgentMessageAction } from '../agent-messaging.js';
 import { checkForUpdate, getLastUpdateCheck, getUpdateCheck } from '../../core/version-check.js';
 import { getCurrentInstallChannel, getInstallChannelSupport } from '../../core/install-channel.js';
 import { getDbPath, getMemeshDirFromDbPath, redactSecrets, redactUserPaths } from '../../core/paths.js';
@@ -351,6 +352,34 @@ app.post('/v1/consolidate', (_req, res) => {
 app.post('/v1/export', (req, res) => handlePost(ExportBody, req, res, exportMemories));
 app.post('/v1/import', (req, res) => handlePost(ImportBody, req, res, importMemories));
 app.post('/v1/learn', (req, res) => handlePost(LearnBody, req, res, (data) => learn({ ...data, sourceHost: 'http' })));
+app.post('/v1/message', (req, res) => {
+    const controller = new AbortController();
+    function cleanupListeners() {
+        req.removeListener('aborted', abortIfOpen);
+        res.removeListener('close', abortIfOpen);
+        res.removeListener('finish', cleanupListeners);
+    }
+    function abortIfOpen() {
+        if (!res.writableEnded)
+            controller.abort();
+        cleanupListeners();
+    }
+    req.once('aborted', abortIfOpen);
+    res.once('close', abortIfOpen);
+    res.once('finish', cleanupListeners);
+    handlePost(MessageBody, req, res, async (data) => {
+        try {
+            return await executeAgentMessageAction(getDatabase(), data, {
+                transport: 'http',
+                sourceHost: 'http',
+                signal: controller.signal,
+            });
+        }
+        finally {
+            cleanupListeners();
+        }
+    });
+});
 app.post('/v1/why', (req, res) => handlePost(WhyBody, req, res, async (data) => {
     const { explainCommits } = await import('../../core/why.js');
     return explainCommits(getDatabase(), {
@@ -565,7 +594,7 @@ app.get('/v1/dream/proposals/:id', (req, res) => {
     if (id === null)
         return;
     handleGet(res, () => {
-        const row = getDatabase().prepare('SELECT id, project, cluster_key, source_ids, proposed_digest, llm_model, prompt_version, status, reason, created_at, reviewed_at FROM dream_proposals WHERE id = ?').get(id);
+        const row = getDatabase().prepare('SELECT id, project, cluster_key, source_ids, proposed_digest, llm_model, prompt_version, status, reason, created_at, reviewed_at, source_kind, kind FROM dream_proposals WHERE id = ?').get(id);
         if (!row) {
             throw new HttpError(404, 'resource.not-found', `proposal #${id} not found`);
         }

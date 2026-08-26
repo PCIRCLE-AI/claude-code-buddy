@@ -179,3 +179,104 @@ export const UserPatternsSchema = z.object({
     .describe('Specific categories to return. Omit for all.'),
 }).strict();
 
+const nonBlankBounded = (max: number) => z.string().trim().min(1).max(max);
+
+/**
+ * Agent-facing entry to the governed memory-to-product loop.
+ *
+ * Deliberately no accept/reject branch: memories and model inference are
+ * evidence, not authority. Agents may stage an idempotent proposal and inspect
+ * its status; a human reviews it through the existing dream CLI/dashboard.
+ */
+export const ImprovementSchema = z.discriminatedUnion('action', [
+  z.object({
+    action: z.literal('propose'),
+    project: nonBlankBounded(200),
+    source_names: z.array(nonBlankBounded(255)).min(1).max(20),
+    title: nonBlankBounded(200),
+    problem: nonBlankBounded(5000),
+    proposed_change: nonBlankBounded(5000),
+    verification_scenario: nonBlankBounded(5000),
+    success_criteria: z.array(nonBlankBounded(1000)).min(1).max(20),
+    priority: z.enum(['p0', 'p1', 'p2', 'p3']).optional(),
+  }).strict(),
+  z.object({
+    action: z.literal('status'),
+    proposal_id: z.number().int().positive(),
+  }).strict(),
+]);
+
+// One tool owns the whole durable-message lifecycle so MCP clients can
+// discover the ordering rules from one contract.  The split actions are
+// intentional: poll/fetch are reads, while intake, ack, disposition, and
+// activation are separate explicit facts.  No read is allowed to imply ACK.
+const messageProject = nonBlankBounded(200);
+const messageAgentId = nonBlankBounded(200);
+const messageId = nonBlankBounded(255);
+const messageCursor = nonBlankBounded(160);
+const messageIdempotencyKey = nonBlankBounded(200);
+const messageReceiptBase = {
+  project: messageProject,
+  recipient: messageAgentId,
+  message_id: messageId,
+  idempotency_key: messageIdempotencyKey,
+};
+
+export const MessageSchema = z.discriminatedUnion('action', [
+  z.object({
+    action: z.literal('send'),
+    project: messageProject,
+    sender: messageAgentId,
+    recipient: messageAgentId,
+    idempotency_key: messageIdempotencyKey,
+    payload: z.json().refine(
+      (value) => new TextEncoder().encode(JSON.stringify(value)).byteLength <= 65_536,
+      { message: 'payload must be at most 65536 UTF-8 bytes when encoded as JSON' },
+    ),
+    content_type: z.enum(['text/plain', 'application/json']).default('text/plain'),
+    privacy: z.enum(['private', 'team']).default('private'),
+    correlation_id: nonBlankBounded(255).optional(),
+    reply_to: messageId.optional(),
+  }).strict(),
+  z.object({
+    action: z.literal('poll'),
+    project: messageProject,
+    recipient: messageAgentId,
+    cursor: messageCursor.optional(),
+    wait_ms: z.number().int().min(0).max(30_000).default(0),
+    limit: z.number().int().min(1).max(100).default(20),
+  }).strict(),
+  z.object({
+    action: z.literal('fetch'),
+    project: messageProject,
+    recipient: messageAgentId,
+    message_id: messageId,
+  }).strict(),
+  z.object({
+    action: z.literal('intake'),
+    ...messageReceiptBase,
+    intake_state: z.enum(['fetched', 'ingested']),
+  }).strict(),
+  z.object({
+    action: z.literal('ack'),
+    ...messageReceiptBase,
+  }).strict(),
+  z.object({
+    action: z.literal('disposition'),
+    ...messageReceiptBase,
+    disposition: z.enum(['accepted', 'rejected', 'completed', 'cancelled', 'deferred']),
+    detail: z.string().trim().max(1000).optional(),
+  }).strict(),
+  z.object({
+    action: z.literal('activation'),
+    ...messageReceiptBase,
+    activation: z.enum(['woken', 'manual_resume_required', 'unsupported', 'failed']),
+    detail: z.string().trim().max(1000).optional(),
+  }).strict(),
+  z.object({
+    action: z.literal('receipts'),
+    project: messageProject,
+    recipient: messageAgentId,
+    message_id: messageId,
+  }).strict(),
+]);

@@ -161,23 +161,48 @@ else ok(`registry and API_REFERENCE.md agree on ${toolsInCode} MCP tools`);
     fail(`docs/ARCHITECTURE.md says ${archTools[1]} MCP tools, handlers.ts registers ${toolsInCode}`);
   else ok(`ARCHITECTURE.md agrees on ${toolsInCode} MCP tools`);
 
-  // (a2) README.md's bold hook count and Memory-Tools heading. The
+  // (a2) README.md's bold hook count plus every translated README's
+  // Memory-and-Coordination tool table. A newly registered public tool must
+  // be visible from every front page, not only from the API reference.
   // orchestration removal updated ARCHITECTURE/SKILL counts (gated above)
-  // while the README's `**N hooks**` and `## All N Memory Tools` shipped
-  // stale in all 11 locales — this audit checked every count EXCEPT the one
-  // on the front page. English only: readme-parity covers structure, and the
-  // translated counts are updated in the same commit as the English one.
+  // while the README's `**N hooks**` and tool heading shipped stale in every
+  // locale. Counting rows as well as the heading prevents a count-only edit
+  // from hiding a newly added feature from users.
   const readmeSrc = read('README.md');
   const readmeHooks = readmeSrc.match(/\*\*(\d+) hooks\*\*/);
   if (!readmeHooks) fail('README.md no longer states its `**N hooks**` count');
   else if (Number(readmeHooks[1]) !== manifestHooks.size)
     fail(`README.md says ${readmeHooks[1]} hooks, the manifest registers ${manifestHooks.size}`);
   else ok(`README.md hook count ${readmeHooks[1]}`);
-  const readmeTools = readmeSrc.match(/## All (\d+) Memory Tools/);
-  if (!readmeTools) fail('README.md no longer has the `## All N Memory Tools` heading');
-  else if (Number(readmeTools[1]) !== toolsInCode)
-    fail(`README.md says ${readmeTools[1]} memory tools, handlers.ts registers ${toolsInCode}`);
-  else ok(`README.md memory-tool count ${readmeTools[1]}`);
+  const readmeToolSections = [
+    ['README.md', /## All (\d+) Memory and Coordination Tools/],
+    ['README.zh-TW.md', /## 全部 (\d+) 個記憶與協作工具/],
+    ['README.de.md', /## Alle (\d+) Memory- und Koordinations-Tools/],
+  ];
+  for (const [doc, heading] of readmeToolSections) {
+    const source = read(doc);
+    const match = source.match(heading);
+    if (!match || match.index === undefined) {
+      fail(`${doc} no longer has its Memory and Coordination Tools heading`);
+      continue;
+    }
+    if (Number(match[1]) !== toolsInCode) {
+      fail(`${doc} says ${match[1]} tools, handlers.ts registers ${toolsInCode}`);
+      continue;
+    }
+    const sectionEnd = source.indexOf('\n---', match.index);
+    const section = source.slice(match.index, sectionEnd === -1 ? undefined : sectionEnd);
+    const documented = new Set(
+      [...section.matchAll(/^\| `(\w+)` \|/gm)].map((row) => row[1]),
+    );
+    const missing = [...toolNamesInCode].filter((name) => !documented.has(name));
+    const extra = [...documented].filter((name) => !toolNamesInCode.has(name));
+    if (missing.length || extra.length) {
+      fail(`${doc} tool table differs from handlers.ts (missing: ${missing.join(', ') || 'none'}; extra: ${extra.join(', ') || 'none'})`);
+    } else {
+      ok(`${doc} advertises all ${toolsInCode} MCP tools`);
+    }
+  }
 
   // (a3) ARCHITECTURE.md's top-level CLI command count. Stated for four
   // releases with nothing checking it; the orchestration removal shifted it

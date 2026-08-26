@@ -37,6 +37,7 @@ export const WORK_LAYER_TYPES: ReadonlySet<string> = new Set([
   'milestone',
   'pattern',
   'technical_pattern',
+  'product_improvement',
   'goal',
   'plan',
   'task-state',

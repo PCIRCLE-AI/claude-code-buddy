@@ -2,6 +2,8 @@
 
 MeMesh is designed for local coding-agent memory first. The preferred path is MCP for Claude Code and other MCP-compatible coding agents, with HTTP and CLI available for local tools, scripts, and bridge-based experiments.
 
+If your goal is cross-agent collaboration rather than memory alone, start with the [Local Agent Messaging Guide](./agent-messaging.md). It explains the explicit local message lifecycle, what still requires polling or a bridge, and which host behaviors remain adapter-dependent.
+
 ---
 
 ## 🎯 Quick Platform Guide
@@ -11,11 +13,13 @@ MeMesh is designed for local coding-agent memory first. The preferred path is MC
 | **Claude Code** | Plugin (hooks + MCP + skills, wired automatically) | `/plugin marketplace add PCIRCLE-AI/memesh` → `/plugin install memesh@pcircle-memesh` | See root [README](../../README.md) |
 | **Codex CLI / Gemini CLI** | MCP Server | `codex mcp add memesh -- memesh-mcp` / `gemini mcp add -s user memesh memesh-mcp` (needs `npm install -g @pcircle/memesh`) | See root [README](../../README.md) |
 | **Other MCP coding agents (Cursor, Cline…)** | MCP Server | Point the client at `memesh-mcp` | See root [README](../../README.md) |
+| **Local agent messaging across hosts** | MCP / HTTP / CLI; bridge where required | Explicit exact-recipient local messaging today; host push/resume remains adapter work | [agent-messaging.md](./agent-messaging.md) |
 | **Hermes Agent (NousResearch)** | Native `MemoryProvider` plugin | Drop `plugins/memory/memesh/` into a Hermes Agent checkout; `hermes memory setup memesh` | [hermes-agent.md](./hermes-agent.md) |
 | **OpenClaw** | Native memory plugin | `openclaw plugins install <package>` or drop into OpenClaw checkout; configure `plugins.slots.memory` | [openclaw.md](./openclaw.md) |
 | **Custom apps / scripts** | HTTP API | Run `memesh serve` and call `/v1/*` | [universal.md](./universal.md) |
 | **ChatGPT / Custom GPT experiments** | HTTP API | Use a local connector/proxy that can reach localhost | [chatgpt.md](./chatgpt.md) |
 | **Gemini web / AI Studio experiments** | HTTP API | Use a local connector/proxy that can reach localhost (the Gemini **CLI** uses MCP above instead) | [gemini.md](./gemini.md) |
+| **Grok or other browser-hosted AI** | HTTP API | Use a local connector/proxy that can reach localhost; support is adapter-specific | [agent-messaging.md](./agent-messaging.md) |
 
 ---
 
@@ -115,6 +119,7 @@ Use MCP mode when the client supports MCP. Use HTTP mode when you control a loca
 
 - **[Hermes Agent (NousResearch)](./hermes-agent.md)** - Native `MemoryProvider` plugin, on par with MCP mode
 - **[OpenClaw](./openclaw.md)** - Native memory plugin (TypeScript), same tier as Hermes
+- **[Local Agent Messaging Guide](./agent-messaging.md)** - Durable local message lifecycle, recovery semantics, limits, and host matrix
 - **[ChatGPT / Custom GPTs](./chatgpt.md)** - HTTP API with custom instructions
 - **[Google Gemini](./gemini.md)** - HTTP API with system instructions
 - **[Universal Guide](./universal.md)** - For local tools or bridge-based integrations

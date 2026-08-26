@@ -3,7 +3,7 @@
 <p align="center">
   <h1 align="center">MeMesh</h1>
   <p align="center">
-    <strong>Agentischer Speicher für Coding-Agenten.</strong><br />
+    <strong>Gemeinsamer Speicher und dauerhafte lokale Koordination für Coding-Agenten.</strong><br />
     Eine SQLite-Datei. Kein Docker. Keine Cloud erforderlich.
   </p>
   <p align="center">
@@ -16,9 +16,12 @@
 
 ---
 
-**MeMesh** ist eine **Open-Source-Speicherschicht** für KI-Coding-Agenten — für Claude Code, Codex, Gemini, Cursor und andere MCP-Clients.
+**MeMesh** ist die **Open-Source-Kollaborationsschicht** für lokale KI-Coding-Agenten: gemeinsamer Speicher, dauerhafte Nachrichten an einen bestimmten Empfänger und kontrollierte Memory-to-Product-Vorschläge für Claude Code, Codex, Gemini, Cursor, eigene oder Ollama-basierte Agenten und andere MCP-Clients. Alles liegt in einer SQLite-Datei. Kein Docker und keine Cloud erforderlich.
 
-Sie erfasst Memories aus dem, was der Agent wirklich tut, und gibt das Passende genau dann zurück, wenn er handelt. Widersprechen sich zwei Memories, sagt sie es. Alles liegt in einer SQLite-Datei, ohne Cloud.
+### Neue Kollaborationsflächen
+
+- `message` gibt lokalen Agenten einen dauerhaften Exact-Recipient-Posteingang mit Cursor-Recovery und expliziten Receipts über MCP, HTTP und CLI.
+- `improvement` verwandelt aktive Memories in evidenzverknüpfte Produktarbeits-Vorschläge; Agenten dürfen sie einreichen und ihren Status lesen, aber nur ein Mensch darf annehmen oder ablehnen.
 
 ## Installation
 
@@ -61,6 +64,23 @@ Installation über npm, gespeichert wird in `~/.memesh/knowledge-graph.db`, ange
 
 > [!IMPORTANT]
 > **Aktiv entwickeltes Projekt** — Funktionen entwickeln sich kontinuierlich weiter und können sich zwischen Releases ändern. Bei Bugs oder Feature-Wünschen bitte [ein Issue eröffnen](https://github.com/PCIRCLE-AI/memesh/issues).
+
+---
+
+## Lokale Agenten-Zusammenarbeit — mit klaren Grenzen
+
+Alle Hosts, die mit derselben lokalen MeMesh-Instanz verbunden sind, teilen dauerhaften Speicher. Das `message`-Tool ergänzt einen expliziten Nachrichtenpfad über MCP, HTTP und CLI.
+
+- Heute verfügbar: Ein Sender kann eine Nachricht dauerhaft an genau einen lokalen Empfänger senden. Der Empfänger kann pollen oder `memesh message watch` verwenden, den Payload getrennt abrufen, nach einem Neustart mit einem opaken Cursor fortsetzen und Intake, Bestätigung, Workflow-Status und Host-Aktivierung getrennt protokollieren.
+- Weiterhin lokal und Pull-basiert: Der empfangende Host muss die Poll-/Watch-Schleife ausführen oder neu starten. Ein Wakeup-Event startet keine beendete Modell-Session, führt keinen Payload aus und gilt nicht als Bestätigung.
+- Kooperative Vertrauensgrenze: Der Empfängername ist eine logische Routing-ID, keine Anmeldung oder ACL pro Agent. Jeder Aufrufer mit Zugriff auf dieselbe lokale MeMesh-Instanz muss als vertrauenswürdiger Workspace-Teilnehmer gelten; Host-Adapter setzen weiterhin ihre eigenen Berechtigungen und menschlichen Freigaben durch.
+- Adapter-Grenze: Claude Code, Codex, Gemini CLI, Cursor sowie eigene oder Ollama-basierte Agenten können die von ihrem Host unterstützten lokalen Schnittstellen verwenden. Browser-Produkte wie ChatGPT, Gemini Web oder Grok benötigen weiterhin eine ausdrückliche Bridge zur lokalen Instanz.
+
+Der Leitfaden [Local Agent Messaging](docs/platforms/agent-messaging.md) beschreibt Lifecycle, Support-Matrix und Grenzen im Detail.
+
+### Agenten-Erfahrung in geprüfte Produktarbeit überführen
+
+Das `improvement`-Tool wandelt aktive Memories und Lessons in einen evidenzverknüpften Verbesserungsvorschlag um. Agenten dürfen Vorschläge einreichen und ihren Status lesen, aber nicht selbst akzeptieren oder ablehnen. Nach menschlicher Freigabe bleiben alle Quellen erhalten, der neue Arbeitseintrag wird mit ihnen verknüpft und erscheint in späteren Projekt-Briefings.
 
 ---
 
@@ -527,7 +547,7 @@ Wechselst du zu einer anderen Dimension (z. B. 768 → 1536), wird **nichts gel�
 
 ---
 
-## Alle 9 Memory-Tools
+## Alle 11 Memory- und Koordinations-Tools
 
 | Tool | Was es tut |
 |------|-------------|
@@ -540,6 +560,8 @@ Wechselst du zu einer anderen Dimension (z. B. 768 → 1536), wird **nichts gel�
 | `task_state` | Arbeitsstand lesen oder festhalten — Ziel, nächster Schritt, Blocker, gerade Erledigtes |
 | `briefing` | Die zusammengesetzte Arbeits-Topologie — derselbe Block, den Claude Code beim Session-Start erhält, für jeden MCP-Client |
 | `user_patterns` | Arbeitsmuster analysieren — Zeitplan, Tools, Stärken, Lernbereiche |
+| `improvement` | Evidenzverknüpfte Produktverbesserung zur menschlichen Prüfung vorschlagen oder ihren Status lesen; Agenten können sie nicht selbst annehmen oder ablehnen |
+| `message` | Dauerhafte Nachrichten an einen bestimmten Empfänger in derselben lokalen MeMesh-Instanz senden, pollen, abrufen und getrennt quittieren |
 
 ---
 

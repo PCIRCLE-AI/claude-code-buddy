@@ -8,7 +8,7 @@
 
 ## Overview
 
-MeMesh is the local agentic-memory layer for individual AI coding agents, including Claude Code, Codex, Gemini, Cursor, and other MCP-compatible clients. It provides 9 operations (`remember`, `recall`, `forget`, `export`, `import`, `learn`, `task_state`, `briefing`, `user_patterns`) through three transports — CLI, HTTP REST, and MCP — backed by SQLite with FTS5 full-text search and optional sqlite-vec vector embeddings.
+MeMesh is the local agentic-memory and governed-collaboration layer for individual AI coding agents, including Claude Code, Codex, Gemini, Cursor, and other MCP-compatible clients. It provides 11 MCP tools (`remember`, `recall`, `forget`, `export`, `import`, `learn`, `task_state`, `briefing`, `user_patterns`, `improvement`, `message`) backed by SQLite with FTS5 full-text search and optional sqlite-vec vector embeddings. Memory and durable exact-recipient messaging are available through CLI, HTTP REST, and MCP; `improvement` stages proposals through MCP while the existing CLI/HTTP review surfaces retain human accept/reject authority.
 
 The package is intentionally local-first and inspectable:
 - one SQLite database under the user's control
@@ -40,6 +40,7 @@ MeMesh separates concerns into two layers:
 **Core** (`src/core/`) — pure business logic with zero transport dependencies:
 - `types.ts` — shared TypeScript interfaces (zero external deps)
 - `operations.ts` — `remember`, `recall`, `forget`, `export`, `import` as pure functions called by all transports
+- `agent-messaging.ts` — transactional exact-recipient messages, opaque cursors, bounded waits, payload fetch, and independent receipt facts
 - `config.ts` — config management + capability detection (incl. `llmFallbacks` chain); exports `logCapabilities()` for startup logging
 - `paths.ts` — centralised filesystem path resolution (HOME-first override; shared with hooks via a build-generated copy in `scripts/hooks/_generated/`)
 - `scoring.ts` — multi-factor scoring engine: weights search relevance, recency, frequency, confidence, recall-impact; exports `rankEntities()` used by all recall paths
@@ -58,11 +59,12 @@ MeMesh separates concerns into two layers:
 - `why.ts` — file attribution (`memesh why` / `POST /v1/why`): a git half (`resolveFileCommits`, CLI-only — the HTTP route never shells out) and a DB half (`explainCommits`) joining full SHAs to the abbreviated-hash `commit-*` entity names, walking `metadata.session_id` to session entities, and collecting `file:<basename>`-tagged memories; every gap is a typed abstention
 
 **Transports** (`src/transports/`) — thin adapters that expose core operations:
-- `cli/cli.ts` — Commander CLI (`memesh` command, 28 top-level commands; `config`, `kg`, and `dream` have subcommands)
-- `http/server.ts` — Express REST API server (`memesh serve`, default port 3737, 34 endpoints, bearer-auth gate when bound non-loopback)
-- `src/mcp/server.ts` + `src/transports/mcp/handlers.ts` — stdio MCP server (`memesh-mcp`, 9 tools); `src/mcp/tools.ts` is a re-export shim
+- `cli/cli.ts` — Commander CLI (`memesh` command, 29 top-level commands; `message`, `config`, `kg`, and `dream` have subcommands)
+- `http/server.ts` — Express REST API server (`memesh serve`, default port 3737, 35 endpoints, bearer-auth gate when bound non-loopback)
+- `agent-messaging.ts` — shared MCP/HTTP/CLI dispatcher that binds provenance at the transport boundary and never turns a read into a receipt
+- `src/mcp/server.ts` + `src/transports/mcp/handlers.ts` — stdio MCP server (`memesh-mcp`, 11 tools); `src/mcp/tools.ts` is a re-export shim
 
-This separation means the same `remember`/`recall`/`forget` logic runs identically whether invoked from a terminal, an HTTP request, or an MCP tool call.
+This separation means the same `remember`/`recall`/`forget` logic runs identically whether invoked from a terminal, an HTTP request, or an MCP tool call. Governed product-improvement proposals reuse the dream staging/review lifecycle: agents can propose over MCP, and humans apply or reject through the CLI or dashboard-backed HTTP endpoints.
 
 ---
 
@@ -88,6 +90,7 @@ src/
 │   ├── llm-validator.ts   # Provider+model capability detection (list models, byte-capped fetch)
 │   ├── prompt-safety.ts   # F7 prompt-injection hardening (sanitizeForPrompt for 3 call sites)
 │   ├── dreamer.ts         # LLM cluster compactor + pattern detector (propose/accept/reject); entry point for --from-transcripts
+│   ├── product-improvements.ts # Idempotent evidence-linked proposals + status; human review remains in dreamer
 │   ├── digest-validator.ts # Opt-in second-pass LLM cross-check on dreamer digests
 │   ├── transcript-source.ts    # Read-only discovery: find a project's session JSONL to mine (no LLM, no writes)
 │   ├── transcript-extractor.ts # Mine conversational memory from a session → sanitise → vector-dedup → stage dream_proposals
@@ -408,7 +411,7 @@ MeMesh supports three integration tiers:
 | | Codex CLI / Gemini CLI | MCP server (`memesh-mcp` in client config) |
 | | Cursor | MCP server (`memesh-mcp` in client config) |
 | | Custom apps | Direct stdio MCP connection |
-| **HTTP API** | Custom apps/scripts | HTTP REST API (`memesh serve`, 34 endpoints) |
+| **HTTP API** | Custom apps/scripts | HTTP REST API (`memesh serve`, 35 endpoints) |
 
 See [docs/platforms/](../platforms/) for platform-specific integration guides.
 

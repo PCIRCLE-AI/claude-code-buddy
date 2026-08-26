@@ -48,8 +48,8 @@
     },
     {
       "path": "scripts/hooks/_generated/schema.js",
-      "sha256": "898b6121fd36e8fb423cfd32e1df40324c4d593def7df658c7aca80340866c64",
-      "bytes": 12673
+      "sha256": "03ff2e199b424fb1e5862da63c0e950acf5b64a532d66070aab0e66c6afb361d",
+      "bytes": 16271
     },
     {
       "path": "scripts/hooks/_generated/sqlite.js",
@@ -73,8 +73,8 @@
     },
     {
       "path": "scripts/hooks/_generated/work-topology.js",
-      "sha256": "e821f38b547a4f7b2c2023d5cc23c3e46ae670268ee72547709b8004f729dd76",
-      "bytes": 7075
+      "sha256": "166f6cf01468327184401bb3e75ecd26c4ca80b603f34c22c466cc651a4f63ed",
+      "bytes": 7102
     },
     {
       "path": "scripts/hooks/_shared.js",

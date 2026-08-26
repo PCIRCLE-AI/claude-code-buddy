@@ -72,6 +72,8 @@ interface ProposalDetail {
   reason: string | null;
   created_at: string;
   reviewed_at: string | null;
+  kind?: string;
+  source_kind?: string;
 }
 
 // Proposal timestamps arrive in SQLite's 'YYYY-MM-DD HH:MM:SS' UTC form,
@@ -400,6 +402,9 @@ export function InsightsTab() {
                   <span style={{ fontWeight: 600 }}>{p.digest_name}</span>
                   <span class="tag" style={{ fontSize: 11 }}>{p.project}</span>
                   <span class="tag" style={{ fontSize: 11 }}>{p.cluster_key}</span>
+                  {p.kind === 'product_improvement' && (
+                    <code class="tag" style={{ fontSize: 11 }}>product_improvement</code>
+                  )}
                   <span class="tag" style={{ fontSize: 11, color: 'var(--text-2)' }}>{p.source_count} {t('insights.sources')}</span>
                   <span class="tag" style={{ fontSize: 11, ...statusBadgeStyle(p.status) }}>
                     {statusLabel(p.status)}
@@ -528,9 +533,13 @@ export function InsightsTab() {
 
             {detail && detail.proposed_digest && p.kind !== 'relation' && p.kind !== 'guard' && (
               <div style={{ marginTop: 12, padding: 12, background: 'var(--bg-1)', borderRadius: 'var(--radius-xs)', fontSize: 13 }}>
-                <div style={{ marginBottom: 8, color: 'var(--text-3)', fontSize: 11 }}>
-                  {t('insights.generatedBy')}: <code>{detail.llm_model ?? t('common.unknown')}</code> · {t('insights.promptVersion')}: <code>{detail.prompt_version}</code>
-                </div>
+                {p.kind === 'product_improvement'
+                  ? <div style={{ marginBottom: 8, color: 'var(--text-3)', fontSize: 11 }}><code>product_improvement</code></div>
+                  : (
+                    <div style={{ marginBottom: 8, color: 'var(--text-3)', fontSize: 11 }}>
+                      {t('insights.generatedBy')}: <code>{detail.llm_model ?? t('common.unknown')}</code> · {t('insights.promptVersion')}: <code>{detail.prompt_version}</code>
+                    </div>
+                  )}
                 {/* Flagged claims — only present when the dreamer was run
                     with --validate AND the validator returned 'soften'.
                     Renders ABOVE observations so the reviewer reads the

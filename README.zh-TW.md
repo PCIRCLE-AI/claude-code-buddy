@@ -3,7 +3,7 @@
 <p align="center">
   <h1 align="center">MeMesh</h1>
   <p align="center">
-    <strong>給程式開發代理的代理式記憶。</strong><br />
+    <strong>給程式開發代理的共享記憶與耐久化本機協作層。</strong><br />
     一個 SQLite 檔案。不需要 Docker。不需要雲端。
   </p>
   <p align="center">
@@ -16,9 +16,12 @@
 
 ---
 
-**MeMesh** 是給 AI 程式開發代理用的**開源記憶層**，支援 Claude Code、Codex、Gemini、Cursor 和其他 MCP 用戶端。
+**MeMesh** 是給 AI 程式開發代理用的**開源本機協作層**：讓 Claude Code、Codex、Gemini、Cursor、自訂或 Ollama-backed agents 與其他 MCP 用戶端共享記憶、交換耐久化單一收件人訊息，並把有價值的經驗轉成受治理的產品改善提案。全部存在一個 SQLite 檔案裡，不需要 Docker，也不需要雲端。
 
-它從代理實際做的事情裡擷取記憶，在代理要動手的那一刻把相關的部分送回去。記憶彼此矛盾時，它會說出來。全部存在一個 SQLite 檔案裡，不需要雲端。
+### 新的協作入口
+
+- `message` 讓本機 agent 擁有可恢復 cursor、可明確記錄 receipt 的單一收件人耐久化 inbox，MCP、HTTP、CLI 三個 surface 都可用。
+- `improvement` 讓 active memories 直接進入有證據連結的產品工作提案；agent 能發起與查狀態，但只有人類能接受或拒絕。
 
 ## 安裝
 
@@ -61,6 +64,23 @@ memesh doctor        # 端到端驗證這份安裝
 
 > [!IMPORTANT]
 > **持續開發中的專案** — 功能會持續更新，版本之間可能會有變動。遇到問題或想要新功能，請[開 issue](https://github.com/PCIRCLE-AI/memesh/issues)。
+
+---
+
+## Local Agent Collaboration，要說真話
+
+MeMesh 有一個很強的跨代理優勢：凡是連到同一個本機 MeMesh instance 的 host，都能共享持久化記憶；`message` tool 則提供 MCP、HTTP 與 CLI 共用的明確單一收件人訊息路徑。
+
+- 今天就能做的：MCP、HTTP 或 CLI sender 可把訊息耐久化送給一個指定的本機 recipient。接收端可輪詢或執行 `memesh message watch`、另行擷取 payload、在重啟後用 opaque cursor 補收，並把 intake、acknowledgement、workflow disposition 與 host activation 分開記錄。
+- 仍是本機 pull 模式：接收 host 必須維持或重新啟動 poll/watch loop。wakeup event 不會自動恢復已停止的模型 session、不會執行 payload，也不代表已確認收到。
+- 協作式信任邊界：recipient 名稱只是邏輯 routing ID，不是每個 agent 各自登入的身分或 ACL。能存取同一本機 MeMesh instance 的 caller 都必須視為受信任的 workspace participant；host adapter 仍需自行落實權限與人工核准規則。
+- Adapter 邊界：Claude Code、Codex、Gemini CLI、Cursor，以及自訂或 Ollama-backed agent loop，可使用各自支援的本機 surface。ChatGPT web、Gemini web、Grok 與其他 browser-hosted 產品仍需要能連到本機 instance 的明確 bridge。
+
+完整 lifecycle、現況邊界、支援矩陣和剩餘 adapter 工作，請看 [Local Agent Messaging Guide](docs/platforms/agent-messaging.md)。
+
+### 把 agent 經驗轉成受審核的產品工作
+
+`improvement` tool 能把仍有效的記憶與教訓轉成有證據連結的產品改善提案，不再讓有價值的 feedback 只停在 inbox。Agent 可以提案與查狀態，但不能核准自己的建議；人類透過既有 review surface 接受或拒絕。接受後，MeMesh 會保留全部來源記憶、把工作項目連回證據，並讓它出現在後續 project briefing。這讓學習真正進入產品流程，同時避免 agent 建議在沒有人工授權下直接變成產品政策。
 
 ---
 
@@ -535,7 +555,7 @@ memesh config set embedder.provider openai          # or: ollama
 
 ---
 
-## 全部 9 個記憶工具
+## 全部 11 個記憶與協作工具
 
 | 工具 | 做什麼 |
 |------|--------|
@@ -548,6 +568,8 @@ memesh config set embedder.provider openai          # or: ollama
 | `task_state` | 讀取或記下工作進度——目標、下一步、卡住的地方、剛完成的事 |
 | `briefing` | 組合好的工作拓撲——Claude Code 在 session 開始拿到的那個區塊，任何 MCP client 都拿得到 |
 | `user_patterns` | 分析你的工作模式——時間表、工具、優勢、學習領域 |
+| `improvement` | 將有證據來源的產品改善送交人類審核，或讀取其狀態；agent 不能自行接受或拒絕 |
+| `message` | 在同一個本機 MeMesh instance 上耐久化送出、輪詢、擷取並明確記錄單一收件人訊息狀態 |
 
 ---
 
@@ -556,7 +578,7 @@ memesh config set embedder.provider openai          # or: ollama
 ```
                     ┌─────────────────┐
                     │   核心引擎      │
-                    │  （7 項操作）  │
+                    │    核心操作     │
                     └────────┬────────┘
            ┌─────────────────┼─────────────────┐
            │                 │                 │

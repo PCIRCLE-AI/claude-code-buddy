@@ -22,7 +22,9 @@ import {
   ExportSchema as ExportBody, ImportSchema as ImportBody,
   LearnSchema as LearnBody,
   WhySchema as WhyBody,
+  MessageSchema as MessageBody,
 } from '../schemas.js';
+import { executeAgentMessageAction } from '../agent-messaging.js';
 import { checkForUpdate, getLastUpdateCheck, getUpdateCheck } from '../../core/version-check.js';
 import { getCurrentInstallChannel, getInstallChannelSupport } from '../../core/install-channel.js';
 import { getDbPath, getMemeshDirFromDbPath, redactSecrets, redactUserPaths } from '../../core/paths.js';
@@ -692,6 +694,37 @@ app.post('/v1/consolidate', (_req, res) => {
 app.post('/v1/export',      (req, res) => handlePost(ExportBody, req, res, exportMemories));
 app.post('/v1/import',      (req, res) => handlePost(ImportBody, req, res, importMemories));
 app.post('/v1/learn',       (req, res) => handlePost(LearnBody, req, res, (data) => learn({ ...data, sourceHost: 'http' })));
+// Durable agent messaging uses one action-discriminated endpoint so custom
+// local bridges get the same lifecycle as MCP.  Long-poll cancellation is
+// tied to the actual HTTP connection; a disconnected client must not leave a
+// database poll running until its nominal timeout.
+app.post('/v1/message', (req, res) => {
+  const controller = new AbortController();
+  function cleanupListeners(): void {
+    req.removeListener('aborted', abortIfOpen);
+    res.removeListener('close', abortIfOpen);
+    res.removeListener('finish', cleanupListeners);
+  }
+  function abortIfOpen(): void {
+    if (!res.writableEnded) controller.abort();
+    cleanupListeners();
+  }
+  req.once('aborted', abortIfOpen);
+  res.once('close', abortIfOpen);
+  res.once('finish', cleanupListeners);
+
+  handlePost(MessageBody, req, res, async (data) => {
+    try {
+      return await executeAgentMessageAction(getDatabase(), data, {
+        transport: 'http',
+        sourceHost: 'http',
+        signal: controller.signal,
+      });
+    } finally {
+      cleanupListeners();
+    }
+  });
+});
 // --- Why --- file attribution from the graph side only. Commit hashes come
 // from the caller (see WhySchema) — this route runs no git, ever.
 app.post('/v1/why', (req, res) => handlePost(WhyBody, req, res, async (data) => {
@@ -1125,7 +1158,7 @@ app.get('/v1/dream/proposals/:id', (req, res) => {
   if (id === null) return;
   handleGet(res, () => {
     const row = getDatabase().prepare(
-      'SELECT id, project, cluster_key, source_ids, proposed_digest, llm_model, prompt_version, status, reason, created_at, reviewed_at FROM dream_proposals WHERE id = ?'
+      'SELECT id, project, cluster_key, source_ids, proposed_digest, llm_model, prompt_version, status, reason, created_at, reviewed_at, source_kind, kind FROM dream_proposals WHERE id = ?'
     ).get(id) as { proposed_digest: string; source_ids: string; [k: string]: unknown } | undefined;
     if (!row) {
       throw new HttpError(404, 'resource.not-found', `proposal #${id} not found`);

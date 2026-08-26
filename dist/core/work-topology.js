@@ -5,6 +5,7 @@ export const WORK_LAYER_TYPES = new Set([
     'milestone',
     'pattern',
     'technical_pattern',
+    'product_improvement',
     'goal',
     'plan',
     'task-state',

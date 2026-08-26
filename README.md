@@ -3,7 +3,7 @@
 <p align="center">
   <h1 align="center">MeMesh</h1>
   <p align="center">
-    <strong>Agentic memory for coding agents.</strong><br />
+    <strong>Shared memory and durable local coordination for coding agents.</strong><br />
     One SQLite file. No Docker. No cloud required.
   </p>
   <p align="center">
@@ -16,7 +16,12 @@
 
 ---
 
-**MeMesh** — open-source **agentic memory** for individual AI coding agents: compatible with Claude Code, Codex, Gemini, Cursor, and other MCP clients. Captured from the agent's real work, injected at the moment it acts, kept honest when it contradicts itself. One SQLite file. No cloud.
+**MeMesh** is the open-source **local collaboration layer for AI coding agents**: shared memory, durable exact-recipient messaging, and governed memory-to-product proposals for Claude Code, Codex, Gemini, Cursor, custom or Ollama-backed agents, and other MCP clients. One SQLite file. No Docker. No cloud required.
+
+### New collaboration surfaces
+
+- `message` gives local agents a durable exact-recipient inbox with cursor recovery and explicit receipts over MCP, HTTP, and CLI.
+- `improvement` turns active memories into evidence-linked product-work proposals that agents can stage, but only a human can accept or reject.
 
 ## Install
 
@@ -50,6 +55,23 @@ That's not a chat-history problem; it's an agent-memory problem. What needs to s
 
 > [!IMPORTANT]
 > Actively developed — features may change between releases. [Open an issue](https://github.com/PCIRCLE-AI/memesh/issues) for bugs or feature requests.
+
+---
+
+## Local Agent Collaboration, Truthfully
+
+MeMesh has a real cross-agent advantage: every host connected to the same local MeMesh instance can share durable memory, while the `message` tool provides an explicit exact-recipient messaging path over MCP, HTTP, and CLI.
+
+- Works today: an MCP, HTTP, or CLI sender can durably send to one named local recipient. A receiver can poll or run `memesh message watch`, fetch the payload separately, resume from an opaque cursor after restart, and record intake, acknowledgement, workflow disposition, and host activation as separate facts.
+- Still local and pull-based: the receiving host must keep or restart a poll/watch loop. A wakeup event does not resume a stopped model session, execute its payload, or imply acknowledgement.
+- Cooperative trust boundary: the recipient name is a logical routing ID, not a per-agent login or ACL. Every caller with access to the same local MeMesh instance must be treated as a trusted workspace participant; host adapters still enforce their own permissions and human-approval rules.
+- Adapter boundary: Claude Code, Codex, Gemini CLI, Cursor, and custom or Ollama-backed agent loops can use the local surfaces they support. ChatGPT web, Gemini web, Grok, and other browser-hosted products still need an explicit bridge that can reach the local instance.
+
+See [Local Agent Messaging Guide](docs/platforms/agent-messaging.md) for the exact lifecycle, capability boundary, support matrix, and remaining adapter work.
+
+### Turn agent experience into reviewed product work
+
+The `improvement` tool converts active memories and lessons into an evidence-linked product-improvement proposal instead of leaving valuable feedback buried in an inbox. Agents can propose and inspect status, but they cannot approve their own ideas. A human accepts or rejects through the existing review surfaces; acceptance preserves every source memory, links the reviewed work item back to its evidence, and makes it visible in future project briefings. This keeps learning actionable without quietly turning an agent suggestion into product policy.
 
 ---
 
@@ -286,8 +308,8 @@ This same block is what Claude Code receives automatically at session start, and
 | If you are... | MeMesh helps you... |
 |---------------|---------------------|
 | **A developer using Claude Code** | Auto-recall project decisions, file-specific lessons, and past failures as you work |
-| **A coding-agent power user** | Share one local memory layer across MCP-compatible tools |
-| **An individual using Codex, Gemini, Cursor, Claude Code, or another MCP client** | Use one local memory layer across agents and sessions |
+| **A coding-agent power user** | Share one local memory layer and a truthful local inbox pattern across MCP-compatible tools |
+| **An individual using Codex, Gemini, Cursor, Claude Code, or another MCP client** | Use one local memory layer across agents and sessions, and coordinate handoffs through the shared store |
 | **A developer integrating an agent** | Add local memory through MCP, HTTP, or the CLI |
 
 ---
@@ -542,7 +564,7 @@ If you switch to an embedder with a different dimension (e.g. 768 → 1536), **n
 
 ---
 
-## All 9 Memory Tools
+## All 11 Memory and Coordination Tools
 
 | Tool | What it does |
 |------|-------------|
@@ -555,6 +577,8 @@ If you switch to an embedder with a different dimension (e.g. 768 → 1536), **n
 | `task_state` | Read or record where the work stands — goal, next step, blocker, what was just finished |
 | `briefing` | The assembled work topology — the same block Claude Code gets at session start, for any MCP client |
 | `user_patterns` | Analyze your work patterns — schedule, tools, strengths, learning areas |
+| `improvement` | Stage an evidence-linked product improvement for human review, or read its status; agents cannot accept or reject it |
+| `message` | Send, poll, fetch, and explicitly receipt durable exact-recipient messages on one local MeMesh instance |
 
 ---
 
@@ -563,7 +587,7 @@ If you switch to an embedder with a different dimension (e.g. 768 → 1536), **n
 ```
                     ┌─────────────────┐
                     │   Core Engine   │
-                    │  (7 operations) │
+                    │   operations    │
                     └────────┬────────┘
            ┌─────────────────┼─────────────────┐
            │                 │                 │

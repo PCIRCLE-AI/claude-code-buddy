@@ -19,9 +19,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         inputSchema: t.inputSchema,
     })),
 }));
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
+server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     const { name, arguments: args } = request.params;
-    return handleTool(name, args, normalizeClientHost(server.getClientVersion()?.name));
+    return handleTool(name, args, normalizeClientHost(server.getClientVersion()?.name), extra.signal);
 });
 async function main() {
     openDatabase();

@@ -21,6 +21,7 @@ import { installHooks } from '../../core/install-hooks.js';
 import { getTaskState, setTaskState } from '../../core/task-state-store.js';
 import { TASK_STATE_FIELDS, taskStateLines, type TaskStateField } from '../../core/task-state.js';
 import type { LessonSeverity, MergeStrategy, ExportResult } from '../../core/types.js';
+import { executeAgentMessageAction } from '../agent-messaging.js';
 
 // DX: every CLI command that touches the DB used to repeat
 //   openDatabase(); try { ...body... } finally { closeDatabase(); }
@@ -297,9 +298,11 @@ program
       process.exit(1);
     }
 
+    const supersedes = Array.isArray(opts.supersedes) ? opts.supersedes as string[] : [];
+    const contradicts = Array.isArray(opts.contradicts) ? opts.contradicts as string[] : [];
     const relations = [
-      ...((opts.supersedes ?? []) as string[]).map(to => ({ to, type: 'supersedes' })),
-      ...((opts.contradicts ?? []) as string[]).map(to => ({ to, type: 'contradicts' })),
+      ...supersedes.map(to => ({ to, type: 'supersedes' })),
+      ...contradicts.map(to => ({ to, type: 'contradicts' })),
     ];
 
     await withDatabase(async () => {
@@ -333,13 +336,15 @@ program
         // error count from the request count only tells you whether SOMETHING
         // succeeded: with one good and one bad target it printed both, naming a
         // conflict that does not exist two lines above the error saying so.
-        const contradicted = (result.relationsCreated ?? [])
+        const relationsCreated = Array.isArray(result.relationsCreated) ? result.relationsCreated : [];
+        const contradicted = relationsCreated
           .filter(r => r.type === 'contradicts')
           .map(r => r.to);
         if (contradicted.length > 0) {
           console.log(`   conflicts stated: ${contradicted.join(', ')}`);
         }
-        for (const err of result.relationErrors ?? []) console.error(`   ⚠️  ${err}`);
+        const relationErrors = Array.isArray(result.relationErrors) ? result.relationErrors : [];
+        for (const err of relationErrors) console.error(`   ⚠️  ${err}`);
       }
       if (result.relationErrors?.length) process.exitCode = 1;
     });
@@ -741,6 +746,209 @@ program
     });
   });
 
+// --- local agent messages ---
+//
+// A host-neutral process boundary for runners that cannot keep an MCP tool
+// call open.  `watch` emits JSONL and returns after one bounded poll batch;
+// the host owns restart/retry with the returned opaque cursor.  No subcommand
+// executes payload content, and read commands never write an ACK.
+const messageCmd = program
+  .command('message')
+  .description('Send, wait for, fetch, and explicitly receipt durable local agent messages');
+
+function parseCliMessagePayload(raw: string, contentType: string): unknown {
+  if (contentType !== 'application/json') return raw;
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch {
+    throw new Error('--payload must be valid JSON when --content-type is application/json.');
+  }
+}
+
+async function runCliMessage(input: unknown): Promise<void> {
+  await withDatabase(async () => {
+    try {
+      const result = await executeAgentMessageAction(getDatabase(), input, {
+        transport: 'cli',
+        sourceHost: 'cli',
+      });
+      console.log(JSON.stringify(result));
+    } catch (error) {
+      console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+      process.exitCode = 1;
+    }
+  });
+}
+
+function isAgentPollResult(value: unknown): value is { events: unknown[]; next_cursor: string } {
+  if (typeof value !== 'object' || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  return Array.isArray(candidate.events) && typeof candidate.next_cursor === 'string';
+}
+
+messageCmd
+  .command('send')
+  .description('Durably send one exact-recipient local message (idempotent)')
+  .requiredOption('--project <name>', 'Project scope')
+  .requiredOption('--sender <id>', 'Stable sender agent/host ID')
+  .requiredOption('--recipient <id>', 'Stable recipient agent/host ID')
+  .requiredOption('--idempotency-key <key>', 'Stable retry key')
+  .requiredOption('--payload <value>', 'Text or JSON payload')
+  .option('--content-type <type>', 'text/plain | application/json', 'text/plain')
+  .option('--privacy <scope>', 'private | team', 'private')
+  .option('--correlation-id <id>', 'Conversation or task correlation ID')
+  .option('--reply-to <message-id>', 'Message ID this replies to')
+  .action(async (opts) => {
+    requireOneOf(opts.contentType, ['text/plain', 'application/json'], '--content-type');
+    requireOneOf(opts.privacy, ['private', 'team'], '--privacy');
+    try {
+      await runCliMessage({
+        action: 'send',
+        project: opts.project,
+        sender: opts.sender,
+        recipient: opts.recipient,
+        idempotency_key: opts.idempotencyKey,
+        payload: parseCliMessagePayload(opts.payload, opts.contentType),
+        content_type: opts.contentType,
+        privacy: opts.privacy,
+        correlation_id: opts.correlationId,
+        reply_to: opts.replyTo,
+      });
+    } catch (error) {
+      console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+      process.exitCode = 1;
+    }
+  });
+
+messageCmd
+  .command('watch')
+  .description('Wait once for an exact-recipient event batch and emit privacy-minimized JSONL')
+  .requiredOption('--project <name>', 'Project scope')
+  .requiredOption('--recipient <id>', 'Stable recipient agent/host ID')
+  .option('--cursor <token>', 'Opaque cursor returned by an earlier watch/poll')
+  .option('--wait-ms <ms>', 'Bounded wait, 0-30000 milliseconds', wholeNumber('--wait-ms', 0), 30_000)
+  .option('--limit <n>', 'Maximum events, 1-100', wholeNumber('--limit'), 20)
+  .action(async (opts) => {
+    await withDatabase(async () => {
+      console.log(JSON.stringify({
+        type: 'ready',
+        project: opts.project,
+        recipient: opts.recipient,
+        cursor: opts.cursor ?? null,
+      }));
+      try {
+        const result = await executeAgentMessageAction(getDatabase(), {
+          action: 'poll',
+          project: opts.project,
+          recipient: opts.recipient,
+          cursor: opts.cursor,
+          wait_ms: opts.waitMs,
+          limit: opts.limit,
+        }, {
+          transport: 'cli',
+          sourceHost: 'cli',
+        });
+        if (!isAgentPollResult(result)) {
+          throw new Error('Message watch returned an invalid poll result.');
+        }
+        console.log(JSON.stringify({
+          type: result.events.length > 0 ? 'events' : 'timeout',
+          ...result,
+        }));
+      } catch (error) {
+        console.error(JSON.stringify({
+          type: 'error',
+          error: error instanceof Error ? error.message : String(error),
+        }));
+        process.exitCode = 1;
+      }
+    });
+  });
+
+messageCmd
+  .command('fetch')
+  .description('Fetch one payload routed to the logical recipient without acknowledging it')
+  .requiredOption('--project <name>', 'Project scope')
+  .requiredOption('--recipient <id>', 'Stable recipient agent/host ID')
+  .requiredOption('--message-id <id>', 'Message ID')
+  .action((opts) => runCliMessage({
+    action: 'fetch', project: opts.project, recipient: opts.recipient, message_id: opts.messageId,
+  }));
+
+messageCmd
+  .command('intake')
+  .description('Record fetched/ingested state without implying ACK')
+  .requiredOption('--project <name>', 'Project scope')
+  .requiredOption('--recipient <id>', 'Stable recipient agent/host ID')
+  .requiredOption('--message-id <id>', 'Message ID')
+  .requiredOption('--idempotency-key <key>', 'Stable retry key')
+  .requiredOption('--state <state>', 'fetched | ingested')
+  .action(async (opts) => {
+    requireOneOf(opts.state, ['fetched', 'ingested'], '--state');
+    await runCliMessage({
+      action: 'intake', project: opts.project, recipient: opts.recipient,
+      message_id: opts.messageId, idempotency_key: opts.idempotencyKey, intake_state: opts.state,
+    });
+  });
+
+messageCmd
+  .command('ack')
+  .description('Record explicit recipient acknowledgement')
+  .requiredOption('--project <name>', 'Project scope')
+  .requiredOption('--recipient <id>', 'Stable recipient agent/host ID')
+  .requiredOption('--message-id <id>', 'Message ID')
+  .requiredOption('--idempotency-key <key>', 'Stable retry key')
+  .action((opts) => runCliMessage({
+    action: 'ack', project: opts.project, recipient: opts.recipient,
+    message_id: opts.messageId, idempotency_key: opts.idempotencyKey,
+  }));
+
+messageCmd
+  .command('disposition')
+  .description('Record a workflow disposition independently from ACK')
+  .requiredOption('--project <name>', 'Project scope')
+  .requiredOption('--recipient <id>', 'Stable recipient agent/host ID')
+  .requiredOption('--message-id <id>', 'Message ID')
+  .requiredOption('--idempotency-key <key>', 'Stable retry key')
+  .requiredOption('--value <state>', 'accepted | rejected | completed | cancelled | deferred')
+  .option('--detail <text>', 'Optional bounded explanation')
+  .action(async (opts) => {
+    requireOneOf(opts.value, ['accepted', 'rejected', 'completed', 'cancelled', 'deferred'], '--value');
+    await runCliMessage({
+      action: 'disposition', project: opts.project, recipient: opts.recipient,
+      message_id: opts.messageId, idempotency_key: opts.idempotencyKey,
+      disposition: opts.value, detail: opts.detail,
+    });
+  });
+
+messageCmd
+  .command('activation')
+  .description('Record host activation outcome independently from ACK/disposition')
+  .requiredOption('--project <name>', 'Project scope')
+  .requiredOption('--recipient <id>', 'Stable recipient agent/host ID')
+  .requiredOption('--message-id <id>', 'Message ID')
+  .requiredOption('--idempotency-key <key>', 'Stable retry key')
+  .requiredOption('--value <state>', 'woken | manual_resume_required | unsupported | failed')
+  .option('--detail <text>', 'Optional bounded explanation')
+  .action(async (opts) => {
+    requireOneOf(opts.value, ['woken', 'manual_resume_required', 'unsupported', 'failed'], '--value');
+    await runCliMessage({
+      action: 'activation', project: opts.project, recipient: opts.recipient,
+      message_id: opts.messageId, idempotency_key: opts.idempotencyKey,
+      activation: opts.value, detail: opts.detail,
+    });
+  });
+
+messageCmd
+  .command('receipts')
+  .description('Read receipt facts for one message routed to the logical recipient')
+  .requiredOption('--project <name>', 'Project scope')
+  .requiredOption('--recipient <id>', 'Stable recipient agent/host ID')
+  .requiredOption('--message-id <id>', 'Message ID')
+  .action((opts) => runCliMessage({
+    action: 'receipts', project: opts.project, recipient: opts.recipient, message_id: opts.messageId,
+  }));
+
 // --- briefing ---
 // The shell-reachable half of A1c. Claude Code gets this block pushed by the
 // session-start hook; an MCP client gets it from the `briefing` tool; and an
@@ -932,7 +1140,8 @@ program
     render(statuses);
     console.log('\nPlanned actions:');
     for (const st of pending) for (const a of st.actions) {
-      console.log(`  • [${st.title}] ${a.label}${a.cmd ? `\n      ${a.cmd} ${(a.args ?? []).join(' ')}` : ''}`);
+      const actionArgs = Array.isArray(a.args) ? a.args : [];
+      console.log(`  • [${st.title}] ${a.label}${a.cmd ? `\n      ${a.cmd} ${actionArgs.join(' ')}` : ''}`);
     }
 
     // Non-interactive without --yes: show the plan, change nothing. The
@@ -960,8 +1169,9 @@ program
         if (action.kind === 'install-hooks') {
           console.log(`  ✅ ${wireUserHooks()}`);
         } else if (action.cmd) {
-          const r = runSeam(action.cmd, action.args ?? []);
-          if (r.status === 0) console.log(`  ✅ done (${action.cmd} ${(action.args ?? []).join(' ')})`);
+          const actionArgs = Array.isArray(action.args) ? action.args : [];
+          const r = runSeam(action.cmd, actionArgs);
+          if (r.status === 0) console.log(`  ✅ done (${action.cmd} ${actionArgs.join(' ')})`);
           else { console.error(`  ❌ ${action.cmd} exited ${r.status ?? 'without running'}${r.stderr ? `: ${r.stderr.trim()}` : ''}`); failed = true; }
         }
       }
@@ -2110,7 +2320,8 @@ dreamCmd
         // existing entities — and conflict-judge proposals, whose acceptance
         // creates a relation instead of an entity.
         const srcLabel = p.kind === 'relation' ? ' (conflict)'
-          : p.source_kind === 'transcript' ? ' (transcript)' : '';
+          : p.kind === 'product_improvement' ? ' (product improvement)'
+            : p.source_kind === 'transcript' ? ' (transcript)' : '';
         console.log(`  #${p.id}  [${p.project}/${p.cluster_key}]${srcLabel}  ${p.source_count} source(s) → "${p.digest_name}"`);
         // preview is null (not the old '(empty)' sentinel) when the digest
         // has no observations — print nothing rather than a fake value.
@@ -2232,6 +2443,11 @@ dreamCmd
         console.log(`Accept: memesh dream accept ${detail.id}   |   Reject: memesh dream reject ${detail.id}`);
         return;
       }
+      if (detail.kind === 'product_improvement') {
+        const improvement = detail.digest as unknown as { title?: string };
+        console.log(`title: ${improvement.title ?? detail.digest.name}`);
+        console.log('authority: human review required; acceptance does not mean implemented or effective');
+      }
       console.log(`name: ${detail.digest.name}`);
       console.log(`type: ${detail.digest.type}`);
       // ALL observations, in full — this is the point of `show`: nothing is
@@ -2247,7 +2463,7 @@ dreamCmd
 
 dreamCmd
   .command('accept <id>')
-  .description('Accept a pending proposal — creates digest entity, soft-archives sources')
+  .description('Apply a reviewed pending proposal (behaviour depends on proposal kind)')
   .action(async (id) => {
     await withDatabase(async () => {
       const { applyProposal } = await import('../../core/dreamer.js');
@@ -2270,8 +2486,14 @@ dreamCmd
       // on a closing DB and the dedup gap stays open in the real path. remember
       // flushes for the same reason (see the remember command).
       console.log(`Applied proposal #${result.proposalId}`);
-      console.log(`  digest entity: ${result.digestEntityName}`);
-      console.log(`  sources archived: ${result.sourcesArchived}`);
+      if (result.kind === 'product_improvement') {
+        console.log(`  product improvement: ${result.digestEntityName}`);
+        console.log(`  source memories preserved: ${result.sourcesLinked ?? 0}`);
+        console.log('  state: accepted for product work; implementation and outcome remain unverified');
+      } else {
+        console.log(`  digest entity: ${result.digestEntityName}`);
+        console.log(`  sources archived: ${result.sourcesArchived}`);
+      }
     });
   });
 

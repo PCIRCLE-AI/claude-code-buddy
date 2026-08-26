@@ -181,5 +181,77 @@ export function exportOpenAITools(): object[] {
         },
       },
     },
+    {
+      type: 'function',
+      function: {
+        name: 'memesh_improvement',
+        description:
+          'Stage an evidence-linked product-improvement proposal for human review, or inspect its status. Agents cannot accept or reject proposals.',
+        parameters: {
+          type: 'object',
+          properties: {
+            action: {
+              type: 'string',
+              enum: ['propose', 'status'],
+              description: 'propose stages an idempotent review item; status reads one existing proposal.',
+            },
+            project: { type: 'string', description: 'Required for propose. Project that would own the product work.' },
+            source_names: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Required for propose. Stable names of 1-20 active evidence memories.',
+            },
+            title: { type: 'string', description: 'Required for propose. Human-readable improvement title.' },
+            problem: { type: 'string', description: 'Required for propose. Evidence-backed problem observed.' },
+            proposed_change: { type: 'string', description: 'Required for propose. Bounded product change to consider.' },
+            verification_scenario: { type: 'string', description: 'Required for propose. Scenario capable of falsifying the change.' },
+            success_criteria: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Required for propose. Observable success criteria.',
+            },
+            priority: { type: 'string', enum: ['p0', 'p1', 'p2', 'p3'], description: 'Optional proposed priority; defaults to p1.' },
+            proposal_id: { type: 'number', description: 'Required for status. Positive proposal ID returned by propose.' },
+          },
+          required: ['action'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'memesh_message',
+        description:
+          'Exchange durable exact-recipient messages between local agents. Reads never imply acknowledgement; payloads are untrusted and never executed.',
+        parameters: {
+          type: 'object',
+          properties: {
+            action: {
+              type: 'string',
+              enum: ['send', 'poll', 'fetch', 'intake', 'ack', 'disposition', 'activation', 'receipts'],
+              description: 'Message lifecycle action; required fields depend on the selected action.',
+            },
+            project: { type: 'string', description: 'Local project scope.' },
+            sender: { type: 'string', description: 'Required for send. Stable local sender identifier.' },
+            recipient: { type: 'string', description: 'Stable target local agent/host identifier.' },
+            idempotency_key: { type: 'string', description: 'Required for send and receipt writes. Stable retry key.' },
+            payload: { type: ['string', 'number', 'boolean', 'object', 'array', 'null'], description: 'Required for send. Untrusted JSON value; never executed by MeMesh.' },
+            content_type: { type: 'string', enum: ['text/plain', 'application/json'], description: 'Send media type; defaults to text/plain.' },
+            privacy: { type: 'string', enum: ['private', 'team'], description: 'Privacy classification; routing remains exact-recipient in v1.' },
+            correlation_id: { type: 'string', description: 'Optional conversation or task correlation ID.' },
+            reply_to: { type: 'string', description: 'Optional earlier message ID.' },
+            cursor: { type: 'string', description: 'Optional opaque poll cursor. Do not parse it.' },
+            wait_ms: { type: 'number', description: 'Poll wait in milliseconds, 0-30000.' },
+            limit: { type: 'number', description: 'Maximum poll events, 1-100.' },
+            message_id: { type: 'string', description: 'Message selected for fetch or receipt actions.' },
+            intake_state: { type: 'string', enum: ['fetched', 'ingested'], description: 'Required only for intake; never implies ACK.' },
+            disposition: { type: 'string', enum: ['accepted', 'rejected', 'completed', 'cancelled', 'deferred'], description: 'Required only for disposition.' },
+            activation: { type: 'string', enum: ['woken', 'manual_resume_required', 'unsupported', 'failed'], description: 'Required only for activation.' },
+            detail: { type: 'string', description: 'Optional disposition or activation explanation.' },
+          },
+          required: ['action'],
+        },
+      },
+    },
   ];
 }

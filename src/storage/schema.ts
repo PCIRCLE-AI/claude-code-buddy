@@ -78,6 +78,91 @@ CREATE TABLE IF NOT EXISTS memesh_metadata (
   value TEXT NOT NULL
 );
 
+-- Local agent messaging core. Messages are immutable, deliveries identify the
+-- authorized recipient, events are the wakeup/catch-up surface, cursors keep
+-- the internal sequence opaque, and receipts are append-only facts that remain
+-- separate from delivery existence.
+CREATE TABLE IF NOT EXISTS agent_messages (
+  message_id         TEXT PRIMARY KEY,
+  project            TEXT NOT NULL,
+  sender             TEXT NOT NULL,
+  sender_host        TEXT,
+  recipient          TEXT NOT NULL,
+  content_type       TEXT NOT NULL,
+  correlation_id     TEXT,
+  reply_to_message_id TEXT,
+  privacy            TEXT NOT NULL,
+  payload_json       TEXT NOT NULL,
+  provenance_json    TEXT NOT NULL,
+  created_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS agent_message_deliveries (
+  delivery_id        TEXT PRIMARY KEY,
+  message_id         TEXT NOT NULL,
+  project            TEXT NOT NULL,
+  recipient          TEXT NOT NULL,
+  created_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (message_id) REFERENCES agent_messages(message_id) ON DELETE CASCADE,
+  UNIQUE(message_id, project, recipient)
+);
+
+CREATE TABLE IF NOT EXISTS agent_message_events (
+  event_sequence     INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id           TEXT NOT NULL UNIQUE,
+  message_id         TEXT NOT NULL,
+  delivery_id        TEXT NOT NULL,
+  project            TEXT NOT NULL,
+  recipient          TEXT NOT NULL,
+  event_kind         TEXT NOT NULL,
+  created_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (message_id) REFERENCES agent_messages(message_id) ON DELETE CASCADE,
+  FOREIGN KEY (delivery_id) REFERENCES agent_message_deliveries(delivery_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS agent_message_idempotency (
+  project            TEXT NOT NULL,
+  sender             TEXT NOT NULL,
+  idempotency_key    TEXT NOT NULL,
+  request_hash       TEXT NOT NULL,
+  message_id         TEXT NOT NULL UNIQUE,
+  created_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (message_id) REFERENCES agent_messages(message_id) ON DELETE CASCADE,
+  PRIMARY KEY(project, sender, idempotency_key)
+);
+
+CREATE TABLE IF NOT EXISTS agent_message_cursors (
+  cursor_token       TEXT PRIMARY KEY,
+  project            TEXT NOT NULL,
+  recipient          TEXT NOT NULL,
+  event_sequence     INTEGER NOT NULL,
+  created_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS agent_message_receipts (
+  receipt_id         TEXT PRIMARY KEY,
+  message_id         TEXT NOT NULL,
+  project            TEXT NOT NULL,
+  recipient          TEXT NOT NULL,
+  receipt_kind       TEXT NOT NULL,
+  actor              TEXT NOT NULL,
+  idempotency_key    TEXT NOT NULL,
+  request_hash       TEXT NOT NULL,
+  detail_json        TEXT NOT NULL,
+  created_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (message_id) REFERENCES agent_messages(message_id) ON DELETE CASCADE,
+  UNIQUE(project, recipient, message_id, receipt_kind, idempotency_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_message_events_recipient_sequence
+  ON agent_message_events(project, recipient, event_sequence);
+CREATE INDEX IF NOT EXISTS idx_agent_message_deliveries_scope
+  ON agent_message_deliveries(project, recipient, message_id);
+CREATE INDEX IF NOT EXISTS idx_agent_message_receipts_scope
+  ON agent_message_receipts(project, recipient, message_id, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_message_cursors_unique_scope_sequence
+  ON agent_message_cursors(project, recipient, event_sequence);
+
 -- Proof that a capture hook actually RAN. Nothing else in this schema can
 -- give it: every other signal is "a row was written", and "the hook ran and
 -- found nothing worth saving" is the healthy case that produces no row at

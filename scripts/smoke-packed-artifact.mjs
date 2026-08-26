@@ -79,8 +79,11 @@ const requiredFiles = [
   'dist/core/serializer.js',
   'dist/core/patterns.js',
   'dist/core/embedder.js',
+  'dist/core/product-improvements.js',
+  'dist/core/agent-messaging.js',
   // Dist — transports
   'dist/transports/schemas.js',
+  'dist/transports/agent-messaging.js',
   'dist/mcp/server.js',
   'dist/transports/mcp/handlers.js',
   'dist/transports/http/server.js',
@@ -223,7 +226,7 @@ try {
   const names = listed.tools.map((tool) => tool.name).sort();
   assert.deepEqual(
     names,
-    ['briefing', 'export', 'forget', 'import', 'learn', 'recall', 'remember', 'task_state', 'user_patterns'],
+    ['briefing', 'export', 'forget', 'import', 'improvement', 'learn', 'message', 'recall', 'remember', 'task_state', 'user_patterns'],
     'installed MCP server exposed an unexpected tool surface'
   );
 
@@ -248,6 +251,47 @@ try {
     /packaged-protocol-smoke/,
     'recall did not return the memory written through MCP'
   );
+
+  const sentMessage = await client.callTool({
+    name: 'message',
+    arguments: {
+      action: 'send',
+      project: 'packaged-protocol-smoke',
+      sender: 'packaged-smoke-sender',
+      recipient: 'packaged-smoke-recipient',
+      idempotency_key: 'packaged-message-1',
+      payload: { marker: 'packaged-payload-marker' },
+      content_type: 'application/json',
+    },
+  });
+  assert.notEqual(sentMessage.isError, true, 'message send returned an MCP tool error');
+  const sentMessageData = JSON.parse(sentMessage.content[0].text);
+
+  const polledMessage = await client.callTool({
+    name: 'message',
+    arguments: {
+      action: 'poll',
+      project: 'packaged-protocol-smoke',
+      recipient: 'packaged-smoke-recipient',
+      wait_ms: 0,
+    },
+  });
+  assert.notEqual(polledMessage.isError, true, 'message poll returned an MCP tool error');
+  const polledMessageData = JSON.parse(polledMessage.content[0].text);
+  assert.equal(polledMessageData.events[0].message_id, sentMessageData.message_id);
+  assert.doesNotMatch(JSON.stringify(polledMessageData.events[0]), /packaged-payload-marker/);
+
+  const fetchedMessage = await client.callTool({
+    name: 'message',
+    arguments: {
+      action: 'fetch',
+      project: 'packaged-protocol-smoke',
+      recipient: 'packaged-smoke-recipient',
+      message_id: sentMessageData.message_id,
+    },
+  });
+  assert.notEqual(fetchedMessage.isError, true, 'message fetch returned an MCP tool error');
+  assert.equal(JSON.parse(fetchedMessage.content[0].text).payload.marker, 'packaged-payload-marker');
 } finally {
   await client.close();
 }
@@ -265,4 +309,4 @@ fs.rmSync(smokeDir, { recursive: true, force: true });
 // Say something on success. A check that prints nothing when it passes is
 // indistinguishable from one that did not run — the exact failure mode this
 // repo has spent several releases removing from its own code.
-console.log('✅ Packaged artifact smoke test passed — tarball installs outside the repo, opens a database, and completes an MCP initialize/list/remember/recall exchange');
+console.log('✅ Packaged artifact smoke test passed — tarball installs outside the repo, opens a database, and completes MCP initialize/list/remember/recall/message exchanges');

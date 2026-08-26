@@ -111,7 +111,7 @@ body:
       placeholder: |
         {
           "mcpServers": {
-            "claude-code-buddy": {
+            "memesh": {
               "command": "npx",
               "args": ["-y", "@pcircle/memesh"]
             }
