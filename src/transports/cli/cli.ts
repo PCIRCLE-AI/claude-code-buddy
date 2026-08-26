@@ -22,6 +22,10 @@ import { getTaskState, setTaskState } from '../../core/task-state-store.js';
 import { TASK_STATE_FIELDS, taskStateLines, type TaskStateField } from '../../core/task-state.js';
 import type { LessonSeverity, MergeStrategy, ExportResult } from '../../core/types.js';
 import { executeAgentMessageAction } from '../agent-messaging.js';
+import {
+  getAgentMessageStorageReport,
+  pruneTerminalAgentMessagePayloads,
+} from '../../core/agent-message-storage.js';
 
 // DX: every CLI command that touches the DB used to repeat
 //   openDatabase(); try { ...body... } finally { closeDatabase(); }
@@ -970,6 +974,117 @@ messageCmd
   .action((opts) => runCliMessage({
     action: 'receipts', project: opts.project, recipient: opts.recipient, message_id: opts.messageId,
   }));
+
+const messageStorageCmd = messageCmd
+  .command('storage')
+  .description('Inspect or bound durable agent-message payload storage without deleting lifecycle audit facts');
+
+messageStorageCmd
+  .command('report')
+  .description('Report logical payload, unresolved protection, reusable pages, and SQLite/WAL size')
+  .requiredOption('--cutoff <iso-time>', 'Terminal workflows strictly older than this ISO timestamp are prunable')
+  .action(async (opts) => {
+    await withDatabase(() => {
+      const report = getAgentMessageStorageReport(getDatabase(), {
+        cutoff: opts.cutoff,
+        databasePath: getDbPath(),
+      });
+      console.log(JSON.stringify({
+        policy: {
+          cutoff: new Date(opts.cutoff).toISOString(),
+          quota_bytes: process.env.MEMESH_AGENT_MESSAGE_STORAGE_QUOTA_BYTES ?? null,
+          automatic_pruning: false,
+        },
+        ...report,
+      }));
+    });
+  });
+
+messageStorageCmd
+  .command('prune')
+  .description('Dry-run one bounded terminal-payload tombstone batch; --apply performs it')
+  .requiredOption('--cutoff <iso-time>', 'Terminal workflows strictly older than this ISO timestamp are eligible')
+  .option('--batch-size <n>', 'Maximum payloads in this transaction, 1-1000', wholeNumber('--batch-size'), 100)
+  .option('--apply', 'Write hash-bound tombstones; without this flag nothing is changed')
+  .option('--actor <id>', 'Bounded audit actor', 'local-owner-cli')
+  .action(async (opts) => {
+    await withDatabase(() => {
+      const result = pruneTerminalAgentMessagePayloads(getDatabase(), {
+        cutoff: opts.cutoff,
+        databasePath: getDbPath(),
+        batchSize: opts.batchSize,
+        dryRun: !opts.apply,
+        actor: opts.actor,
+      });
+      console.log(JSON.stringify(result));
+    });
+  });
+
+// --- managed local agent hosts ---
+//
+// This writes reusable owner-private configuration only. Session identity is
+// deliberately absent: each managed host process creates a fresh exact
+// session, registers only after its native input boundary is ready, and drops
+// that registration on exit. Ordinary already-running provider sessions are
+// never guessed or attached.
+const agentCmd = program
+  .command('agent')
+  .description('Set up reusable owner-private managed host configuration');
+
+agentCmd
+  .command('setup')
+  .argument('<host>', 'codex | claude | gemini')
+  .requiredOption('--project <name>', 'Project scope used for exact routing')
+  .requiredOption('--principal <id>', 'Stable logical recipient ID')
+  .option('--workspace <path>', 'Managed Codex/Gemini workspace', process.cwd())
+  .option('--json', 'Output machine-readable setup result')
+  .action((host, opts) => {
+    requireOneOf(host, ['codex', 'claude', 'gemini'], '<host>');
+    const messageDir = path.dirname(getDbPath());
+    const hostsDir = path.join(messageDir, 'hosts');
+    fs.mkdirSync(hostsDir, { recursive: true, mode: 0o700 });
+    const hostsStat = fs.lstatSync(hostsDir);
+    if (!hostsStat.isDirectory() || hostsStat.isSymbolicLink() || (hostsStat.mode & 0o077) !== 0) {
+      throw new Error('The managed host config directory must be a real owner-private directory.');
+    }
+
+    const filename = host === 'gemini' ? 'gemini-acp.json' : `${host}.json`;
+    const configPath = path.join(hostsDir, filename);
+    if (fs.existsSync(configPath)) {
+      throw new Error(`Managed ${host} config already exists at ${configPath}; it was not overwritten.`);
+    }
+    const common = {
+      router_socket: path.join(messageDir, 'agent-router.sock'),
+      token_file: path.join(messageDir, 'agent-router.token'),
+      project: opts.project,
+      principal_id: opts.principal,
+    };
+    const config = host === 'codex'
+      ? { ...common, control_socket: path.join(hostsDir, 'codex-app-server.sock'), workspace: path.resolve(opts.workspace) }
+      : host === 'claude'
+        ? { ...common, server_name: 'memesh-channel' }
+        : { ...common, workspace: path.resolve(opts.workspace), command: 'gemini', args: [] };
+    fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+
+    const command = host === 'codex'
+      ? `memesh-host-codex --config ${JSON.stringify(configPath)}`
+      : host === 'claude'
+        ? `claude mcp add --transport stdio --scope user memesh-channel -- memesh-host-claude --config ${JSON.stringify(configPath)}`
+        : `memesh-host-acp --config ${JSON.stringify(configPath)}`;
+    const result = {
+      host,
+      config_path: configPath,
+      mode: host === 'claude' ? 'session-owned-channel' : 'memesh-managed-session',
+      session_identity: 'generated-per-process',
+      ordinary_sessions: 'presence-only/inbound-unavailable',
+      next_command: command,
+    };
+    console.log(opts.json ? JSON.stringify(result) : [
+      `Created owner-private managed ${host} config: ${configPath}`,
+      'No active or stopped ordinary session was attached.',
+      `Next: ${command}`,
+    ].join('\n'));
+  });
 
 // --- briefing ---
 // The shell-reachable half of A1c. Claude Code gets this block pushed by the

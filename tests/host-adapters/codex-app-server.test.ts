@@ -7,10 +7,12 @@ import { WebSocketServer } from 'ws';
 import {
   CodexAppServerDisconnectedError,
   CodexAppServerPayloadTooLargeError,
+  CodexAppServerProtocolError,
   CodexAppServerThreadUnavailableError,
   CodexAppServerTimeoutError,
   createCodexAppServerAdapter,
   queueCodexAppServerMessage,
+  startCodexAppServerThread,
   type QueueCodexAppServerMessageInput,
 } from '../../src/host-adapters/codex-app-server.js';
 
@@ -34,22 +36,24 @@ class FakeWebSocket extends EventEmitter {
   readonly close = vi.fn(() => { this.readyState = 3; });
   readonly terminate = vi.fn(() => { this.readyState = 3; });
   readonly writes: string[] = [];
+  failOnWrite: number | undefined;
 
   open(): void {
     this.readyState = 1;
     this.emit('open');
   }
 
-  send(data: string): void {
+  send(data: string, callback?: (error?: Error) => void): void {
     this.writes.push(data);
+    callback?.(this.failOnWrite === this.writes.length ? new Error('simulated write failure') : undefined);
   }
 
-  respond(id: string, result: unknown): void {
-    this.emit('message', Buffer.from(JSON.stringify({ id, result })));
+  respond(id: string, result: unknown, isBinary = false): void {
+    this.emit('message', Buffer.from(JSON.stringify({ id, result })), isBinary);
   }
 
   reject(id: string, message: string): void {
-    this.emit('message', Buffer.from(JSON.stringify({ id, error: { code: -32000, message } })));
+    this.emit('message', Buffer.from(JSON.stringify({ id, error: { code: -32000, message } })), false);
   }
 }
 
@@ -80,7 +84,7 @@ function socketSequence(...sockets: FakeWebSocket[]) {
 }
 
 async function waitForWrites(socket: FakeWebSocket, count: number): Promise<void> {
-  await vi.waitFor(() => expect(socket.writes).toHaveLength(count));
+  await vi.waitFor(() => expect(socket.writes).toHaveLength(count), { interval: 1 });
 }
 
 async function initialize(socket: FakeWebSocket): Promise<void> {
@@ -189,7 +193,7 @@ describe('Codex app-server host adapter', () => {
       queued_submission_id: 'queued-submission-1',
     });
 
-    expect(websocketFactory).toHaveBeenCalledWith('/private/tmp/codex-app-server-control.sock');
+    expect(websocketFactory).toHaveBeenCalledWith('/private/tmp/codex-app-server-control.sock', 5_000);
     expect(request).toEqual({
       id: 'queue-1',
       method: 'thread/queue/add',
@@ -263,6 +267,65 @@ describe('Codex app-server host adapter', () => {
 
     await expect(result).rejects.toBeInstanceOf(CodexAppServerTimeoutError);
     expect(socket.terminate).toHaveBeenCalled();
+  });
+
+  it('times out after a queue request has been written and does not report host acceptance', async () => {
+    const socket = new FakeWebSocket();
+    const { websocketFactory } = socketSequence(socket);
+    const result = queueCodexAppServerMessage(input(), { websocket_factory: websocketFactory as never, timeout_ms: 20 });
+
+    await initialize(socket);
+    await waitForWrites(socket, 3);
+    await expect(result).rejects.toBeInstanceOf(CodexAppServerTimeoutError);
+    expect(socket.terminate).toHaveBeenCalled();
+  });
+
+  it('fails closed when initialized cannot be written', async () => {
+    const socket = new FakeWebSocket();
+    socket.failOnWrite = 2;
+    const { websocketFactory } = socketSequence(socket);
+    const result = queueCodexAppServerMessage(input(), { websocket_factory: websocketFactory as never });
+
+    await initialize(socket);
+    await expect(result).rejects.toBeInstanceOf(CodexAppServerDisconnectedError);
+    expect(socket.writes).toHaveLength(2);
+  });
+
+  it('rejects a binary JSON-RPC response instead of decoding it as text', async () => {
+    const socket = new FakeWebSocket();
+    const { websocketFactory } = socketSequence(socket);
+    const result = queueCodexAppServerMessage(input(), { websocket_factory: websocketFactory as never });
+
+    socket.open();
+    await waitForWrites(socket, 1);
+    const request = JSON.parse(socket.writes[0]);
+    socket.respond(request.id, {}, true);
+    await expect(result).rejects.toBeInstanceOf(CodexAppServerProtocolError);
+  });
+
+  it('creates a fresh managed thread only after initialize and initialized complete', async () => {
+    const socket = new FakeWebSocket();
+    const { websocketFactory } = socketSequence(socket);
+    const result = startCodexAppServerThread({
+      control_socket_path: '/private/tmp/codex-app-server-control.sock',
+      workspace: '/private/tmp/workspace',
+    }, {
+      websocket_factory: websocketFactory as never,
+      request_id: (() => {
+        const ids = ['initialize-1', 'thread-start-1'];
+        return () => ids.shift()!;
+      })(),
+    });
+
+    await initialize(socket);
+    await waitForWrites(socket, 3);
+    expect(JSON.parse(socket.writes[2])).toEqual({
+      id: 'thread-start-1',
+      method: 'thread/start',
+      params: { cwd: '/private/tmp/workspace' },
+    });
+    socket.respond('thread-start-1', { thread: { id: 'managed-thread-1' } });
+    await expect(result).resolves.toEqual({ thread_id: 'managed-thread-1' });
   });
 
   it('fails closed when the control proxy disconnects before host acceptance', async () => {

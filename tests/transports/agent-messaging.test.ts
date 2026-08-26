@@ -6,10 +6,13 @@ import { useTestDatabase } from '../helpers/db-fixture.js';
 useTestDatabase('memesh-agent-message-transport-');
 
 const originalRouterSocket = process.env.MEMESH_ROUTER_SOCKET;
+const originalStorageQuota = process.env.MEMESH_AGENT_MESSAGE_STORAGE_QUOTA_BYTES;
 
 afterEach(() => {
   if (originalRouterSocket === undefined) delete process.env.MEMESH_ROUTER_SOCKET;
   else process.env.MEMESH_ROUTER_SOCKET = originalRouterSocket;
+  if (originalStorageQuota === undefined) delete process.env.MEMESH_AGENT_MESSAGE_STORAGE_QUOTA_BYTES;
+  else process.env.MEMESH_AGENT_MESSAGE_STORAGE_QUOTA_BYTES = originalStorageQuota;
 });
 
 describe('agent message transport', () => {
@@ -77,5 +80,46 @@ describe('agent message transport', () => {
 
     expect(getDatabase().prepare('SELECT COUNT(*) AS count FROM agent_messages').get())
       .toEqual({ count: 0 });
+  });
+
+  it('applies the configured hard quota inside the canonical send transaction', async () => {
+    process.env.MEMESH_AGENT_MESSAGE_STORAGE_QUOTA_BYTES = '0';
+
+    await expect(executeAgentMessageAction(getDatabase(), {
+      action: 'send',
+      project: 'transport-quota',
+      sender: 'sender',
+      recipient: 'recipient',
+      idempotency_key: 'quota-rejected',
+      payload: 'one byte too many',
+    }, {
+      transport: 'mcp',
+      sourceHost: 'test-host',
+    })).rejects.toMatchObject({ code: 'storage_quota_exceeded' });
+
+    for (const table of [
+      'agent_messages', 'agent_message_deliveries', 'agent_message_events',
+      'agent_message_idempotency', 'agent_dispatch_attempts', 'agent_message_receipts',
+    ]) {
+      expect(getDatabase().prepare(`SELECT COUNT(*) AS count FROM ${table}`).get()).toEqual({ count: 0 });
+    }
+  });
+
+  it('fails closed on an invalid configured quota before writing message effects', async () => {
+    process.env.MEMESH_AGENT_MESSAGE_STORAGE_QUOTA_BYTES = 'unbounded';
+
+    await expect(executeAgentMessageAction(getDatabase(), {
+      action: 'send',
+      project: 'transport-quota',
+      sender: 'sender',
+      recipient: 'recipient',
+      idempotency_key: 'quota-invalid',
+      payload: 'must not persist',
+    }, {
+      transport: 'cli',
+      sourceHost: 'test-host',
+    })).rejects.toThrow('MEMESH_AGENT_MESSAGE_STORAGE_QUOTA_BYTES must be a non-negative integer byte count.');
+
+    expect(getDatabase().prepare('SELECT COUNT(*) AS count FROM agent_messages').get()).toEqual({ count: 0 });
   });
 });

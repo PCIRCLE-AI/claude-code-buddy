@@ -152,21 +152,23 @@ describe('Installation Verification', () => {
 
     it('teaches durable message delivery without claiming stopped-session wakeup', () => {
       const skill = fs.readFileSync('skills/memesh/SKILL.md', 'utf8');
-      expect(skill).toContain('active compatible host');
+      expect(skill).toContain('active compatible managed host');
       expect(skill).toContain('removes polling');
       expect(skill).toContain('stopped, missing, or replaced session');
     });
 
-    it('documents owner-private one-time setup for every installed Local host runner', () => {
+    it('documents owner-private reusable setup for every installed managed Local host', () => {
       const install = fs.readFileSync('llms-install.md', 'utf8');
       const guide = fs.readFileSync('docs/platforms/agent-messaging.md', 'utf8');
       for (const command of ['memesh-router', 'memesh-host-codex', 'memesh-host-claude', 'memesh-host-acp']) {
         expect(install).toContain(command);
         expect(guide).toContain(command);
       }
-      expect(install).toContain('chmod 600');
+      expect(install).toContain('memesh agent setup codex');
+      expect(install).toContain('memesh agent setup claude');
+      expect(install).toContain('memesh agent setup gemini');
       expect(guide).toContain('owner-private');
-      expect(guide).toContain('does not start the host');
+      expect(guide).toContain('presence-only/inbound-unavailable');
       expect(guide).toContain('stopped, missing, disconnected, or replaced');
     });
   });

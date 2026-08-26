@@ -76,22 +76,9 @@ export async function queueCodexAppServerMessage(input, options = {}) {
     const clientInfo = options.client_info ?? { name: 'memesh-host-adapter', version: '1' };
     const normalized = normalizeInput(input);
     const userText = serializeUntrustedText(normalized);
-    const initializeId = requestId();
-    const queueId = requestId();
-    const socket = websocketFactory(normalized.controlSocketPath);
-    try {
-        await waitForOpen(socket, timeoutMs);
-        await exchange(socket, {
-            id: initializeId,
-            method: 'initialize',
-            params: {
-                clientInfo,
-                capabilities: { experimentalApi: true },
-            },
-        }, timeoutMs);
-        socket.send(JSON.stringify({ method: 'initialized', params: {} }));
+    return withInitializedCodexConnection(normalized.controlSocketPath, { websocketFactory, requestId, timeoutMs, clientInfo }, async (socket) => {
         const result = await exchange(socket, {
-            id: queueId,
+            id: requestId(),
             method: 'thread/queue/add',
             params: {
                 threadId: normalized.threadId,
@@ -107,16 +94,46 @@ export async function queueCodexAppServerMessage(input, options = {}) {
             client_user_message_id: queue.clientUserMessageId,
             queued_submission_id: queue.id,
         };
+    });
+}
+export async function startCodexAppServerThread(input, options = {}) {
+    const websocketFactory = options.websocket_factory ?? createCodexWebSocket;
+    const requestId = options.request_id ?? randomUUID;
+    const timeoutMs = normalizeTimeout(input.timeout_ms ?? options.timeout_ms ?? DEFAULT_TIMEOUT_MS);
+    const clientInfo = options.client_info ?? { name: 'memesh-host-adapter', version: '1' };
+    const controlSocketPath = requireAbsolutePath('control_socket_path', input.control_socket_path);
+    const workspace = requireAbsolutePath('workspace', input.workspace);
+    return withInitializedCodexConnection(controlSocketPath, { websocketFactory, requestId, timeoutMs, clientInfo }, async (socket) => parseStartedThread(await exchange(socket, {
+        id: requestId(),
+        method: 'thread/start',
+        params: { cwd: workspace },
+    }, timeoutMs)));
+}
+async function withInitializedCodexConnection(controlSocketPath, options, operation) {
+    const socket = options.websocketFactory(controlSocketPath, options.timeoutMs);
+    try {
+        await waitForOpen(socket, options.timeoutMs);
+        await exchange(socket, {
+            id: options.requestId(),
+            method: 'initialize',
+            params: {
+                clientInfo: options.clientInfo,
+                capabilities: { experimentalApi: true },
+            },
+        }, options.timeoutMs);
+        await sendNotification(socket, { method: 'initialized', params: {} }, options.timeoutMs);
+        return await operation(socket);
     }
     finally {
         socket.close();
     }
 }
-function createCodexWebSocket(socketPath) {
+function createCodexWebSocket(socketPath, handshakeTimeoutMs) {
     return new WebSocket('ws://localhost/rpc', {
         createConnection: () => createConnection(socketPath),
         perMessageDeflate: false,
         maxPayload: MAX_RESPONSE_BYTES,
+        handshakeTimeout: handshakeTimeoutMs,
     });
 }
 function normalizeInput(input) {
@@ -207,7 +224,11 @@ function exchange(socket, request, timeoutMs) {
         const fail = (error) => finish(() => reject(error));
         const onDisconnect = () => fail(new CodexAppServerDisconnectedError());
         const onClose = () => fail(new CodexAppServerDisconnectedError());
-        const onMessage = (data) => {
+        const onMessage = (data, isBinary) => {
+            if (isBinary) {
+                fail(new CodexAppServerProtocolError());
+                return;
+            }
             const responseText = rawDataToString(data);
             if (Buffer.byteLength(responseText, 'utf8') > MAX_RESPONSE_BYTES) {
                 fail(new CodexAppServerProtocolError());
@@ -241,7 +262,45 @@ function exchange(socket, request, timeoutMs) {
         socket.on('error', onDisconnect);
         socket.on('close', onClose);
         try {
-            socket.send(JSON.stringify(request));
+            socket.send(JSON.stringify(request), (error) => {
+                if (error)
+                    onDisconnect();
+            });
+        }
+        catch {
+            onDisconnect();
+        }
+    });
+}
+function sendNotification(socket, notification, timeoutMs) {
+    return new Promise((resolve, reject) => {
+        let settled = false;
+        const finish = (callback) => {
+            if (settled)
+                return;
+            settled = true;
+            clearTimeout(timer);
+            socket.off('error', onDisconnect);
+            socket.off('close', onClose);
+            callback();
+        };
+        const fail = (error) => finish(() => reject(error));
+        const onDisconnect = () => fail(new CodexAppServerDisconnectedError());
+        const onClose = () => fail(new CodexAppServerDisconnectedError());
+        const timer = setTimeout(() => {
+            socket.terminate();
+            fail(new CodexAppServerTimeoutError());
+        }, timeoutMs);
+        socket.on('error', onDisconnect);
+        socket.on('close', onClose);
+        try {
+            socket.send(JSON.stringify(notification), (error) => {
+                if (error) {
+                    onDisconnect();
+                    return;
+                }
+                finish(resolve);
+            });
         }
         catch {
             onDisconnect();
@@ -267,6 +326,10 @@ function parseQueueResponse(result, expectedClientMessageId) {
         throw new CodexAppServerProtocolError();
     }
     return submission;
+}
+function parseStartedThread(result) {
+    const candidate = result;
+    return { thread_id: requireIdentifier('thread.id', candidate?.thread?.id) };
 }
 function rpcError(error) {
     const message = typeof error.message === 'string' ? error.message : '';

@@ -59,7 +59,7 @@ MeMesh separates concerns into two layers:
 - `why.ts` — file attribution (`memesh why` / `POST /v1/why`): a git half (`resolveFileCommits`, CLI-only — the HTTP route never shells out) and a DB half (`explainCommits`) joining full SHAs to the abbreviated-hash `commit-*` entity names, walking `metadata.session_id` to session entities, and collecting `file:<basename>`-tagged memories; every gap is a typed abstention
 
 **Transports** (`src/transports/`) — thin adapters that expose core operations:
-- `cli/cli.ts` — Commander CLI (`memesh` command, 29 top-level commands; `message`, `config`, `kg`, and `dream` have subcommands)
+- `cli/cli.ts` — Commander CLI (`memesh` command, 30 top-level commands; `message`, `agent`, `config`, `kg`, and `dream` have subcommands)
 - `http/server.ts` — Express REST API server (`memesh serve`, default port 3737, 35 endpoints, bearer-auth gate when bound non-loopback)
 - `agent-messaging.ts` — shared MCP/HTTP/CLI dispatcher that binds provenance at the transport boundary and never turns a read into a receipt
 - `src/mcp/server.ts` + `src/transports/mcp/handlers.ts` — stdio MCP server (`memesh-mcp`, 11 tools); `src/mcp/tools.ts` is a re-export shim

@@ -607,11 +607,14 @@ if (!hasBearerAuth) {
   // registered twice — top-level and under `dream` — which is why the child
   // sets are per-parent rather than one flat set.
   const parentVars = new Map(
-    [...cliSrc.matchAll(/const (\w+)\s*=\s*program\s*\.command\('([\w-]+)'/g)].map(m => [m[1], m[2]]),
+    [...cliSrc.matchAll(/const (\w+)\s*=\s*program\s*\.\s*command\('([\w-]+)'/g)].map(m => [m[1], m[2]]),
   );
   const childrenOf = new Map();
   for (const [varName, parentName] of parentVars) {
-    const re = new RegExp(`(?:^|\\n)${varName}\\s*\\.command\\('([\\w-]+)`, 'g');
+    const re = new RegExp(
+      `(?:^|\\n)(?:const\\s+\\w+\\s*=\\s*)?${varName}\\s*\\.\\s*command\\('([\\w-]+)`,
+      'g',
+    );
     childrenOf.set(parentName, new Set([...cliSrc.matchAll(re)].map(m => m[1])));
   }
   // Absence is not evidence: an extraction that stopped matching would report

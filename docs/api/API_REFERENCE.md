@@ -659,7 +659,13 @@ Payload JSON is limited to 65,536 UTF-8 bytes. Sender-host provenance is supplie
 
 Exact-recipient routing is not per-agent authentication or an ACL. A caller that can access the local MeMesh instance can assert a logical recipient ID, so all callers on a shared instance must be cooperative, trusted workspace participants. HTTP bearer authentication protects instance access; it does not establish a separate cryptographic identity for each agent.
 
-`poll` is bounded long polling, not host-initiated push. It does not resume a stopped model session, and no action executes payload content. Hosts persist `next_cursor`, restart their own wait loop, fetch explicitly, and record only receipt facts that actually occurred.
+`poll` is a bounded compatibility and diagnostic read, not the normal active-session push path. It does not resume a stopped model session, and no action executes payload content. Poll clients persist `next_cursor`, fetch explicitly, and record only receipt facts that actually occurred; verified active host adapters receive the authorized envelope from the Local router without polling.
+
+The CLI also exposes owner-operated storage accounting and bounded retention:
+
+- `memesh message storage report --cutoff <ISO timestamp>` reports logical payload, protected/unresolved rows, prunable terminal rows, reusable SQLite pages, and main/WAL file sizes.
+- `memesh message storage prune --cutoff <ISO timestamp> [--batch-size 1..1000]` is a dry-run; `--apply` replaces only old terminal payloads with hash-bound tombstones while preserving lifecycle audit facts.
+- `MEMESH_AGENT_MESSAGE_STORAGE_QUOTA_BYTES=<non-negative integer>` enables an owner-selected hard payload quota. Over-quota sends fail atomically with `storage_quota_exceeded`. No quota or automatic retention policy is enabled by default.
 
 ## Data Model
 

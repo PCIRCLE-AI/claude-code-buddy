@@ -5,9 +5,9 @@ MeMesh provides two complementary collaboration surfaces on one machine:
 - shared durable memory, including the `team` namespace, for knowledge, decisions, and coarse handoffs;
 - the `message` tool for explicit durable messages to one named recipient on the same MeMesh instance.
 
-The messaging path is store-and-forward with bounded polling for durable recovery. An active compatible host can additionally receive a Local native notification; host acceptance is still not proof that a model acknowledged or accepted the work.
+The messaging path is durable store-and-forward. A registered active compatible host receives a Local native push; SQLite remains the audit and reconnect authority. `poll`/`watch` exist as explicit compatibility and diagnostic APIs, not as the normal active-session delivery loop. Host acceptance is still not proof that a model read, acknowledged, or accepted the work.
 
-## One-time owner-private Local runner setup
+## One-time owner-private managed-host setup
 
 Native delivery is optional and local to one Unix account. Do this setup once
 for the account that owns both the MeMesh database and the active host
@@ -36,83 +36,65 @@ Neither command starts or registers a host, sends a message, proves
 `host_accept`, or wakes a stopped session.
 In particular, a socket check does not start the host it observes.
 
-For each runner below, create the config with mode `0600` and replace every
-`/absolute/...` placeholder with data from the currently active host. The
-stable `principal_id` is the logical recipient; `session_instance_id` is new
-for each host process. Starting a runner is a one-time-per-active-session
-registration, not a way to resume an old session.
+Create one reusable owner-private config for each provider/principal. The
+stable principal is the logical recipient; every managed process generates a
+fresh exact session identity. No active thread/session ID is copied by hand.
+Ordinary already-running sessions are not attached and are reported as
+presence-only/inbound-unavailable.
 
 ```bash
-umask 077
-mkdir -p "$HOME/.memesh/hosts"
-chmod 700 "$HOME/.memesh/hosts"
+memesh agent setup codex --project my-project --principal codex-reviewer --workspace "$PWD"
+memesh agent setup claude --project my-project --principal claude-reviewer
+memesh agent setup gemini --project my-project --principal gemini-reviewer --workspace "$PWD"
 ```
 
 ### Codex app-server runner
 
 ```bash
-cat >"$HOME/.memesh/hosts/codex.json" <<'JSON'
-{
-  "router_socket": "/absolute/path/to/agent-router.sock",
-  "token_file": "/absolute/path/to/agent-router.token",
-  "project": "my-project",
-  "principal_id": "codex-reviewer",
-  "session_instance_id": "codex-session-unique-to-this-process",
-  "control_socket": "/absolute/path/to/the-active-codex-app-server.sock",
-  "thread_id": "active-codex-thread-id"
-}
-JSON
-chmod 600 "$HOME/.memesh/hosts/codex.json"
 memesh-host-codex --config "$HOME/.memesh/hosts/codex.json"
 ```
 
+This starts a MeMesh-owned `codex app-server`, creates its thread through the
+private Unix/WebSocket control path, and registers only after that thread is
+ready. It does not attach to an ordinary Codex TUI. Message content never
+appears in MeMesh or Codex process arguments.
+
 ### Claude channel runner
 
-Run this as the MCP server connected to the active Claude Code session, not as
-an unrelated background process:
+Run the `next_command` printed by setup once to add `memesh-channel` as a
+user-scoped stdio MCP server. Claude owns that process for the session:
 
 ```bash
-cat >"$HOME/.memesh/hosts/claude.json" <<'JSON'
-{
-  "router_socket": "/absolute/path/to/agent-router.sock",
-  "token_file": "/absolute/path/to/agent-router.token",
-  "project": "my-project",
-  "principal_id": "claude-reviewer",
-  "session_instance_id": "claude-session-unique-to-this-process",
-  "server_name": "memesh-channel"
-}
-JSON
-chmod 600 "$HOME/.memesh/hosts/claude.json"
-memesh-host-claude --config "$HOME/.memesh/hosts/claude.json"
+claude mcp add --transport stdio --scope user memesh-channel -- \
+  memesh-host-claude --config "$HOME/.memesh/hosts/claude.json"
 ```
+
+Claude Channels is an upstream opt-in. Enable/allowlist the server according
+to the installed Claude Code policy (development builds may require
+`--dangerously-load-development-channels server:memesh-channel`). After that
+provider setup, channel initialization creates and registers the exact MeMesh
+session automatically; EOF, MCP close, or normal signals unregister it.
 
 ### Gemini ACP runner
 
-Use this only for a MeMesh-managed ACP-capable local agent. The `command` and
-`args` describe the owner's local ACP executable; they are not fetched or
-started by a sender.
+Use this only for a MeMesh-managed ACP-capable local agent:
 
 ```bash
-cat >"$HOME/.memesh/hosts/acp.json" <<'JSON'
-{
-  "router_socket": "/absolute/path/to/agent-router.sock",
-  "token_file": "/absolute/path/to/agent-router.token",
-  "project": "my-project",
-  "principal_id": "gemini-reviewer",
-  "session_instance_id": "acp-session-unique-to-this-process",
-  "workspace": "/absolute/path/to/the-active-workspace",
-  "command": "gemini",
-  "args": ["--acp"]
-}
-JSON
-chmod 600 "$HOME/.memesh/hosts/acp.json"
-memesh-host-acp --config "$HOME/.memesh/hosts/acp.json"
+memesh-host-acp --config "$HOME/.memesh/hosts/gemini-acp.json"
 ```
+
+The runner owns `gemini --acp`, creates or explicitly loads the ACP session,
+and registers only after protocol/session readiness. Ordinary Gemini UI
+resume/session flags are rejected. Authentication, capability, or process
+failure leaves no false host acceptance.
 
 All three runners deliver only while their configured target is active and
 registered. If it is stopped, missing, disconnected, or replaced, MeMesh keeps
 the durable message but does not start the host, recreate the session, or
-silently redirect an exact-session target. Use cursor recovery for that case.
+silently redirect an exact-session target. A later eligible managed principal
+registration drains only post-activation pending work; an exact-session target
+never moves to the replacement. Manual cursor reads remain available for audit
+and diagnostics, not as a requirement for active host delivery.
 
 ## What Works Today
 
@@ -127,7 +109,38 @@ silently redirect an exact-session target. Use cursor recovery for that case.
 
 A **principal** is the stable logical recipient. A **session** is one live host connection for that principal. A **generation** changes when that session is replaced. An exact-session target never reroutes. A principal target can deliver only to an eligible active session after its activation checkpoint; it does not replay historical inbox contents into a first session.
 
-Persistence, dispatch attempt, host acceptance, intake, acknowledgement, workflow disposition, retention, and presence are independent state axes. An active compatible host may receive a host-native notification, removing polling for that live delivery. A stopped, missing, busy beyond its queue limit, or unsupported session is not awakened, resumed, or replaced; polling/cursor recovery remains the durable fallback.
+Persistence, dispatch attempt, host acceptance, intake, acknowledgement, workflow disposition, retention, and presence are independent state axes. An active compatible host receives host-native input without polling. A stopped, missing, busy beyond its queue limit, or unsupported session is not awakened, resumed, or replaced; durable state remains available for audit and an eligible later registration, subject to exact-session and activation-checkpoint rules.
+
+## Bounded storage and audit retention
+
+Message payload growth is observable and owner-controlled. MeMesh never deletes
+unresolved, unacknowledged, retryable, or offline-pending messages to satisfy a
+limit. Inspect logical payload bytes, protected rows, SQLite reusable pages,
+and main/WAL file sizes with an explicit policy cutoff:
+
+```bash
+memesh message storage report --cutoff 2026-08-01T00:00:00Z
+```
+
+Preview one bounded batch of old terminal payloads; nothing changes without
+`--apply`:
+
+```bash
+memesh message storage prune --cutoff 2026-08-01T00:00:00Z --batch-size 100
+memesh message storage prune --cutoff 2026-08-01T00:00:00Z --batch-size 100 --apply
+```
+
+Applied pruning replaces only eligible payload content with a hash-bound
+tombstone. Message identity, routing, receipts, ACK, workflow, presence, and
+retention audit facts remain queryable. Freed SQLite pages become reusable;
+the main database file is a high-watermark and is not promised to shrink.
+Full `VACUUM` is never run by a hook or this bounded command.
+
+An owner may set `MEMESH_AGENT_MESSAGE_STORAGE_QUOTA_BYTES` to a non-negative
+integer. The canonical send transaction checks it before inserting any
+message effect; an over-quota send returns `storage_quota_exceeded` and leaves
+no partial message, delivery, event, idempotency, dispatch, or receipt row.
+There is deliberately no default quota or automatic retention policy.
 
 ## Local and Cloud boundary
 
@@ -158,14 +171,14 @@ Persistence, dispatch attempt, host acceptance, intake, acknowledgement, workflo
 ## Lifecycle
 
 1. A sender calls `message` with `action: "send"`, a stable sender, one recipient, a project, an idempotency key, and a payload.
-2. The receiver calls `poll`, or runs `memesh message watch`, with its project, recipient ID, and last durable cursor.
-3. A returned event is a privacy-minimized hint. A receiver operating under the host's policy calls `fetch` with the logical recipient ID to read the payload.
+2. The router pushes the full authorized envelope to an eligible registered host-native adapter. An explicit `poll`/`watch` client may instead read privacy-minimized events for compatibility or diagnosis.
+3. A host-native adapter receives the full envelope; a poll client must call `fetch` with the logical recipient ID to read the payload.
 4. The receiver records only the facts that actually happened:
    - `intake`: payload fetched or durably ingested;
    - `ack`: explicit recipient acknowledgement;
    - `disposition`: accepted, rejected, completed, cancelled, or deferred;
    - `activation`: woken, manual resume required, unsupported, or failed.
-5. After timeout or restart, the receiver repeats the poll/watch with its last cursor. Replaying an older cursor may replay an event, so application intake uses its own idempotency key.
+5. After router or host restart, registration drains only eligible durable deliveries. A manual cursor replay may repeat an event, so application intake still uses its own idempotency key.
 
 `correlation_id` and `reply_to` can connect messages, but they do not change delivery or routing.
 
@@ -213,7 +226,7 @@ Messages and recalled memories are untrusted data.
 
 ## Remaining Product Work
 
-- real-host dogfood for adapters; no stopped session is to be woken or resumed by that work;
+- complete real-host dogfood for every advertised managed adapter; no stopped session is to be woken or resumed by that work;
 - richer routing such as topics, claims/leases, and expiry where real use cases require them;
 - operator inbox and receipt visibility;
 - a governed Local-to-Cloud relay for cross-machine collaboration.

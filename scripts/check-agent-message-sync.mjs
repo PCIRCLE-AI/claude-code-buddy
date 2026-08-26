@@ -76,6 +76,10 @@ requireText('src/transports/schemas.ts', ['target_kind', "z.enum(['principal', '
 requireText('dist/transports/schemas.js', ['target_kind', "z.enum(['principal', 'session'])"]);
 requireText('src/transports/agent-messaging.ts', ['target_kind: input.target_kind']);
 requireText('dist/transports/agent-messaging.js', ['target_kind: input.target_kind']);
+requireText('src/transports/cli/cli.ts', ['messageStorageCmd', 'storage', 'report', 'prune', 'automatic_pruning']);
+requireText('dist/transports/cli/cli.js', ['messageStorageCmd', 'storage', 'report', 'prune', 'automatic_pruning']);
+requireText('src/core/agent-message-storage.ts', ['protected_unresolved_message_count', 'terminal_prunable_message_count', 'storage_quota_exceeded']);
+requireText('dist/core/agent-message-storage.js', ['protected_unresolved_message_count', 'terminal_prunable_message_count', 'storage_quota_exceeded']);
 
 // Router/session semantics are a separate lifecycle from durable receipts.
 requireText('src/core/agent-router.ts', ['principal', 'session', 'generation']);
@@ -129,15 +133,22 @@ requireText('dist/transports/mcp/handlers.js', ["name === 'message'", 'MessageSc
 requireText('dist/transports/http/server.js', ['MessageBody', 'executeAgentMessageAction']);
 requireText('dist/transports/agent-messaging.js', ['executeAgentMessageAction']);
 
-requireText('docs/api/API_REFERENCE.md', [...ACTIONS, 'principal', 'session', 'generation', 'Local', 'Cloud']);
-requireText('docs/platforms/agent-messaging.md', ['principal', 'session', 'generation', 'exact-session', 'principal target', 'Local', 'Cloud']);
-requireText('skills/memesh/SKILL.md', ['message', 'polling', 'active compatible host', 'stopped, missing, or replaced session']);
+requireText('docs/api/API_REFERENCE.md', [...ACTIONS, 'principal', 'session', 'generation', 'Local', 'Cloud', 'message storage', 'storage_quota_exceeded']);
+requireText('docs/platforms/agent-messaging.md', ['principal', 'session', 'generation', 'exact-session', 'principal target', 'Local', 'Cloud', 'Bounded storage and audit retention']);
+requireText('skills/memesh/SKILL.md', ['message', 'polling', 'active compatible managed host', 'stopped, missing, or replaced session', 'message storage report']);
+requireText('.mcp.json', ['memesh', '${CLAUDE_PLUGIN_ROOT}/dist/mcp/server.js']);
+requireText('.claude-plugin/plugin.json', ['"name": "memesh"', '"version"']);
+requireText('.claude-plugin/marketplace.json', ['"name": "pcircle-memesh"', '"version"']);
+requireText('hooks/hooks.json', [
+  'session-start.js', 'session-summary.js', 'pre-compact.js',
+  'user-prompt-intent.js', 'pre-edit-recall.js', 'guard-check.js', 'post-commit.js',
+]);
 requireText('llms-install.md', [
   '22.13.0', 'memesh doctor', 'message', 'memesh-router',
-  'memesh-host-codex', 'memesh-host-claude', 'memesh-host-acp', '--config',
+  'memesh-host-codex', 'memesh-host-claude', 'memesh-host-acp', '--config', 'message storage report',
 ]);
-requireText('README.md', ['message', 'active supported host', 'stopped session']);
-requireText('README.zh-TW.md', ['message', '活動中 host', '停止']);
+requireText('README.md', ['message', 'active supported managed host', 'stopped session', 'message storage report']);
+requireText('README.zh-TW.md', ['message', '活動中 managed host', '停止', 'message storage report']);
 const packageJsonText = read('package.json');
 for (const token of ['">=22.13.0"', 'check-agent-message-sync.mjs', 'test:packaged']) {
   if (!packageJsonText.includes(token)) missing.push(`package.json (missing ${JSON.stringify(token)})`);

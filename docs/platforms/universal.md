@@ -14,9 +14,9 @@ npm install -g @pcircle/memesh
 
 Use the `message` MCP tool, `POST /v1/message`, or `memesh message` commands when exact recipient, cursor recovery, or explicit receipts matter. All three expose the same local actions: `send`, `poll`, `fetch`, `intake`, `ack`, `disposition`, `activation`, and `receipts`.
 
-- Delivery is durable and pull-based, not host-initiated push. The receiver must poll or run a bounded watch loop and persist the returned opaque cursor.
+- Delivery is durable. A verified registered host adapter receives native push without polling; `poll`/`watch` remain compatibility and diagnostic surfaces for hosts without a verified inbound channel.
 - Poll and fetch are reads; neither implies ACK or workflow acceptance.
-- A stopped model session is resumed only when a separately verified host adapter supports it.
+- A stopped model session is not resumed or replaced. Managed adapters register only a currently active session; exact-session messages never reroute.
 
 The `team` namespace remains useful for shared durable knowledge and coarse handoffs. Use unique entity names because supplying an existing name can update or move that memory. Topic routing, claims/leases, TTL, cross-machine delivery, and universal host resume remain outside the current local message surface.
 

@@ -232,8 +232,9 @@ describe('Feature: release scripts never edit the real ~/.memesh', () => {
         ['send', 'send'], ['watch', 'poll'], ['fetch', 'fetch'], ['intake', 'intake'],
         ['ack', 'ack'], ['disposition', 'disposition'], ['activation', 'activation'], ['receipts', 'receipts'],
       ].map(([command, action]) => `.command('${command}')\n.action(() => ({ action: '${action}' }))`).join('\n');
-      write('src/transports/cli/cli.ts', cliMappings + '\n--payload-stdin\nnever argv\nreadCliMessagePayloadFromStdin');
+      write('src/transports/cli/cli.ts', cliMappings + '\n--payload-stdin\nnever argv\nreadCliMessagePayloadFromStdin\nmessageStorageCmd storage report prune automatic_pruning');
       write('src/transports/agent-messaging.ts', 'target_kind: input.target_kind');
+      write('src/core/agent-message-storage.ts', 'protected_unresolved_message_count terminal_prunable_message_count storage_quota_exceeded');
       write('src/core/agent-router.ts', 'principal session generation');
       for (const adapter of ['codex-app-server.ts', 'claude-channel.ts', 'acp-client.ts']) write(`src/host-adapters/${adapter}`, 'adapter');
       write('src/host-adapters/codex-app-server.ts', 'adapter experimentalApi: true thread/queue/add ws://localhost/rpc perMessageDeflate: false');
@@ -242,7 +243,8 @@ describe('Feature: release scripts never edit the real ~/.memesh', () => {
       write('dist/transports/http/server.js', 'MessageBody executeAgentMessageAction');
       write('dist/transports/agent-messaging.js', 'executeAgentMessageAction target_kind: input.target_kind');
       write('dist/transports/schemas.js', "target_kind z.enum(['principal', 'session'])");
-      write('dist/transports/cli/cli.js', cliMappings);
+      write('dist/transports/cli/cli.js', cliMappings + '\nmessageStorageCmd storage report prune automatic_pruning');
+      write('dist/core/agent-message-storage.js', 'protected_unresolved_message_count terminal_prunable_message_count storage_quota_exceeded');
       for (const artifact of ['dist/host-adapters/codex-app-server.js', 'dist/host-adapters/claude-channel.js', 'dist/host-adapters/acp-client.js']) write(artifact);
       write('dist/host-adapters/codex-app-server.js', 'experimentalApi: true thread/queue/add ws://localhost/rpc perMessageDeflate: false');
       write('dist/core/agent-router.js', 'class AgentRouter host_accept');
@@ -252,12 +254,16 @@ describe('Feature: release scripts never edit the real ~/.memesh', () => {
       }
       write('src/host-runtime/acp.ts', 'session_update_file O_NOFOLLOW');
       write('dist/host-runtime/acp.js', 'session_update_file O_NOFOLLOW');
-      write('docs/api/API_REFERENCE.md', actions.join(' ') + ' principal session generation Local Cloud');
-      write('docs/platforms/agent-messaging.md', 'principal session generation exact-session principal target Local Cloud');
-      write('skills/memesh/SKILL.md', 'message polling active compatible host stopped, missing, or replaced session');
-      write('llms-install.md', '22.13.0 memesh doctor message memesh-router memesh-host-codex memesh-host-claude memesh-host-acp --config');
-      write('README.md', 'message active supported host stopped session');
-      write('README.zh-TW.md', 'message 活動中 host 停止');
+      write('docs/api/API_REFERENCE.md', actions.join(' ') + ' principal session generation Local Cloud message storage storage_quota_exceeded');
+      write('docs/platforms/agent-messaging.md', 'principal session generation exact-session principal target Local Cloud Bounded storage and audit retention');
+      write('skills/memesh/SKILL.md', 'message polling active compatible managed host stopped, missing, or replaced session message storage report');
+      write('llms-install.md', '22.13.0 memesh doctor message memesh-router memesh-host-codex memesh-host-claude memesh-host-acp --config message storage report');
+      write('README.md', 'message active supported managed host stopped session message storage report');
+      write('README.zh-TW.md', 'message 活動中 managed host 停止 message storage report');
+      write('.mcp.json', 'memesh ${CLAUDE_PLUGIN_ROOT}/dist/mcp/server.js');
+      write('.claude-plugin/plugin.json', '"name": "memesh" "version"');
+      write('.claude-plugin/marketplace.json', '"name": "pcircle-memesh" "version"');
+      write('hooks/hooks.json', 'session-start.js session-summary.js pre-compact.js user-prompt-intent.js pre-edit-recall.js guard-check.js post-commit.js');
       write('package.json', JSON.stringify({
         engines: { node: '>=22.13.0' },
         scripts: { release: 'check-agent-message-sync.mjs test:packaged' },
@@ -270,11 +276,11 @@ describe('Feature: release scripts never edit the real ~/.memesh', () => {
       }));
       const pass = spawnSync(process.execPath, ['scripts/check-agent-message-sync.mjs', '--root', root], { cwd: repoRoot, encoding: 'utf8' });
       expect(pass.status).toBe(0);
-      write('src/transports/cli/cli.ts', cliMappings.replace(".command('watch')\n.action(() => ({ action: 'poll' }))", ".command('watch')\n.action(() => ({ action: 'fetch' }))") + '\n--payload-stdin\nnever argv\nreadCliMessagePayloadFromStdin');
+      write('src/transports/cli/cli.ts', cliMappings.replace(".command('watch')\n.action(() => ({ action: 'poll' }))", ".command('watch')\n.action(() => ({ action: 'fetch' }))") + '\n--payload-stdin\nnever argv\nreadCliMessagePayloadFromStdin\nmessageStorageCmd storage report prune automatic_pruning');
       const wrongMapping = spawnSync(process.execPath, ['scripts/check-agent-message-sync.mjs', '--root', root], { cwd: repoRoot, encoding: 'utf8' });
       expect(wrongMapping.status).toBe(1);
       expect(wrongMapping.stderr).toContain('CLI command "watch" mapped to action "poll"');
-      write('src/transports/cli/cli.ts', cliMappings + '\n--payload-stdin\nnever argv\nreadCliMessagePayloadFromStdin');
+      write('src/transports/cli/cli.ts', cliMappings + '\n--payload-stdin\nnever argv\nreadCliMessagePayloadFromStdin\nmessageStorageCmd storage report prune automatic_pruning');
       fs.rmSync(path.join(root, 'dist/host-adapters/acp-client.js'));
       const failed = spawnSync(process.execPath, ['scripts/check-agent-message-sync.mjs', '--root', root], { cwd: repoRoot, encoding: 'utf8' });
       expect(failed.status).toBe(1);

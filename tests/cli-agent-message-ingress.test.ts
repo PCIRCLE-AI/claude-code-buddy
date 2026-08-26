@@ -108,4 +108,78 @@ describe('CLI durable-message ingress', () => {
     }
   });
 
+  it('reports storage and keeps prune dry-run non-mutating by default', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-cli-message-'));
+    const cutoff = '2026-08-27T00:00:00.000Z';
+    try {
+      const report = spawnSync(process.execPath, cliArgs(
+        'message', 'storage', 'report', '--cutoff', cutoff,
+      ), {
+        encoding: 'utf8',
+        env: { ...process.env, HOME: home, MEMESH_AUTO_CAPTURE: 'false' },
+      });
+      expect(report.status, report.stderr).toBe(0);
+      expect(JSON.parse(report.stdout)).toMatchObject({
+        policy: { cutoff, quota_bytes: null, automatic_pruning: false },
+        message_count: 0,
+        protected_unresolved_message_count: 0,
+      });
+
+      const dryRun = spawnSync(process.execPath, cliArgs(
+        'message', 'storage', 'prune', '--cutoff', cutoff, '--batch-size', '1',
+      ), {
+        encoding: 'utf8',
+        env: { ...process.env, HOME: home, MEMESH_AUTO_CAPTURE: 'false' },
+      });
+      expect(dryRun.status, dryRun.stderr).toBe(0);
+      expect(JSON.parse(dryRun.stdout)).toEqual({
+        dry_run: true,
+        candidate_count: 0,
+        tombstoned_count: 0,
+        reclaimed_payload_bytes: 0,
+        candidates: [],
+      });
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('creates reusable owner-private managed host config without a fabricated session identity', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-cli-agent-'));
+    try {
+      const setup = spawnSync(process.execPath, cliArgs(
+        'agent', 'setup', 'codex', '--project', 'test', '--principal', 'reviewer',
+        '--workspace', home, '--json',
+      ), {
+        encoding: 'utf8',
+        env: { ...process.env, HOME: home, MEMESH_AUTO_CAPTURE: 'false' },
+      });
+      expect(setup.status, setup.stderr).toBe(0);
+      const result = JSON.parse(setup.stdout) as { config_path: string; session_identity: string; ordinary_sessions: string };
+      expect(result).toMatchObject({
+        session_identity: 'generated-per-process',
+        ordinary_sessions: 'presence-only/inbound-unavailable',
+      });
+      const stat = fs.statSync(result.config_path);
+      expect(stat.mode & 0o077).toBe(0);
+      const config = JSON.parse(fs.readFileSync(result.config_path, 'utf8')) as Record<string, unknown>;
+      expect(config).toMatchObject({ project: 'test', principal_id: 'reviewer', workspace: home });
+      expect(config).not.toHaveProperty('session_instance_id');
+      expect(config).not.toHaveProperty('thread_id');
+
+      const repeat = spawnSync(process.execPath, cliArgs(
+        'agent', 'setup', 'codex', '--project', 'test', '--principal', 'replacement',
+        '--workspace', home,
+      ), {
+        encoding: 'utf8',
+        env: { ...process.env, HOME: home, MEMESH_AUTO_CAPTURE: 'false' },
+      });
+      expect(repeat.status).not.toBe(0);
+      expect(repeat.stderr).toContain('was not overwritten');
+      expect(JSON.parse(fs.readFileSync(result.config_path, 'utf8'))).toMatchObject({ principal_id: 'reviewer' });
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
 });

@@ -69,7 +69,21 @@ MEMESH_DOCTOR_PROBE_MESSAGE_CAPABILITY=1 memesh doctor
 
 This probe does not dogfood a real host session and never wakes a stopped session. An active supported host can receive native delivery without polling; other or stopped sessions use the durable cursor-recovery path.
 
-### Optional: one-time Local native runner setup
+Message storage remains owner-controlled. There is no default quota or
+automatic pruning. To inspect it after installation:
+
+```bash
+memesh message storage report --cutoff 2026-08-01T00:00:00Z
+memesh message storage prune --cutoff 2026-08-01T00:00:00Z --batch-size 100
+```
+
+The prune command is a dry-run unless `--apply` is supplied. Only old terminal
+payload content is tombstoned; unresolved/offline-pending messages and all
+lifecycle audit facts are preserved. Set an explicit hard quota for all send
+transports with `MEMESH_AGENT_MESSAGE_STORAGE_QUOTA_BYTES=<bytes>`; an
+over-quota send is rejected atomically.
+
+### Optional: one-time Local managed-host setup
 
 This is separate from MCP setup. It is for the owner of an active local Codex
 app-server, Claude channel, or MeMesh-managed Gemini ACP session. Keep all
@@ -92,39 +106,26 @@ MEMESH_DOCTOR_PROBE_MESSAGE_ROUTER=1 memesh doctor
 ```
 
 The router probe does not register a host, send content, or wake a stopped
-session. Create each runner config as `0600`; replace the absolute paths and
-active-session IDs below before executing its corresponding command.
+session. Generate reusable `0600` configs; session identities and Codex thread
+IDs are created by each managed process rather than copied from an active
+ordinary session.
 
 ```bash
-umask 077
-mkdir -p "$HOME/.memesh/hosts"
-chmod 700 "$HOME/.memesh/hosts"
-
-cat >"$HOME/.memesh/hosts/codex.json" <<'JSON'
-{"router_socket":"/absolute/path/to/agent-router.sock","token_file":"/absolute/path/to/agent-router.token","project":"my-project","principal_id":"codex-recipient","session_instance_id":"unique-active-codex-session","control_socket":"/absolute/path/to/active-codex-app-server.sock","thread_id":"active-thread-id"}
-JSON
-chmod 600 "$HOME/.memesh/hosts/codex.json"
+memesh agent setup codex --project my-project --principal codex-recipient --workspace "$PWD"
 memesh-host-codex --config "$HOME/.memesh/hosts/codex.json"
 
-cat >"$HOME/.memesh/hosts/claude.json" <<'JSON'
-{"router_socket":"/absolute/path/to/agent-router.sock","token_file":"/absolute/path/to/agent-router.token","project":"my-project","principal_id":"claude-recipient","session_instance_id":"unique-active-claude-session","server_name":"memesh-channel"}
-JSON
-chmod 600 "$HOME/.memesh/hosts/claude.json"
-memesh-host-claude --config "$HOME/.memesh/hosts/claude.json"
+memesh agent setup claude --project my-project --principal claude-recipient
+# Run the printed `claude mcp add ... memesh-host-claude ...` command once.
+# Enable/allowlist `server:memesh-channel` under the installed Claude Channels policy.
 
-cat >"$HOME/.memesh/hosts/acp.json" <<'JSON'
-{"router_socket":"/absolute/path/to/agent-router.sock","token_file":"/absolute/path/to/agent-router.token","project":"my-project","principal_id":"acp-recipient","session_instance_id":"unique-active-acp-session","workspace":"/absolute/path/to/active-workspace","command":"gemini","args":["--acp"]}
-JSON
-chmod 600 "$HOME/.memesh/hosts/acp.json"
-memesh-host-acp --config "$HOME/.memesh/hosts/acp.json"
+memesh agent setup gemini --project my-project --principal gemini-recipient --workspace "$PWD"
+memesh-host-acp --config "$HOME/.memesh/hosts/gemini-acp.json"
 ```
 
-The Codex runner needs the control socket and thread ID of an already active
-Codex app-server; the Claude runner must be connected to the active Claude
-channel; the ACP runner owns only its configured active ACP process. None can
-start, resume, or replace a stopped host. When no active registration exists,
-senders persist the message and the recipient later recovers it with its
-durable cursor.
+The Codex runner owns its app-server and thread; Claude owns its Channel MCP
+child; the ACP runner owns `gemini --acp`. None attaches to, resumes, or
+replaces an ordinary stopped host. When no active registration exists, the
+message remains durable with no false dispatch or host acceptance.
 
 Expected: exits without error; `memesh`, `memesh-mcp` and `memesh-http` are
 now in `$(npm prefix -g)/bin/`. No compiler is involved and no install script

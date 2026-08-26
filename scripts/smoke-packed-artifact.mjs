@@ -534,6 +534,52 @@ if (process.platform !== 'win32') {
     assert.equal(absent.attempts, 0, 'a stopped/no-host target unexpectedly received a dispatch attempt');
     assert.equal(absent.acceptance, null, 'a stopped/no-host target unexpectedly persisted host_accept');
     assert.equal((hostOutput.match(/"native-delivered"/g) ?? []).length, 1, 'the active host received a message for another principal');
+
+    const storageReport = JSON.parse(execFileSync(installedBin('memesh'), [
+      'message', 'storage', 'report', '--cutoff', '2026-01-01T00:00:00.000Z',
+    ], {
+      cwd: consumerDir,
+      env: nativeEnv,
+      encoding: 'utf8',
+    }));
+    assert.equal(storageReport.message_count, 2, 'installed storage report did not see both durable messages');
+    assert.equal(storageReport.protected_unresolved_message_count, 2, 'installed storage report did not protect unresolved messages');
+    assert.equal(storageReport.policy.automatic_pruning, false, 'installed storage report claimed automatic pruning');
+
+    const storageDryRun = JSON.parse(execFileSync(installedBin('memesh'), [
+      'message', 'storage', 'prune', '--cutoff', '2026-01-01T00:00:00.000Z', '--batch-size', '1',
+    ], {
+      cwd: consumerDir,
+      env: nativeEnv,
+      encoding: 'utf8',
+    }));
+    assert.equal(storageDryRun.dry_run, true, 'installed storage prune was not dry-run by default');
+    assert.equal(storageDryRun.tombstoned_count, 0, 'installed dry-run changed message payloads');
+
+    let quotaFailure;
+    try {
+      execFileSync(installedBin('memesh'), [
+        'message', 'send',
+        '--project', 'packaged-native-smoke',
+        '--sender', 'installed-cli-sender',
+        '--recipient', 'installed-active-host',
+        '--idempotency-key', 'installed-quota-rejection-1',
+        '--payload-stdin',
+      ], {
+        cwd: consumerDir,
+        env: { ...nativeEnv, MEMESH_AGENT_MESSAGE_STORAGE_QUOTA_BYTES: '0' },
+        encoding: 'utf8',
+        input: 'must fail atomically',
+      });
+    } catch (error) {
+      quotaFailure = error;
+    }
+    assert.ok(quotaFailure, 'installed over-quota send unexpectedly succeeded');
+    assert.match(String(quotaFailure.stderr), /Agent message storage quota exceeded/);
+    const afterQuota = JSON.parse(execFileSync(installedBin('memesh'), [
+      'message', 'storage', 'report', '--cutoff', '2026-01-01T00:00:00.000Z',
+    ], { cwd: consumerDir, env: nativeEnv, encoding: 'utf8' }));
+    assert.equal(afterQuota.message_count, 2, 'installed quota rejection left a partial message');
   } finally {
     if (host && !host.killed) host.kill('SIGTERM');
     if (!router.killed) router.kill('SIGTERM');

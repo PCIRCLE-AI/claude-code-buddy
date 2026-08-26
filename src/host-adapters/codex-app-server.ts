@@ -28,6 +28,19 @@ export interface QueueCodexAppServerMessageInput {
   timeout_ms?: number;
 }
 
+/** Start a thread owned by a MeMesh-managed Codex app-server process. */
+export interface StartCodexAppServerThreadInput {
+  /** Absolute path to the managed app-server control socket. */
+  control_socket_path: string;
+  /** Absolute workspace path for the managed Codex thread. */
+  workspace: string;
+  timeout_ms?: number;
+}
+
+export interface CodexAppServerThread {
+  thread_id: string;
+}
+
 /** A host-acceptance receipt, deliberately distinct from an agent acknowledgement. */
 export interface CodexQueueReceipt {
   host: 'codex-app-server';
@@ -102,19 +115,22 @@ export interface CodexAppServerAdapterOptions {
 export interface CodexWebSocketLike {
   readonly readyState: number;
   on(event: 'open', listener: () => void): this;
-  on(event: 'message', listener: (data: RawData) => void): this;
+  on(event: 'message', listener: (data: RawData, isBinary: boolean) => void): this;
   on(event: 'error', listener: (error: Error) => void): this;
   on(event: 'close', listener: () => void): this;
   off(event: 'open', listener: () => void): this;
-  off(event: 'message', listener: (data: RawData) => void): this;
+  off(event: 'message', listener: (data: RawData, isBinary: boolean) => void): this;
   off(event: 'error', listener: (error: Error) => void): this;
   off(event: 'close', listener: () => void): this;
-  send(data: string): void;
+  send(data: string, callback?: (error?: Error) => void): void;
   close(): void;
   terminate(): void;
 }
 
-type CodexWebSocketFactory = (socketPath: string) => CodexWebSocketLike;
+export type CodexWebSocketFactory = (
+  socketPath: string,
+  handshakeTimeoutMs: number,
+) => CodexWebSocketLike;
 
 interface JsonRpcRequest {
   id: string;
@@ -165,7 +181,7 @@ export function createCodexAppServerAdapter(options: CodexAppServerAdapterOption
   };
 }
 
-/** Queue one text-only message through `codex app-server proxy --sock <path>`. */
+/** Queue one text-only message through the app-server Unix-socket WebSocket transport. */
 export async function queueCodexAppServerMessage(
   input: QueueCodexAppServerMessageInput,
   options: CodexAppServerAdapterOptions = {},
@@ -177,52 +193,91 @@ export async function queueCodexAppServerMessage(
   const normalized = normalizeInput(input);
   const userText = serializeUntrustedText(normalized);
 
-  const initializeId = requestId();
-  const queueId = requestId();
-  const socket = websocketFactory(normalized.controlSocketPath);
+  return withInitializedCodexConnection(
+    normalized.controlSocketPath,
+    { websocketFactory, requestId, timeoutMs, clientInfo },
+    async (socket) => {
+      const result = await exchange(socket, {
+        id: requestId(),
+        method: 'thread/queue/add',
+        params: {
+          threadId: normalized.threadId,
+          clientUserMessageId: normalized.routing.messageId,
+          input: [{ type: 'text', text: userText }],
+        },
+      }, timeoutMs);
 
+      const queue = parseQueueResponse(result, normalized.routing.messageId);
+      return {
+        host: 'codex-app-server',
+        status: 'queued',
+        thread_id: normalized.threadId,
+        client_user_message_id: queue.clientUserMessageId,
+        queued_submission_id: queue.id,
+      };
+    },
+  );
+}
+
+/**
+ * Wait for an actual app-server thread before the host runtime registers with
+ * MeMesh. This intentionally creates a new managed thread; it never attaches
+ * to an arbitrary already-running Codex session.
+ */
+export async function startCodexAppServerThread(
+  input: StartCodexAppServerThreadInput,
+  options: CodexAppServerAdapterOptions = {},
+): Promise<CodexAppServerThread> {
+  const websocketFactory = options.websocket_factory ?? createCodexWebSocket;
+  const requestId = options.request_id ?? randomUUID;
+  const timeoutMs = normalizeTimeout(input.timeout_ms ?? options.timeout_ms ?? DEFAULT_TIMEOUT_MS);
+  const clientInfo = options.client_info ?? { name: 'memesh-host-adapter', version: '1' };
+  const controlSocketPath = requireAbsolutePath('control_socket_path', input.control_socket_path);
+  const workspace = requireAbsolutePath('workspace', input.workspace);
+
+  return withInitializedCodexConnection(
+    controlSocketPath,
+    { websocketFactory, requestId, timeoutMs, clientInfo },
+    async (socket) => parseStartedThread(await exchange(socket, {
+      id: requestId(),
+      method: 'thread/start',
+      params: { cwd: workspace },
+    }, timeoutMs)),
+  );
+}
+
+interface InitializedConnectionOptions {
+  websocketFactory: CodexWebSocketFactory;
+  requestId: () => string;
+  timeoutMs: number;
+  clientInfo: { name: string; version: string };
+}
+
+async function withInitializedCodexConnection<T>(
+  controlSocketPath: string,
+  options: InitializedConnectionOptions,
+  operation: (socket: CodexWebSocketLike) => Promise<T>,
+): Promise<T> {
+  const socket = options.websocketFactory(controlSocketPath, options.timeoutMs);
   try {
-    await waitForOpen(socket, timeoutMs);
+    await waitForOpen(socket, options.timeoutMs);
     await exchange(socket, {
-      id: initializeId,
+      id: options.requestId(),
       method: 'initialize',
       params: {
-        clientInfo,
-        // Codex 0.149.1 gates thread/queue/add behind this negotiated client
-        // capability. Without it the real app-server rejects every delivery
-        // with JSON-RPC -32600 even though fixture-only tests can look green.
+        clientInfo: options.clientInfo,
+        // thread/queue/add is an experimental Codex app-server method.
         capabilities: { experimentalApi: true },
       },
-    }, timeoutMs);
-
-    // Codex requires this lifecycle notification after initialize and rejects
-    // subsequent methods on strict transports when it is omitted.
-    socket.send(JSON.stringify({ method: 'initialized', params: {} }));
-
-    const result = await exchange(socket, {
-      id: queueId,
-      method: 'thread/queue/add',
-      params: {
-        threadId: normalized.threadId,
-        clientUserMessageId: normalized.routing.messageId,
-        input: [{ type: 'text', text: userText }],
-      },
-    }, timeoutMs);
-
-    const queue = parseQueueResponse(result, normalized.routing.messageId);
-    return {
-      host: 'codex-app-server',
-      status: 'queued',
-      thread_id: normalized.threadId,
-      client_user_message_id: queue.clientUserMessageId,
-      queued_submission_id: queue.id,
-    };
+    }, options.timeoutMs);
+    await sendNotification(socket, { method: 'initialized', params: {} }, options.timeoutMs);
+    return await operation(socket);
   } finally {
     socket.close();
   }
 }
 
-function createCodexWebSocket(socketPath: string): CodexWebSocketLike {
+function createCodexWebSocket(socketPath: string, handshakeTimeoutMs: number): CodexWebSocketLike {
   // Codex's control-socket transport upgrades only the documented `/rpc`
   // endpoint; connecting to `/` is reset before a WebSocket session exists.
   return new WebSocket('ws://localhost/rpc', {
@@ -231,6 +286,7 @@ function createCodexWebSocket(socketPath: string): CodexWebSocketLike {
     // `permessage-deflate; client_max_window_bits` offer.
     perMessageDeflate: false,
     maxPayload: MAX_RESPONSE_BYTES,
+    handshakeTimeout: handshakeTimeoutMs,
   }) as CodexWebSocketLike;
 }
 
@@ -336,7 +392,11 @@ function exchange(socket: CodexWebSocketLike, request: JsonRpcRequest, timeoutMs
     const fail = (error: Error) => finish(() => reject(error));
     const onDisconnect = () => fail(new CodexAppServerDisconnectedError());
     const onClose = () => fail(new CodexAppServerDisconnectedError());
-    const onMessage = (data: RawData) => {
+    const onMessage = (data: RawData, isBinary: boolean) => {
+      if (isBinary) {
+        fail(new CodexAppServerProtocolError());
+        return;
+      }
       const responseText = rawDataToString(data);
       if (Buffer.byteLength(responseText, 'utf8') > MAX_RESPONSE_BYTES) {
         fail(new CodexAppServerProtocolError());
@@ -369,7 +429,48 @@ function exchange(socket: CodexWebSocketLike, request: JsonRpcRequest, timeoutMs
     socket.on('error', onDisconnect);
     socket.on('close', onClose);
     try {
-      socket.send(JSON.stringify(request));
+      socket.send(JSON.stringify(request), (error) => {
+        if (error) onDisconnect();
+      });
+    } catch {
+      onDisconnect();
+    }
+  });
+}
+
+function sendNotification(
+  socket: CodexWebSocketLike,
+  notification: Omit<JsonRpcRequest, 'id'>,
+  timeoutMs: number,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      socket.off('error', onDisconnect);
+      socket.off('close', onClose);
+      callback();
+    };
+    const fail = (error: Error) => finish(() => reject(error));
+    const onDisconnect = () => fail(new CodexAppServerDisconnectedError());
+    const onClose = () => fail(new CodexAppServerDisconnectedError());
+    const timer = setTimeout(() => {
+      socket.terminate();
+      fail(new CodexAppServerTimeoutError());
+    }, timeoutMs);
+
+    socket.on('error', onDisconnect);
+    socket.on('close', onClose);
+    try {
+      socket.send(JSON.stringify(notification), (error) => {
+        if (error) {
+          onDisconnect();
+          return;
+        }
+        finish(resolve);
+      });
     } catch {
       onDisconnect();
     }
@@ -393,6 +494,11 @@ function parseQueueResponse(result: unknown, expectedClientMessageId: string): Q
     throw new CodexAppServerProtocolError();
   }
   return submission;
+}
+
+function parseStartedThread(result: unknown): CodexAppServerThread {
+  const candidate = result as { thread?: { id?: unknown } };
+  return { thread_id: requireIdentifier('thread.id', candidate?.thread?.id) };
 }
 
 function rpcError(error: NonNullable<JsonRpcResponse['error']>): Error {

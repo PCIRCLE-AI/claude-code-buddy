@@ -3,6 +3,20 @@ import { MessageSchema } from './schemas.js';
 import { createAgentRouterNotifier } from '../core/agent-router.js';
 import { getMemeshDirFromDbPath } from '../core/paths.js';
 import path from 'node:path';
+const AGENT_MESSAGE_STORAGE_QUOTA_ENV = 'MEMESH_AGENT_MESSAGE_STORAGE_QUOTA_BYTES';
+function configuredAgentMessageStorageQuotaBytes() {
+    const raw = process.env[AGENT_MESSAGE_STORAGE_QUOTA_ENV];
+    if (raw === undefined || raw === '')
+        return undefined;
+    if (!/^(0|[1-9][0-9]*)$/.test(raw)) {
+        throw new Error(`${AGENT_MESSAGE_STORAGE_QUOTA_ENV} must be a non-negative integer byte count.`);
+    }
+    const parsed = Number(raw);
+    if (!Number.isSafeInteger(parsed)) {
+        throw new Error(`${AGENT_MESSAGE_STORAGE_QUOTA_ENV} exceeds the safe integer range.`);
+    }
+    return parsed;
+}
 function optionalRouterNotifier() {
     try {
         return createAgentRouterNotifier(process.env.MEMESH_ROUTER_SOCKET
@@ -41,6 +55,7 @@ export async function executeAgentMessageAction(db, rawInput, context) {
                 },
             }, {
                 notifier: optionalRouterNotifier(),
+                storage_quota_bytes: configuredAgentMessageStorageQuotaBytes(),
             });
         case 'poll': {
             const query = {

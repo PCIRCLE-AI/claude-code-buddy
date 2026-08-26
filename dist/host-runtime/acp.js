@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,6 +9,18 @@ export const ACP_SESSION_UPDATE_MAX_RECORD_BYTES = 64 * 1024;
 export const ACP_SESSION_UPDATE_MAX_FILE_BYTES = 1024 * 1024;
 export const ACP_SESSION_UPDATE_MAX_RECORDS = 1024;
 const ACP_SESSION_UPDATE_PREVIEW_BYTES = 8 * 1024;
+const GEMINI_MANAGED_FLAG = '--acp';
+const GEMINI_UNMANAGED_SESSION_FLAGS = [
+    '--experimental-acp',
+    '--no-acp',
+    '--prompt',
+    '--prompt-interactive',
+    '--resume',
+    '--session-file',
+    '--session-id',
+];
+const GEMINI_UNMANAGED_SHORT_FLAGS = ['-i', '-p', '-r'];
+const ACP_ACCEPTED_STOP_REASONS = new Set(['cancelled', 'end_turn', 'max_tokens', 'max_turn_requests', 'refusal']);
 export function createAcpSessionUpdateSink(configuredPath) {
     if (configuredPath === undefined)
         return undefined;
@@ -142,29 +155,67 @@ function writeAll(descriptor, value) {
         offset += written;
     }
 }
-async function runAcpHost() {
-    const config = readHostConfig();
+export function resolveManagedAcpLaunch(config, createSessionInstanceId = randomUUID) {
+    const configuredArgs = optionalStringArray(config.args, 'args');
+    const args = configuredArgs.filter((arg) => arg !== GEMINI_MANAGED_FLAG);
+    for (const arg of args) {
+        if (arg.startsWith(`${GEMINI_MANAGED_FLAG}=`)
+            || GEMINI_UNMANAGED_SESSION_FLAGS.some((flag) => arg === flag || arg.startsWith(`${flag}=`))
+            || GEMINI_UNMANAGED_SHORT_FLAGS.some((flag) => arg === flag || arg.startsWith(flag))) {
+            throw new Error(`Gemini argument ${arg} is not allowed for a MeMesh-managed ACP session.`);
+        }
+    }
+    const sessionInstanceId = config.session_instance_id === undefined
+        ? requiredString(createSessionInstanceId(), 'generated session_instance_id')
+        : requiredString(config.session_instance_id, 'session_instance_id');
+    const session = config.acp_session_id === undefined
+        ? { kind: 'new' }
+        : {
+            kind: 'load',
+            acp_session_id: requiredString(config.acp_session_id, 'acp_session_id'),
+        };
+    return Object.freeze({
+        command: requiredString(config.command ?? 'gemini', 'command'),
+        args: Object.freeze([GEMINI_MANAGED_FLAG, ...args]),
+        principal_id: requiredString(config.principal_id, 'principal_id'),
+        session_instance_id: sessionInstanceId,
+        workspace: requiredString(config.workspace, 'workspace'),
+        session: Object.freeze(session),
+    });
+}
+export async function startManagedAcpHost(config, dependencies) {
+    const launch = resolveManagedAcpLaunch(config, dependencies.create_session_instance_id ?? randomUUID);
+    const socketPath = requiredString(config.router_socket, 'router_socket');
+    const project = requiredString(config.project, 'project');
+    const authToken = readTokenFile(config.token_file);
     const sessionUpdateSink = createAcpSessionUpdateSink(config.session_update_file);
-    const routerClientModule = './router-client.js';
-    const { connectRouterHost } = await import(routerClientModule);
+    const connectAcpHost = dependencies.connect_acp_host
+        ?? ((options) => AcpClientHostAdapter.connect(options));
     let routerConnection;
     let adapter;
+    async function closeRouterConnection() {
+        const connection = routerConnection;
+        routerConnection = undefined;
+        await connection?.close();
+    }
     try {
-        adapter = await AcpClientHostAdapter.connect({
-            command: requiredString(config.command ?? 'gemini', 'command'),
-            args: optionalStringArray(config.args ?? ['--acp'], 'args'),
-            principal_id: requiredString(config.principal_id, 'principal_id'),
-            session_instance_id: requiredString(config.session_instance_id, 'session_instance_id'),
+        adapter = await connectAcpHost({
+            command: launch.command,
+            args: launch.args,
+            principal_id: launch.principal_id,
+            session_instance_id: launch.session_instance_id,
             generation: 1,
-            workspace: requiredString(config.workspace, 'workspace'),
+            workspace: launch.workspace,
+            session: launch.session,
             ...(sessionUpdateSink ? { onSessionUpdate: sessionUpdateSink.write } : {}),
             router: {
                 async register(registration) {
-                    routerConnection = await connectRouterHost({
-                        socket_path: requiredString(config.router_socket, 'router_socket'),
-                        auth_token: readTokenFile(config.token_file),
+                    assertExactManagedIdentity(registration, launch);
+                    routerConnection = await dependencies.connect_router_host({
+                        socket_path: socketPath,
+                        auth_token: authToken,
                         identity: {
-                            project: requiredString(config.project, 'project'),
+                            project,
                             principal_id: registration.principal_id,
                             session_instance_id: registration.session_instance_id,
                             adapter_kind: 'acp',
@@ -174,6 +225,7 @@ async function runAcpHost() {
                                 envelope: JSON.parse(JSON.stringify(delivery.envelope)),
                                 generation: delivery.generation,
                             });
+                            assertAcceptedAcpReceipt(receipt, registration.acp_session_id);
                             return {
                                 host: receipt.host,
                                 acp_session_id: receipt.acp_session_id,
@@ -184,27 +236,82 @@ async function runAcpHost() {
                     });
                     return {
                         generation: routerConnection.generation,
-                        unregister: () => routerConnection?.close(),
+                        unregister: closeRouterConnection,
                     };
                 },
             },
         });
     }
     catch (error) {
-        sessionUpdateSink?.close();
-        throw error;
-    }
-    async function shutdown() {
         try {
-            await adapter.close();
-            await routerConnection?.close();
+            await adapter?.close();
+            await closeRouterConnection();
         }
         finally {
             sessionUpdateSink?.close();
         }
+        throw error;
     }
-    process.once('SIGINT', () => { void shutdown().finally(() => process.exit(0)); });
-    process.once('SIGTERM', () => { void shutdown().finally(() => process.exit(0)); });
+    const activeAdapter = adapter;
+    let closePromise;
+    const close = () => {
+        closePromise ??= closeManagedAcpHost(activeAdapter, closeRouterConnection, sessionUpdateSink);
+        return closePromise;
+    };
+    return Object.freeze({
+        principal_id: launch.principal_id,
+        session_instance_id: launch.session_instance_id,
+        acp_session_id: activeAdapter.acp_session_id,
+        close,
+    });
+}
+function assertExactManagedIdentity(registration, launch) {
+    if (registration.principal_id !== launch.principal_id
+        || registration.session_instance_id !== launch.session_instance_id
+        || registration.generation !== 1
+        || registration.workspace !== launch.workspace
+        || registration.host !== 'acp') {
+        throw new Error('ACP adapter registration did not preserve the exact managed session identity.');
+    }
+    requiredString(registration.acp_session_id, 'ACP session id');
+}
+function assertAcceptedAcpReceipt(receipt, acpSessionId) {
+    if (receipt.host !== 'acp'
+        || receipt.acp_session_id !== acpSessionId
+        || receipt.accepted !== true
+        || !ACP_ACCEPTED_STOP_REASONS.has(receipt.stop_reason)) {
+        throw new Error('ACP delivery did not produce an exact accepted-session receipt.');
+    }
+}
+async function closeManagedAcpHost(adapter, closeRouterConnection, sessionUpdateSink) {
+    let failure;
+    try {
+        await adapter.close();
+    }
+    catch (error) {
+        failure = error;
+    }
+    try {
+        await closeRouterConnection();
+    }
+    catch (error) {
+        failure ??= error;
+    }
+    finally {
+        sessionUpdateSink?.close();
+    }
+    if (failure !== undefined)
+        throw failure;
+}
+async function runAcpHost() {
+    const config = readHostConfig();
+    const routerClientModule = './router-client.js';
+    const { connectRouterHost } = await import(routerClientModule);
+    const runtime = await startManagedAcpHost(config, {
+        connect_router_host: connectRouterHost,
+    });
+    process.once('SIGINT', () => { void runtime.close().finally(() => process.exit(0)); });
+    process.once('SIGTERM', () => { void runtime.close().finally(() => process.exit(0)); });
 }
 const entryPath = process.argv[1];
 if (entryPath && isExecutedModule(entryPath, import.meta.url)) {

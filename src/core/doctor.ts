@@ -29,6 +29,7 @@ import { AUTO_CAPTURE_TAG } from './types.js';
 import { parseSqliteUtcMs } from './time-utils.js';
 import { autoCaptureDecision } from './capture-flag.js';
 import { guardFromMetadata } from './guards.js';
+import { getAgentMessageStorageReport } from './agent-message-storage.js';
 
 export type DoctorCheckStatus = 'pass' | 'warn' | 'fail';
 export type DoctorOverallStatus = 'PASS' | 'PASS_WITH_CONCERNS' | 'FAIL';
@@ -140,6 +141,14 @@ interface DoctorOptions {
   readFileSyncImpl?: typeof fs.readFileSync;
   statSyncImpl?: typeof fs.statSync;
   fetchImpl?: typeof fetch;
+  /**
+   * Optional owner-supplied message-storage policy. Doctor reports it but
+   * never enables it, schedules retention, or changes the database.
+   */
+  agentMessageStoragePolicy?: {
+    storage_quota_bytes?: number;
+    retention_cutoff?: Date | string;
+  };
   /**
    * Test seam: probe that a database opens and sqlite-vec loads. Default
    * resolves sqlite-vec from packageRoot the way Node would; tests inject a
@@ -350,6 +359,74 @@ function createCheck(
  */
 function createInfo(id: string, label: string, summary: string, fix?: string): DoctorCheck {
   return { id, label, status: 'pass', summary, fix, informational: true };
+}
+
+/**
+ * A deliberately read-only operator row. The table probe keeps old databases
+ * and narrow doctor-test doubles on their established output contract.
+ */
+function inspectAgentMessageStorage(
+  db: MemeshDatabase,
+  databasePath: string,
+  policy: DoctorOptions['agentMessageStoragePolicy'],
+): DoctorCheck | undefined {
+  try {
+    const present = db.prepare(
+      "SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'agent_messages'",
+    ).get() as { present?: number } | undefined;
+    if (!present?.present) return undefined;
+
+    // A cutoff is policy, not a diagnostic default. Epoch is only an inert
+    // placeholder needed by the report's classifier; without an owner cutoff
+    // doctor deliberately does not present an age-prunable count.
+    const cutoff = policy?.retention_cutoff ?? new Date(0);
+    const report = getAgentMessageStorageReport(db, { cutoff, databasePath });
+    const quota = policy?.storage_quota_bytes;
+    const quotaText = quota === undefined
+      ? 'quota not configured'
+      : Number.isSafeInteger(quota) && quota >= 0
+        ? `quota ${formatStorageBytes(quota)} (${formatStorageBytes(report.payload_bytes)} logical payload used)`
+        : 'configured quota is invalid';
+    const retentionText = policy?.retention_cutoff === undefined
+      ? 'retention policy not configured; terminal-prunable payload was not evaluated'
+      : `retention cutoff ${String(policy.retention_cutoff)}; ${report.terminal_prunable_message_count} terminal message(s) `
+        + `(${formatStorageBytes(report.terminal_prunable_payload_bytes)}) are prunable by that owner policy`;
+    const walText = report.wal_file_bytes === null
+      ? 'WAL size unavailable'
+      : `WAL ${formatStorageBytes(report.wal_file_bytes)}`;
+    const databaseText = report.database_file_bytes === null
+      ? 'database file size unavailable'
+      : `database file ${formatStorageBytes(report.database_file_bytes)}`;
+
+    return createInfo(
+      'agent_message_storage',
+      'Agent message storage',
+      `${report.message_count} message(s), ${formatStorageBytes(report.payload_bytes)} logical payload `
+      + `(${report.protected_unresolved_message_count} unresolved/protected); ${formatStorageBytes(report.reusable_freelist_bytes)} `
+      + `SQLite freelist reusable; ${databaseText}; ${walText}; ${quotaText}; ${retentionText}. `
+      + 'Doctor only read this state: it did not prune payloads, checkpoint WAL, or run VACUUM.',
+    );
+  } catch {
+    // This diagnostic must not turn a healthy database row into a duplicate
+    // database failure merely because a pre-message schema cannot report it.
+    return undefined;
+  }
+}
+
+function configuredAgentMessageStoragePolicy(
+  explicit: DoctorOptions['agentMessageStoragePolicy'],
+): DoctorOptions['agentMessageStoragePolicy'] {
+  if (explicit !== undefined) return explicit;
+  const quotaRaw = process.env.MEMESH_AGENT_MESSAGE_STORAGE_QUOTA_BYTES;
+  if (quotaRaw === undefined || quotaRaw === '') return undefined;
+  return { storage_quota_bytes: Number(quotaRaw) };
+}
+
+function formatStorageBytes(value: number): string {
+  if (!Number.isFinite(value) || value < 0) return 'unknown size';
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
 function parseJsonFile(
@@ -2266,6 +2343,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
     readFileSyncImpl = fs.readFileSync,
     statSyncImpl = fs.statSync,
     fetchImpl = fetch,
+    agentMessageStoragePolicy,
     nativeBindingProbeImpl,
     resolveShellMemeshImpl = defaultResolveShellMemesh,
     probeMessageCapability = process.env.MEMESH_DOCTOR_PROBE_MESSAGE_CAPABILITY === '1',
@@ -2327,6 +2405,13 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
         `Database opened successfully at ${databasePath} (${count} entities).`,
       ),
     );
+
+    const messageStorage = inspectAgentMessageStorage(
+      db as unknown as MemeshDatabase,
+      databasePath,
+      configuredAgentMessageStoragePolicy(agentMessageStoragePolicy),
+    );
+    if (messageStorage) dbChecks.push(messageStorage);
 
     // The stale-keyword-index state, which two comments claimed doctor detected
     // and nothing checked.

@@ -23,6 +23,21 @@ export interface AgentMessageTransportContext {
   signal?: AbortSignal;
 }
 
+const AGENT_MESSAGE_STORAGE_QUOTA_ENV = 'MEMESH_AGENT_MESSAGE_STORAGE_QUOTA_BYTES';
+
+function configuredAgentMessageStorageQuotaBytes(): number | undefined {
+  const raw = process.env[AGENT_MESSAGE_STORAGE_QUOTA_ENV];
+  if (raw === undefined || raw === '') return undefined;
+  if (!/^(0|[1-9][0-9]*)$/.test(raw)) {
+    throw new Error(`${AGENT_MESSAGE_STORAGE_QUOTA_ENV} must be a non-negative integer byte count.`);
+  }
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed)) {
+    throw new Error(`${AGENT_MESSAGE_STORAGE_QUOTA_ENV} exceeds the safe integer range.`);
+  }
+  return parsed;
+}
+
 function optionalRouterNotifier(): AgentMessagePostCommitNotifier | undefined {
   try {
     return createAgentRouterNotifier(
@@ -84,6 +99,7 @@ export async function executeAgentMessageAction(
         },
       }, {
         notifier: optionalRouterNotifier(),
+        storage_quota_bytes: configuredAgentMessageStorageQuotaBytes(),
       });
     case 'poll': {
       const query = {

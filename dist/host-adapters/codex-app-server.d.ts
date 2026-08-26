@@ -14,6 +14,14 @@ export interface QueueCodexAppServerMessageInput {
     envelope: unknown;
     timeout_ms?: number;
 }
+export interface StartCodexAppServerThreadInput {
+    control_socket_path: string;
+    workspace: string;
+    timeout_ms?: number;
+}
+export interface CodexAppServerThread {
+    thread_id: string;
+}
 export interface CodexQueueReceipt {
     host: 'codex-app-server';
     status: 'queued';
@@ -55,21 +63,21 @@ export interface CodexAppServerAdapterOptions {
 export interface CodexWebSocketLike {
     readonly readyState: number;
     on(event: 'open', listener: () => void): this;
-    on(event: 'message', listener: (data: RawData) => void): this;
+    on(event: 'message', listener: (data: RawData, isBinary: boolean) => void): this;
     on(event: 'error', listener: (error: Error) => void): this;
     on(event: 'close', listener: () => void): this;
     off(event: 'open', listener: () => void): this;
-    off(event: 'message', listener: (data: RawData) => void): this;
+    off(event: 'message', listener: (data: RawData, isBinary: boolean) => void): this;
     off(event: 'error', listener: (error: Error) => void): this;
     off(event: 'close', listener: () => void): this;
-    send(data: string): void;
+    send(data: string, callback?: (error?: Error) => void): void;
     close(): void;
     terminate(): void;
 }
-type CodexWebSocketFactory = (socketPath: string) => CodexWebSocketLike;
+export type CodexWebSocketFactory = (socketPath: string, handshakeTimeoutMs: number) => CodexWebSocketLike;
 export declare function createCodexAppServerAdapter(options?: CodexAppServerAdapterOptions): {
     queue(input: QueueCodexAppServerMessageInput): Promise<CodexQueueReceipt>;
 };
 export declare function queueCodexAppServerMessage(input: QueueCodexAppServerMessageInput, options?: CodexAppServerAdapterOptions): Promise<CodexQueueReceipt>;
-export {};
+export declare function startCodexAppServerThread(input: StartCodexAppServerThreadInput, options?: CodexAppServerAdapterOptions): Promise<CodexAppServerThread>;
 //# sourceMappingURL=codex-app-server.d.ts.map
