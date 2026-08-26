@@ -50,7 +50,22 @@ interface DoctorOptions {
         message: string;
     };
     resolveShellMemeshImpl?: () => string | null;
+    probeMessageCapability?: boolean;
+    messageCapabilityProbeImpl?: (packageRoot: string) => {
+        ok: true;
+    } | {
+        ok: false;
+        message: string;
+    };
+    probeMessageRouterStatus?: boolean;
+    messageRouterStatusProbeImpl?: () => Promise<MessageRouterStatusProbe>;
 }
+type MessageRouterStatusProbe = {
+    socket_path: string;
+    socket: 'reachable' | 'missing' | 'insecure' | 'unreachable';
+    active_registrations?: number;
+    detail?: string;
+};
 export declare function hoursSince(sqliteTimestamp: string): number | null;
 export declare function satisfiesMinimumNodeRange(version: string, range: string): boolean | null;
 export declare function inspectNodeRuntime(packageRoot: string, existsSyncImpl: typeof fs.existsSync, readFileSyncImpl: typeof fs.readFileSync, nodeVersion?: string, moduleAbi?: string, hasNodeSqliteImpl?: () => boolean): DoctorCheck;

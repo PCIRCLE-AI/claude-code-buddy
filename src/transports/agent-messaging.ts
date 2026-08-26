@@ -8,8 +8,12 @@ import {
   sendAgentMessage,
   waitForAgentEvents,
   type AgentJsonObject,
+  type AgentMessagePostCommitNotifier,
 } from '../core/agent-messaging.js';
 import { MessageSchema } from './schemas.js';
+import { createAgentRouterNotifier } from '../core/agent-router.js';
+import { getMemeshDirFromDbPath } from '../core/paths.js';
+import path from 'node:path';
 
 export type AgentMessageActionInput = z.infer<typeof MessageSchema>;
 
@@ -17,6 +21,21 @@ export interface AgentMessageTransportContext {
   transport: 'cli' | 'http' | 'mcp';
   sourceHost: string;
   signal?: AbortSignal;
+}
+
+function optionalRouterNotifier(): AgentMessagePostCommitNotifier | undefined {
+  try {
+    return createAgentRouterNotifier(
+      process.env.MEMESH_ROUTER_SOCKET
+        ?? path.join(getMemeshDirFromDbPath(), 'agent-router.sock'),
+    );
+  } catch {
+    // The message transaction is the source of truth. An unusable optional
+    // hint path (including an overlong Unix-domain socket path in a nested
+    // temporary HOME) must not prevent durable send; a running router also
+    // drains committed deliveries when a host registers or reconnects.
+    return undefined;
+  }
 }
 
 function receiptDetail(
@@ -52,6 +71,7 @@ export async function executeAgentMessageAction(
         sender: input.sender,
         sender_host: context.sourceHost,
         recipient: input.recipient,
+        target_kind: input.target_kind,
         idempotency_key: input.idempotency_key,
         payload: input.payload,
         content_type: input.content_type,
@@ -62,6 +82,8 @@ export async function executeAgentMessageAction(
           transport: context.transport,
           source_host: context.sourceHost,
         },
+      }, {
+        notifier: optionalRouterNotifier(),
       });
     case 'poll': {
       const query = {

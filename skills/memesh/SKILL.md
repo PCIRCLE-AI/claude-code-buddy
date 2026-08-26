@@ -27,6 +27,12 @@ All examples below use CLI. MCP tools accept the same parameters as JSON objects
 
 Four moments. Everything else in this file is detail.
 
+## Durable messages and active-host delivery
+
+Use the `message` tool when another local agent needs a durable, exact-recipient handoff rather than an inferred memory. `send`, `poll`, `fetch`, `intake`, `ack`, `disposition`, `activation`, and `receipts` are independent lifecycle actions: fetching or host acceptance never implies acknowledgement or workflow acceptance.
+
+An active compatible host can receive a native push, which removes polling for that live delivery. The owner must set up `memesh-router` and the matching owner-private Codex, Claude, or ACP runner once for each active session; adapter imports and a live router socket do not prove host registration or `host_accept`. Do not promise that a stopped, missing, or replaced session will wake up: it is not resumed or silently rerouted. Use the stable principal for logical routing, and an exact session/generation only when delivery must not move to a replacement connection. Local owns durable storage and host-native delivery; Cloud relay, A2A, SSE, discovery, or fetch is not host delivery.
+
 **SESSION START → load the briefing (once).**
 Call the `briefing` MCP tool or run `memesh briefing`. It returns the assembled
 work topology: where the work was left off (goal / next / blocked / done),

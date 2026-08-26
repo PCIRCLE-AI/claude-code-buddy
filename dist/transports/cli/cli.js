@@ -507,8 +507,25 @@ function parseCliMessagePayload(raw, contentType) {
         return JSON.parse(raw);
     }
     catch {
-        throw new Error('--payload must be valid JSON when --content-type is application/json.');
+        throw new Error('stdin must contain valid JSON when --content-type is application/json.');
     }
+}
+const MAX_CLI_MESSAGE_STDIN_BYTES = 65_536;
+async function readCliMessagePayloadFromStdin(contentType) {
+    let raw = '';
+    let bytes = 0;
+    for await (const chunk of process.stdin) {
+        const text = typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8');
+        bytes += Buffer.byteLength(text, 'utf8');
+        if (bytes > MAX_CLI_MESSAGE_STDIN_BYTES) {
+            throw new Error(`stdin payload exceeds ${MAX_CLI_MESSAGE_STDIN_BYTES} UTF-8 bytes.`);
+        }
+        raw += text;
+    }
+    if (bytes === 0) {
+        throw new Error('stdin payload is empty.');
+    }
+    return parseCliMessagePayload(raw, contentType);
 }
 async function runCliMessage(input) {
     await withDatabase(async () => {
@@ -537,8 +554,9 @@ messageCmd
     .requiredOption('--project <name>', 'Project scope')
     .requiredOption('--sender <id>', 'Stable sender agent/host ID')
     .requiredOption('--recipient <id>', 'Stable recipient agent/host ID')
+    .option('--target-kind <kind>', 'principal | session', 'principal')
     .requiredOption('--idempotency-key <key>', 'Stable retry key')
-    .requiredOption('--payload <value>', 'Text or JSON payload')
+    .requiredOption('--payload-stdin', 'Read the complete text or JSON payload from stdin (never argv)')
     .option('--content-type <type>', 'text/plain | application/json', 'text/plain')
     .option('--privacy <scope>', 'private | team', 'private')
     .option('--correlation-id <id>', 'Conversation or task correlation ID')
@@ -546,14 +564,16 @@ messageCmd
     .action(async (opts) => {
     requireOneOf(opts.contentType, ['text/plain', 'application/json'], '--content-type');
     requireOneOf(opts.privacy, ['private', 'team'], '--privacy');
+    requireOneOf(opts.targetKind, ['principal', 'session'], '--target-kind');
     try {
         await runCliMessage({
             action: 'send',
             project: opts.project,
             sender: opts.sender,
             recipient: opts.recipient,
+            target_kind: opts.targetKind,
             idempotency_key: opts.idempotencyKey,
-            payload: parseCliMessagePayload(opts.payload, opts.contentType),
+            payload: await readCliMessagePayloadFromStdin(opts.contentType),
             content_type: opts.contentType,
             privacy: opts.privacy,
             correlation_id: opts.correlationId,
@@ -2321,5 +2341,19 @@ program.action(async () => {
     program.outputHelp();
     process.exitCode = 0;
 });
-program.parse();
+export async function runCli(argv = process.argv) {
+    await program.parseAsync([...argv]);
+}
+const cliEntryPath = process.argv[1];
+if (cliEntryPath && isExecutedModule(cliEntryPath, import.meta.url)) {
+    await runCli();
+}
+function isExecutedModule(entryPath, moduleUrl) {
+    try {
+        return fs.realpathSync(entryPath) === fs.realpathSync(fileURLToPath(moduleUrl));
+    }
+    catch {
+        return false;
+    }
+}
 //# sourceMappingURL=cli.js.map

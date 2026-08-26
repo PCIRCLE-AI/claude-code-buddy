@@ -1,8 +1,11 @@
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
+import net from 'node:net';
 import { createHash } from 'crypto';
 import { createRequire } from 'module';
 import { pathToFileURL } from 'url';
+import { execFileSync } from 'child_process';
 import { detectCapabilities, getConfigPath, isTranscriptMiningEnabled, readConfig } from './config.js';
 import { embedText } from './embedder.js';
 import { probeProvider } from './llm-validator.js';
@@ -12,7 +15,7 @@ import { classifyBump } from './updater.js';
 import { getCurrentInstallChannel, getInstallChannelSupport, detectPluginHost } from './install-channel.js';
 import { getInstallRecord } from './install-id.js';
 import { citationRulePath, citationRuleState } from './citation-rule.js';
-import { getDbPath, homeDir, memeshDir, getProjectName } from './paths.js';
+import { getDbPath, getMemeshDirFromDbPath, homeDir, memeshDir, getProjectName } from './paths.js';
 import { detectPluginRuntime, readInstallMarker } from './install-hooks.js';
 import { lastTranscriptMineAt } from './transcript-source.js';
 import { countMissingVectors } from './operations.js';
@@ -712,6 +715,112 @@ function verifySkillsManifest(packageRoot, existsSyncImpl, readFileSyncImpl, ins
     ].filter(Boolean).join('; ');
     return createCheck('skills-manifest', 'Skills + hooks integrity', 'fail', `Manifest verification failed: ${detail}.`, `Reinstall the package: ${reinstall} If the problem reproduces on a fresh install, open a security issue at https://github.com/PCIRCLE-AI/memesh/security.`, { code: 'skills-manifest.verify-failed', params: { detail } });
 }
+function probeInstalledMessageCapability(packageRoot) {
+    const required = [
+        'dist/mcp/server.js',
+        'dist/transports/mcp/handlers.js',
+        'dist/host-adapters/codex-app-server.js',
+        'dist/host-adapters/claude-channel.js',
+        'dist/host-adapters/acp-client.js',
+    ];
+    const absent = required.filter((relative) => !fs.existsSync(path.join(packageRoot, relative)));
+    if (absent.length > 0)
+        return { ok: false, message: `installed runtime is missing ${absent.join(', ')}` };
+    const probeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-doctor-message-'));
+    try {
+        execFileSync(process.execPath, ['--input-type=module', '-e', `
+      import assert from 'node:assert/strict';
+      import { pathToFileURL } from 'node:url';
+      import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+      import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+      const root = ${JSON.stringify(packageRoot)};
+      await Promise.all([
+        import(pathToFileURL(root + '/dist/host-adapters/codex-app-server.js').href),
+        import(pathToFileURL(root + '/dist/host-adapters/claude-channel.js').href),
+        import(pathToFileURL(root + '/dist/host-adapters/acp-client.js').href),
+      ]);
+      const client = new Client({ name: 'memesh-doctor-message-probe', version: '1' });
+      const transport = new StdioClientTransport({ command: process.execPath, args: [root + '/dist/mcp/server.js'], env: process.env });
+      try {
+        await client.connect(transport);
+        const tool = (await client.listTools()).tools.find((candidate) => candidate.name === 'message');
+        assert.ok(tool, 'installed MCP did not advertise message');
+        const actions = tool.inputSchema?.properties?.action?.enum;
+        assert.deepEqual(actions, ['send', 'poll', 'fetch', 'intake', 'ack', 'disposition', 'activation', 'receipts']);
+      } finally { await client.close(); }
+    `], {
+            cwd: packageRoot,
+            stdio: 'pipe',
+            timeout: 15_000,
+            env: { ...process.env, HOME: probeHome, MEMESH_AUTO_CAPTURE: 'false' },
+        });
+        return { ok: true };
+    }
+    catch {
+        return { ok: false, message: 'installed MCP or bundled host adapters did not complete the message capability probe' };
+    }
+    finally {
+        fs.rmSync(probeHome, { recursive: true, force: true });
+    }
+}
+function inspectMessageCapability(packageRoot, enabled, probe) {
+    if (!enabled) {
+        return createInfo('message-capability', 'Message adapter imports', 'Not verified (opt-in). Set MEMESH_DOCTOR_PROBE_MESSAGE_CAPABILITY=1 to start this installed MCP and verify its eight-action message schema plus bundled host-adapter imports. This does not check a live router socket or host registration.');
+    }
+    const result = probe(packageRoot);
+    if (result.ok)
+        return createCheck('message-capability', 'Message adapter imports', 'pass', 'This installed MCP advertised the eight-action message schema and all bundled host adapters imported successfully. No live router socket, host registration, or host acceptance was verified.');
+    return createCheck('message-capability', 'Message adapter imports', 'fail', `Installed message capability probe failed: ${result.message}.`, 'Reinstall or rebuild this package, then retry with MEMESH_DOCTOR_PROBE_MESSAGE_CAPABILITY=1.', { code: 'message-capability.probe-failed', params: { detail: result.message } });
+}
+async function defaultMessageRouterStatusProbe() {
+    const socketPath = process.env.MEMESH_ROUTER_SOCKET
+        ?? path.join(getMemeshDirFromDbPath(), 'agent-router.sock');
+    let stat;
+    try {
+        stat = fs.lstatSync(socketPath);
+    }
+    catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        return { socket_path: socketPath, socket: 'missing', detail };
+    }
+    if (!stat.isSocket() || (stat.mode & 0o077) !== 0) {
+        return { socket_path: socketPath, socket: 'insecure' };
+    }
+    const reachable = await new Promise((resolve) => {
+        const socket = net.createConnection({ path: socketPath });
+        const timer = setTimeout(() => {
+            socket.destroy();
+            resolve(false);
+        }, 1_500);
+        timer.unref();
+        socket.once('connect', () => {
+            clearTimeout(timer);
+            socket.destroy();
+            resolve(true);
+        });
+        socket.once('error', () => {
+            clearTimeout(timer);
+            resolve(false);
+        });
+    });
+    return { socket_path: socketPath, socket: reachable ? 'reachable' : 'unreachable' };
+}
+async function inspectMessageRouterStatus(enabled, probe) {
+    if (!enabled) {
+        return createInfo('message-router-status', 'Live message router / host registration', 'Not verified (opt-in). Set MEMESH_DOCTOR_PROBE_MESSAGE_ROUTER=1 to check only whether the owner-private Local router socket is live. This check never starts a router, registers a host, sends a message, or wakes a stopped session.');
+    }
+    const result = await probe();
+    switch (result.socket) {
+        case 'reachable':
+            return createCheck('message-router-status', 'Live message router / host registration', 'pass', `Owner-private Local router socket is reachable at ${result.socket_path}. This proves only router availability; it does not prove an active host registration, native delivery, host_accept, ACK, or stopped-session wake-up.`);
+        case 'missing':
+            return createCheck('message-router-status', 'Live message router / host registration', 'warn', `No Local router socket exists at ${result.socket_path}. No active host is registered through this router, and MeMesh will not wake a stopped or missing session.`, 'Start the owner-configured router with `memesh-router`, then run this opt-in probe again.', { code: 'message-router.socket-missing', params: { path: result.socket_path } });
+        case 'insecure':
+            return createCheck('message-router-status', 'Live message router / host registration', 'fail', `Router socket at ${result.socket_path} is not an owner-private Unix socket.`, 'Stop the router, remove the unsafe socket, and restart `memesh-router` under the owning user.', { code: 'message-router.socket-insecure', params: { path: result.socket_path } });
+        case 'unreachable':
+            return createCheck('message-router-status', 'Live message router / host registration', 'warn', `An owner-private router socket exists at ${result.socket_path}, but it did not accept a local connection. No host registration or native delivery is verified.`, 'Check the owner-configured `memesh-router` process, then run this opt-in probe again.', { code: 'message-router.socket-unreachable', params: { path: result.socket_path } });
+    }
+}
 async function inspectEmbeddingProbe(capabilities, probeCapabilities, embedTextImpl) {
     if (capabilities.embeddings === 'tfidf') {
         return createInfo('embeddings_probe', 'Embeddings work', 'No neural embedder configured — recall runs on FTS5 keyword search alone. That is a supported mode, not a fault.');
@@ -769,7 +878,7 @@ function summarizeOverallStatus(checks) {
     return 'PASS';
 }
 export async function runDoctor(options) {
-    const { packageRoot, packageVersion, probeHttp = false, probeCapabilities = false, embedTextImpl = embedText, probeProviderImpl = probeProvider, httpBaseUrl = 'http://127.0.0.1:3737', platform = process.platform, openDatabaseImpl = openDatabase, closeDatabaseImpl = closeDatabase, isDatabaseOpenImpl = isDatabaseOpen, detectCapabilitiesImpl = detectCapabilities, getConfigPathImpl = getConfigPath, getUpdateCheckImpl = getUpdateCheck, getCurrentInstallChannelImpl = getCurrentInstallChannel, installedPluginsPathImpl, getInstallChannelSupportImpl = getInstallChannelSupport, existsSyncImpl = fs.existsSync, readFileSyncImpl = fs.readFileSync, statSyncImpl = fs.statSync, fetchImpl = fetch, nativeBindingProbeImpl, resolveShellMemeshImpl = defaultResolveShellMemesh, } = options;
+    const { packageRoot, packageVersion, probeHttp = false, probeCapabilities = false, embedTextImpl = embedText, probeProviderImpl = probeProvider, httpBaseUrl = 'http://127.0.0.1:3737', platform = process.platform, openDatabaseImpl = openDatabase, closeDatabaseImpl = closeDatabase, isDatabaseOpenImpl = isDatabaseOpen, detectCapabilitiesImpl = detectCapabilities, getConfigPathImpl = getConfigPath, getUpdateCheckImpl = getUpdateCheck, getCurrentInstallChannelImpl = getCurrentInstallChannel, installedPluginsPathImpl, getInstallChannelSupportImpl = getInstallChannelSupport, existsSyncImpl = fs.existsSync, readFileSyncImpl = fs.readFileSync, statSyncImpl = fs.statSync, fetchImpl = fetch, nativeBindingProbeImpl, resolveShellMemeshImpl = defaultResolveShellMemesh, probeMessageCapability = process.env.MEMESH_DOCTOR_PROBE_MESSAGE_CAPABILITY === '1', messageCapabilityProbeImpl = probeInstalledMessageCapability, probeMessageRouterStatus = process.env.MEMESH_DOCTOR_PROBE_MESSAGE_ROUTER === '1', messageRouterStatusProbeImpl = defaultMessageRouterStatusProbe, } = options;
     const wasDbOpenBeforeUs = isDatabaseOpenImpl();
     const safeCloseDatabaseImpl = wasDbOpenBeforeUs
         ? () => undefined
@@ -978,6 +1087,8 @@ export async function runDoctor(options) {
     checks.push(inspectNativeBinding(packageRoot, existsSyncImpl, nativeBindingProbeImpl));
     checks.push(inspectShellCli(install, packageRoot, resolveShellMemeshImpl));
     checks.push(verifySkillsManifest(packageRoot, existsSyncImpl, readFileSyncImpl, installSupport));
+    checks.push(inspectMessageCapability(packageRoot, probeMessageCapability, messageCapabilityProbeImpl));
+    checks.push(await inspectMessageRouterStatus(probeMessageRouterStatus, messageRouterStatusProbeImpl));
     const capabilities = detectCapabilitiesImpl();
     checks.push(createInfo('capabilities', 'Capabilities (configured)', `Search level ${capabilities.searchLevel} (${capabilities.searchLevel === 1 ? 'Smart Mode' : 'Core'}); embeddings: ${capabilities.embeddings}; LLM: ${capabilities.llm ? `${capabilities.llm.provider} (${capabilities.llm.model ?? 'default'})` : 'not configured'}. Configured values only — see the probe rows below for what actually works.`));
     if (!isTranscriptMiningEnabled()) {

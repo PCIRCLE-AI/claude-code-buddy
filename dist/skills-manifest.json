@@ -48,8 +48,8 @@
     },
     {
       "path": "scripts/hooks/_generated/schema.js",
-      "sha256": "03ff2e199b424fb1e5862da63c0e950acf5b64a532d66070aab0e66c6afb361d",
-      "bytes": 16271
+      "sha256": "d7591e3fa4fb42d393126df31b65525a6259f725c4a424dd0de6c244af83643f",
+      "bytes": 23568
     },
     {
       "path": "scripts/hooks/_generated/sqlite.js",
@@ -123,8 +123,8 @@
     },
     {
       "path": "skills/memesh/SKILL.md",
-      "sha256": "b5705f2bbaec9838716dcfe55d35399f2ede36027aa1e3a30c9deeb617660d65",
-      "bytes": 9741
+      "sha256": "5507b2f0b58e9856f0f493e97715f661a1b084eec29f5f0651e36cb67181cdb1",
+      "bytes": 10802
     }
   ]
 }

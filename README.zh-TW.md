@@ -72,7 +72,8 @@ memesh doctor        # 端到端驗證這份安裝
 MeMesh 有一個很強的跨代理優勢：凡是連到同一個本機 MeMesh instance 的 host，都能共享持久化記憶；`message` tool 則提供 MCP、HTTP 與 CLI 共用的明確單一收件人訊息路徑。
 
 - 今天就能做的：MCP、HTTP 或 CLI sender 可把訊息耐久化送給一個指定的本機 recipient。接收端可輪詢或執行 `memesh message watch`、另行擷取 payload、在重啟後用 opaque cursor 補收，並把 intake、acknowledgement、workflow disposition 與 host activation 分開記錄。
-- 仍是本機 pull 模式：接收 host 必須維持或重新啟動 poll/watch loop。wakeup event 不會自動恢復已停止的模型 session、不會執行 payload，也不代表已確認收到。
+- 相容的**活動中 host**可收到原生訊息推送，因此該次即時傳遞不必輪詢；它不會喚醒已停止的 session。Persistence、host acceptance、acknowledgement 與 workflow state 仍是獨立狀態；Codex、Claude、ACP 三個 runner 的一次性 owner-private 設定見 [Local runner setup](docs/platforms/agent-messaging.md#one-time-owner-private-local-runner-setup)，principal/session/generation 路由與 Local／Cloud 邊界見 [agent messaging](docs/platforms/agent-messaging.md)。
+- 耐久化復原仍是本機 pull 模式：已停止或不支援的接收 host 必須維持或重新啟動 poll/watch loop。原生傳遞不會自動恢復已停止的模型 session、不會執行 payload，也不代表已確認收到。
 - 協作式信任邊界：recipient 名稱只是邏輯 routing ID，不是每個 agent 各自登入的身分或 ACL。能存取同一本機 MeMesh instance 的 caller 都必須視為受信任的 workspace participant；host adapter 仍需自行落實權限與人工核准規則。
 - Adapter 邊界：Claude Code、Codex、Gemini CLI、Cursor，以及自訂或 Ollama-backed agent loop，可使用各自支援的本機 surface。ChatGPT web、Gemini web、Grok 與其他 browser-hosted 產品仍需要能連到本機 instance 的明確 bridge。
 

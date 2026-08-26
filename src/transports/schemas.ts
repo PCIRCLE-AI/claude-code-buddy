@@ -228,6 +228,7 @@ export const MessageSchema = z.discriminatedUnion('action', [
     project: messageProject,
     sender: messageAgentId,
     recipient: messageAgentId,
+    target_kind: z.enum(['principal', 'session']).default('principal'),
     idempotency_key: messageIdempotencyKey,
     payload: z.json().refine(
       (value) => new TextEncoder().encode(JSON.stringify(value)).byteLength <= 65_536,

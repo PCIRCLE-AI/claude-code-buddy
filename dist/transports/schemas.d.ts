@@ -115,9 +115,9 @@ export declare const WhySchema: z.ZodObject<{
 }, z.core.$strict>;
 export declare const UserPatternsSchema: z.ZodObject<{
     categories: z.ZodOptional<z.ZodArray<z.ZodEnum<{
+        workflow: "workflow";
         workSchedule: "workSchedule";
         focusAreas: "focusAreas";
-        workflow: "workflow";
         strengths: "strengths";
         learningAreas: "learningAreas";
     }>>>;
@@ -146,6 +146,10 @@ export declare const MessageSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
     project: z.ZodString;
     sender: z.ZodString;
     recipient: z.ZodString;
+    target_kind: z.ZodDefault<z.ZodEnum<{
+        principal: "principal";
+        session: "session";
+    }>>;
     idempotency_key: z.ZodString;
     payload: z.ZodJSONSchema;
     content_type: z.ZodDefault<z.ZodEnum<{

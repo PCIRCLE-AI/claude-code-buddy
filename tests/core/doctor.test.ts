@@ -3167,6 +3167,115 @@ describe('doctor rows that had no assertion', () => {
     });
   });
 
+  describe('message-capability probe', () => {
+    it('is opt-in information and does not invoke a subprocess probe ordinarily', async () => {
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      isolateMemeshDir();
+      let calls = 0;
+
+      const check = row(await runDoctorImpl(options(packageRoot, {
+        probeMessageCapability: false,
+        messageCapabilityProbeImpl: () => { calls++; return { ok: true }; },
+      })), 'message-capability');
+
+      expect(calls).toBe(0);
+      expect(check.informational).toBe(true);
+      expect(check.summary).toContain('Not verified (opt-in)');
+      expect(check.summary).toContain('does not check a live router socket');
+    });
+
+    it('reports the injected installed-artifact probe success', async () => {
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      isolateMemeshDir();
+
+      const check = row(await runDoctorImpl(options(packageRoot, {
+        probeMessageCapability: true,
+        messageCapabilityProbeImpl: () => ({ ok: true }),
+      })), 'message-capability');
+
+      expect(check.status).toBe('pass');
+      expect(check.informational).toBeFalsy();
+      expect(check.summary).toContain('eight-action message schema');
+      expect(check.summary).toContain('No live router socket');
+    });
+
+    it('reports the injected installed-artifact probe failure with remediation', async () => {
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      isolateMemeshDir();
+
+      const check = row(await runDoctorImpl(options(packageRoot, {
+        probeMessageCapability: true,
+        messageCapabilityProbeImpl: () => ({ ok: false, message: 'missing dist host adapter' }),
+      })), 'message-capability');
+
+      expect(check.status).toBe('fail');
+      expect(check.code).toBe('message-capability.probe-failed');
+      expect(check.summary).toContain('missing dist host adapter');
+      expect(check.fix).toContain('MEMESH_DOCTOR_PROBE_MESSAGE_CAPABILITY=1');
+    });
+  });
+
+  describe('message-router-status probe', () => {
+    it('is opt-in and never probes the Local socket by default', async () => {
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      isolateMemeshDir();
+      let calls = 0;
+
+      const check = row(await runDoctorImpl(options(packageRoot, {
+        probeMessageRouterStatus: false,
+        messageRouterStatusProbeImpl: async () => {
+          calls++;
+          return { socket_path: '/tmp/memesh-router.sock', socket: 'reachable' as const };
+        },
+      })), 'message-router-status');
+
+      expect(calls).toBe(0);
+      expect(check.informational).toBe(true);
+      expect(check.summary).toContain('never starts a router');
+      expect(check.summary).toContain('wakes a stopped session');
+    });
+
+    it('separates reachable router availability from active-host delivery claims', async () => {
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      isolateMemeshDir();
+
+      const check = row(await runDoctorImpl(options(packageRoot, {
+        probeMessageRouterStatus: true,
+        messageRouterStatusProbeImpl: async () => ({
+          socket_path: '/tmp/memesh-router.sock', socket: 'reachable',
+        }),
+      })), 'message-router-status');
+
+      expect(check.status).toBe('pass');
+      expect(check.summary).toContain('router availability');
+      expect(check.summary).toContain('does not prove an active host registration');
+      expect(check.summary).toContain('host_accept');
+    });
+
+    it('reports a missing router as no native host registration rather than stopped-session wakeup', async () => {
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      isolateMemeshDir();
+
+      const check = row(await runDoctorImpl(options(packageRoot, {
+        probeMessageRouterStatus: true,
+        messageRouterStatusProbeImpl: async () => ({
+          socket_path: '/tmp/memesh-router.sock', socket: 'missing', detail: 'ENOENT',
+        }),
+      })), 'message-router-status');
+
+      expect(check.status).toBe('warn');
+      expect(check.code).toBe('message-router.socket-missing');
+      expect(check.summary).toContain('No active host is registered');
+      expect(check.summary).toContain('will not wake a stopped or missing session');
+    });
+  });
+
   describe('install_id', () => {
     it('reports the id as INFO, not as a check that passed', async () => {
       // It was `createCheck(..., 'pass', ...)` with no branch that could fail,

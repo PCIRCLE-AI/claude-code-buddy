@@ -7,6 +7,7 @@ export type AgentJsonObject = { [key: string]: AgentJsonValue };
 
 export type AgentMessagePrivacy = 'private' | 'team';
 export type AgentContentType = 'text/plain' | 'application/json';
+export type AgentTargetKind = 'principal' | 'session';
 export type AgentReceiptKind = 'intake' | 'ack' | 'disposition' | 'host_activation';
 export type AgentIntakeState = 'fetched' | 'ingested';
 export type AgentDisposition = 'accepted' | 'rejected' | 'cancelled' | 'completed' | 'deferred';
@@ -16,6 +17,7 @@ export interface SendAgentMessageInput {
   project: string;
   sender: string;
   recipient: string;
+  target_kind?: AgentTargetKind;
   idempotency_key: string;
   payload: AgentJsonValue;
   content_type: AgentContentType;
@@ -34,12 +36,29 @@ export interface SentAgentMessage {
   sender: string;
   sender_host: string | null;
   recipient: string;
+  target_kind: AgentTargetKind;
   content_type: AgentContentType;
   correlation_id: string | null;
   reply_to: string | null;
   privacy: AgentMessagePrivacy;
   created_at: string;
   provenance: AgentJsonObject;
+}
+
+export interface AgentMessagePostCommitHint {
+  delivery_id: string;
+  event_id: string;
+  project: string;
+  target_kind: AgentTargetKind;
+  target_id: string;
+}
+
+export interface AgentMessagePostCommitNotifier {
+  notify(hint: AgentMessagePostCommitHint): void | Promise<void>;
+}
+
+export interface SendAgentMessageOptions {
+  notifier?: AgentMessagePostCommitNotifier;
 }
 
 export interface PollAgentEventsInput {
@@ -55,6 +74,7 @@ export interface AgentMessageEventHeader {
   sender: string;
   sender_host: string | null;
   recipient: string;
+  target_kind: AgentTargetKind;
   content_type: AgentContentType;
   correlation_id: string | null;
   reply_to: string | null;
@@ -76,6 +96,7 @@ export interface FetchAgentMessageInput {
   project: string;
   recipient: string;
   message_id: string;
+  target_kind?: AgentTargetKind;
 }
 
 export interface AgentMessagePayload {
@@ -84,6 +105,7 @@ export interface AgentMessagePayload {
   sender: string;
   sender_host: string | null;
   recipient: string;
+  target_kind: AgentTargetKind;
   content_type: AgentContentType;
   correlation_id: string | null;
   reply_to: string | null;
@@ -130,6 +152,60 @@ export interface ReadAgentMessageReceiptsInput {
   message_id: string;
 }
 
+export interface RecordAgentAckFactInput {
+  delivery_id: string;
+  host_accept_id: string;
+  actor: string;
+  idempotency_key: string;
+  detail?: AgentJsonObject;
+}
+
+export interface AgentAckFact {
+  ack_fact_id: string;
+  delivery_id: string;
+  host_accept_id: string;
+  actor: string;
+  idempotency_key: string;
+  detail: AgentJsonObject;
+  created_at: string;
+}
+
+export interface RecordAgentWorkflowFactInput {
+  delivery_id: string;
+  actor: string;
+  workflow_state: string;
+  idempotency_key: string;
+  detail?: AgentJsonObject;
+}
+
+export interface AgentWorkflowFact {
+  workflow_fact_id: string;
+  delivery_id: string;
+  actor: string;
+  workflow_state: string;
+  idempotency_key: string;
+  detail: AgentJsonObject;
+  created_at: string;
+}
+
+export interface RecordAgentRetentionFactInput {
+  message_id: string;
+  actor: string;
+  retention_state: string;
+  idempotency_key: string;
+  detail?: AgentJsonObject;
+}
+
+export interface AgentRetentionFact {
+  retention_fact_id: string;
+  message_id: string;
+  actor: string;
+  retention_state: string;
+  idempotency_key: string;
+  detail: AgentJsonObject;
+  created_at: string;
+}
+
 const MAX_SCOPE_FIELD = 200;
 const MAX_IDEMPOTENCY_KEY = 200;
 const MAX_CURSOR_TOKEN = 160;
@@ -159,6 +235,7 @@ type EventRow = {
   sender: string;
   sender_host: string | null;
   recipient: string;
+  target_kind: string;
   content_type: string;
   correlation_id: string | null;
   reply_to_message_id: string | null;
@@ -174,6 +251,7 @@ type MessageJoinRow = {
   sender: string;
   sender_host: string | null;
   recipient: string;
+  target_kind: string;
   content_type: string;
   correlation_id: string | null;
   reply_to_message_id: string | null;
@@ -188,6 +266,7 @@ type FetchRow = {
   sender: string;
   sender_host: string | null;
   recipient: string;
+  target_kind: string;
   content_type: string;
   correlation_id: string | null;
   reply_to_message_id: string | null;
@@ -214,12 +293,21 @@ type ExistingIdempotencyRow = MessageJoinRow & {
   request_hash: string;
 };
 
-export function sendAgentMessage(db: MemeshDatabase, input: SendAgentMessageInput): SentAgentMessage {
+type AckFactRow = Omit<AgentAckFact, 'detail'> & { detail_json: string; request_hash: string };
+type WorkflowFactRow = Omit<AgentWorkflowFact, 'detail'> & { detail_json: string; request_hash: string };
+type RetentionFactRow = Omit<AgentRetentionFact, 'detail'> & { detail_json: string; request_hash: string };
+
+export function sendAgentMessage(
+  db: MemeshDatabase,
+  input: SendAgentMessageInput,
+  options: SendAgentMessageOptions = {},
+): SentAgentMessage {
   const normalized = normalizeSendInput(input);
   const requestHash = hashCanonical({
     project: normalized.project,
     sender: normalized.sender,
     recipient: normalized.recipient,
+    target_kind: normalized.target_kind,
     idempotency_key: normalized.idempotency_key,
     content_type: normalized.content_type,
     sender_host: normalized.sender_host,
@@ -237,7 +325,7 @@ export function sendAgentMessage(db: MemeshDatabase, input: SendAgentMessageInpu
         `Agent message idempotency conflict for sender ${normalized.sender} in project ${normalized.project}.`,
       );
     }
-    return rowToSentAgentMessage(existing);
+    return finishSentMessage(existing, options);
   }
 
   const messageId = randomUUID();
@@ -265,9 +353,9 @@ export function sendAgentMessage(db: MemeshDatabase, input: SendAgentMessageInpu
     );
 
     db.prepare(`
-      INSERT INTO agent_message_deliveries (delivery_id, message_id, project, recipient)
-      VALUES (?, ?, ?, ?)
-    `).run(deliveryId, messageId, normalized.project, normalized.recipient);
+      INSERT INTO agent_message_deliveries (delivery_id, message_id, project, recipient, target_kind)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(deliveryId, messageId, normalized.project, normalized.recipient, normalized.target_kind);
 
     db.prepare(`
       INSERT INTO agent_message_events (event_id, message_id, delivery_id, project, recipient, event_kind)
@@ -285,7 +373,7 @@ export function sendAgentMessage(db: MemeshDatabase, input: SendAgentMessageInpu
   } catch (error) {
     if (!isUniqueConstraint(error)) throw error;
     const raced = lookupExistingMessage(db, normalized.project, normalized.sender, normalized.idempotency_key);
-    if (raced && raced.request_hash === requestHash) return rowToSentAgentMessage(raced);
+    if (raced && raced.request_hash === requestHash) return finishSentMessage(raced, options);
     if (raced) {
       throw new AgentIdempotencyConflictError(
         `Agent message idempotency conflict for sender ${normalized.sender} in project ${normalized.project}.`,
@@ -296,7 +384,7 @@ export function sendAgentMessage(db: MemeshDatabase, input: SendAgentMessageInpu
 
   const stored = loadSentMessage(db, normalized.project, normalized.recipient, messageId);
   if (!stored) throw new AgentMessagingError(`Sent agent message ${messageId} could not be read back.`);
-  return rowToSentAgentMessage(stored);
+  return finishSentMessage(stored, options);
 }
 
 export function pollAgentEvents(db: MemeshDatabase, input: PollAgentEventsInput): PollAgentEventsResult {
@@ -313,6 +401,7 @@ export function pollAgentEvents(db: MemeshDatabase, input: PollAgentEventsInput)
       m.sender,
       m.sender_host,
       e.recipient,
+      d.target_kind,
       m.content_type,
       m.correlation_id,
       m.reply_to_message_id,
@@ -320,6 +409,7 @@ export function pollAgentEvents(db: MemeshDatabase, input: PollAgentEventsInput)
       e.created_at
     FROM agent_message_events e
     JOIN agent_messages m ON m.message_id = e.message_id
+    JOIN agent_message_deliveries d ON d.delivery_id = e.delivery_id
     WHERE e.project = ? AND e.recipient = ? AND e.event_sequence > ?
     ORDER BY e.event_sequence ASC
     LIMIT ?
@@ -367,6 +457,7 @@ export function fetchAgentMessage(db: MemeshDatabase, input: FetchAgentMessageIn
   const project = requireText('project', input.project, MAX_SCOPE_FIELD);
   const recipient = requireText('recipient', input.recipient, MAX_SCOPE_FIELD);
   const messageId = requireText('message_id', input.message_id, MAX_SCOPE_FIELD);
+  const targetKind = parseTargetKind(input.target_kind ?? 'principal');
 
   const row = db.prepare(`
     SELECT
@@ -375,6 +466,7 @@ export function fetchAgentMessage(db: MemeshDatabase, input: FetchAgentMessageIn
       m.sender,
       m.sender_host,
       d.recipient,
+      d.target_kind,
       m.content_type,
       m.correlation_id,
       m.reply_to_message_id,
@@ -384,8 +476,8 @@ export function fetchAgentMessage(db: MemeshDatabase, input: FetchAgentMessageIn
       m.created_at
     FROM agent_messages m
     JOIN agent_message_deliveries d ON d.message_id = m.message_id
-    WHERE m.project = ? AND d.project = ? AND d.recipient = ? AND m.message_id = ?
-  `).get(project, project, recipient, messageId) as FetchRow | undefined;
+    WHERE m.project = ? AND d.project = ? AND d.recipient = ? AND d.target_kind = ? AND m.message_id = ?
+  `).get(project, project, recipient, targetKind, messageId) as FetchRow | undefined;
 
   if (!row) {
     throw new AgentMessageAccessError(
@@ -399,6 +491,7 @@ export function fetchAgentMessage(db: MemeshDatabase, input: FetchAgentMessageIn
     sender: row.sender,
     sender_host: row.sender_host,
     recipient: row.recipient,
+    target_kind: parseTargetKind(row.target_kind),
     content_type: parseContentType(row.content_type),
     correlation_id: row.correlation_id,
     reply_to: row.reply_to_message_id,
@@ -509,12 +602,117 @@ export function readAgentMessageReceipts(
   return rows.map(rowToReceipt);
 }
 
+export function recordAgentAckFact(db: MemeshDatabase, input: RecordAgentAckFactInput): AgentAckFact {
+  const deliveryId = requireText('delivery_id', input.delivery_id, MAX_SCOPE_FIELD);
+  const hostAcceptId = requireText('host_accept_id', input.host_accept_id, MAX_SCOPE_FIELD);
+  const actor = requireText('actor', input.actor, MAX_SCOPE_FIELD);
+  const idempotencyKey = requireText('idempotency_key', input.idempotency_key, MAX_IDEMPOTENCY_KEY);
+  const detail = normalizeBoundedDetail(input.detail);
+  const requestHash = hashCanonical({ delivery_id: deliveryId, host_accept_id: hostAcceptId, actor, detail });
+
+  const accepted = db.prepare(`
+    SELECT 1 FROM agent_host_accepts WHERE host_accept_id = ? AND delivery_id = ?
+  `).get(hostAcceptId, deliveryId);
+  if (!accepted) {
+    throw new AgentMessageAccessError(`Host acceptance ${hostAcceptId} does not belong to delivery ${deliveryId}.`);
+  }
+
+  const existing = lookupAckFact(db, deliveryId, actor, idempotencyKey);
+  if (existing) return checkedFact(existing, requestHash, rowToAckFact, deliveryId, 'agent_ack');
+
+  const factId = randomUUID();
+  try {
+    db.prepare(`
+      INSERT INTO agent_ack_facts (
+        ack_fact_id, delivery_id, host_accept_id, actor, idempotency_key, request_hash, detail_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(factId, deliveryId, hostAcceptId, actor, idempotencyKey, requestHash, stableStringify(detail));
+  } catch (error) {
+    if (!isUniqueConstraint(error)) throw error;
+    const raced = lookupAckFact(db, deliveryId, actor, idempotencyKey);
+    if (raced) return checkedFact(raced, requestHash, rowToAckFact, deliveryId, 'agent_ack');
+    throw error;
+  }
+  const stored = lookupAckFact(db, deliveryId, actor, idempotencyKey);
+  if (!stored) throw new AgentMessagingError(`Agent acknowledgement ${factId} could not be read back.`);
+  return rowToAckFact(stored);
+}
+
+export function recordAgentWorkflowFact(
+  db: MemeshDatabase,
+  input: RecordAgentWorkflowFactInput,
+): AgentWorkflowFact {
+  const deliveryId = requireText('delivery_id', input.delivery_id, MAX_SCOPE_FIELD);
+  const actor = requireText('actor', input.actor, MAX_SCOPE_FIELD);
+  const workflowState = requireText('workflow_state', input.workflow_state, MAX_SCOPE_FIELD);
+  const idempotencyKey = requireText('idempotency_key', input.idempotency_key, MAX_IDEMPOTENCY_KEY);
+  const detail = normalizeBoundedDetail(input.detail);
+  assertDeliveryExists(db, deliveryId);
+  const requestHash = hashCanonical({ delivery_id: deliveryId, actor, workflow_state: workflowState, detail });
+
+  const existing = lookupWorkflowFact(db, deliveryId, actor, idempotencyKey);
+  if (existing) return checkedFact(existing, requestHash, rowToWorkflowFact, deliveryId, 'workflow');
+
+  const factId = randomUUID();
+  try {
+    db.prepare(`
+      INSERT INTO agent_workflow_facts (
+        workflow_fact_id, delivery_id, actor, workflow_state, idempotency_key, request_hash, detail_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(factId, deliveryId, actor, workflowState, idempotencyKey, requestHash, stableStringify(detail));
+  } catch (error) {
+    if (!isUniqueConstraint(error)) throw error;
+    const raced = lookupWorkflowFact(db, deliveryId, actor, idempotencyKey);
+    if (raced) return checkedFact(raced, requestHash, rowToWorkflowFact, deliveryId, 'workflow');
+    throw error;
+  }
+  const stored = lookupWorkflowFact(db, deliveryId, actor, idempotencyKey);
+  if (!stored) throw new AgentMessagingError(`Agent workflow fact ${factId} could not be read back.`);
+  return rowToWorkflowFact(stored);
+}
+
+export function recordAgentRetentionFact(
+  db: MemeshDatabase,
+  input: RecordAgentRetentionFactInput,
+): AgentRetentionFact {
+  const messageId = requireText('message_id', input.message_id, MAX_SCOPE_FIELD);
+  const actor = requireText('actor', input.actor, MAX_SCOPE_FIELD);
+  const retentionState = requireText('retention_state', input.retention_state, MAX_SCOPE_FIELD);
+  const idempotencyKey = requireText('idempotency_key', input.idempotency_key, MAX_IDEMPOTENCY_KEY);
+  const detail = normalizeBoundedDetail(input.detail);
+  if (!db.prepare('SELECT 1 FROM agent_messages WHERE message_id = ?').get(messageId)) {
+    throw new AgentMessageAccessError(`Agent message ${messageId} does not exist.`);
+  }
+  const requestHash = hashCanonical({ message_id: messageId, actor, retention_state: retentionState, detail });
+
+  const existing = lookupRetentionFact(db, messageId, actor, idempotencyKey);
+  if (existing) return checkedFact(existing, requestHash, rowToRetentionFact, messageId, 'retention');
+
+  const factId = randomUUID();
+  try {
+    db.prepare(`
+      INSERT INTO agent_retention_facts (
+        retention_fact_id, message_id, actor, retention_state, idempotency_key, request_hash, detail_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(factId, messageId, actor, retentionState, idempotencyKey, requestHash, stableStringify(detail));
+  } catch (error) {
+    if (!isUniqueConstraint(error)) throw error;
+    const raced = lookupRetentionFact(db, messageId, actor, idempotencyKey);
+    if (raced) return checkedFact(raced, requestHash, rowToRetentionFact, messageId, 'retention');
+    throw error;
+  }
+  const stored = lookupRetentionFact(db, messageId, actor, idempotencyKey);
+  if (!stored) throw new AgentMessagingError(`Agent retention fact ${factId} could not be read back.`);
+  return rowToRetentionFact(stored);
+}
+
 function normalizeSendInput(input: SendAgentMessageInput): Required<Omit<SendAgentMessageInput, 'privacy'>> & {
   privacy: AgentMessagePrivacy;
 } {
   const project = requireText('project', input.project, MAX_SCOPE_FIELD);
   const sender = requireText('sender', input.sender, MAX_SCOPE_FIELD);
   const recipient = requireText('recipient', input.recipient, MAX_SCOPE_FIELD);
+  const target_kind = parseTargetKind(input.target_kind ?? 'principal');
   const idempotency_key = requireText('idempotency_key', input.idempotency_key, MAX_IDEMPOTENCY_KEY);
   const content_type = parseContentType(input.content_type);
   const sender_host = optionalText('sender_host', input.sender_host ?? null, MAX_SCOPE_FIELD);
@@ -541,6 +739,7 @@ function normalizeSendInput(input: SendAgentMessageInput): Required<Omit<SendAge
     project,
     sender,
     recipient,
+    target_kind,
     idempotency_key,
     content_type,
     payload: input.payload,
@@ -698,6 +897,7 @@ function lookupExistingMessage(
       m.sender,
       m.sender_host,
       d.recipient,
+      d.target_kind,
       m.content_type,
       m.correlation_id,
       m.reply_to_message_id,
@@ -729,6 +929,7 @@ function loadSentMessage(
       m.sender,
       m.sender_host,
       d.recipient,
+      d.target_kind,
       m.content_type,
       m.correlation_id,
       m.reply_to_message_id,
@@ -773,6 +974,132 @@ function lookupExistingReceipt(
   `).get(project, recipient, messageId, receiptKind, idempotencyKey) as ReceiptRow | undefined;
 }
 
+function lookupAckFact(
+  db: MemeshDatabase,
+  deliveryId: string,
+  actor: string,
+  idempotencyKey: string,
+): AckFactRow | undefined {
+  return db.prepare(`
+    SELECT ack_fact_id, delivery_id, host_accept_id, actor, idempotency_key,
+           detail_json, created_at, request_hash
+    FROM agent_ack_facts
+    WHERE delivery_id = ? AND actor = ? AND idempotency_key = ?
+  `).get(deliveryId, actor, idempotencyKey) as AckFactRow | undefined;
+}
+
+function lookupWorkflowFact(
+  db: MemeshDatabase,
+  deliveryId: string,
+  actor: string,
+  idempotencyKey: string,
+): WorkflowFactRow | undefined {
+  return db.prepare(`
+    SELECT workflow_fact_id, delivery_id, actor, workflow_state, idempotency_key,
+           detail_json, created_at, request_hash
+    FROM agent_workflow_facts
+    WHERE delivery_id = ? AND actor = ? AND idempotency_key = ?
+  `).get(deliveryId, actor, idempotencyKey) as WorkflowFactRow | undefined;
+}
+
+function lookupRetentionFact(
+  db: MemeshDatabase,
+  messageId: string,
+  actor: string,
+  idempotencyKey: string,
+): RetentionFactRow | undefined {
+  return db.prepare(`
+    SELECT retention_fact_id, message_id, actor, retention_state, idempotency_key,
+           detail_json, created_at, request_hash
+    FROM agent_retention_facts
+    WHERE message_id = ? AND actor = ? AND idempotency_key = ?
+  `).get(messageId, actor, idempotencyKey) as RetentionFactRow | undefined;
+}
+
+function checkedFact<Row extends { request_hash: string }, Fact>(
+  row: Row,
+  requestHash: string,
+  convert: (value: Row) => Fact,
+  subjectId: string,
+  kind: string,
+): Fact {
+  if (row.request_hash !== requestHash) {
+    throw new AgentIdempotencyConflictError(
+      `Agent ${kind} idempotency conflict for ${subjectId}.`,
+    );
+  }
+  return convert(row);
+}
+
+function assertDeliveryExists(db: MemeshDatabase, deliveryId: string): void {
+  if (!db.prepare('SELECT 1 FROM agent_message_deliveries WHERE delivery_id = ?').get(deliveryId)) {
+    throw new AgentMessageAccessError(`Agent message delivery ${deliveryId} does not exist.`);
+  }
+}
+
+function normalizeBoundedDetail(detail: AgentJsonObject | undefined): AgentJsonObject {
+  const normalized = detail === undefined ? {} : normalizeObject(detail);
+  if (Buffer.byteLength(stableStringify(normalized), 'utf8') > MAX_JSON_BYTES) {
+    throw new AgentMessagingError(`Agent lifecycle detail exceeds ${MAX_JSON_BYTES} bytes.`);
+  }
+  return normalized;
+}
+
+function rowToAckFact(row: AckFactRow): AgentAckFact {
+  return {
+    ack_fact_id: row.ack_fact_id,
+    delivery_id: row.delivery_id,
+    host_accept_id: row.host_accept_id,
+    actor: row.actor,
+    idempotency_key: row.idempotency_key,
+    detail: parseJsonObject(row.detail_json, 'detail_json'),
+    created_at: row.created_at,
+  };
+}
+
+function rowToWorkflowFact(row: WorkflowFactRow): AgentWorkflowFact {
+  return {
+    workflow_fact_id: row.workflow_fact_id,
+    delivery_id: row.delivery_id,
+    actor: row.actor,
+    workflow_state: row.workflow_state,
+    idempotency_key: row.idempotency_key,
+    detail: parseJsonObject(row.detail_json, 'detail_json'),
+    created_at: row.created_at,
+  };
+}
+
+function rowToRetentionFact(row: RetentionFactRow): AgentRetentionFact {
+  return {
+    retention_fact_id: row.retention_fact_id,
+    message_id: row.message_id,
+    actor: row.actor,
+    retention_state: row.retention_state,
+    idempotency_key: row.idempotency_key,
+    detail: parseJsonObject(row.detail_json, 'detail_json'),
+    created_at: row.created_at,
+  };
+}
+
+function finishSentMessage(row: MessageJoinRow, options: SendAgentMessageOptions): SentAgentMessage {
+  const sent = rowToSentAgentMessage(row);
+  if (!options.notifier) return sent;
+  try {
+    const result = options.notifier.notify({
+      delivery_id: sent.delivery_id,
+      event_id: sent.event_id,
+      project: sent.project,
+      target_kind: sent.target_kind,
+      target_id: sent.recipient,
+    });
+    if (result && typeof result.then === 'function') void result.catch(() => undefined);
+  } catch {
+    // The durable transaction already committed. Router reconnect drain is the
+    // recovery path, so a best-effort hint can never turn success into failure.
+  }
+  return sent;
+}
+
 function rowToSentAgentMessage(row: MessageJoinRow): SentAgentMessage {
   return {
     message_id: row.message_id,
@@ -782,6 +1109,7 @@ function rowToSentAgentMessage(row: MessageJoinRow): SentAgentMessage {
     sender: row.sender,
     sender_host: row.sender_host,
     recipient: row.recipient,
+    target_kind: parseTargetKind(row.target_kind),
     content_type: parseContentType(row.content_type),
     correlation_id: row.correlation_id,
     reply_to: row.reply_to_message_id,
@@ -798,6 +1126,7 @@ function rowToEventHeader(row: EventRow): AgentMessageEventHeader {
     sender: row.sender,
     sender_host: row.sender_host,
     recipient: row.recipient,
+    target_kind: parseTargetKind(row.target_kind),
     content_type: parseContentType(row.content_type),
     correlation_id: row.correlation_id,
     reply_to: row.reply_to_message_id,
@@ -855,6 +1184,11 @@ function parsePrivacy(value: string): AgentMessagePrivacy {
 function parseContentType(value: string): AgentContentType {
   if (value === 'text/plain' || value === 'application/json') return value;
   throw new AgentMessagingError(`Unsupported agent message content_type ${value}.`);
+}
+
+function parseTargetKind(value: string): AgentTargetKind {
+  if (value === 'principal' || value === 'session') return value;
+  throw new AgentMessagingError(`Unsupported agent message target_kind ${value}.`);
 }
 
 function parseJsonObject(json: string, label: string): AgentJsonObject {

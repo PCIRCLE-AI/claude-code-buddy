@@ -61,6 +61,71 @@ continuing.
 npm install -g @pcircle/memesh
 ```
 
+After installation, run `memesh doctor`. To probe the **installed** message MCP plus its bundled host-adapter imports (rather than only checking a manifest hash), opt in explicitly:
+
+```
+MEMESH_DOCTOR_PROBE_MESSAGE_CAPABILITY=1 memesh doctor
+```
+
+This probe does not dogfood a real host session and never wakes a stopped session. An active supported host can receive native delivery without polling; other or stopped sessions use the durable cursor-recovery path.
+
+### Optional: one-time Local native runner setup
+
+This is separate from MCP setup. It is for the owner of an active local Codex
+app-server, Claude channel, or MeMesh-managed Gemini ACP session. Keep all
+files private to that Unix account; do not commit the token or config files.
+
+Start the installed router once and leave it running:
+
+```bash
+umask 077
+memesh-router
+```
+
+It creates `agent-router.sock` and `agent-router.token` beside the active
+MeMesh database (normally `~/.memesh/`) with owner-private permissions. Check
+the installed adapter imports and the live socket as distinct facts:
+
+```bash
+MEMESH_DOCTOR_PROBE_MESSAGE_CAPABILITY=1 memesh doctor
+MEMESH_DOCTOR_PROBE_MESSAGE_ROUTER=1 memesh doctor
+```
+
+The router probe does not register a host, send content, or wake a stopped
+session. Create each runner config as `0600`; replace the absolute paths and
+active-session IDs below before executing its corresponding command.
+
+```bash
+umask 077
+mkdir -p "$HOME/.memesh/hosts"
+chmod 700 "$HOME/.memesh/hosts"
+
+cat >"$HOME/.memesh/hosts/codex.json" <<'JSON'
+{"router_socket":"/absolute/path/to/agent-router.sock","token_file":"/absolute/path/to/agent-router.token","project":"my-project","principal_id":"codex-recipient","session_instance_id":"unique-active-codex-session","control_socket":"/absolute/path/to/active-codex-app-server.sock","thread_id":"active-thread-id"}
+JSON
+chmod 600 "$HOME/.memesh/hosts/codex.json"
+memesh-host-codex --config "$HOME/.memesh/hosts/codex.json"
+
+cat >"$HOME/.memesh/hosts/claude.json" <<'JSON'
+{"router_socket":"/absolute/path/to/agent-router.sock","token_file":"/absolute/path/to/agent-router.token","project":"my-project","principal_id":"claude-recipient","session_instance_id":"unique-active-claude-session","server_name":"memesh-channel"}
+JSON
+chmod 600 "$HOME/.memesh/hosts/claude.json"
+memesh-host-claude --config "$HOME/.memesh/hosts/claude.json"
+
+cat >"$HOME/.memesh/hosts/acp.json" <<'JSON'
+{"router_socket":"/absolute/path/to/agent-router.sock","token_file":"/absolute/path/to/agent-router.token","project":"my-project","principal_id":"acp-recipient","session_instance_id":"unique-active-acp-session","workspace":"/absolute/path/to/active-workspace","command":"gemini","args":["--acp"]}
+JSON
+chmod 600 "$HOME/.memesh/hosts/acp.json"
+memesh-host-acp --config "$HOME/.memesh/hosts/acp.json"
+```
+
+The Codex runner needs the control socket and thread ID of an already active
+Codex app-server; the Claude runner must be connected to the active Claude
+channel; the ACP runner owns only its configured active ACP process. None can
+start, resume, or replace a stopped host. When no active registration exists,
+senders persist the message and the recipient later recovers it with its
+durable cursor.
+
 Expected: exits without error; `memesh`, `memesh-mcp` and `memesh-http` are
 now in `$(npm prefix -g)/bin/`. No compiler is involved and no install script
 runs.

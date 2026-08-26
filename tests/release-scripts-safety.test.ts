@@ -22,6 +22,7 @@ import os from 'node:os';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { spawnSync } from 'child_process';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -184,6 +185,108 @@ describe('Feature: release scripts never edit the real ~/.memesh', () => {
     // fail when it runs — and this repository has now found four of those.
     const pkg = JSON.parse(read('package.json'));
     expect(pkg.scripts['verify:release']).toContain('node scripts/check-doc-claims.mjs');
+  });
+
+  it('wires the deterministic message release/install sync gate', () => {
+    const pkg = JSON.parse(read('package.json'));
+    expect(pkg.scripts['verify:release']).toContain('node scripts/check-agent-message-sync.mjs');
+    const gate = read('scripts/check-agent-message-sync.mjs');
+    for (const action of ['send', 'poll', 'fetch', 'intake', 'ack', 'disposition', 'activation', 'receipts']) {
+      expect(gate).toContain(`'${action}'`);
+    }
+    expect(gate).toContain('dist/host-adapters/acp-client.js');
+    expect(gate).toContain('dist/transports/agent-messaging.js');
+    expect(gate).toContain('dist/core/agent-router.js');
+    expect(gate).toContain('dist/host-runtime');
+    expect(gate).toContain("'memesh-router'");
+    expect(gate).toContain('CLI command');
+    expect(gate).toContain('mapped to action');
+  });
+
+  it('makes packaged smoke exercise the installed native router path without poll/watch', () => {
+    const smoke = read('scripts/smoke-packed-artifact.mjs');
+    expect(smoke).toContain("installedBin('memesh-router')");
+    expect(smoke).toContain("'dist', 'host-runtime', 'router-client.js'");
+    expect(smoke).toContain("'message', 'send'");
+    expect(smoke).toContain("'--payload-stdin'");
+    expect(smoke).toContain('agent_host_accepts');
+    expect(smoke).toContain('stopped-or-missing-host');
+    expect(smoke).toContain('without poll/watch');
+    expect(smoke).toContain('consumerInstallTimeoutMs');
+    expect(smoke).toContain('timeout: consumerInstallTimeoutMs');
+  });
+
+  it('fails the sync gate when an installed adapter artifact is missing', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'message-sync-fixture-'));
+    const write = (relative: string, content = '') => {
+      const file = path.join(root, relative);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, content);
+    };
+    const actions = ['send', 'poll', 'fetch', 'intake', 'ack', 'disposition', 'activation', 'receipts'];
+    try {
+      write('src/transports/schemas.ts', actions.map(action => `action: z.literal('${action}')`).join('\n') + "\ntarget_kind z.enum(['principal', 'session'])");
+      write('src/transports/mcp/handlers.ts', "name === 'message' MessageSchema executeAgentMessageAction");
+      write('src/transports/http/server.ts', "executeAgentMessageAction\ntransport: 'http'");
+      const cliMappings = [
+        ['send', 'send'], ['watch', 'poll'], ['fetch', 'fetch'], ['intake', 'intake'],
+        ['ack', 'ack'], ['disposition', 'disposition'], ['activation', 'activation'], ['receipts', 'receipts'],
+      ].map(([command, action]) => `.command('${command}')\n.action(() => ({ action: '${action}' }))`).join('\n');
+      write('src/transports/cli/cli.ts', cliMappings + '\n--payload-stdin\nnever argv\nreadCliMessagePayloadFromStdin');
+      write('src/transports/agent-messaging.ts', 'target_kind: input.target_kind');
+      write('src/core/agent-router.ts', 'principal session generation');
+      for (const adapter of ['codex-app-server.ts', 'claude-channel.ts', 'acp-client.ts']) write(`src/host-adapters/${adapter}`, 'adapter');
+      write('src/host-adapters/codex-app-server.ts', 'adapter experimentalApi: true thread/queue/add ws://localhost/rpc perMessageDeflate: false');
+      write('dist/mcp/server.js');
+      write('dist/transports/mcp/handlers.js', "name === 'message' MessageSchema executeAgentMessageAction");
+      write('dist/transports/http/server.js', 'MessageBody executeAgentMessageAction');
+      write('dist/transports/agent-messaging.js', 'executeAgentMessageAction target_kind: input.target_kind');
+      write('dist/transports/schemas.js', "target_kind z.enum(['principal', 'session'])");
+      write('dist/transports/cli/cli.js', cliMappings);
+      for (const artifact of ['dist/host-adapters/codex-app-server.js', 'dist/host-adapters/claude-channel.js', 'dist/host-adapters/acp-client.js']) write(artifact);
+      write('dist/host-adapters/codex-app-server.js', 'experimentalApi: true thread/queue/add ws://localhost/rpc perMessageDeflate: false');
+      write('dist/core/agent-router.js', 'class AgentRouter host_accept');
+      for (const runtime of ['router', 'router-client', 'config', 'codex', 'claude', 'acp']) {
+        write(`src/host-runtime/${runtime}.ts`);
+        for (const extension of ['.js', '.js.map', '.d.ts', '.d.ts.map']) write(`dist/host-runtime/${runtime}${extension}`);
+      }
+      write('src/host-runtime/acp.ts', 'session_update_file O_NOFOLLOW');
+      write('dist/host-runtime/acp.js', 'session_update_file O_NOFOLLOW');
+      write('docs/api/API_REFERENCE.md', actions.join(' ') + ' principal session generation Local Cloud');
+      write('docs/platforms/agent-messaging.md', 'principal session generation exact-session principal target Local Cloud');
+      write('skills/memesh/SKILL.md', 'message polling active compatible host stopped, missing, or replaced session');
+      write('llms-install.md', '22.13.0 memesh doctor message memesh-router memesh-host-codex memesh-host-claude memesh-host-acp --config');
+      write('README.md', 'message active supported host stopped session');
+      write('README.zh-TW.md', 'message 活動中 host 停止');
+      write('package.json', JSON.stringify({
+        engines: { node: '>=22.13.0' },
+        scripts: { release: 'check-agent-message-sync.mjs test:packaged' },
+        bin: {
+          'memesh-router': 'dist/host-runtime/router.js',
+          'memesh-host-codex': 'dist/host-runtime/codex.js',
+          'memesh-host-claude': 'dist/host-runtime/claude.js',
+          'memesh-host-acp': 'dist/host-runtime/acp.js',
+        },
+      }));
+      const pass = spawnSync(process.execPath, ['scripts/check-agent-message-sync.mjs', '--root', root], { cwd: repoRoot, encoding: 'utf8' });
+      expect(pass.status).toBe(0);
+      write('src/transports/cli/cli.ts', cliMappings.replace(".command('watch')\n.action(() => ({ action: 'poll' }))", ".command('watch')\n.action(() => ({ action: 'fetch' }))") + '\n--payload-stdin\nnever argv\nreadCliMessagePayloadFromStdin');
+      const wrongMapping = spawnSync(process.execPath, ['scripts/check-agent-message-sync.mjs', '--root', root], { cwd: repoRoot, encoding: 'utf8' });
+      expect(wrongMapping.status).toBe(1);
+      expect(wrongMapping.stderr).toContain('CLI command "watch" mapped to action "poll"');
+      write('src/transports/cli/cli.ts', cliMappings + '\n--payload-stdin\nnever argv\nreadCliMessagePayloadFromStdin');
+      fs.rmSync(path.join(root, 'dist/host-adapters/acp-client.js'));
+      const failed = spawnSync(process.execPath, ['scripts/check-agent-message-sync.mjs', '--root', root], { cwd: repoRoot, encoding: 'utf8' });
+      expect(failed.status).toBe(1);
+      expect(failed.stderr).toContain('dist/host-adapters/acp-client.js (missing)');
+      write('dist/host-adapters/acp-client.js');
+      fs.rmSync(path.join(root, 'dist/host-runtime/router.js'));
+      const missingRunner = spawnSync(process.execPath, ['scripts/check-agent-message-sync.mjs', '--root', root], { cwd: repoRoot, encoding: 'utf8' });
+      expect(missingRunner.status).toBe(1);
+      expect(missingRunner.stderr).toContain('dist/host-runtime/router.js (missing)');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 
   // Title deliberately avoids spelling the forbidden form — the scan below

@@ -122,6 +122,7 @@ export const MessageSchema = z.discriminatedUnion('action', [
         project: messageProject,
         sender: messageAgentId,
         recipient: messageAgentId,
+        target_kind: z.enum(['principal', 'session']).default('principal'),
         idempotency_key: messageIdempotencyKey,
         payload: z.json().refine((value) => new TextEncoder().encode(JSON.stringify(value)).byteLength <= 65_536, { message: 'payload must be at most 65536 UTF-8 bytes when encoded as JSON' }),
         content_type: z.enum(['text/plain', 'application/json']).default('text/plain'),

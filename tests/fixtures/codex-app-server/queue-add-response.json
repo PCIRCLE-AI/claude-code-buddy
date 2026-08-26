@@ -1,0 +1,12 @@
+{
+  "queuedSubmission": {
+    "id": "queued-submission-1",
+    "clientUserMessageId": "message-1",
+    "input": [
+      {
+        "type": "text",
+        "text": "fixture only"
+      }
+    ]
+  }
+}

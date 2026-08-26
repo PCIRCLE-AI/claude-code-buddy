@@ -628,6 +628,8 @@ Status returns the proposal state, source IDs, review timestamps/reason, and `ac
 
 Exchange durable exact-recipient messages between local hosts connected to the same MeMesh SQLite instance. One tool owns the lifecycle so every transport uses the same validation and state semantics.
 
+The durable API is separate from host-native delivery. A stable **principal** names a logical recipient; a **session** is one active connection, and its **generation** changes when replaced. Exact-session delivery never reroutes; a principal target may use only an eligible active session after activation. Persistence, dispatch, host acceptance, intake, acknowledgement, workflow disposition, retention, and presence are independent state axes. A Local host-native input may remove polling for an active session, but no stopped session is awakened. Cloud relay, A2A, SSE, discovery, persistence, or fetch is not proof of Local host delivery.
+
 The `action` field is one of:
 
 | Action | Required fields | Meaning |
@@ -647,6 +649,7 @@ Additional `send` fields:
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
+| `target_kind` | `principal` \| `session` | No | Defaults to `principal`. A `session` target is bound to that exact session instance and never reroutes to a replacement. |
 | `content_type` | `text/plain` \| `application/json` | No | Defaults to `text/plain`; text payloads must be strings. |
 | `privacy` | `private` \| `team` | No | Retained message metadata; defaults to `private`. Delivery remains exact-recipient in both cases. |
 | `correlation_id` | string | No | Conversation or task correlation without changing routing. |
@@ -1259,6 +1262,17 @@ The CLI exposes the same local lifecycle as the MCP and HTTP `message` surface:
 | `memesh message receipts` | Read receipt facts for an authorized message |
 
 Run `memesh message <command> --help` for flags. `watch` returns after one bounded batch; the caller persists the opaque cursor and owns restart/backoff policy.
+
+For `send`, payloads are stdin-only so they do not leak through process listings or shell history. `--payload` is deliberately rejected:
+
+```bash
+printf '%s' '{"kind":"handoff","text":"review ready"}' | memesh message send \
+  --project demo --sender author --recipient reviewer --target-kind session \
+  --idempotency-key handoff-1 \
+  --content-type application/json --payload-stdin
+```
+
+`--target-kind` accepts `principal` (the default) or `session` and maps directly to the public `target_kind` send field.
 
 ### memesh remember — stating a relation
 

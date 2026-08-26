@@ -8,6 +8,7 @@ export type AgentJsonObject = {
 };
 export type AgentMessagePrivacy = 'private' | 'team';
 export type AgentContentType = 'text/plain' | 'application/json';
+export type AgentTargetKind = 'principal' | 'session';
 export type AgentReceiptKind = 'intake' | 'ack' | 'disposition' | 'host_activation';
 export type AgentIntakeState = 'fetched' | 'ingested';
 export type AgentDisposition = 'accepted' | 'rejected' | 'cancelled' | 'completed' | 'deferred';
@@ -16,6 +17,7 @@ export interface SendAgentMessageInput {
     project: string;
     sender: string;
     recipient: string;
+    target_kind?: AgentTargetKind;
     idempotency_key: string;
     payload: AgentJsonValue;
     content_type: AgentContentType;
@@ -33,12 +35,26 @@ export interface SentAgentMessage {
     sender: string;
     sender_host: string | null;
     recipient: string;
+    target_kind: AgentTargetKind;
     content_type: AgentContentType;
     correlation_id: string | null;
     reply_to: string | null;
     privacy: AgentMessagePrivacy;
     created_at: string;
     provenance: AgentJsonObject;
+}
+export interface AgentMessagePostCommitHint {
+    delivery_id: string;
+    event_id: string;
+    project: string;
+    target_kind: AgentTargetKind;
+    target_id: string;
+}
+export interface AgentMessagePostCommitNotifier {
+    notify(hint: AgentMessagePostCommitHint): void | Promise<void>;
+}
+export interface SendAgentMessageOptions {
+    notifier?: AgentMessagePostCommitNotifier;
 }
 export interface PollAgentEventsInput {
     project: string;
@@ -52,6 +68,7 @@ export interface AgentMessageEventHeader {
     sender: string;
     sender_host: string | null;
     recipient: string;
+    target_kind: AgentTargetKind;
     content_type: AgentContentType;
     correlation_id: string | null;
     reply_to: string | null;
@@ -70,6 +87,7 @@ export interface FetchAgentMessageInput {
     project: string;
     recipient: string;
     message_id: string;
+    target_kind?: AgentTargetKind;
 }
 export interface AgentMessagePayload {
     message_id: string;
@@ -77,6 +95,7 @@ export interface AgentMessagePayload {
     sender: string;
     sender_host: string | null;
     recipient: string;
+    target_kind: AgentTargetKind;
     content_type: AgentContentType;
     correlation_id: string | null;
     reply_to: string | null;
@@ -135,6 +154,54 @@ export interface ReadAgentMessageReceiptsInput {
     recipient: string;
     message_id: string;
 }
+export interface RecordAgentAckFactInput {
+    delivery_id: string;
+    host_accept_id: string;
+    actor: string;
+    idempotency_key: string;
+    detail?: AgentJsonObject;
+}
+export interface AgentAckFact {
+    ack_fact_id: string;
+    delivery_id: string;
+    host_accept_id: string;
+    actor: string;
+    idempotency_key: string;
+    detail: AgentJsonObject;
+    created_at: string;
+}
+export interface RecordAgentWorkflowFactInput {
+    delivery_id: string;
+    actor: string;
+    workflow_state: string;
+    idempotency_key: string;
+    detail?: AgentJsonObject;
+}
+export interface AgentWorkflowFact {
+    workflow_fact_id: string;
+    delivery_id: string;
+    actor: string;
+    workflow_state: string;
+    idempotency_key: string;
+    detail: AgentJsonObject;
+    created_at: string;
+}
+export interface RecordAgentRetentionFactInput {
+    message_id: string;
+    actor: string;
+    retention_state: string;
+    idempotency_key: string;
+    detail?: AgentJsonObject;
+}
+export interface AgentRetentionFact {
+    retention_fact_id: string;
+    message_id: string;
+    actor: string;
+    retention_state: string;
+    idempotency_key: string;
+    detail: AgentJsonObject;
+    created_at: string;
+}
 export declare class AgentMessagingError extends Error {
 }
 export declare class AgentIdempotencyConflictError extends AgentMessagingError {
@@ -143,11 +210,14 @@ export declare class AgentMessageAccessError extends AgentMessagingError {
 }
 export declare class AgentWaitAbortedError extends AgentMessagingError {
 }
-export declare function sendAgentMessage(db: MemeshDatabase, input: SendAgentMessageInput): SentAgentMessage;
+export declare function sendAgentMessage(db: MemeshDatabase, input: SendAgentMessageInput, options?: SendAgentMessageOptions): SentAgentMessage;
 export declare function pollAgentEvents(db: MemeshDatabase, input: PollAgentEventsInput): PollAgentEventsResult;
 export declare function waitForAgentEvents(db: MemeshDatabase, input: WaitForAgentEventsInput, signal?: AbortSignal): Promise<PollAgentEventsResult>;
 export declare function fetchAgentMessage(db: MemeshDatabase, input: FetchAgentMessageInput): AgentMessagePayload;
 export declare function recordAgentReceipt(db: MemeshDatabase, input: RecordAgentReceiptInput): AgentMessageReceipt;
 export declare function readAgentMessageReceipts(db: MemeshDatabase, input: ReadAgentMessageReceiptsInput): AgentMessageReceipt[];
+export declare function recordAgentAckFact(db: MemeshDatabase, input: RecordAgentAckFactInput): AgentAckFact;
+export declare function recordAgentWorkflowFact(db: MemeshDatabase, input: RecordAgentWorkflowFactInput): AgentWorkflowFact;
+export declare function recordAgentRetentionFact(db: MemeshDatabase, input: RecordAgentRetentionFactInput): AgentRetentionFact;
 export {};
 //# sourceMappingURL=agent-messaging.d.ts.map

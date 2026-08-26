@@ -1,8 +1,11 @@
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
+import net from 'node:net';
 import { createHash } from 'crypto';
 import { createRequire } from 'module';
 import { pathToFileURL } from 'url';
+import { execFileSync } from 'child_process';
 import { detectCapabilities, getConfigPath, isTranscriptMiningEnabled, readConfig, type Capabilities } from './config.js';
 import { embedText } from './embedder.js';
 import { probeProvider } from './llm-validator.js';
@@ -15,7 +18,7 @@ import { classifyBump } from './updater.js';
 import { getCurrentInstallChannel, getInstallChannelSupport, detectPluginHost, type InstallChannel, type PluginHost } from './install-channel.js';
 import { getInstallRecord } from './install-id.js';
 import { citationRulePath, citationRuleState, type CitationRuleScope } from './citation-rule.js';
-import { getDbPath, homeDir, memeshDir, getProjectName } from './paths.js';
+import { getDbPath, getMemeshDirFromDbPath, homeDir, memeshDir, getProjectName } from './paths.js';
 import { detectPluginRuntime, readInstallMarker } from './install-hooks.js';
 import { lastTranscriptMineAt } from './transcript-source.js';
 import { countMissingVectors } from './operations.js';
@@ -149,7 +152,27 @@ interface DoctorOptions {
    * path or null when not found. Tests inject a stub.
    */
   resolveShellMemeshImpl?: () => string | null;
+  /**
+   * Opt-in installed-artifact probe for the durable-message MCP surface.
+   * It starts the packaged stdio server in an isolated HOME and imports the
+   * bundled host adapters; it is intentionally unrelated to the skills hash.
+   */
+  probeMessageCapability?: boolean;
+  messageCapabilityProbeImpl?: (packageRoot: string) => { ok: true } | { ok: false; message: string };
+  /**
+   * Opt-in read-only probe of the actual Local router endpoint. It does not
+   * start a router, register a synthetic host, send content, or wake a session.
+   */
+  probeMessageRouterStatus?: boolean;
+  messageRouterStatusProbeImpl?: () => Promise<MessageRouterStatusProbe>;
 }
+
+type MessageRouterStatusProbe = {
+  socket_path: string;
+  socket: 'reachable' | 'missing' | 'insecure' | 'unreachable';
+  active_registrations?: number;
+  detail?: string;
+};
 
 /**
  * Cap on the live embedding probe in `memesh doctor`. Generous enough for a
@@ -1899,6 +1922,166 @@ function verifySkillsManifest(
   );
 }
 
+function probeInstalledMessageCapability(packageRoot: string): { ok: true } | { ok: false; message: string } {
+  const required = [
+    'dist/mcp/server.js',
+    'dist/transports/mcp/handlers.js',
+    'dist/host-adapters/codex-app-server.js',
+    'dist/host-adapters/claude-channel.js',
+    'dist/host-adapters/acp-client.js',
+  ];
+  const absent = required.filter((relative) => !fs.existsSync(path.join(packageRoot, relative)));
+  if (absent.length > 0) return { ok: false, message: `installed runtime is missing ${absent.join(', ')}` };
+
+  const probeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-doctor-message-'));
+  try {
+    execFileSync(process.execPath, ['--input-type=module', '-e', `
+      import assert from 'node:assert/strict';
+      import { pathToFileURL } from 'node:url';
+      import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+      import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+      const root = ${JSON.stringify(packageRoot)};
+      await Promise.all([
+        import(pathToFileURL(root + '/dist/host-adapters/codex-app-server.js').href),
+        import(pathToFileURL(root + '/dist/host-adapters/claude-channel.js').href),
+        import(pathToFileURL(root + '/dist/host-adapters/acp-client.js').href),
+      ]);
+      const client = new Client({ name: 'memesh-doctor-message-probe', version: '1' });
+      const transport = new StdioClientTransport({ command: process.execPath, args: [root + '/dist/mcp/server.js'], env: process.env });
+      try {
+        await client.connect(transport);
+        const tool = (await client.listTools()).tools.find((candidate) => candidate.name === 'message');
+        assert.ok(tool, 'installed MCP did not advertise message');
+        const actions = tool.inputSchema?.properties?.action?.enum;
+        assert.deepEqual(actions, ['send', 'poll', 'fetch', 'intake', 'ack', 'disposition', 'activation', 'receipts']);
+      } finally { await client.close(); }
+    `], {
+      cwd: packageRoot,
+      stdio: 'pipe',
+      timeout: 15_000,
+      env: { ...process.env, HOME: probeHome, MEMESH_AUTO_CAPTURE: 'false' },
+    });
+    return { ok: true };
+  } catch {
+    return { ok: false, message: 'installed MCP or bundled host adapters did not complete the message capability probe' };
+  } finally {
+    fs.rmSync(probeHome, { recursive: true, force: true });
+  }
+}
+
+function inspectMessageCapability(
+  packageRoot: string,
+  enabled: boolean,
+  probe: (packageRoot: string) => { ok: true } | { ok: false; message: string },
+): DoctorCheck {
+  if (!enabled) {
+    return createInfo(
+      'message-capability',
+      'Message adapter imports',
+      'Not verified (opt-in). Set MEMESH_DOCTOR_PROBE_MESSAGE_CAPABILITY=1 to start this installed MCP and verify its eight-action message schema plus bundled host-adapter imports. This does not check a live router socket or host registration.',
+    );
+  }
+  const result = probe(packageRoot);
+  if (result.ok) return createCheck(
+    'message-capability',
+    'Message adapter imports',
+    'pass',
+    'This installed MCP advertised the eight-action message schema and all bundled host adapters imported successfully. No live router socket, host registration, or host acceptance was verified.',
+  );
+  return createCheck(
+    'message-capability',
+    'Message adapter imports',
+    'fail',
+    `Installed message capability probe failed: ${result.message}.`,
+    'Reinstall or rebuild this package, then retry with MEMESH_DOCTOR_PROBE_MESSAGE_CAPABILITY=1.',
+    { code: 'message-capability.probe-failed', params: { detail: result.message } },
+  );
+}
+
+async function defaultMessageRouterStatusProbe(): Promise<MessageRouterStatusProbe> {
+  const socketPath = process.env.MEMESH_ROUTER_SOCKET
+    ?? path.join(getMemeshDirFromDbPath(), 'agent-router.sock');
+  let stat: fs.Stats;
+  try {
+    stat = fs.lstatSync(socketPath);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return { socket_path: socketPath, socket: 'missing', detail };
+  }
+  if (!stat.isSocket() || (stat.mode & 0o077) !== 0) {
+    return { socket_path: socketPath, socket: 'insecure' };
+  }
+
+  const reachable = await new Promise<boolean>((resolve) => {
+    const socket = net.createConnection({ path: socketPath });
+    const timer = setTimeout(() => {
+      socket.destroy();
+      resolve(false);
+    }, 1_500);
+    timer.unref();
+    socket.once('connect', () => {
+      clearTimeout(timer);
+      socket.destroy();
+      resolve(true);
+    });
+    socket.once('error', () => {
+      clearTimeout(timer);
+      resolve(false);
+    });
+  });
+  return { socket_path: socketPath, socket: reachable ? 'reachable' : 'unreachable' };
+}
+
+async function inspectMessageRouterStatus(
+  enabled: boolean,
+  probe: () => Promise<MessageRouterStatusProbe>,
+): Promise<DoctorCheck> {
+  if (!enabled) {
+    return createInfo(
+      'message-router-status',
+      'Live message router / host registration',
+      'Not verified (opt-in). Set MEMESH_DOCTOR_PROBE_MESSAGE_ROUTER=1 to check only whether the owner-private Local router socket is live. This check never starts a router, registers a host, sends a message, or wakes a stopped session.',
+    );
+  }
+  const result = await probe();
+  switch (result.socket) {
+    case 'reachable':
+      return createCheck(
+        'message-router-status',
+        'Live message router / host registration',
+        'pass',
+        `Owner-private Local router socket is reachable at ${result.socket_path}. This proves only router availability; it does not prove an active host registration, native delivery, host_accept, ACK, or stopped-session wake-up.`,
+      );
+    case 'missing':
+      return createCheck(
+        'message-router-status',
+        'Live message router / host registration',
+        'warn',
+        `No Local router socket exists at ${result.socket_path}. No active host is registered through this router, and MeMesh will not wake a stopped or missing session.`,
+        'Start the owner-configured router with `memesh-router`, then run this opt-in probe again.',
+        { code: 'message-router.socket-missing', params: { path: result.socket_path } },
+      );
+    case 'insecure':
+      return createCheck(
+        'message-router-status',
+        'Live message router / host registration',
+        'fail',
+        `Router socket at ${result.socket_path} is not an owner-private Unix socket.`,
+        'Stop the router, remove the unsafe socket, and restart `memesh-router` under the owning user.',
+        { code: 'message-router.socket-insecure', params: { path: result.socket_path } },
+      );
+    case 'unreachable':
+      return createCheck(
+        'message-router-status',
+        'Live message router / host registration',
+        'warn',
+        `An owner-private router socket exists at ${result.socket_path}, but it did not accept a local connection. No host registration or native delivery is verified.`,
+        'Check the owner-configured `memesh-router` process, then run this opt-in probe again.',
+        { code: 'message-router.socket-unreachable', params: { path: result.socket_path } },
+      );
+  }
+}
+
 // (The former `config_parse` row merged into `inspectConfigFile` — one file,
 // one row, one set of fix strings. Its stricter checks and error codes
 // survived the merge; only the duplicate ID died.)
@@ -2085,6 +2268,10 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
     fetchImpl = fetch,
     nativeBindingProbeImpl,
     resolveShellMemeshImpl = defaultResolveShellMemesh,
+    probeMessageCapability = process.env.MEMESH_DOCTOR_PROBE_MESSAGE_CAPABILITY === '1',
+    messageCapabilityProbeImpl = probeInstalledMessageCapability,
+    probeMessageRouterStatus = process.env.MEMESH_DOCTOR_PROBE_MESSAGE_ROUTER === '1',
+    messageRouterStatusProbeImpl = defaultMessageRouterStatusProbe,
   } = options;
 
   // F16: If the database is already open before doctor runs (e.g., the
@@ -2531,6 +2718,8 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   checks.push(inspectNativeBinding(packageRoot, existsSyncImpl, nativeBindingProbeImpl));
   checks.push(inspectShellCli(install, packageRoot, resolveShellMemeshImpl));
   checks.push(verifySkillsManifest(packageRoot, existsSyncImpl, readFileSyncImpl, installSupport));
+  checks.push(inspectMessageCapability(packageRoot, probeMessageCapability, messageCapabilityProbeImpl));
+  checks.push(await inspectMessageRouterStatus(probeMessageRouterStatus, messageRouterStatusProbeImpl));
 
   // Capabilities: what the CONFIG says. This row asserts nothing about
   // whether any of it works, so it is informational by construction.

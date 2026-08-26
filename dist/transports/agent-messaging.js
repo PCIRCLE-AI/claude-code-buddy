@@ -1,5 +1,17 @@
 import { fetchAgentMessage, pollAgentEvents, readAgentMessageReceipts, recordAgentReceipt, sendAgentMessage, waitForAgentEvents, } from '../core/agent-messaging.js';
 import { MessageSchema } from './schemas.js';
+import { createAgentRouterNotifier } from '../core/agent-router.js';
+import { getMemeshDirFromDbPath } from '../core/paths.js';
+import path from 'node:path';
+function optionalRouterNotifier() {
+    try {
+        return createAgentRouterNotifier(process.env.MEMESH_ROUTER_SOCKET
+            ?? path.join(getMemeshDirFromDbPath(), 'agent-router.sock'));
+    }
+    catch {
+        return undefined;
+    }
+}
 function receiptDetail(note, context) {
     return {
         transport: context.transport,
@@ -16,6 +28,7 @@ export async function executeAgentMessageAction(db, rawInput, context) {
                 sender: input.sender,
                 sender_host: context.sourceHost,
                 recipient: input.recipient,
+                target_kind: input.target_kind,
                 idempotency_key: input.idempotency_key,
                 payload: input.payload,
                 content_type: input.content_type,
@@ -26,6 +39,8 @@ export async function executeAgentMessageAction(db, rawInput, context) {
                     transport: context.transport,
                     source_host: context.sourceHost,
                 },
+            }, {
+                notifier: optionalRouterNotifier(),
             });
         case 'poll': {
             const query = {
