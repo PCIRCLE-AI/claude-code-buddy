@@ -55,6 +55,7 @@ export interface AgentMessagePostCommitNotifier {
 }
 export interface SendAgentMessageOptions {
     notifier?: AgentMessagePostCommitNotifier;
+    storage_quota_bytes?: number;
 }
 export interface PollAgentEventsInput {
     project: string;

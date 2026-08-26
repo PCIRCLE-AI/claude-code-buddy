@@ -192,10 +192,10 @@ export declare const MessageSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
     action: z.ZodLiteral<"ack">;
 }, z.core.$strict>, z.ZodObject<{
     disposition: z.ZodEnum<{
-        accepted: "accepted";
-        rejected: "rejected";
-        cancelled: "cancelled";
         completed: "completed";
+        cancelled: "cancelled";
+        rejected: "rejected";
+        accepted: "accepted";
         deferred: "deferred";
     }>;
     detail: z.ZodOptional<z.ZodString>;

@@ -93,6 +93,12 @@ CREATE TABLE IF NOT EXISTS agent_messages (
   reply_to_message_id TEXT,
   privacy            TEXT NOT NULL,
   payload_json       TEXT NOT NULL,
+  -- A tombstone replaces only a terminal payload. The original JSON bytes
+  -- are never reconstructed from these fields; they retain enough identity to
+  -- audit the erasure while the routing and lifecycle tables remain intact.
+  payload_sha256     TEXT,
+  payload_original_bytes INTEGER,
+  payload_tombstoned_at TIMESTAMP,
   provenance_json    TEXT NOT NULL,
   created_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -298,6 +304,8 @@ CREATE INDEX IF NOT EXISTS idx_agent_session_connections_active
   WHERE disconnected_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_agent_dispatch_attempts_delivery
   ON agent_dispatch_attempts(delivery_id, attempt_number);
+CREATE INDEX IF NOT EXISTS idx_agent_workflow_facts_delivery_created
+  ON agent_workflow_facts(delivery_id, created_at, workflow_fact_id);
 
 -- Proof that a capture hook actually RAN. Nothing else in this schema can
 -- give it: every other signal is "a row was written", and "the hook ran and
@@ -459,6 +467,30 @@ export function migrateEntitiesSchema(db: MemeshDatabase): void {
   db.exec(
     `CREATE INDEX IF NOT EXISTS idx_agent_message_deliveries_target
        ON agent_message_deliveries(project, target_kind, recipient, message_id);`,
+  );
+
+  // Message payload retention is deliberately additive: a database created
+  // before retention support still has valid payload_json rows, and only a
+  // future terminal-prune operation writes the audit columns.  Do not backfill
+  // hashes here: opening a database must not scan or rewrite its inbox.
+  const messageColumns = new Set(
+    (db.prepare("PRAGMA table_info(agent_messages)").all() as Array<{ name: string }>).map(
+      (column) => column.name,
+    ),
+  );
+  const addMessageColumn = (column: string, sql: string): void => {
+    if (messageColumns.has(column)) return;
+    safeAlter(db, sql);
+    messageColumns.add(column);
+  };
+  addMessageColumn('payload_sha256', 'ALTER TABLE agent_messages ADD COLUMN payload_sha256 TEXT');
+  addMessageColumn('payload_original_bytes', 'ALTER TABLE agent_messages ADD COLUMN payload_original_bytes INTEGER');
+  addMessageColumn('payload_tombstoned_at', 'ALTER TABLE agent_messages ADD COLUMN payload_tombstoned_at TIMESTAMP');
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_agent_messages_tombstone
+       ON agent_messages(payload_tombstoned_at, created_at);
+     CREATE INDEX IF NOT EXISTS idx_agent_workflow_facts_delivery_created
+       ON agent_workflow_facts(delivery_id, created_at, workflow_fact_id);`,
   );
 }
 

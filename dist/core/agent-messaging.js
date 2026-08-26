@@ -1,4 +1,5 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { agentMessagePayloadStorageBytes, enforceAgentMessageStorageQuota, } from './agent-message-storage.js';
 const MAX_SCOPE_FIELD = 200;
 const MAX_IDEMPOTENCY_KEY = 200;
 const MAX_CURSOR_TOKEN = 160;
@@ -42,13 +43,20 @@ export function sendAgentMessage(db, input, options = {}) {
     const messageId = randomUUID();
     const deliveryId = randomUUID();
     const eventId = randomUUID();
+    const payloadJson = stableStringify(normalized.payload);
     const tx = db.transaction(() => {
+        if (options.storage_quota_bytes !== undefined) {
+            enforceAgentMessageStorageQuota(db, {
+                quotaBytes: options.storage_quota_bytes,
+                additionalPayloadBytes: agentMessagePayloadStorageBytes(payloadJson),
+            });
+        }
         db.prepare(`
       INSERT INTO agent_messages (
         message_id, project, sender, sender_host, recipient, content_type,
         correlation_id, reply_to_message_id, privacy, payload_json, provenance_json
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(messageId, normalized.project, normalized.sender, normalized.sender_host, normalized.recipient, normalized.content_type, normalized.correlation_id, normalized.reply_to, normalized.privacy, stableStringify(normalized.payload), stableStringify(normalized.provenance));
+    `).run(messageId, normalized.project, normalized.sender, normalized.sender_host, normalized.recipient, normalized.content_type, normalized.correlation_id, normalized.reply_to, normalized.privacy, payloadJson, stableStringify(normalized.provenance));
         db.prepare(`
       INSERT INTO agent_message_deliveries (delivery_id, message_id, project, recipient, target_kind)
       VALUES (?, ?, ?, ?, ?)

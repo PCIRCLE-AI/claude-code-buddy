@@ -1,5 +1,9 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { MemeshDatabase } from '../storage/sqlite.js';
+import {
+  agentMessagePayloadStorageBytes,
+  enforceAgentMessageStorageQuota,
+} from './agent-message-storage.js';
 
 export type AgentJsonPrimitive = boolean | null | number | string;
 export type AgentJsonValue = AgentJsonPrimitive | AgentJsonValue[] | { [key: string]: AgentJsonValue };
@@ -59,6 +63,8 @@ export interface AgentMessagePostCommitNotifier {
 
 export interface SendAgentMessageOptions {
   notifier?: AgentMessagePostCommitNotifier;
+  /** Trusted host policy. Omit to leave retention/quota policy owner-controlled. */
+  storage_quota_bytes?: number;
 }
 
 export interface PollAgentEventsInput {
@@ -331,8 +337,15 @@ export function sendAgentMessage(
   const messageId = randomUUID();
   const deliveryId = randomUUID();
   const eventId = randomUUID();
+  const payloadJson = stableStringify(normalized.payload);
 
   const tx = db.transaction(() => {
+    if (options.storage_quota_bytes !== undefined) {
+      enforceAgentMessageStorageQuota(db, {
+        quotaBytes: options.storage_quota_bytes,
+        additionalPayloadBytes: agentMessagePayloadStorageBytes(payloadJson),
+      });
+    }
     db.prepare(`
       INSERT INTO agent_messages (
         message_id, project, sender, sender_host, recipient, content_type,
@@ -348,7 +361,7 @@ export function sendAgentMessage(
       normalized.correlation_id,
       normalized.reply_to,
       normalized.privacy,
-      stableStringify(normalized.payload),
+      payloadJson,
       stableStringify(normalized.provenance),
     );
 
