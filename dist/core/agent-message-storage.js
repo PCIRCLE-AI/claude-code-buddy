@@ -76,7 +76,6 @@ export function pruneTerminalAgentMessagePayloads(db, options) {
         const selected = selectPrunableMessages(db, cutoff, batchSize);
         const candidates = selected.map(toCandidate);
         for (let index = 0; index < selected.length; index++) {
-            const selectedCandidate = selected[index];
             const candidate = candidates[index];
             options.fault?.beforeTombstone?.(candidate);
             const tombstone = stableTombstone(candidate.payload_sha256, candidate.payload_bytes);
