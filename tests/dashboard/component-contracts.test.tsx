@@ -856,7 +856,7 @@ describe('dashboard components on degenerate data', () => {
           ? [proposal]
           : { capabilities: { llm: null } };
       const p = Promise.resolve(jsonResponse({ success: true, data }));
-      pendingResponses.push(p.catch(() => undefined));
+      pendingResponses.push(p);
       return p;
     }) as typeof globalThis.fetch);
 
