@@ -155,10 +155,18 @@ describe('CLI durable-message ingress', () => {
         env: { ...process.env, HOME: home, MEMESH_AUTO_CAPTURE: 'false' },
       });
       expect(setup.status, setup.stderr).toBe(0);
-      const result = JSON.parse(setup.stdout) as { config_path: string; session_identity: string; ordinary_sessions: string };
+      const result = JSON.parse(setup.stdout) as {
+        config_path: string;
+        session_identity: string;
+        ordinary_sessions: string;
+        registration_command: string | null;
+        launch_command: string;
+      };
       expect(result).toMatchObject({
         session_identity: 'generated-per-process',
         ordinary_sessions: 'presence-only/inbound-unavailable',
+        registration_command: null,
+        launch_command: expect.stringContaining('memesh-host-codex'),
       });
       const stat = fs.statSync(result.config_path);
       expect(stat.mode & 0o077).toBe(0);
@@ -177,6 +185,29 @@ describe('CLI durable-message ingress', () => {
       expect(repeat.status).not.toBe(0);
       expect(repeat.stderr).toContain('was not overwritten');
       expect(JSON.parse(fs.readFileSync(result.config_path, 'utf8'))).toMatchObject({ principal_id: 'reviewer' });
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('prints both Claude one-time registration and the required development-channel launch', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-cli-agent-'));
+    try {
+      const setup = spawnSync(process.execPath, cliArgs(
+        'agent', 'setup', 'claude', '--project', 'project-a', '--principal', 'claude-a', '--json',
+      ), {
+        encoding: 'utf8',
+        env: { ...process.env, HOME: home, MEMESH_AUTO_CAPTURE: 'false' },
+      });
+      expect(setup.status, setup.stderr).toBe(0);
+      const result = JSON.parse(setup.stdout) as {
+        registration_command: string;
+        launch_command: string;
+        next_command: string;
+      };
+      expect(result.registration_command).toContain('claude mcp add --transport stdio --scope user memesh-channel');
+      expect(result.next_command).toBe(result.registration_command);
+      expect(result.launch_command).toBe('claude --dangerously-load-development-channels server:memesh-channel');
     } finally {
       fs.rmSync(home, { recursive: true, force: true });
     }

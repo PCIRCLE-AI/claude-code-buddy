@@ -61,7 +61,7 @@ appears in MeMesh or Codex process arguments.
 
 ### Claude channel runner
 
-Run the `next_command` printed by setup once to add `memesh-channel` as a
+Run the printed `registration_command` once to add `memesh-channel` as a
 user-scoped stdio MCP server. Claude owns that process for the session:
 
 ```bash
@@ -69,10 +69,19 @@ claude mcp add --transport stdio --scope user memesh-channel -- \
   memesh-host-claude --config "$HOME/.memesh/hosts/claude.json"
 ```
 
-Claude Channels is an upstream opt-in. Enable/allowlist the server according
-to the installed Claude Code policy (development builds may require
-`--dangerously-load-development-channels server:memesh-channel`). After that
-provider setup, channel initialization creates and registers the exact MeMesh
+Claude Channels is an upstream research-preview opt-in. Custom channels are
+not on Anthropic's approved allowlist, so start every participating Claude
+session with the printed launch command and confirm the local-development
+warning:
+
+```bash
+claude --dangerously-load-development-channels server:memesh-channel
+```
+
+Without that flag Claude may initialize the ordinary MCP transport while
+silently dropping channel events; a MeMesh `host_accept` then proves only that
+the notification was written to stdio, not that Claude admitted it. With the
+channel admitted, initialization creates and registers the exact MeMesh
 session automatically; EOF, MCP close, or normal signals unregister it.
 
 ### Gemini ACP runner

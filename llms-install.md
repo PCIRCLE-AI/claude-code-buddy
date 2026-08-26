@@ -115,8 +115,9 @@ memesh agent setup codex --project my-project --principal codex-recipient --work
 memesh-host-codex --config "$HOME/.memesh/hosts/codex.json"
 
 memesh agent setup claude --project my-project --principal claude-recipient
-# Run the printed `claude mcp add ... memesh-host-claude ...` command once.
-# Enable/allowlist `server:memesh-channel` under the installed Claude Channels policy.
+# Run the printed `registration_command` (`claude mcp add ... memesh-host-claude ...`) once.
+# Start each participating session with the printed research-preview launch command:
+claude --dangerously-load-development-channels server:memesh-channel
 
 memesh agent setup gemini --project my-project --principal gemini-recipient --workspace "$PWD"
 memesh-host-acp --config "$HOME/.memesh/hosts/gemini-acp.json"

@@ -787,23 +787,29 @@ agentCmd
             ? { ...common, server_name: 'memesh-channel' }
             : { ...common, workspace: path.resolve(opts.workspace), command: 'gemini', args: [] };
     fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
-    const command = host === 'codex'
+    const launchCommand = host === 'codex'
         ? `memesh-host-codex --config ${JSON.stringify(configPath)}`
         : host === 'claude'
-            ? `claude mcp add --transport stdio --scope user memesh-channel -- memesh-host-claude --config ${JSON.stringify(configPath)}`
+            ? 'claude --dangerously-load-development-channels server:memesh-channel'
             : `memesh-host-acp --config ${JSON.stringify(configPath)}`;
+    const registrationCommand = host === 'claude'
+        ? `claude mcp add --transport stdio --scope user memesh-channel -- memesh-host-claude --config ${JSON.stringify(configPath)}`
+        : null;
     const result = {
         host,
         config_path: configPath,
         mode: host === 'claude' ? 'session-owned-channel' : 'memesh-managed-session',
         session_identity: 'generated-per-process',
         ordinary_sessions: 'presence-only/inbound-unavailable',
-        next_command: command,
+        registration_command: registrationCommand,
+        launch_command: launchCommand,
+        next_command: registrationCommand ?? launchCommand,
     };
     console.log(opts.json ? JSON.stringify(result) : [
         `Created owner-private managed ${host} config: ${configPath}`,
         'No active or stopped ordinary session was attached.',
-        `Next: ${command}`,
+        ...(registrationCommand ? [`Register once: ${registrationCommand}`] : []),
+        `Launch: ${launchCommand}`,
     ].join('\n'));
 });
 program
