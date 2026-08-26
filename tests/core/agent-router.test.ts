@@ -209,6 +209,35 @@ function send(db: ReturnType<typeof openDatabase>, recipient: string, key: strin
 }
 
 describe.sequential('AgentRouter real SQLite + UDS integration', () => {
+  it('rejects a nominally successful response that omits its result object', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-router-response-'));
+    fs.chmodSync(dir, 0o700);
+    tempDirs.push(dir);
+    const socketPath = path.join(dir, 'router.sock');
+    const server = net.createServer((socket) => {
+      socket.once('data', (chunk) => {
+        const request = JSON.parse(chunk.toString('utf8').trim()) as Frame;
+        socket.write(`${JSON.stringify({ version: 1, request_id: request.request_id, ok: true })}\n`);
+      });
+    });
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(socketPath, resolve);
+    });
+    try {
+      await expect(sendAgentRouterRequest(socketPath, {
+        version: 1,
+        type: 'notify',
+        request_id: randomUUID(),
+        project: 'project-a',
+        delivery_id: randomUUID(),
+        hops: 0,
+      })).rejects.toMatchObject({ code: 'invalid_response' });
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+    }
+  });
+
   it('recovers one orphaned stale UDS under concurrent startup without stealing the winner', async () => {
     const { db, socketPath, token } = setup();
     await leaveOrphanedSocket(socketPath);

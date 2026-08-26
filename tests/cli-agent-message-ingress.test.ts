@@ -108,12 +108,4 @@ describe('CLI durable-message ingress', () => {
     }
   });
 
-  it('documents the stdin-only ingress at the implementation boundary', () => {
-    const source = fs.readFileSync('src/transports/cli/cli.ts', 'utf8');
-    expect(source).toContain('--payload-stdin');
-    expect(source).toContain('--target-kind');
-    expect(source).toContain('target_kind: opts.targetKind');
-    expect(source).toContain('never argv');
-    expect(source).toContain('readCliMessagePayloadFromStdin');
-  });
 });

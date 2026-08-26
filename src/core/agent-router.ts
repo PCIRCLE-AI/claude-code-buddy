@@ -941,8 +941,13 @@ export async function sendAgentRouterRequest(
       settled = true;
       clearTimeout(timer);
       socket.destroy();
-      if (error) reject(error);
-      else resolve(value ?? {});
+      if (error) {
+        reject(error);
+      } else if (value === undefined) {
+        reject(new AgentRouterProtocolError('invalid_response', 'Router response omitted its result object.'));
+      } else {
+        resolve(value);
+      }
     };
 
     socket.on('connect', () => socket.write(frame));

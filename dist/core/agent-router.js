@@ -652,10 +652,15 @@ export async function sendAgentRouterRequest(socketPath, request, timeoutMs = DE
             settled = true;
             clearTimeout(timer);
             socket.destroy();
-            if (error)
+            if (error) {
                 reject(error);
-            else
-                resolve(value ?? {});
+            }
+            else if (value === undefined) {
+                reject(new AgentRouterProtocolError('invalid_response', 'Router response omitted its result object.'));
+            }
+            else {
+                resolve(value);
+            }
         };
         socket.on('connect', () => socket.write(frame));
         socket.on('data', (chunk) => {
