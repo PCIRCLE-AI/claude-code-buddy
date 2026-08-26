@@ -965,7 +965,7 @@ export async function sendAgentRouterRequest(
           throw new AgentRouterProtocolError('invalid_response', 'Router response identity does not match.');
         }
         if (!response.ok) throw new AgentRouterProtocolError(response.error.code, response.error.message);
-        finish(undefined, response.result);
+        finish(undefined, validateRouterSuccessResult(request, response.result));
       } catch (error) {
         finish(error instanceof Error ? error : new Error(String(error)));
       }
@@ -975,6 +975,62 @@ export async function sendAgentRouterRequest(
       if (!settled) finish(new AgentRouterProtocolError('connection_closed', 'Router closed without a response.'));
     });
   });
+}
+
+function validateRouterSuccessResult(request: AgentRouterRequest, value: unknown): AgentJsonObject {
+  if (!isPlainObject(value)) {
+    throw new AgentRouterProtocolError('invalid_response', 'Router response result must be an object.');
+  }
+
+  const requireResultString = (field: string): string => {
+    const candidate = value[field];
+    if (typeof candidate !== 'string' || candidate.length === 0 || candidate.length > MAX_FIELD_LENGTH) {
+      throw new AgentRouterProtocolError('invalid_response', `Router response omitted a valid ${field}.`);
+    }
+    return candidate;
+  };
+  const requireResultInteger = (field: string, minimum = 1): number => {
+    const candidate = value[field];
+    if (!Number.isSafeInteger(candidate) || (candidate as number) < minimum) {
+      throw new AgentRouterProtocolError('invalid_response', `Router response omitted a valid ${field}.`);
+    }
+    return candidate as number;
+  };
+  const requireResultBoolean = (field: string): boolean => {
+    const candidate = value[field];
+    if (typeof candidate !== 'boolean') {
+      throw new AgentRouterProtocolError('invalid_response', `Router response omitted a valid ${field}.`);
+    }
+    return candidate;
+  };
+
+  switch (request.type) {
+    case 'register':
+      requireResultString('connection_id');
+      requireResultInteger('generation');
+      requireResultInteger('lease_ms');
+      requireResultBoolean('drain_scheduled');
+      break;
+    case 'notify':
+      requireResultBoolean('delivered');
+      break;
+    case 'heartbeat':
+      requireResultInteger('generation');
+      requireResultInteger('lease_ms');
+      break;
+    case 'disconnect':
+      if (value.disconnected !== true) {
+        throw new AgentRouterProtocolError('invalid_response', 'Router response did not confirm disconnect.');
+      }
+      break;
+    case 'host_accept':
+    case 'host_reject':
+      if (value.correlated !== true && typeof value.duplicate !== 'boolean') {
+        throw new AgentRouterProtocolError('invalid_response', 'Router response omitted its host-outcome correlation.');
+      }
+      break;
+  }
+  return value as AgentJsonObject;
 }
 
 function parseRequest(frame: Buffer, maxHops: number): AgentRouterRequest {
