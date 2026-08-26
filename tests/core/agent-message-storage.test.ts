@@ -145,6 +145,61 @@ describe('bounded agent message storage', () => {
     });
   });
 
+  it('reports nonnegative net logical payload bytes reclaimed with dry-run/apply parity and report readback', () => {
+    const small = send({ body: 'x' });
+    const large = send({ body: 'x'.repeat(4 * 1024) });
+    const originals = new Map([
+      [small.message_id, storedPayload(small.message_id)],
+      [large.message_id, storedPayload(large.message_id)],
+    ]);
+    workflow(small, 'completed');
+    workflow(large, 'completed');
+
+    const dryRun = pruneTerminalAgentMessagePayloads(getDatabase(), {
+      cutoff: CUTOFF,
+      dryRun: true,
+      batchSize: 2,
+    });
+    expect(dryRun).toMatchObject({ dry_run: true, candidate_count: 2, tombstoned_count: 0 });
+
+    const applied = pruneTerminalAgentMessagePayloads(getDatabase(), {
+      cutoff: CUTOFF,
+      dryRun: false,
+      batchSize: 2,
+    });
+    expect(applied).toMatchObject({ dry_run: false, candidate_count: 2, tombstoned_count: 2 });
+    expect(applied.reclaimed_payload_bytes).toBe(dryRun.reclaimed_payload_bytes);
+
+    const netBytesByMessage = [small, large].map((message) => {
+      const original = originals.get(message.message_id)!;
+      const tombstone = storedPayload(message.message_id);
+      return Buffer.byteLength(original, 'utf8') - Buffer.byteLength(tombstone, 'utf8');
+    });
+    expect(netBytesByMessage[0]).toBeLessThan(0);
+    expect(netBytesByMessage[1]).toBeGreaterThan(0);
+    expect(applied.reclaimed_payload_bytes).toBeLessThan(
+      applied.candidates.reduce((total, candidate) => total + candidate.payload_bytes, 0),
+    );
+
+    const report = getAgentMessageStorageReport(getDatabase(), { cutoff: CUTOFF });
+    const expectedPayloadBytes = [small, large].reduce(
+      (total, message) => total + Buffer.byteLength(storedPayload(message.message_id), 'utf8'),
+      0,
+    );
+    const expectedOriginalPayloadBytes = [...originals.values()].reduce(
+      (total, payload) => total + Buffer.byteLength(payload, 'utf8'),
+      0,
+    );
+    const expectedReclaimedBytes = Math.max(0, expectedOriginalPayloadBytes - expectedPayloadBytes);
+    expect(applied.reclaimed_payload_bytes).toBe(expectedReclaimedBytes);
+    expect(report).toMatchObject({
+      tombstoned_message_count: 2,
+      payload_bytes: expectedPayloadBytes,
+      original_payload_bytes: expectedOriginalPayloadBytes,
+    });
+    expect(report.original_payload_bytes - report.payload_bytes).toBe(expectedReclaimedBytes);
+  });
+
   it('rolls the whole bounded batch back when its fault seam trips', () => {
     const first = send({ body: 'first' });
     const second = send({ body: 'second' });

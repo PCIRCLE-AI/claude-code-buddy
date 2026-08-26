@@ -191,6 +191,7 @@ type MessageRouterStatusProbe = {
 const EMBEDDING_PROBE_TIMEOUT_MS = 15000;
 
 const EXPECTED_HOOK_TYPES = ['PreToolUse', 'SessionStart', 'PostToolUse', 'Stop', 'PreCompact'];
+const AGENT_MESSAGE_STORAGE_QUOTA_ENV = 'MEMESH_AGENT_MESSAGE_STORAGE_QUOTA_BYTES';
 
 // Locale READMEs that MUST stay in lockstep with README.md. Order matters
 // only for the doctor output — alphabetised for readability.
@@ -382,9 +383,10 @@ function inspectAgentMessageStorage(
     const cutoff = policy?.retention_cutoff ?? new Date(0);
     const report = getAgentMessageStorageReport(db, { cutoff, databasePath });
     const quota = policy?.storage_quota_bytes;
+    const invalidQuota = quota !== undefined && (!Number.isSafeInteger(quota) || quota < 0);
     const quotaText = quota === undefined
       ? 'quota not configured'
-      : Number.isSafeInteger(quota) && quota >= 0
+      : !invalidQuota
         ? `quota ${formatStorageBytes(quota)} (${formatStorageBytes(report.payload_bytes)} logical payload used)`
         : 'configured quota is invalid';
     const retentionText = policy?.retention_cutoff === undefined
@@ -398,13 +400,26 @@ function inspectAgentMessageStorage(
       ? 'database file size unavailable'
       : `database file ${formatStorageBytes(report.database_file_bytes)}`;
 
-    return createInfo(
-      'agent_message_storage',
-      'Agent message storage',
+    const summary =
       `${report.message_count} message(s), ${formatStorageBytes(report.payload_bytes)} logical payload `
       + `(${report.protected_unresolved_message_count} unresolved/protected); ${formatStorageBytes(report.reusable_freelist_bytes)} `
       + `SQLite freelist reusable; ${databaseText}; ${walText}; ${quotaText}; ${retentionText}. `
-      + 'Doctor only read this state: it did not prune payloads, checkpoint WAL, or run VACUUM.',
+      + 'Doctor only read this state: it did not prune payloads, checkpoint WAL, or run VACUUM.';
+
+    if (invalidQuota) {
+      return createCheck(
+        'agent_message_storage',
+        'Agent message storage',
+        'warn',
+        `${summary} Send enforcement rejects this quota configuration; use a canonical non-negative safe decimal integer.`,
+        `Set ${AGENT_MESSAGE_STORAGE_QUOTA_ENV} to 0 or a positive decimal integer within the safe integer range, then re-run memesh doctor.`,
+      );
+    }
+
+    return createInfo(
+      'agent_message_storage',
+      'Agent message storage',
+      summary,
     );
   } catch {
     // This diagnostic must not turn a healthy database row into a duplicate
@@ -417,9 +432,16 @@ function configuredAgentMessageStoragePolicy(
   explicit: DoctorOptions['agentMessageStoragePolicy'],
 ): DoctorOptions['agentMessageStoragePolicy'] {
   if (explicit !== undefined) return explicit;
-  const quotaRaw = process.env.MEMESH_AGENT_MESSAGE_STORAGE_QUOTA_BYTES;
+  const quotaRaw = process.env[AGENT_MESSAGE_STORAGE_QUOTA_ENV];
   if (quotaRaw === undefined || quotaRaw === '') return undefined;
-  return { storage_quota_bytes: Number(quotaRaw) };
+  // Keep this predicate byte-for-byte aligned with send enforcement in
+  // transports/agent-messaging.ts. Number(raw) alone accepts exponent notation,
+  // whitespace, signs, decimals, and values outside Number's safe range.
+  if (!/^(0|[1-9][0-9]*)$/.test(quotaRaw)) {
+    return { storage_quota_bytes: Number.NaN };
+  }
+  const parsed = Number(quotaRaw);
+  return { storage_quota_bytes: Number.isSafeInteger(parsed) ? parsed : Number.NaN };
 }
 
 function formatStorageBytes(value: number): string {

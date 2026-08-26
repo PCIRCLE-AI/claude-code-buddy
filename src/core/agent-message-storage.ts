@@ -60,6 +60,11 @@ export interface AgentMessageRetentionResult {
   dry_run: boolean;
   candidate_count: number;
   tombstoned_count: number;
+  /**
+   * Nonnegative net logical UTF-8 payload bytes reclaimed by applying, or
+   * that would be reclaimed by applying, the selected candidates. The actual
+   * hash-bound tombstone and its overhead are included before batch clamping.
+   */
   reclaimed_payload_bytes: number;
   candidates: AgentMessageRetentionCandidate[];
 }
@@ -326,9 +331,17 @@ function resultForCandidates(dryRun: boolean, candidates: AgentMessageRetentionC
     dry_run: dryRun,
     candidate_count: candidates.length,
     tombstoned_count: dryRun ? 0 : candidates.length,
-    reclaimed_payload_bytes: candidates.reduce((total, candidate) => total + candidate.payload_bytes, 0),
+    reclaimed_payload_bytes: reclaimedPayloadBytes(candidates),
     candidates,
   };
+}
+
+function reclaimedPayloadBytes(candidates: AgentMessageRetentionCandidate[]): number {
+  const netPayloadBytes = candidates.reduce((total, candidate) => {
+    const tombstone = stableTombstone(candidate.payload_sha256, candidate.payload_bytes);
+    return total + candidate.payload_bytes - Buffer.byteLength(tombstone, 'utf8');
+  }, 0);
+  return Math.max(0, netPayloadBytes);
 }
 
 function insertRetentionFact(

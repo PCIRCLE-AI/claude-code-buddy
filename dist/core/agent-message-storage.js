@@ -190,9 +190,16 @@ function resultForCandidates(dryRun, candidates) {
         dry_run: dryRun,
         candidate_count: candidates.length,
         tombstoned_count: dryRun ? 0 : candidates.length,
-        reclaimed_payload_bytes: candidates.reduce((total, candidate) => total + candidate.payload_bytes, 0),
+        reclaimed_payload_bytes: reclaimedPayloadBytes(candidates),
         candidates,
     };
+}
+function reclaimedPayloadBytes(candidates) {
+    const netPayloadBytes = candidates.reduce((total, candidate) => {
+        const tombstone = stableTombstone(candidate.payload_sha256, candidate.payload_bytes);
+        return total + candidate.payload_bytes - Buffer.byteLength(tombstone, 'utf8');
+    }, 0);
+    return Math.max(0, netPayloadBytes);
 }
 function insertRetentionFact(db, candidate, actor, tombstone) {
     const idempotencyKey = `payload-tombstone:${candidate.message_id}:${candidate.payload_sha256}`;
