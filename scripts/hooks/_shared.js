@@ -1,6 +1,5 @@
 import { appendFileSync, chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from 'fs';
 import { spawn } from 'child_process';
-import { createRequire } from 'module';
 import { MemeshDatabase } from './_generated/sqlite.js';
 import { dirname, join } from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
@@ -128,8 +127,6 @@ import {
 } from './_generated/fts-index.js';
 
 export { homeDir, memeshDir, getDbPath, getMemeshDirFromDbPath, getProjectName, redactSecrets, slugFromRemoteUrl };
-
-const require = createRequire(import.meta.url);
 
 /**
  * Resolve the package root from a hook file's `import.meta.url`.
@@ -286,9 +283,13 @@ const VALID_AUTO_UPDATE_POLICIES = new Set(['off', 'patch', 'minor', 'major']);
  */
 export function resolveAutoUpdatePolicy(env = process.env) {
   const envVal = env.MEMESH_AUTO_UPDATE;
-  if (typeof envVal === 'string') {
+  if (envVal !== undefined) {
+    if (typeof envVal !== 'string') return 'off';
     const lowered = envVal.toLowerCase();
     if (VALID_AUTO_UPDATE_POLICIES.has(lowered)) return lowered;
+    // An explicit but malformed higher-priority value must not uncover a
+    // permissive config value and authorise an unattended global mutation.
+    return 'off';
   }
   const cfg = readHookConfig(env);
   if (typeof cfg.autoUpdate === 'string') {
@@ -828,84 +829,28 @@ export function decideAutoUpdateHook(currentVersion, cache, policy) {
 
 export function logAutoUpdate(line) {
   try {
-    const dir = getMemeshDirFromDbPath();
+    const dir = memeshDir();
     ensurePrivateDir(dir);
     const path = join(dir, 'auto-update.log');
     appendFileSync(path, `[${new Date().toISOString()}] ${line}\n`);
     try { chmodSync(path, 0o600); } catch { /* non-POSIX */ }
+    return true;
   } catch {
-    // Logging is best-effort.
-  }
-}
-
-export const AUTO_UPDATE_LOCK_TTL_MS = 10 * 60 * 1000;
-
-export function tryAcquireAutoUpdateLock(version) {
-  try {
-    const dir = memeshDir();
-    ensurePrivateDir(dir);
-    const lockPath = join(dir, 'auto-update.lock');
-    const fs = require('fs');
-    const myToken = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-    const payload = `${myToken}\n${process.pid}\n${Date.now()}\n${version}\n`;
-    try {
-      // O_CREAT|O_EXCL is the POSIX atomic create primitive — only one process wins.
-      const O_FLAGS = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL;
-      const fd = fs.openSync(lockPath, O_FLAGS, 0o600);
-      try { fs.writeFileSync(fd, payload); } finally { fs.closeSync(fd); }
-      return { acquired: true, lockPath };
-    } catch (err) {
-      if (err?.code !== 'EEXIST') throw err;
-    }
-    let stat;
-    try { stat = fs.statSync(lockPath); } catch { return { acquired: false, lockPath }; }
-    if (Date.now() - stat.mtimeMs <= AUTO_UPDATE_LOCK_TTL_MS) {
-      return { acquired: false, lockPath };
-    }
-    const tempPath = `${lockPath}.${process.pid}.${Math.random().toString(36).slice(2, 10)}.tmp`;
-    try {
-      fs.writeFileSync(tempPath, payload, { mode: 0o600 });
-      try { fs.unlinkSync(lockPath); } catch (e2) {
-        if (e2?.code !== 'ENOENT') {
-          try { fs.unlinkSync(tempPath); } catch { /* best-effort */ }
-          return { acquired: false, lockPath };
-        }
-      }
-      fs.renameSync(tempPath, lockPath);
-    } catch {
-      try { fs.unlinkSync(tempPath); } catch { /* best-effort */ }
-      return { acquired: false, lockPath };
-    }
-    // The "race" here is the lock primitive itself: we just renamed our
-    // temp file onto lockPath, then immediately read back to see whether
-    // our token won. If a concurrent caller's rename landed in the
-    // window between our rename and our read, their token is now there
-    // and we correctly conclude we did NOT acquire the lock. That race
-    // outcome IS the contract — last-writer-wins lock-file pattern, not
-    // a TOCTOU defect. (CodeQL js/file-system-race #82 is dismissed on
-    // the security dashboard with this rationale; CodeQL does not honor
-    // inline suppression comments, so dismissal is the correct route.)
-    let recorded;
-    try { recorded = fs.readFileSync(lockPath, 'utf8'); } catch { return { acquired: false, lockPath }; }
-    return recorded.split('\n')[0] === myToken
-      ? { acquired: true, lockPath }
-      : { acquired: false, lockPath };
-  } catch {
-    return { acquired: false, lockPath: null };
+    return false;
   }
 }
 
 /**
- * Spawn `npm install -g @pcircle/memesh@<version>` detached so the upgrade
- * can finish after this hook returns. Never blocks the session.
+ * Dispatch the detached updater runner after proving that this is an
+ * npm-global install and that its durable outcome log is writable. The runner
+ * owns the single-flight lock and emits the only terminal SUCCESS/FAILED line.
  *
  * @param {string} version - Target version to install
- * @param {boolean} deprecationOverride - Whether this is a security-override install
  * @param {object|null} installChannelMod - Preloaded dist/core/install-channel.js module
- * @returns {{ state: 'spawned'|'in-progress'|'channel'|'failed' }}
+ * @returns {Promise<{ state: 'dispatched'|'channel'|'failed' }>}
  */
-export function spawnAutoUpdate(version, deprecationOverride, installChannelMod) {
-  let lock = null;
+export async function spawnAutoUpdate(version, installChannelMod) {
+  let fd = -1;
   try {
     const pluginRoot = resolvePluginRoot(import.meta.url);
     let channel = 'unknown';
@@ -915,42 +860,76 @@ export function spawnAutoUpdate(version, deprecationOverride, installChannelMod)
       } catch { /* best-effort */ }
     }
     if (channel !== 'npm-global') {
-      logAutoUpdate(
-        `auto-update SKIPPED: install channel '${channel}' does not support self-update via npm install -g`
-      );
+      const line = `auto-update SKIPPED: install channel '${channel}' does not support self-update via npm install -g`;
+      if (!logAutoUpdate(line)) {
+        try { process.stderr.write(`[memesh] ${line}\n`); } catch { /* stderr unavailable */ }
+      }
       return { state: 'channel' };
     }
-    lock = tryAcquireAutoUpdateLock(version);
-    if (!lock.acquired) {
-      logAutoUpdate(
-        `auto-update SKIPPED: another session already holds ${lock.lockPath ?? 'auto-update.lock'} for this upgrade`
-      );
-      return { state: 'in-progress' };
-    }
-    const dir = getMemeshDirFromDbPath();
+
+    const dir = memeshDir();
     ensurePrivateDir(dir);
     const logPath = join(dir, 'auto-update.log');
-    let fd = -1;
-    try { fd = openSync(logPath, 'a', 0o600); } catch { fd = -1; }
-    const stdio = fd >= 0 ? ['ignore', fd, fd] : 'ignore';
-    const child = spawn(
-      'npm',
-      ['install', '-g', `@pcircle/memesh@${version}`],
-      // windowsHide avoids a flashing console window on Windows; harmless on POSIX.
-      { detached: true, stdio, env: process.env, windowsHide: true },
-    );
-    child.unref();
-    if (fd >= 0) {
-      try { closeSync(fd); } catch { /* ignore */ }
+    const lockPath = join(dir, 'auto-update.lock');
+    const runnerPath = join(pluginRoot, 'scripts', 'hooks', 'auto-update-runner.mjs');
+    if (!existsSync(runnerPath)) {
+      const line = `auto-update FAILED: runner missing at ${runnerPath}`;
+      if (!logAutoUpdate(line)) {
+        try { process.stderr.write(`[memesh] ${line}\n`); } catch { /* stderr unavailable */ }
+      }
+      return { state: 'failed' };
     }
-    logAutoUpdate(
-      `auto-update spawn: target=${version}${deprecationOverride ? ' (deprecation-override)' : ''} pid=${child.pid ?? 'unknown'} lock=${lock.lockPath}`
+
+    try {
+      fd = openSync(logPath, 'a', 0o600);
+      try { chmodSync(logPath, 0o600); } catch { /* non-POSIX */ }
+    } catch (err) {
+      try {
+        process.stderr.write(
+          `[memesh] auto-update FAILED: durable log unavailable at ${logPath} (${err?.message ?? err})\n`,
+        );
+      } catch { /* stderr unavailable */ }
+      return { state: 'failed' };
+    }
+
+    const child = spawn(
+      process.execPath,
+      [runnerPath, version, lockPath],
+      { detached: true, stdio: ['ignore', fd, fd], env: process.env, windowsHide: true },
     );
-    return { state: 'spawned' };
+
+    return await new Promise((resolve) => {
+      let settled = false;
+      const finish = (state, line) => {
+        if (settled) return;
+        settled = true;
+        if (fd >= 0) {
+          try { closeSync(fd); } catch { /* already closed */ }
+          fd = -1;
+        }
+        if (!logAutoUpdate(line)) {
+          try { process.stderr.write(`[memesh] ${line}\n`); } catch { /* stderr unavailable */ }
+        }
+        resolve({ state });
+      };
+      child.once('spawn', () => {
+        child.unref();
+        finish(
+          'dispatched',
+          `auto-update DISPATCHED: target=${version} worker_pid=${child.pid ?? 'unknown'} lock=${lockPath}`,
+        );
+      });
+      child.once('error', (err) => {
+        finish('failed', `auto-update FAILED: target=${version} stage=dispatch error=${err?.message ?? err}`);
+      });
+    });
   } catch (err) {
-    logAutoUpdate(`auto-update spawn FAILED: ${err?.message ?? err}`);
-    if (lock?.acquired && lock.lockPath) {
-      try { require('fs').unlinkSync(lock.lockPath); } catch { /* best-effort */ }
+    if (fd >= 0) {
+      try { closeSync(fd); } catch { /* already closed */ }
+    }
+    const line = `auto-update FAILED: target=${version} stage=dispatch error=${err?.message ?? err}`;
+    if (!logAutoUpdate(line)) {
+      try { process.stderr.write(`[memesh] ${line}\n`); } catch { /* stderr unavailable */ }
     }
     return { state: 'failed' };
   }

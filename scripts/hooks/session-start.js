@@ -398,8 +398,8 @@ function spawnFreshUpdateCheck(installedVersion) {
     // racy — both peers' renames are destructive, so each could
     // read its own token back and both would spawn a refresh.
     // O_EXCL is the standard POSIX/libuv primitive that lets at
-    // most one process succeed. Same pattern as
-    // tryAcquireAutoUpdateLock above.
+    // most one process succeed. The updater runner uses the same O_EXCL
+    // ownership primitive for its separate update lock.
     const token = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     const claim = () => {
       try {

@@ -2,6 +2,43 @@
 
 All notable changes to MeMesh are documented here.
 
+## [4.8.0] — 2026-08-28
+
+### Added
+
+- **Durable local agent collaboration.** `message` now provides an
+  exact-recipient local inbox across MCP, HTTP, and CLI. Payload fetch,
+  intake, acknowledgement, workflow disposition, and host activation remain
+  separate, auditable facts rather than one implied "delivered" state.
+
+- **Owner-governed message retention.** Storage reports expose message and
+  SQLite/WAL usage, pruning is dry-run by default and preserves lifecycle
+  facts, and an optional owner quota rejects an oversized send atomically.
+
+- **Governed product-improvement proposals.** Agents can stage
+  evidence-linked proposals and read their status; only a human can accept or
+  reject them. Accepted proposals retain their source memories and remain
+  explicitly unverified work until separately evidenced.
+
+### Changed
+
+- **Active local Codex wakeups are bounded.** On supported macOS and Linux
+  setups, the private local router can send routing metadata to an eligible
+  active Codex session; the recipient fetches the durable payload separately.
+  Stopped, unavailable, and unsupported sessions are not resumed or replaced,
+  and queue acceptance is not an acknowledgement or a workflow decision.
+
+- **Router and read-only access fail more truthfully.** Router reconnect and
+  reply handling stays conservative when a private local delivery path is not
+  usable, while recall can still return results when optional read-only access
+  accounting cannot be written.
+
+- **`autoUpdate=off` remains an explicit refusal.** A registry deprecation
+  can warn and provide manual update guidance, but never starts an unattended
+  update when automatic updates are off. A permitted npm-global update now
+  records terminal success only after exact installed-version readback, records
+  failure otherwise, and releases its single-flight lock when the worker exits.
+
 ## [4.7.3] — 2026-08-24
 
 ### Fixed

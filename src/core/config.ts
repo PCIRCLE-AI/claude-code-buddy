@@ -73,10 +73,9 @@ export interface MeMeshConfig {
   autoCapture?: boolean;     // default: true. Env override: MEMESH_AUTO_CAPTURE=false disables.
   sessionLimit?: number;     // default: 10. Env override: MEMESH_SESSION_LIMIT.
   /**
-   * Auto-update policy applied by the session-start hook.
+   * Auto-update policy applied by the session-summary Stop hook.
    *   'off' (default) — never auto-update; manual `memesh update` only.
-   *      A deprecation override may still trigger a single patch upgrade
-   *      when the installed version has been flagged by maintainers.
+   *      Registry deprecation metadata never overrides this authority.
    *   'patch' — auto-apply X.Y.Z -> X.Y.Z+N
    *   'minor' — auto-apply patch + X.Y.Z -> X.Y+1.0
    *   'major' — auto-apply any bump

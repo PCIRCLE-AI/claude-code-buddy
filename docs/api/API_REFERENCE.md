@@ -1,7 +1,7 @@
 # MeMesh Plugin -- API Reference
 
 **Protocol**: Model Context Protocol (MCP) over stdio
-**Version**: 4.7.3
+**Version**: 4.8.0
 **Compatibility**: Works with Claude Code plugins, Claude Managed Agents (via MCP connector), and any MCP-compatible client.
 
 **Native Integrations**: Beyond MCP, MeMesh integrates as a native memory provider for Hermes Agent (Python `MemoryProvider` plugin) and OpenClaw (TypeScript memory-capability plugin) — same tier as their built-in backends, not HTTP bridges. See [docs/platforms/](../platforms/) for platform-specific guides.
@@ -629,6 +629,8 @@ Status returns the proposal state, source IDs, review timestamps/reason, and `ac
 Exchange durable exact-recipient messages between local hosts connected to the same MeMesh SQLite instance. One tool owns the lifecycle so every transport uses the same validation and state semantics.
 
 The durable API is separate from host-native delivery. A stable **principal** names a logical recipient; a **session** is one active connection, and its **generation** changes when replaced. Exact-session delivery never reroutes; a principal target may use only an eligible active session after activation. Persistence, dispatch, host acceptance, intake, acknowledgement, workflow disposition, retention, and presence are independent state axes. A Local host-native input may remove polling for an active session, but no stopped session is awakened. Cloud relay, A2A, SSE, discovery, persistence, or fetch is not proof of Local host delivery.
+
+For an optional active-host wakeup, a durable message event passes through the owner-private local router to an eligible active supported host adapter. The adapter receives routing metadata only; the recipient explicitly fetches the durable payload. A host acceptance receipt is not recipient acknowledgement or workflow disposition. See [the architecture branch](../ARCHITECTURE.md#wake-an-eligible-local-message-recipient-optional) for the local path and its limits.
 
 The `action` field is one of:
 
