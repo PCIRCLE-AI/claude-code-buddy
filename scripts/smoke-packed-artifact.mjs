@@ -111,11 +111,14 @@ const requiredFiles = [
   // The hooks themselves are not listed here — they are derived from
   // hooks/hooks.json below, so adding one cannot silently go unchecked.
   'scripts/hooks/_shared.js',
+  'scripts/hooks/auto-update-runner.mjs',
   'scripts/hooks/_generated/core-paths.js',
   'scripts/hooks/_generated/fts-index.js',
   // Skills (2)
   'skills/memesh/SKILL.md',
   'skills/memesh-review/SKILL.md',
+  // The public README links this exact lifecycle and support contract.
+  'docs/platforms/agent-messaging.md',
   // Dashboard build
   'dashboard/dist/index.html',
 ];
@@ -234,7 +237,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 const transport = new StdioClientTransport({
   command: process.execPath,
   args: [${JSON.stringify(protocolServer)}],
-  env: { ...process.env, HOME: ${JSON.stringify(protocolHome)}, MEMESH_AUTO_CAPTURE: 'false' },
+  env: { ...process.env, HOME: ${JSON.stringify(protocolHome)}, MEMESH_AUTO_CAPTURE: 'false', MEMESH_AUTO_DETECT_LLM: '0' },
 });
 const client = new Client({ name: 'memesh-packaged-smoke', version: '1.0.0' });
 try {
@@ -364,7 +367,7 @@ try {
   {
     cwd: consumerDir,
     stdio: 'inherit',
-    env: { ...process.env, HOME: protocolHome },
+    env: { ...process.env, HOME: protocolHome, MEMESH_AUTO_DETECT_LLM: '0' },
   }
 );
 
@@ -420,6 +423,7 @@ if (process.platform !== 'win32') {
     MEMESH_ROUTER_SOCKET: routerSocket,
     MEMESH_ROUTER_TOKEN_FILE: routerToken,
     MEMESH_AUTO_CAPTURE: 'false',
+    MEMESH_AUTO_DETECT_LLM: '0',
   };
   const router = spawn(installedBin('memesh-router'), [], {
     cwd: consumerDir,

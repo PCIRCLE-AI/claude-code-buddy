@@ -3,7 +3,7 @@
   "entries": [
     {
       "path": ".claude-plugin/plugin.json",
-      "sha256": "773e152af2cbcfe41135dfb8e4535682257f3575ab30139bd09e2e2017c455bd",
+      "sha256": "8c1f7f491d71b5e7030dd9f70d134a54759853b77cca410973d36d835137a67e",
       "bytes": 527
     },
     {
@@ -78,8 +78,8 @@
     },
     {
       "path": "scripts/hooks/_shared.js",
-      "sha256": "a720d4c13741eebc2f37c382080f1e8fc1ccf29d1a1849337135f0479d662c8d",
-      "bytes": 42285
+      "sha256": "d49e993b35aa449744b8e52bd3e47788f9418ef47204b01f3ce99582b883b5df",
+      "bytes": 40871
     },
     {
       "path": "scripts/hooks/guard-check.js",
@@ -103,13 +103,13 @@
     },
     {
       "path": "scripts/hooks/session-start.js",
-      "sha256": "e2fc0aed3d31f5b91941b6da5a28e2cf78bb336c5599e1d75ad8112eef0a760e",
-      "bytes": 58344
+      "sha256": "3f0dd2bad818c621ad8f9ef6992146e0dbcb8afa89289c038699273a83a3dcff",
+      "bytes": 58386
     },
     {
       "path": "scripts/hooks/session-summary.js",
-      "sha256": "2c13205539a0424ceeb11a7aed79dc8c0504e56e7a9e21661b007f2a504f5554",
-      "bytes": 47387
+      "sha256": "50d2d9ee1a65e19f43d296891ffcb8222eb7b02d162c0f99f4d883d7cb9872d1",
+      "bytes": 47381
     },
     {
       "path": "scripts/hooks/user-prompt-intent.js",

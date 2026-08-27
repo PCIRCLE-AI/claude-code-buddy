@@ -216,6 +216,13 @@ describe('Feature: release scripts never edit the real ~/.memesh', () => {
     expect(smoke).toContain('timeout: consumerInstallTimeoutMs');
   });
 
+  it('wires the isolated packaged upgrade acceptance into CI and npm publication', () => {
+    const pkg = JSON.parse(read('package.json'));
+    expect(pkg.scripts['test:packaged:upgrade']).toBe('node scripts/smoke-packed-upgrade.mjs');
+    expect(pkg.scripts.prepublishOnly).toContain('test:packaged:upgrade');
+    expect(read('.github/workflows/ci.yml')).toContain('run: npm run test:packaged:upgrade');
+  });
+
   it('fails the sync gate when an installed adapter artifact is missing', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'message-sync-fixture-'));
     const write = (relative: string, content = '') => {

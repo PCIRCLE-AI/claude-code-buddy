@@ -2,6 +2,8 @@ import { execFileSync } from 'child_process';
 type ExecFileSyncLike = typeof execFileSync;
 interface RunGlobalUpdateOptions {
     execFileSyncImpl?: ExecFileSyncLike;
+    installTimeoutMs?: number;
+    readbackTimeoutMs?: number;
 }
 export type AutoUpdatePolicy = 'off' | 'patch' | 'minor' | 'major';
 export declare function parseAutoUpdatePolicy(value: unknown): AutoUpdatePolicy | null;

@@ -1,4 +1,7 @@
 import { execFileSync } from 'child_process';
+const DEFAULT_INSTALL_TIMEOUT_MS = 8 * 60 * 1000;
+const DEFAULT_READBACK_TIMEOUT_MS = 30 * 1000;
+const EXACT_VERSION_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 const VALID_AUTO_UPDATE_POLICIES = new Set([
     'off',
     'patch',
@@ -89,9 +92,9 @@ function parseInstalledGlobalVersion(raw) {
     return parsed.dependencies?.['@pcircle/memesh']?.version ?? null;
 }
 export function getInstalledGlobalVersion(options = {}) {
-    const { execFileSyncImpl = execFileSync } = options;
+    const { execFileSyncImpl = execFileSync, readbackTimeoutMs = DEFAULT_READBACK_TIMEOUT_MS, } = options;
     try {
-        const raw = execFileSyncImpl('npm', ['ls', '-g', '@pcircle/memesh', '--json', '--depth=0'], { encoding: 'utf8' });
+        const raw = execFileSyncImpl('npm', ['ls', '-g', '@pcircle/memesh', '--json', '--depth=0'], { encoding: 'utf8', timeout: readbackTimeoutMs });
         return parseInstalledGlobalVersion(raw);
     }
     catch {
@@ -99,9 +102,12 @@ export function getInstalledGlobalVersion(options = {}) {
     }
 }
 export function runGlobalUpdate(latestVersion, options = {}) {
-    const { execFileSyncImpl = execFileSync } = options;
-    execFileSyncImpl('npm', ['install', '-g', `@pcircle/memesh@${latestVersion}`], { stdio: 'inherit' });
-    const installedVersion = getInstalledGlobalVersion({ execFileSyncImpl });
+    const { execFileSyncImpl = execFileSync, installTimeoutMs = DEFAULT_INSTALL_TIMEOUT_MS, readbackTimeoutMs = DEFAULT_READBACK_TIMEOUT_MS, } = options;
+    if (!EXACT_VERSION_RE.test(latestVersion)) {
+        throw new Error(`refusing non-exact npm version target: ${latestVersion}`);
+    }
+    execFileSyncImpl('npm', ['install', '-g', `@pcircle/memesh@${latestVersion}`], { stdio: 'inherit', timeout: installTimeoutMs });
+    const installedVersion = getInstalledGlobalVersion({ execFileSyncImpl, readbackTimeoutMs });
     if (installedVersion !== latestVersion) {
         if (installedVersion) {
             throw new Error(`expected ${latestVersion}, but npm reports ${installedVersion} is installed`);

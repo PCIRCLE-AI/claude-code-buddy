@@ -60,9 +60,10 @@ try {
 } catch { /* best-effort */ }
 
 /**
- * Run auto-update at Stop hook: reads cache, evaluates policy, and spawns
- * npm install -g if warranted. Runs after all session work completes,
- * avoiding the TOCTOU race where install would overwrite dist/ mid-session.
+ * Run auto-update at Stop hook: reads cache, evaluates policy, and dispatches
+ * the detached updater runner if warranted. Runs after all session work
+ * completes, avoiding the TOCTOU race where install would overwrite dist/
+ * mid-session.
  */
 async function runAutoUpdateAtStop() {
   try {
@@ -75,7 +76,7 @@ async function runAutoUpdateAtStop() {
     const policy = resolveAutoUpdatePolicy(process.env);
     const decision = decideAutoUpdateHook(installedVersion, cache, policy);
     if (decision.run) {
-      spawnAutoUpdate(decision.latest, decision.deprecationOverride, _installChannelMod);
+      await spawnAutoUpdate(decision.latest, _installChannelMod);
     }
   } catch {
     // Best-effort — never crash the hook.
@@ -648,8 +649,8 @@ process.stdin.on('end', async () => {
     try { process.stderr.write(`[memesh session-summary] ${err?.message || err}\n`); } catch {}
   }
 
-  // Spawn auto-update if policy + cache permit. Runs after all session work
-  // so npm install -g doesn't overwrite dist/ while peer hooks are reading it.
+  // Dispatch auto-update if policy + cache permit. Runs after all session work
+  // so the runner cannot overwrite dist/ while peer hooks are reading it.
   await runAutoUpdateAtStop();
 
   // Emit NOTHING on success — not `{"suppressOutput": true}`.
