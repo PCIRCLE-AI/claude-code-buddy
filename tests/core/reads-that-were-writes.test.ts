@@ -29,6 +29,8 @@ import { closeDatabase, getDatabase, openDatabase } from '../../src/db.js';
 import { KnowledgeGraph } from '../../src/knowledge-graph.js';
 import { exportMemories } from '../../src/core/serializer.js';
 import { createLesson } from '../../src/core/lesson-engine.js';
+import { MemeshDatabase } from '../../src/storage/sqlite.js';
+import { trackAccess } from '../../src/storage/conflicts.js';
 
 let dir: string;
 let saved: string | undefined;
@@ -95,6 +97,44 @@ describe('export is a backup, not a use', () => {
 
     const names = exportMemories({}).entities.map((e) => e.name).sort();
     expect(names).toEqual(['one', 'two']);
+  });
+});
+
+describe('recall access accounting is best-effort only for read-only SQLite', () => {
+  it('returns matching memories through a real read-only database handle', () => {
+    const writable = new KnowledgeGraph(getDatabase());
+    writable.createEntity('sandbox-memory', 'note', {
+      observations: ['sandbox searchable payload'],
+    });
+    const expectedPayload = writable.search('searchable', { countAsAccess: false });
+    expect(expectedPayload).toHaveLength(1);
+    const before = accountingFor('sandbox-memory');
+
+    closeDatabase();
+    const reader = new MemeshDatabase(path.join(dir, 'kg.db'), {
+      readOnly: true,
+      allowExtension: true,
+    });
+    try {
+      const found = new KnowledgeGraph(reader).search('searchable');
+      expect(found).toEqual(expectedPayload);
+
+      const after = reader
+        .prepare('SELECT access_count, last_accessed_at FROM entities WHERE name = ?')
+        .get('sandbox-memory') as unknown as Accounting;
+      expect(after).toEqual(before);
+    } finally {
+      reader.close();
+    }
+  });
+
+  it('does not hide non-readonly accounting failures', () => {
+    const failure = new Error('database is locked');
+    const failingDb = {
+      prepare: () => ({ run: () => { throw failure; } }),
+    } as unknown as MemeshDatabase;
+
+    expect(() => trackAccess(failingDb, [1])).toThrow(failure);
   });
 });
 
