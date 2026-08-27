@@ -660,28 +660,47 @@ export class AgentRouter {
       SELECT activation_event_sequence FROM agent_principals
       WHERE project = ? AND principal_id = ?
     `).get(connection.project, connection.principal_id) as { activation_event_sequence: number };
-    const rows = this.db.prepare(`
-      SELECT d.delivery_id
+    const upperBound = (this.db.prepare(`
+      SELECT COALESCE(MAX(event_sequence), 0) AS event_sequence
+      FROM agent_message_events WHERE project = ?
+    `).get(connection.project) as { event_sequence: number }).event_sequence;
+    const selectBatch = this.db.prepare(`
+      SELECT d.delivery_id, e.event_sequence
       FROM agent_message_deliveries d
       JOIN agent_message_events e ON e.delivery_id = d.delivery_id
       LEFT JOIN agent_host_accepts h ON h.delivery_id = d.delivery_id
-      WHERE d.project = ? AND h.delivery_id IS NULL AND (
-        (d.target_kind = 'principal' AND d.recipient = ? AND e.event_sequence > ?)
-        OR (d.target_kind = 'session' AND d.recipient = ?)
-      )
-      ORDER BY e.event_sequence ASC
+      WHERE d.project = ? AND h.delivery_id IS NULL AND e.event_sequence <= ?
+        AND (e.event_sequence > ? OR (e.event_sequence = ? AND d.delivery_id > ?))
+        AND (
+          (d.target_kind = 'principal' AND d.recipient = ? AND e.event_sequence > ?)
+          OR (d.target_kind = 'session' AND d.recipient = ?)
+        )
+      ORDER BY e.event_sequence ASC, d.delivery_id ASC
       LIMIT ?
-    `).all(
-      connection.project,
-      connection.principal_id,
-      checkpoint.activation_event_sequence,
-      connection.session_instance_id,
-      this.limits.drain_limit,
-    ) as Array<{ delivery_id: string }>;
+    `);
 
     let drained = 0;
-    for (const row of rows) {
-      if (await this.dispatchDelivery(row.delivery_id, connection.project, hops, connection)) drained += 1;
+    let cursorSequence = 0;
+    let cursorDeliveryId = '';
+    for (;;) {
+      const rows = selectBatch.all(
+        connection.project,
+        upperBound,
+        cursorSequence,
+        cursorSequence,
+        cursorDeliveryId,
+        connection.principal_id,
+        checkpoint.activation_event_sequence,
+        connection.session_instance_id,
+        this.limits.drain_limit,
+      ) as Array<{ delivery_id: string; event_sequence: number }>;
+      if (rows.length === 0) break;
+      for (const row of rows) {
+        if (await this.dispatchDelivery(row.delivery_id, connection.project, hops, connection)) drained += 1;
+      }
+      const last = rows.at(-1)!;
+      cursorSequence = last.event_sequence;
+      cursorDeliveryId = last.delivery_id;
     }
     return drained;
   }

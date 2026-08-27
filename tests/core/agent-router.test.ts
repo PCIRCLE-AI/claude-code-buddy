@@ -505,6 +505,41 @@ describe.sequential('AgentRouter real SQLite + UDS integration', () => {
     expect(replacement.deliveries[0].delivery_id).not.toBe(exact.delivery_id);
   });
 
+  it('drains every bounded backlog batch once even when one delivery is rejected', async () => {
+    const { db, socketPath, token } = setup();
+    await startRouter(db, socketPath, token, { drain_limit: 2 });
+    const first = await RouterHostClient.connect({
+      socketPath, token, project: 'project-a', principal: 'principal-a', session: 'session-first',
+    });
+    first.close();
+    await vi.waitFor(() => expect(db.prepare(
+      `SELECT disconnected_at FROM agent_session_connections WHERE connection_id = ?`,
+    ).get(first.connectionId)).toMatchObject({ disconnected_at: expect.any(String) }));
+
+    const pending = Array.from({ length: 5 }, (_, index) => send(
+      db, 'principal-a', `bounded-backlog-${index}`,
+    ));
+    const rejectedId = pending[0].delivery_id;
+    const replacement = await RouterHostClient.connect({
+      socketPath, token, project: 'project-a', principal: 'principal-a', session: 'session-replacement',
+      onDelivery: (frame, client) => {
+        if (frame.delivery_id === rejectedId) client.reject(frame);
+        else client.accept(frame);
+      },
+    });
+
+    await vi.waitFor(() => expect(replacement.deliveries).toHaveLength(5));
+    expect(replacement.deliveries.map(frame => frame.delivery_id)).toEqual(
+      pending.map(message => message.delivery_id),
+    );
+    await vi.waitFor(() => expect(db.prepare(
+      'SELECT COUNT(*) AS count FROM agent_dispatch_attempts WHERE delivery_id = ?',
+    ).get(rejectedId)).toEqual({ count: 1 }));
+    await vi.waitFor(() => expect(db.prepare(
+      'SELECT COUNT(*) AS count FROM agent_host_accepts WHERE delivery_id != ?',
+    ).get(rejectedId)).toEqual({ count: 4 }));
+  });
+
   it('retries after an adapter crash, dedupes host acceptance, and enforces hop/frame bounds', async () => {
     const { db, socketPath, token } = setup();
     await startRouter(db, socketPath, token, {

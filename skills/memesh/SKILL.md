@@ -52,6 +52,7 @@ Use the routing and identity fields returned by `fetch`. A reply has this shape 
   "idempotency_key": "reply:<original message_id>:result",
   "correlation_id": "<original correlation_id or message_id>",
   "reply_to": "<original message_id>",
+  "content_type": "application/json",
   "payload": {
     "outcome": "<result, decision, or blocker>",
     "evidence": ["<only the evidence needed by the recipient>"],
