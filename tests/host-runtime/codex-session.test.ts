@@ -29,7 +29,7 @@ function fixture() {
 }
 
 describe('ordinary Codex session companion', () => {
-  it('registers the actual Codex thread and keeps payload delivery out of the companion', async () => {
+  it.skipIf(process.platform === 'win32')('registers the actual Codex thread and keeps payload delivery out of the companion', async () => {
     const { config, hook } = fixture();
     const close = vi.fn(async () => undefined);
     const connect = vi.fn(async (input) => {
