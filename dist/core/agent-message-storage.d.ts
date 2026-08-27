@@ -8,6 +8,13 @@ export interface AgentMessageStorageReport {
     delivery_count: number;
     event_count: number;
     receipt_count: number;
+    cursor_count: number;
+    principal_count: number;
+    session_instance_count: number;
+    session_connection_count: number;
+    presence_fact_count: number;
+    dispatch_attempt_count: number;
+    host_accept_count: number;
     ack_fact_count: number;
     workflow_fact_count: number;
     retention_fact_count: number;

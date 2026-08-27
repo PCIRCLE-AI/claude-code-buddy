@@ -45,6 +45,12 @@ const requirePackageBin = (name, target) => {
 // One authoritative action list must reach every public transport.
 requireText('src/transports/schemas.ts', ACTIONS.map((action) => `action: z.literal('${action}')`));
 requireText('src/transports/mcp/handlers.ts', ["name === 'message'", 'MessageSchema', 'executeAgentMessageAction']);
+const publicMessageTargetKind = /name:\s*'message'[\s\S]{0,6000}?target_kind:\s*\{\s*type:\s*'string',\s*enum:\s*\['principal',\s*'session'\]/;
+requirePattern(
+  'src/transports/mcp/handlers.ts',
+  publicMessageTargetKind,
+  'public MCP message target_kind principal/session schema',
+);
 requireText('src/transports/http/server.ts', ['executeAgentMessageAction', "transport: 'http'"]);
 const CLI_ACTIONS = {
   send: 'send',
@@ -130,6 +136,11 @@ for (const artifact of [
   'dist/host-adapters/acp-client.js',
 ]) read(artifact);
 requireText('dist/transports/mcp/handlers.js', ["name === 'message'", 'MessageSchema', 'executeAgentMessageAction']);
+requirePattern(
+  'dist/transports/mcp/handlers.js',
+  publicMessageTargetKind,
+  'installed public MCP message target_kind principal/session schema',
+);
 requireText('dist/transports/http/server.js', ['MessageBody', 'executeAgentMessageAction']);
 requireText('dist/transports/agent-messaging.js', ['executeAgentMessageAction']);
 

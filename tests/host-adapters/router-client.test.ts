@@ -259,13 +259,21 @@ describe('production router host client', () => {
     await vi.waitFor(() => expect(db.prepare(
       'SELECT COUNT(*) AS count FROM agent_host_accepts WHERE delivery_id IN (?, ?)',
     ).get(first.delivery_id, pending.delivery_id)).toEqual({ count: 2 }));
+    const initialLease = (db.prepare(`
+      SELECT lease_expires_at_ms FROM agent_session_connections
+      WHERE session_instance_id = ? AND generation = ?
+    `).get('session-a', connection!.generation) as { lease_expires_at_ms: number }).lease_expires_at_ms;
     await vi.waitFor(() => {
-      const heartbeatCount = db.prepare(`
-        SELECT COUNT(*) AS count FROM agent_presence_facts
-        WHERE session_instance_id = ? AND generation = ? AND presence_kind = 'heartbeat'
-      `).get('session-a', connection!.generation) as { count: number };
-      expect(heartbeatCount.count).toBeGreaterThan(0);
+      const current = db.prepare(`
+        SELECT lease_expires_at_ms FROM agent_session_connections
+        WHERE session_instance_id = ? AND generation = ?
+      `).get('session-a', connection!.generation) as { lease_expires_at_ms: number };
+      expect(current.lease_expires_at_ms).toBeGreaterThan(initialLease);
     });
+    expect(db.prepare(`
+      SELECT COUNT(*) AS count FROM agent_presence_facts
+      WHERE session_instance_id = ? AND generation = ? AND presence_kind = 'heartbeat'
+    `).get('session-a', connection!.generation)).toEqual({ count: 0 });
     expect(startRouter).toHaveBeenCalled();
   });
 

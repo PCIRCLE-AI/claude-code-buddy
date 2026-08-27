@@ -45,7 +45,6 @@ presence-only/inbound-unavailable.
 ```bash
 memesh agent setup codex --project my-project --principal codex-reviewer --workspace "$PWD"
 memesh agent setup claude --project my-project --principal claude-reviewer
-memesh agent setup gemini --project my-project --principal gemini-reviewer --workspace "$PWD"
 ```
 
 ### Codex app-server runner
@@ -84,20 +83,14 @@ the notification was written to stdio, not that Claude admitted it. With the
 channel admitted, initialization creates and registers the exact MeMesh
 session automatically; EOF, MCP close, or normal signals unregister it.
 
-### Gemini ACP runner
+### Experimental ACP runner (not release-gated)
 
-Use this only for a MeMesh-managed ACP-capable local agent:
+An internal generic ACP runner remains an experimental adapter surface, but no
+ACP provider is part of the current supported outcome. There is no public ACP
+setup promise until a separate exact-provider runtime gate passes. Protocol or
+process readiness alone is not proof that a provider accepted a message.
 
-```bash
-memesh-host-acp --config "$HOME/.memesh/hosts/gemini-acp.json"
-```
-
-The runner owns `gemini --acp`, creates or explicitly loads the ACP session,
-and registers only after protocol/session readiness. Ordinary Gemini UI
-resume/session flags are rejected. Authentication, capability, or process
-failure leaves no false host acceptance.
-
-All three runners deliver only while their configured target is active and
+The supported Codex and Claude runners deliver only while their configured target is active and
 registered. If it is stopped, missing, disconnected, or replaced, MeMesh keeps
 the durable message but does not start the host, recreate the session, or
 silently redirect an exact-session target. A later eligible managed principal
@@ -111,7 +104,7 @@ and diagnostics, not as a requirement for active host delivery.
 - `send` creates one canonical message, recipient delivery, and payload-free notification event under an idempotency key.
 - `poll` and `memesh message watch` return only events for the exact project and recipient. The opaque cursor can be persisted and reused after a timeout, dropped hint, duplicate delivery, or process restart.
 - `fetch` returns the payload only to the named recipient and matching `target_kind` in the named project. Exact-session messages require `target_kind=session`; polling and fetching do not acknowledge the message.
-- `intake`, `ack`, `disposition`, and `activation` are explicit, separate, idempotent receipt facts. For example, `manual_resume_required` does not imply ACK, acceptance, rejection, cancellation, or completion.
+- `intake`, `ack`, `disposition`, and `activation` are explicit, separate, idempotent receipt facts. Inbox/MCP ACK is valid without a host-native acceptance; host-native ACK remains bound to its `host_accept`. `receipts` returns one ordered projection and identifies each underlying fact source. For example, `manual_resume_required` does not imply ACK, acceptance, rejection, cancellation, or completion.
 - The transport, rather than model-provided payload data, records sender-host provenance.
 
 ## Identity and lifecycle
@@ -139,17 +132,24 @@ memesh message storage prune --cutoff 2026-08-01T00:00:00Z --batch-size 100
 memesh message storage prune --cutoff 2026-08-01T00:00:00Z --batch-size 100 --apply
 ```
 
-Applied pruning replaces only eligible payload content with a hash-bound
+Applied pruning replaces only payload content whose every delivery has an
+explicit ACK and a terminal workflow disposition older than the cutoff with a hash-bound
 tombstone. Message identity, routing, receipts, ACK, workflow, presence, and
 retention audit facts remain queryable. Freed SQLite pages become reusable;
 the main database file is a high-watermark and is not promised to shrink.
 Full `VACUUM` is never run by a hook or this bounded command.
 
 An owner may set `MEMESH_AGENT_MESSAGE_STORAGE_QUOTA_BYTES` to a non-negative
-integer. The canonical send transaction checks it before inserting any
+integer. This is a hard **logical payload** budget, not a whole SQLite file or
+disk quota. The canonical send transaction checks it before inserting any
 message effect; an over-quota send returns `storage_quota_exceeded` and leaves
 no partial message, delivery, event, idempotency, dispatch, or receipt row.
-There is deliberately no default quota or automatic retention policy.
+Metadata, indexes, append-only audit facts, reusable pages, and WAL bytes still
+consume disk and remain visible in the report; keep separate filesystem
+headroom and monitoring. Heartbeats refresh the connection lease in place;
+they do not append one audit row every interval. Connected, disconnected, and
+superseded transitions remain auditable. There is deliberately no default
+quota or automatic retention policy.
 
 ## Local and Cloud boundary
 
@@ -157,7 +157,7 @@ There is deliberately no default quota or automatic retention policy.
 
 ## What This Is Not Yet
 
-- Not a claim of vendor-host dogfood. The packaged smoke test starts an installed router and controlled installed host client, then proves native delivery and persisted `host_accept`; it does not verify a live Codex, Claude, or ACP product session.
+- Not a claim of universal vendor-host dogfood. The packaged smoke test starts an installed router and controlled installed host client, then proves native delivery and persisted `host_accept`; it does not promote the experimental ACP surface or any untested provider into support.
 - Not universal stopped-session resume. Codex, Claude Code, ChatGPT, Gemini, Grok, or an Ollama-backed loop needs a separately implemented host adapter before MeMesh can claim it can resume that host.
 - Not topic, broadcast, lease/claim, or TTL routing. The current delivery target is one exact recipient.
 - Not arbitrary external-user access or cross-machine delivery. A local MeMesh instance is not a public collaboration service.

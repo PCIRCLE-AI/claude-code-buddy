@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   AgentMessageStorageQuotaExceededError,
@@ -7,6 +7,7 @@ import {
   pruneTerminalAgentMessagePayloads,
 } from '../../src/core/agent-message-storage.js';
 import {
+  recordAgentAckFact,
   recordAgentReceipt,
   recordAgentWorkflowFact,
   sendAgentMessage,
@@ -35,10 +36,78 @@ function send(payload: unknown = { body: 'payload' }): SentAgentMessage {
   });
 }
 
-function workflow(message: SentAgentMessage, workflowState: string, createdAt = OLD): void {
+type DeliveryRef = Pick<SentAgentMessage, 'delivery_id' | 'message_id' | 'project' | 'recipient'>;
+
+function additionalDelivery(message: SentAgentMessage, recipient: string): DeliveryRef {
+  const deliveryId = randomUUID();
+  getDatabase().transaction(() => {
+    getDatabase().prepare(`
+      INSERT INTO agent_message_deliveries (delivery_id, message_id, project, recipient, target_kind)
+      VALUES (?, ?, ?, ?, 'principal')
+    `).run(deliveryId, message.message_id, message.project, recipient);
+    getDatabase().prepare(`
+      INSERT INTO agent_message_events (event_id, message_id, delivery_id, project, recipient, event_kind)
+      VALUES (?, ?, ?, ?, ?, 'available')
+    `).run(randomUUID(), message.message_id, deliveryId, message.project, recipient);
+  }).immediate();
+  return { delivery_id: deliveryId, message_id: message.message_id, project: message.project, recipient };
+}
+
+function hostAccept(delivery: DeliveryRef): string {
+  const suffix = randomUUID();
+  const sessionId = `session-${suffix}`;
+  const connectionId = `connection-${suffix}`;
+  const attemptId = `attempt-${suffix}`;
+  const hostAcceptId = `host-accept-${suffix}`;
+  getDatabase().transaction(() => {
+    getDatabase().prepare(`
+      INSERT OR IGNORE INTO agent_principals (project, principal_id, activation_event_sequence)
+      VALUES (?, ?, 0)
+    `).run(delivery.project, delivery.recipient);
+    getDatabase().prepare(`
+      INSERT INTO agent_session_instances (project, session_instance_id, principal_id, adapter_kind)
+      VALUES (?, ?, ?, 'test-adapter')
+    `).run(delivery.project, sessionId, delivery.recipient);
+    getDatabase().prepare(`
+      INSERT INTO agent_session_connections (
+        connection_id, project, principal_id, session_instance_id, generation,
+        adapter_kind, router_instance_id, lease_expires_at_ms
+      ) VALUES (?, ?, ?, ?, 1, 'test-adapter', 'test-router', ?)
+    `).run(connectionId, delivery.project, delivery.recipient, sessionId, Date.now() + 60_000);
+    getDatabase().prepare(`
+      INSERT INTO agent_dispatch_attempts (
+        attempt_id, delivery_id, project, principal_id, session_instance_id,
+        connection_id, generation, router_instance_id, attempt_number, result, completed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 1, 'test-router', 1, 'adapter_returned', CURRENT_TIMESTAMP)
+    `).run(
+      attemptId,
+      delivery.delivery_id,
+      delivery.project,
+      delivery.recipient,
+      sessionId,
+      connectionId,
+    );
+    getDatabase().prepare(`
+      INSERT INTO agent_host_accepts (host_accept_id, attempt_id, delivery_id, adapter_kind, receipt_json)
+      VALUES (?, ?, ?, 'test-adapter', '{"accepted":true}')
+    `).run(hostAcceptId, attemptId, delivery.delivery_id);
+  }).immediate();
+  return hostAcceptId;
+}
+
+function ack(delivery: DeliveryRef, idempotencyKey = `ack-${delivery.delivery_id}`): void {
+  recordAgentAckFact(getDatabase(), {
+    delivery_id: delivery.delivery_id,
+    host_accept_id: hostAccept(delivery),
+    actor: delivery.recipient,
+    idempotency_key: idempotencyKey,
+  });
+}
+
+function workflow(message: DeliveryRef, workflowState: string, createdAt = OLD): void {
   recordAgentWorkflowFact(getDatabase(), {
     delivery_id: message.delivery_id,
-    actor: 'recipient',
+    actor: message.recipient,
     workflow_state: workflowState,
     idempotency_key: `workflow-${message.message_id}-${workflowState}`,
   });
@@ -63,13 +132,12 @@ describe('bounded agent message storage', () => {
     const terminalRetained = send({ body: 'terminal-recent' });
     const deferred = send({ body: 'offline-pending' });
     const ackOnly = send({ body: 'ack-only' });
+    ack(prunable);
     workflow(prunable, 'completed');
+    ack(terminalRetained);
     workflow(terminalRetained, 'completed', RECENT);
     workflow(deferred, 'deferred');
-    recordAgentReceipt(getDatabase(), {
-      project: 'storage-project', recipient: 'recipient', message_id: ackOnly.message_id,
-      receipt_kind: 'ack', actor: 'recipient', idempotency_key: 'ack-only',
-    });
+    ack(ackOnly, 'ack-only');
 
     const before = getDatabase().prepare(`
       SELECT message_id, payload_json, payload_tombstoned_at FROM agent_messages ORDER BY message_id
@@ -83,7 +151,15 @@ describe('bounded agent message storage', () => {
       terminal_retained_message_count: 1,
       terminal_prunable_message_count: 1,
       reconciled_message_count: 4,
-      receipt_count: 1,
+      receipt_count: 0,
+      ack_fact_count: 3,
+      cursor_count: 0,
+      principal_count: 1,
+      session_instance_count: 3,
+      session_connection_count: 3,
+      presence_fact_count: 0,
+      dispatch_attempt_count: 3,
+      host_accept_count: 3,
     });
     expect(report.payload_bytes).toBeGreaterThan(0);
     expect(report.page_count).toBeGreaterThan(0);
@@ -110,9 +186,81 @@ describe('bounded agent message storage', () => {
     expect(storedPayload(ackOnly.message_id)).toContain('ack-only');
   });
 
+  it('retains completed-without-ACK and ACK-without-terminal while pruning only all-delivery ACK plus old-terminal messages', () => {
+    const completedWithoutAck = send({ body: 'completed-without-ack' });
+    workflow(completedWithoutAck, 'completed');
+
+    const ackWithoutTerminal = send({ body: 'ack-without-terminal' });
+    ack(ackWithoutTerminal);
+
+    const allDeliveriesReady = send({ body: 'all-deliveries-ready' });
+    const secondDelivery = additionalDelivery(allDeliveriesReady, 'recipient-two');
+    ack(allDeliveriesReady);
+    workflow(allDeliveriesReady, 'completed');
+    ack(secondDelivery);
+    workflow(secondDelivery, 'completed');
+
+    const report = getAgentMessageStorageReport(getDatabase(), { cutoff: CUTOFF });
+    expect(report).toMatchObject({
+      message_count: 3,
+      protected_unresolved_message_count: 2,
+      terminal_prunable_message_count: 1,
+    });
+
+    const result = pruneTerminalAgentMessagePayloads(getDatabase(), {
+      cutoff: CUTOFF,
+      dryRun: false,
+      batchSize: 3,
+    });
+    expect(result.candidates.map((candidate) => candidate.message_id)).toEqual([allDeliveriesReady.message_id]);
+    expect(storedPayload(completedWithoutAck.message_id)).toContain('completed-without-ack');
+    expect(storedPayload(ackWithoutTerminal.message_id)).toContain('ack-without-terminal');
+    expect(storedPayload(allDeliveriesReady.message_id)).toContain('_agent_message_tombstone_v1');
+  });
+
+  it('treats explicit inbox ACK and disposition receipts as one eligible audited delivery without requiring host push', () => {
+    const inboxOnly = send({ body: 'fetched through MCP without host adapter' });
+    recordAgentReceipt(getDatabase(), {
+      project: inboxOnly.project,
+      recipient: inboxOnly.recipient,
+      message_id: inboxOnly.message_id,
+      receipt_kind: 'ack',
+      actor: inboxOnly.recipient,
+      idempotency_key: 'inbox-only-ack',
+    });
+    recordAgentReceipt(getDatabase(), {
+      project: inboxOnly.project,
+      recipient: inboxOnly.recipient,
+      message_id: inboxOnly.message_id,
+      receipt_kind: 'disposition',
+      disposition: 'completed',
+      actor: inboxOnly.recipient,
+      idempotency_key: 'inbox-only-disposition',
+    });
+    getDatabase().prepare(`
+      UPDATE agent_message_receipts SET created_at = ? WHERE message_id = ?
+    `).run(OLD, inboxOnly.message_id);
+
+    expect(getAgentMessageStorageReport(getDatabase(), { cutoff: CUTOFF })).toMatchObject({
+      protected_unresolved_message_count: 0,
+      terminal_prunable_message_count: 1,
+      receipt_count: 2,
+      ack_fact_count: 0,
+      workflow_fact_count: 0,
+    });
+    expect(pruneTerminalAgentMessagePayloads(getDatabase(), {
+      cutoff: CUTOFF,
+      dryRun: false,
+    })).toMatchObject({ candidate_count: 1, tombstoned_count: 1 });
+    expect(storedPayload(inboxOnly.message_id)).toContain('_agent_message_tombstone_v1');
+  });
+
   it('tombstones only terminal old payloads in bounded batches, preserves audit, and continues idempotently', () => {
     const messages = [send({ body: 'one' }), send({ body: 'two' }), send({ body: 'three' })];
-    messages.forEach((message) => workflow(message, 'completed'));
+    messages.forEach((message) => {
+      ack(message);
+      workflow(message, 'completed');
+    });
     const originals = new Map(messages.map((message) => [message.message_id, storedPayload(message.message_id)]));
 
     for (let index = 0; index < messages.length; index++) {
@@ -152,7 +300,9 @@ describe('bounded agent message storage', () => {
       [small.message_id, storedPayload(small.message_id)],
       [large.message_id, storedPayload(large.message_id)],
     ]);
+    ack(small);
     workflow(small, 'completed');
+    ack(large);
     workflow(large, 'completed');
 
     const dryRun = pruneTerminalAgentMessagePayloads(getDatabase(), {
@@ -203,7 +353,9 @@ describe('bounded agent message storage', () => {
   it('rolls the whole bounded batch back when its fault seam trips', () => {
     const first = send({ body: 'first' });
     const second = send({ body: 'second' });
+    ack(first);
     workflow(first, 'completed');
+    ack(second);
     workflow(second, 'completed');
     const firstPayload = storedPayload(first.message_id);
     let calls = 0;
@@ -266,7 +418,10 @@ describe('bounded agent message storage', () => {
     const messageCount = 24;
     const payload = { body: 'x'.repeat(8 * 1024) };
     const messages = Array.from({ length: messageCount }, () => send(payload));
-    messages.forEach((message) => workflow(message, 'completed'));
+    messages.forEach((message) => {
+      ack(message);
+      workflow(message, 'completed');
+    });
     const before = getAgentMessageStorageReport(getDatabase(), { cutoff: CUTOFF });
 
     let processed = 0;

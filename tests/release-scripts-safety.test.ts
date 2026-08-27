@@ -226,7 +226,8 @@ describe('Feature: release scripts never edit the real ~/.memesh', () => {
     const actions = ['send', 'poll', 'fetch', 'intake', 'ack', 'disposition', 'activation', 'receipts'];
     try {
       write('src/transports/schemas.ts', actions.map(action => `action: z.literal('${action}')`).join('\n') + "\ntarget_kind z.enum(['principal', 'session'])");
-      write('src/transports/mcp/handlers.ts', "name === 'message' MessageSchema executeAgentMessageAction");
+      const mcpMessageSchema = "name: 'message' target_kind: { type: 'string', enum: ['principal', 'session'] } name === 'message' MessageSchema executeAgentMessageAction";
+      write('src/transports/mcp/handlers.ts', mcpMessageSchema);
       write('src/transports/http/server.ts', "executeAgentMessageAction\ntransport: 'http'");
       const cliMappings = [
         ['send', 'send'], ['watch', 'poll'], ['fetch', 'fetch'], ['intake', 'intake'],
@@ -239,7 +240,7 @@ describe('Feature: release scripts never edit the real ~/.memesh', () => {
       for (const adapter of ['codex-app-server.ts', 'claude-channel.ts', 'acp-client.ts']) write(`src/host-adapters/${adapter}`, 'adapter');
       write('src/host-adapters/codex-app-server.ts', 'adapter experimentalApi: true thread/queue/add ws://localhost/rpc perMessageDeflate: false');
       write('dist/mcp/server.js');
-      write('dist/transports/mcp/handlers.js', "name === 'message' MessageSchema executeAgentMessageAction");
+      write('dist/transports/mcp/handlers.js', mcpMessageSchema);
       write('dist/transports/http/server.js', 'MessageBody executeAgentMessageAction');
       write('dist/transports/agent-messaging.js', 'executeAgentMessageAction target_kind: input.target_kind');
       write('dist/transports/schemas.js', "target_kind z.enum(['principal', 'session'])");
@@ -276,6 +277,11 @@ describe('Feature: release scripts never edit the real ~/.memesh', () => {
       }));
       const pass = spawnSync(process.execPath, ['scripts/check-agent-message-sync.mjs', '--root', root], { cwd: repoRoot, encoding: 'utf8' });
       expect(pass.status).toBe(0);
+      write('src/transports/mcp/handlers.ts', "name: 'message' name === 'message' MessageSchema executeAgentMessageAction");
+      const missingPublicTargetKind = spawnSync(process.execPath, ['scripts/check-agent-message-sync.mjs', '--root', root], { cwd: repoRoot, encoding: 'utf8' });
+      expect(missingPublicTargetKind.status).toBe(1);
+      expect(missingPublicTargetKind.stderr).toContain('public MCP message target_kind principal/session schema');
+      write('src/transports/mcp/handlers.ts', mcpMessageSchema);
       write('src/transports/cli/cli.ts', cliMappings.replace(".command('watch')\n.action(() => ({ action: 'poll' }))", ".command('watch')\n.action(() => ({ action: 'fetch' }))") + '\n--payload-stdin\nnever argv\nreadCliMessagePayloadFromStdin\nmessageStorageCmd storage report prune automatic_pruning');
       const wrongMapping = spawnSync(process.execPath, ['scripts/check-agent-message-sync.mjs', '--root', root], { cwd: repoRoot, encoding: 'utf8' });
       expect(wrongMapping.status).toBe(1);

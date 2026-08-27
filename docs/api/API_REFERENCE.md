@@ -638,10 +638,10 @@ The `action` field is one of:
 | `poll` | `project`, `recipient` | Read a bounded batch after an optional opaque `cursor`. `wait_ms` is 0–30000 and `limit` is 1–100. Events contain routing metadata, never the payload. |
 | `fetch` | `project`, `recipient`, `message_id` | Return the payload routed to that principal or exact session. Optional `target_kind` defaults to `principal`; exact-session fetches must pass `session`. Fetch is a read and does not imply intake or ACK. |
 | `intake` | receipt base plus `intake_state` | Record `fetched` or `ingested` without implying ACK. |
-| `ack` | receipt base | Record explicit recipient acknowledgement. |
+| `ack` | receipt base | Record explicit recipient acknowledgement. Inbox/MCP acknowledgement does not require or imply host-native acceptance. |
 | `disposition` | receipt base plus `disposition` | Record `accepted`, `rejected`, `completed`, `cancelled`, or `deferred`. |
 | `activation` | receipt base plus `activation` | Record `woken`, `manual_resume_required`, `unsupported`, or `failed`. |
-| `receipts` | `project`, `recipient`, `message_id` | Read the separate receipt facts for a message routed to that logical recipient ID. |
+| `receipts` | `project`, `recipient`, `message_id` | Read one ordered audit projection containing public receipt facts plus any host acceptance, host-native ACK, and workflow facts for the authorized delivery. Each row identifies its `fact_source`. |
 
 The receipt base is `project`, `recipient`, `message_id`, and a stable `idempotency_key`. `disposition` and `activation` also accept an optional bounded `detail` string.
 
@@ -663,9 +663,9 @@ Exact-recipient routing is not per-agent authentication or an ACL. A caller that
 
 The CLI also exposes owner-operated storage accounting and bounded retention:
 
-- `memesh message storage report --cutoff <ISO timestamp>` reports logical payload, protected/unresolved rows, prunable terminal rows, reusable SQLite pages, and main/WAL file sizes.
-- `memesh message storage prune --cutoff <ISO timestamp> [--batch-size 1..1000]` is a dry-run; `--apply` replaces only old terminal payloads with hash-bound tombstones while preserving lifecycle audit facts.
-- `MEMESH_AGENT_MESSAGE_STORAGE_QUOTA_BYTES=<non-negative integer>` enables an owner-selected hard payload quota. Over-quota sends fail atomically with `storage_quota_exceeded`. No quota or automatic retention policy is enabled by default.
+- `memesh message storage report --cutoff <ISO timestamp>` reports logical payload, protected/unresolved rows, prunable terminal rows, cursor/session/presence/dispatch/acceptance audit counts, reusable SQLite pages, and main/WAL file sizes.
+- `memesh message storage prune --cutoff <ISO timestamp> [--batch-size 1..1000]` is a dry-run; `--apply` replaces only payloads whose every delivery has an explicit ACK and an old terminal disposition. It preserves lifecycle audit facts.
+- `MEMESH_AGENT_MESSAGE_STORAGE_QUOTA_BYTES=<non-negative integer>` enables an owner-selected hard logical-payload quota. Over-quota sends fail atomically with `storage_quota_exceeded`. It is not a whole-file disk quota: metadata, indexes, audit rows, reusable pages, and WAL bytes remain visible through the storage report and require an owner disk/headroom policy. No quota or automatic retention policy is enabled by default.
 
 ## Data Model
 

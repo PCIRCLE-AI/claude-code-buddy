@@ -160,13 +160,14 @@ describe('Installation Verification', () => {
     it('documents owner-private reusable setup for every installed managed Local host', () => {
       const install = fs.readFileSync('llms-install.md', 'utf8');
       const guide = fs.readFileSync('docs/platforms/agent-messaging.md', 'utf8');
-      for (const command of ['memesh-router', 'memesh-host-codex', 'memesh-host-claude', 'memesh-host-acp']) {
+      for (const command of ['memesh-router', 'memesh-host-codex', 'memesh-host-claude']) {
         expect(install).toContain(command);
         expect(guide).toContain(command);
       }
       expect(install).toContain('memesh agent setup codex');
       expect(install).toContain('memesh agent setup claude');
-      expect(install).toContain('memesh agent setup gemini');
+      expect(install).not.toContain('memesh agent setup gemini');
+      expect(guide).toContain('Experimental ACP runner (not release-gated)');
       expect(guide).toContain('owner-private');
       expect(guide).toContain('presence-only/inbound-unavailable');
       expect(guide).toContain('stopped, missing, disconnected, or replaced');

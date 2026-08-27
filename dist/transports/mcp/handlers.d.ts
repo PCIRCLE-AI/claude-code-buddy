@@ -327,6 +327,11 @@ export declare const TOOL_DEFINITIONS: readonly [{
                 readonly type: "string";
                 readonly description: "Stable target local agent/host identifier.";
             };
+            readonly target_kind: {
+                readonly type: "string";
+                readonly enum: readonly ["principal", "session"];
+                readonly description: "Recipient identity kind for send and fetch. Defaults to principal; exact-session delivery and fetch require session.";
+            };
             readonly idempotency_key: {
                 readonly type: "string";
                 readonly description: "Required for send and receipt writes. Stable retry key.";

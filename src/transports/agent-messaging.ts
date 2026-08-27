@@ -1,14 +1,18 @@
 import { z } from 'zod';
 import type { MemeshDatabase } from '../storage/sqlite.js';
 import {
+  AgentMessageAccessError,
+  AgentMessagingError,
   fetchAgentMessage,
   pollAgentEvents,
   readAgentMessageReceipts,
   recordAgentReceipt,
   sendAgentMessage,
   waitForAgentEvents,
+  type AgentAckFact,
   type AgentJsonObject,
   type AgentMessagePostCommitNotifier,
+  type AgentWorkflowFact,
 } from '../core/agent-messaging.js';
 import { MessageSchema } from './schemas.js';
 import { createAgentRouterNotifier } from '../core/agent-router.js';
@@ -24,6 +28,48 @@ export interface AgentMessageTransportContext {
 }
 
 const AGENT_MESSAGE_STORAGE_QUOTA_ENV = 'MEMESH_AGENT_MESSAGE_STORAGE_QUOTA_BYTES';
+const PUBLIC_DISPOSITIONS = new Set(['accepted', 'rejected', 'completed', 'cancelled', 'deferred']);
+
+type CanonicalDeliveryScope = {
+  delivery_id: string;
+  message_id: string;
+  project: string;
+  recipient: string;
+};
+
+type HostAcceptRow = {
+  fact_order: number;
+  host_accept_id: string;
+  attempt_id: string;
+  delivery_id: string;
+  adapter_kind: string;
+  receipt_json: string;
+  created_at: string;
+};
+
+type AckFactRow = {
+  fact_order: number;
+  ack_fact_id: string;
+  delivery_id: string;
+  host_accept_id: string;
+  actor: string;
+  idempotency_key: string;
+  detail_json: string;
+  created_at: string;
+};
+
+type WorkflowFactRow = {
+  fact_order: number;
+  workflow_fact_id: string;
+  delivery_id: string;
+  actor: string;
+  workflow_state: string;
+  idempotency_key: string;
+  detail_json: string;
+  created_at: string;
+};
+
+type ProjectedFact = Record<string, unknown> & { created_at: string };
 
 function configuredAgentMessageStorageQuotaBytes(): number | undefined {
   const raw = process.env[AGENT_MESSAGE_STORAGE_QUOTA_ENV];
@@ -62,6 +108,207 @@ function receiptDetail(
     source_host: context.sourceHost,
     ...(note ? { note } : {}),
   };
+}
+
+function resolveCanonicalDelivery(
+  db: MemeshDatabase,
+  project: string,
+  recipient: string,
+  messageId: string,
+): CanonicalDeliveryScope {
+  const delivery = db.prepare(`
+    SELECT delivery_id, message_id, project, recipient
+    FROM agent_message_deliveries
+    WHERE project = ? AND recipient = ? AND message_id = ?
+  `).get(project, recipient, messageId) as CanonicalDeliveryScope | undefined;
+  if (!delivery) {
+    throw new AgentMessageAccessError(
+      `Agent message ${messageId} is not available to recipient ${recipient} in project ${project}.`,
+    );
+  }
+  return delivery;
+}
+
+function readHostAccept(db: MemeshDatabase, deliveryId: string): HostAcceptRow | undefined {
+  return db.prepare(`
+    SELECT rowid AS fact_order, host_accept_id, attempt_id, delivery_id, adapter_kind, receipt_json, created_at
+    FROM agent_host_accepts
+    WHERE delivery_id = ?
+  `).get(deliveryId) as HostAcceptRow | undefined;
+}
+
+function recordPublicAck(
+  db: MemeshDatabase,
+  input: Extract<AgentMessageActionInput, { action: 'ack' }>,
+  context: AgentMessageTransportContext,
+) {
+  return recordAgentReceipt(db, {
+    project: input.project,
+    recipient: input.recipient,
+    message_id: input.message_id,
+    actor: input.recipient,
+    idempotency_key: input.idempotency_key,
+    receipt_kind: 'ack',
+    detail: receiptDetail(undefined, context),
+  });
+}
+
+function recordPublicWorkflow(
+  db: MemeshDatabase,
+  input: Extract<AgentMessageActionInput, { action: 'disposition' }>,
+  context: AgentMessageTransportContext,
+) {
+  return recordAgentReceipt(db, {
+    project: input.project,
+    recipient: input.recipient,
+    message_id: input.message_id,
+    actor: input.recipient,
+    idempotency_key: input.idempotency_key,
+    receipt_kind: 'disposition',
+    disposition: input.disposition,
+    detail: receiptDetail(input.detail, context),
+  });
+}
+
+function readPublicReceipts(
+  db: MemeshDatabase,
+  input: Extract<AgentMessageActionInput, { action: 'receipts' }>,
+): ProjectedFact[] {
+  const delivery = resolveCanonicalDelivery(db, input.project, input.recipient, input.message_id);
+  const projected: Array<{ fact: ProjectedFact; rank: number; order: number }> = [];
+
+  const legacy = readAgentMessageReceipts(db, input);
+  legacy.forEach((receipt, order) => projected.push({
+    fact: { ...receipt, fact_source: 'agent_message_receipt' },
+    rank: 1,
+    order,
+  }));
+
+  const hostAccept = readHostAccept(db, delivery.delivery_id);
+  if (hostAccept) {
+    projected.push({ fact: projectHostAccept(delivery, hostAccept), rank: 0, order: hostAccept.fact_order });
+  }
+
+  const ackFacts = db.prepare(`
+    SELECT rowid AS fact_order, ack_fact_id, delivery_id, host_accept_id, actor,
+           idempotency_key, detail_json, created_at
+    FROM agent_ack_facts
+    WHERE delivery_id = ?
+    ORDER BY rowid ASC
+  `).all(delivery.delivery_id) as AckFactRow[];
+  for (const row of ackFacts) {
+    projected.push({
+      fact: projectAckFact(delivery, {
+        ack_fact_id: row.ack_fact_id,
+        delivery_id: row.delivery_id,
+        host_accept_id: row.host_accept_id,
+        actor: row.actor,
+        idempotency_key: row.idempotency_key,
+        detail: parseStoredObject(row.detail_json, 'agent_ack_facts.detail_json'),
+        created_at: row.created_at,
+      }),
+      rank: 2,
+      order: row.fact_order,
+    });
+  }
+
+  const workflowFacts = db.prepare(`
+    SELECT rowid AS fact_order, workflow_fact_id, delivery_id, actor,
+           workflow_state, idempotency_key, detail_json, created_at
+    FROM agent_workflow_facts
+    WHERE delivery_id = ?
+    ORDER BY rowid ASC
+  `).all(delivery.delivery_id) as WorkflowFactRow[];
+  for (const row of workflowFacts) {
+    projected.push({
+      fact: projectWorkflowFact(delivery, {
+        workflow_fact_id: row.workflow_fact_id,
+        delivery_id: row.delivery_id,
+        actor: row.actor,
+        workflow_state: row.workflow_state,
+        idempotency_key: row.idempotency_key,
+        detail: parseStoredObject(row.detail_json, 'agent_workflow_facts.detail_json'),
+        created_at: row.created_at,
+      }),
+      rank: 3,
+      order: row.fact_order,
+    });
+  }
+
+  return projected
+    .sort((left, right) => left.fact.created_at.localeCompare(right.fact.created_at)
+      || left.rank - right.rank
+      || left.order - right.order)
+    .map(({ fact }) => fact);
+}
+
+function projectHostAccept(delivery: CanonicalDeliveryScope, fact: HostAcceptRow): ProjectedFact {
+  return {
+    receipt_id: fact.host_accept_id,
+    receipt_kind: 'host_accept',
+    fact_source: 'agent_host_accept',
+    message_id: delivery.message_id,
+    project: delivery.project,
+    recipient: delivery.recipient,
+    delivery_id: fact.delivery_id,
+    host_accept_id: fact.host_accept_id,
+    attempt_id: fact.attempt_id,
+    adapter_kind: fact.adapter_kind,
+    receipt: parseStoredObject(fact.receipt_json, 'agent_host_accepts.receipt_json'),
+    created_at: fact.created_at,
+  };
+}
+
+function projectAckFact(delivery: CanonicalDeliveryScope, fact: AgentAckFact): ProjectedFact {
+  return {
+    receipt_id: fact.ack_fact_id,
+    receipt_kind: 'ack',
+    fact_source: 'agent_ack_fact',
+    ack_fact_id: fact.ack_fact_id,
+    message_id: delivery.message_id,
+    project: delivery.project,
+    recipient: delivery.recipient,
+    delivery_id: fact.delivery_id,
+    host_accept_id: fact.host_accept_id,
+    actor: fact.actor,
+    idempotency_key: fact.idempotency_key,
+    detail: { acknowledged: true, detail: fact.detail },
+    created_at: fact.created_at,
+  };
+}
+
+function projectWorkflowFact(delivery: CanonicalDeliveryScope, fact: AgentWorkflowFact): ProjectedFact {
+  const disposition = PUBLIC_DISPOSITIONS.has(fact.workflow_state) ? fact.workflow_state : undefined;
+  return {
+    receipt_id: fact.workflow_fact_id,
+    receipt_kind: disposition ? 'disposition' : 'workflow',
+    fact_source: 'agent_workflow_fact',
+    workflow_fact_id: fact.workflow_fact_id,
+    message_id: delivery.message_id,
+    project: delivery.project,
+    recipient: delivery.recipient,
+    delivery_id: fact.delivery_id,
+    actor: fact.actor,
+    idempotency_key: fact.idempotency_key,
+    workflow_state: fact.workflow_state,
+    ...(disposition ? { disposition } : {}),
+    detail: disposition
+      ? { disposition, detail: fact.detail }
+      : { workflow_state: fact.workflow_state, detail: fact.detail },
+    created_at: fact.created_at,
+  };
+}
+
+function parseStoredObject(raw: string, label: string): AgentJsonObject {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as AgentJsonObject;
+    }
+  } catch {
+    // Fall through to one stable storage-corruption error below.
+  }
+  throw new AgentMessagingError(`Invalid stored JSON object in ${label}.`);
 }
 
 /**
@@ -126,26 +373,9 @@ export async function executeAgentMessageAction(
         detail: receiptDetail(undefined, context),
       });
     case 'ack':
-      return recordAgentReceipt(db, {
-        project: input.project,
-        recipient: input.recipient,
-        message_id: input.message_id,
-        actor: input.recipient,
-        idempotency_key: input.idempotency_key,
-        receipt_kind: 'ack',
-        detail: receiptDetail(undefined, context),
-      });
+      return recordPublicAck(db, input, context);
     case 'disposition':
-      return recordAgentReceipt(db, {
-        project: input.project,
-        recipient: input.recipient,
-        message_id: input.message_id,
-        actor: input.recipient,
-        idempotency_key: input.idempotency_key,
-        receipt_kind: 'disposition',
-        disposition: input.disposition,
-        detail: receiptDetail(input.detail, context),
-      });
+      return recordPublicWorkflow(db, input, context);
     case 'activation':
       return recordAgentReceipt(db, {
         project: input.project,
@@ -158,6 +388,6 @@ export async function executeAgentMessageAction(
         detail: receiptDetail(input.detail, context),
       });
     case 'receipts':
-      return readAgentMessageReceipts(db, input);
+      return readPublicReceipts(db, input);
   }
 }

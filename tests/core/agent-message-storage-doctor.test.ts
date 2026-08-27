@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { runDoctor } from '../../src/core/doctor.js';
-import { recordAgentWorkflowFact, sendAgentMessage } from '../../src/core/agent-messaging.js';
+import { recordAgentReceipt, recordAgentWorkflowFact, sendAgentMessage } from '../../src/core/agent-messaging.js';
 import { getDatabase } from '../../src/db.js';
 import { useTestDatabase } from '../helpers/db-fixture.js';
 
@@ -35,6 +35,10 @@ describe('doctor agent-message storage pressure', () => {
     const sent = sendAgentMessage(getDatabase(), {
       project: 'doctor-storage', sender: 'sender', recipient: 'recipient', idempotency_key: 'message-1',
       content_type: 'application/json', payload: { body: 'retained-until-an-owner-policy-says-otherwise' },
+    });
+    recordAgentReceipt(getDatabase(), {
+      project: 'doctor-storage', recipient: 'recipient', message_id: sent.message_id,
+      actor: 'recipient', idempotency_key: 'ack-1', receipt_kind: 'ack',
     });
     recordAgentWorkflowFact(getDatabase(), {
       delivery_id: sent.delivery_id, actor: 'recipient', workflow_state: 'completed', idempotency_key: 'complete-1',

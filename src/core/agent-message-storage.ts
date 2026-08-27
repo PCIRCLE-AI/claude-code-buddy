@@ -19,6 +19,13 @@ export interface AgentMessageStorageReport {
   delivery_count: number;
   event_count: number;
   receipt_count: number;
+  cursor_count: number;
+  principal_count: number;
+  session_instance_count: number;
+  session_connection_count: number;
+  presence_fact_count: number;
+  dispatch_attempt_count: number;
+  host_accept_count: number;
   ack_fact_count: number;
   workflow_fact_count: number;
   retention_fact_count: number;
@@ -118,6 +125,13 @@ export function getAgentMessageStorageReport(
       (SELECT COUNT(*) FROM agent_message_deliveries) AS delivery_count,
       (SELECT COUNT(*) FROM agent_message_events) AS event_count,
       (SELECT COUNT(*) FROM agent_message_receipts) AS receipt_count,
+      (SELECT COUNT(*) FROM agent_message_cursors) AS cursor_count,
+      (SELECT COUNT(*) FROM agent_principals) AS principal_count,
+      (SELECT COUNT(*) FROM agent_session_instances) AS session_instance_count,
+      (SELECT COUNT(*) FROM agent_session_connections) AS session_connection_count,
+      (SELECT COUNT(*) FROM agent_presence_facts) AS presence_fact_count,
+      (SELECT COUNT(*) FROM agent_dispatch_attempts) AS dispatch_attempt_count,
+      (SELECT COUNT(*) FROM agent_host_accepts) AS host_accept_count,
       (SELECT COUNT(*) FROM agent_ack_facts) AS ack_fact_count,
       (SELECT COUNT(*) FROM agent_workflow_facts) AS workflow_fact_count,
       (SELECT COUNT(*) FROM agent_retention_facts) AS retention_fact_count
@@ -131,6 +145,13 @@ export function getAgentMessageStorageReport(
     delivery_count: lifecycle.delivery_count,
     event_count: lifecycle.event_count,
     receipt_count: lifecycle.receipt_count,
+    cursor_count: lifecycle.cursor_count,
+    principal_count: lifecycle.principal_count,
+    session_instance_count: lifecycle.session_instance_count,
+    session_connection_count: lifecycle.session_connection_count,
+    presence_fact_count: lifecycle.presence_fact_count,
+    dispatch_attempt_count: lifecycle.dispatch_attempt_count,
+    host_accept_count: lifecycle.host_accept_count,
     ack_fact_count: lifecycle.ack_fact_count,
     workflow_fact_count: lifecycle.workflow_fact_count,
     retention_fact_count: lifecycle.retention_fact_count,
@@ -225,6 +246,13 @@ type LifecycleCounts = {
   delivery_count: number;
   event_count: number;
   receipt_count: number;
+  cursor_count: number;
+  principal_count: number;
+  session_instance_count: number;
+  session_connection_count: number;
+  presence_fact_count: number;
+  dispatch_attempt_count: number;
+  host_accept_count: number;
   ack_fact_count: number;
   workflow_fact_count: number;
   retention_fact_count: number;
@@ -250,17 +278,41 @@ type PrunableMessageRow = {
 
 function readMessageStates(db: MemeshDatabase, cutoff: string): MessageStateCounts {
   return db.prepare(`
-    WITH latest_workflow AS (
-      SELECT delivery_id, workflow_state, created_at,
-        ROW_NUMBER() OVER (PARTITION BY delivery_id ORDER BY julianday(created_at) DESC, rowid DESC) AS row_number
+    WITH workflow_candidates AS (
+      SELECT delivery_id, workflow_state, created_at, 1 AS source_rank, rowid AS fact_order
       FROM agent_workflow_facts
+      UNION ALL
+      SELECT d.delivery_id, json_extract(r.detail_json, '$.disposition') AS workflow_state,
+        r.created_at, 0 AS source_rank, r.rowid AS fact_order
+      FROM agent_message_receipts r
+      JOIN agent_message_deliveries d
+        ON d.message_id = r.message_id AND d.project = r.project AND d.recipient = r.recipient
+      WHERE r.receipt_kind = 'disposition'
+    ), latest_workflow AS (
+      SELECT delivery_id, workflow_state, created_at,
+        ROW_NUMBER() OVER (
+          PARTITION BY delivery_id
+          ORDER BY julianday(created_at) DESC, source_rank DESC, fact_order DESC
+        ) AS row_number
+      FROM workflow_candidates
+    ), acknowledged_deliveries AS (
+      SELECT delivery_id
+      FROM agent_ack_facts
+      UNION
+      SELECT d.delivery_id
+      FROM agent_message_receipts r
+      JOIN agent_message_deliveries d
+        ON d.message_id = r.message_id AND d.project = r.project AND d.recipient = r.recipient
+      WHERE r.receipt_kind = 'ack'
     ), delivery_states AS (
       SELECT d.message_id,
         COUNT(*) AS delivery_count,
+        SUM(CASE WHEN acknowledged_deliveries.delivery_id IS NOT NULL THEN 1 ELSE 0 END) AS acknowledged_count,
         SUM(CASE WHEN lw.workflow_state IN ('completed', 'cancelled', 'rejected') THEN 1 ELSE 0 END) AS terminal_count,
         SUM(CASE WHEN lw.workflow_state IN ('completed', 'cancelled', 'rejected')
                       AND julianday(lw.created_at) < julianday(?) THEN 1 ELSE 0 END) AS old_terminal_count
       FROM agent_message_deliveries d
+      LEFT JOIN acknowledged_deliveries ON acknowledged_deliveries.delivery_id = d.delivery_id
       LEFT JOIN latest_workflow lw ON lw.delivery_id = d.delivery_id AND lw.row_number = 1
       GROUP BY d.message_id
     ), message_states AS (
@@ -269,9 +321,11 @@ function readMessageStates(db: MemeshDatabase, cutoff: string): MessageStateCoun
         CASE
           WHEN m.payload_tombstoned_at IS NOT NULL THEN 'tombstoned'
           WHEN COALESCE(ds.delivery_count, 0) > 0
+               AND ds.acknowledged_count = ds.delivery_count
                AND ds.terminal_count = ds.delivery_count
                AND ds.old_terminal_count = ds.delivery_count THEN 'prunable'
           WHEN COALESCE(ds.delivery_count, 0) > 0
+               AND ds.acknowledged_count = ds.delivery_count
                AND ds.terminal_count = ds.delivery_count THEN 'terminal_retained'
           ELSE 'protected'
         END AS storage_state
@@ -294,16 +348,40 @@ function readMessageStates(db: MemeshDatabase, cutoff: string): MessageStateCoun
 
 function selectPrunableMessages(db: MemeshDatabase, cutoff: string, batchSize: number): PrunableMessageRow[] {
   return db.prepare(`
-    WITH latest_workflow AS (
-      SELECT delivery_id, workflow_state, created_at,
-        ROW_NUMBER() OVER (PARTITION BY delivery_id ORDER BY julianday(created_at) DESC, rowid DESC) AS row_number
+    WITH workflow_candidates AS (
+      SELECT delivery_id, workflow_state, created_at, 1 AS source_rank, rowid AS fact_order
       FROM agent_workflow_facts
+      UNION ALL
+      SELECT d.delivery_id, json_extract(r.detail_json, '$.disposition') AS workflow_state,
+        r.created_at, 0 AS source_rank, r.rowid AS fact_order
+      FROM agent_message_receipts r
+      JOIN agent_message_deliveries d
+        ON d.message_id = r.message_id AND d.project = r.project AND d.recipient = r.recipient
+      WHERE r.receipt_kind = 'disposition'
+    ), latest_workflow AS (
+      SELECT delivery_id, workflow_state, created_at,
+        ROW_NUMBER() OVER (
+          PARTITION BY delivery_id
+          ORDER BY julianday(created_at) DESC, source_rank DESC, fact_order DESC
+        ) AS row_number
+      FROM workflow_candidates
+    ), acknowledged_deliveries AS (
+      SELECT delivery_id
+      FROM agent_ack_facts
+      UNION
+      SELECT d.delivery_id
+      FROM agent_message_receipts r
+      JOIN agent_message_deliveries d
+        ON d.message_id = r.message_id AND d.project = r.project AND d.recipient = r.recipient
+      WHERE r.receipt_kind = 'ack'
     ), delivery_states AS (
       SELECT d.message_id,
         COUNT(*) AS delivery_count,
+        SUM(CASE WHEN acknowledged_deliveries.delivery_id IS NOT NULL THEN 1 ELSE 0 END) AS acknowledged_count,
         SUM(CASE WHEN lw.workflow_state IN ('completed', 'cancelled', 'rejected')
                       AND julianday(lw.created_at) < julianday(?) THEN 1 ELSE 0 END) AS old_terminal_count
       FROM agent_message_deliveries d
+      LEFT JOIN acknowledged_deliveries ON acknowledged_deliveries.delivery_id = d.delivery_id
       LEFT JOIN latest_workflow lw ON lw.delivery_id = d.delivery_id AND lw.row_number = 1
       GROUP BY d.message_id
     )
@@ -312,6 +390,7 @@ function selectPrunableMessages(db: MemeshDatabase, cutoff: string, batchSize: n
     JOIN delivery_states ds ON ds.message_id = m.message_id
     WHERE m.payload_tombstoned_at IS NULL
       AND ds.delivery_count > 0
+      AND ds.acknowledged_count = ds.delivery_count
       AND ds.old_terminal_count = ds.delivery_count
     ORDER BY m.created_at ASC, m.message_id ASC
     LIMIT ?

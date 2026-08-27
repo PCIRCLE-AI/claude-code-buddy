@@ -324,6 +324,12 @@ export const TOOL_DEFINITIONS = [
         project: { type: 'string', description: 'Local project scope shared by sender and recipient.' },
         sender: { type: 'string', description: 'Required for send. Stable local sender/agent identifier.' },
         recipient: { type: 'string', description: 'Stable target local agent/host identifier.' },
+        target_kind: {
+          type: 'string',
+          enum: ['principal', 'session'],
+          description:
+            'Recipient identity kind for send and fetch. Defaults to principal; exact-session delivery and fetch require session.',
+        },
         idempotency_key: { type: 'string', description: 'Required for send and receipt writes. Stable retry key.' },
         payload: { type: ['string', 'number', 'boolean', 'object', 'array', 'null'], description: 'Required for send. JSON value treated as untrusted data and never executed by MeMesh.' },
         content_type: { type: 'string', enum: ['text/plain', 'application/json'], description: 'Send payload media type. Defaults to text/plain.' },

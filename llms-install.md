@@ -86,8 +86,8 @@ over-quota send is rejected atomically.
 ### Optional: one-time Local managed-host setup
 
 This is separate from MCP setup. It is for the owner of an active local Codex
-app-server, Claude channel, or MeMesh-managed Gemini ACP session. Keep all
-files private to that Unix account; do not commit the token or config files.
+app-server or Claude channel. Keep all files private to that Unix account; do
+not commit the token or config files.
 
 Start the installed router once and leave it running:
 
@@ -118,15 +118,15 @@ memesh agent setup claude --project my-project --principal claude-recipient
 # Run the printed `registration_command` (`claude mcp add ... memesh-host-claude ...`) once.
 # Start each participating session with the printed research-preview launch command:
 claude --dangerously-load-development-channels server:memesh-channel
-
-memesh agent setup gemini --project my-project --principal gemini-recipient --workspace "$PWD"
-memesh-host-acp --config "$HOME/.memesh/hosts/gemini-acp.json"
 ```
 
 The Codex runner owns its app-server and thread; Claude owns its Channel MCP
-child; the ACP runner owns `gemini --acp`. None attaches to, resumes, or
-replaces an ordinary stopped host. When no active registration exists, the
-message remains durable with no false dispatch or host acceptance.
+child. Neither attaches to, resumes, or replaces an ordinary stopped host.
+When no active registration exists, the message remains durable with no false
+dispatch or host acceptance. A generic ACP adapter remains experimental and
+is not an advertised provider integration. The package includes the
+`memesh-host-acp` experimental binary for protocol development, but this guide
+does not provide a provider setup command or support claim for it.
 
 Expected: exits without error; `memesh`, `memesh-mcp` and `memesh-http` are
 now in `$(npm prefix -g)/bin/`. No compiler is involved and no install script

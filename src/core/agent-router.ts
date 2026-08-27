@@ -366,7 +366,6 @@ export class AgentRouter {
           this.db.prepare(`
             UPDATE agent_session_connections SET lease_expires_at_ms = ? WHERE connection_id = ?
           `).run(expiresAt, connection.connection_id);
-          this.insertPresenceFact(connection, 'heartbeat', {});
         }).immediate();
         return { generation: connection.generation, lease_ms: this.limits.lease_ms };
       }
