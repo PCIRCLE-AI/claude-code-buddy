@@ -62,6 +62,8 @@ That's not a chat-history problem; it's an agent-memory problem. What needs to s
 
 MeMesh has a real cross-agent advantage: every host connected to the same local MeMesh instance can share durable memory, while the `message` tool provides an explicit exact-recipient messaging path over MCP, HTTP, and CLI.
 
+The optional secure host-native wakeup runtime currently supports macOS and Linux. Core MeMesh memory, durable message storage, and MCP tools remain available on Windows; Windows host-native wakeup is not yet supported.
+
 - Works today: an MCP, HTTP, or CLI sender can durably send to one named local recipient. A receiver can fetch the payload separately, resume from an opaque cursor after restart, and record intake, acknowledgement, workflow disposition, and host activation as separate facts.
 - With the MeMesh Codex plugin enabled and the owner-private `memesh agent setup codex-session` opt-in, an active Codex session in the exact configured local workspace receives a native `memesh_message_available` wakeup without polling or a human reminder. The marker contains routing metadata only; Codex then fetches the durable payload with the scoped `message` tool.
 - A successful queue admission (`host_accept`) means only that the local Codex queue accepted the marker. It does not mean an agent read the payload, acknowledged it, or accepted the work.

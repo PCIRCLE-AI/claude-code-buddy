@@ -71,6 +71,8 @@ memesh doctor        # 端到端驗證這份安裝
 
 MeMesh 有一個很強的跨代理優勢：凡是連到同一個本機 MeMesh instance 的 host，都能共享持久化記憶；`message` tool 則提供 MCP、HTTP 與 CLI 共用的明確單一收件人訊息路徑。
 
+可選的安全 host-native 喚醒 runtime 目前支援 macOS 與 Linux。Windows 仍可使用 MeMesh 核心記憶、耐久化 message storage 與 MCP tools；Windows host-native 喚醒目前尚未支援。
+
 - 今天就能做的：MCP、HTTP 或 CLI sender 可把訊息耐久化送給一個指定的本機 recipient。接收端可另行擷取 payload、在重啟後用 opaque cursor 補收，並把 intake、acknowledgement、workflow disposition 與 host activation 分開記錄。
 - 啟用 MeMesh Codex plugin 並完成 owner-private 的 `memesh agent setup codex-session` opt-in 後，位於**確切設定本機 workspace** 的活動中 Codex session 可在沒有輪詢或人工提醒下收到原生 `memesh_message_available` 喚醒。marker 只含 routing metadata；Codex 接著以 scope 相符的 `message` tool 擷取耐久化 payload。
 - 成功的 queue admission（`host_accept`）只代表本機 Codex queue 接受了 marker；它不代表 agent 已讀 payload、已確認收到，或接受了工作。

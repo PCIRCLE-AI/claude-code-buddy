@@ -71,6 +71,8 @@ Installation über npm, gespeichert wird in `~/.memesh/knowledge-graph.db`, ange
 
 Alle Hosts, die mit derselben lokalen MeMesh-Instanz verbunden sind, teilen dauerhaften Speicher. Das `message`-Tool ergänzt einen expliziten Nachrichtenpfad über MCP, HTTP und CLI.
 
+Die optionale sichere Host-Native-Wakeup-Laufzeit unterstützt derzeit macOS und Linux. MeMesh-Kernspeicher, dauerhafte Nachrichtenspeicherung und MCP-Tools bleiben unter Windows verfügbar; Host-Native-Wakeup unter Windows wird noch nicht unterstützt.
+
 - Heute verfügbar: Ein Sender kann eine Nachricht dauerhaft an genau einen lokalen Empfänger senden. Der Empfänger kann den Payload getrennt abrufen, nach einem Neustart mit einem opaken Cursor fortsetzen und Intake, Bestätigung, Workflow-Status und Host-Aktivierung getrennt protokollieren.
 - Mit aktiviertem MeMesh-Codex-Plugin und dem owner-private Opt-in `memesh agent setup codex-session` erhält eine aktive Codex-Session im exakt konfigurierten lokalen Workspace ohne Polling oder menschliche Erinnerung einen nativen `memesh_message_available`-Wakeup. Der Marker enthält nur Routing-Metadaten; Codex ruft danach den dauerhaften Payload mit dem passend eingegrenzten `message`-Tool ab.
 - Eine erfolgreiche Queue-Annahme (`host_accept`) bedeutet nur, dass die lokale Codex-Queue den Marker annahm. Sie beweist nicht, dass ein Agent den Payload gelesen, bestätigt oder die Arbeit akzeptiert hat.

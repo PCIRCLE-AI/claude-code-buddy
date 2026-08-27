@@ -91,6 +91,9 @@ over-quota send is rejected atomically.
 This is separate from MCP setup. It is for the owner of an active local Codex
 session, a MeMesh-managed Codex app-server, or a Claude channel. Keep all
 files private to that Unix account; do not commit the token or config files.
+This secure host-native runtime currently supports macOS and Linux. Windows
+can still use core MeMesh, durable messages, and MCP tools, but not this
+host-native wakeup path.
 
 Each configured host connection starts the packaged router and retries its
 connection when the owner-private socket is absent or refused. Start the router

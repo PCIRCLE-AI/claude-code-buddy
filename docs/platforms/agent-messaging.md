@@ -45,6 +45,11 @@ Neither command starts or registers a host, sends a message, proves
 `host_accept`, or wakes a stopped session.
 In particular, a socket check does not start the host it observes.
 
+The secure host-native router and adapter runtime currently supports macOS and
+Linux. Windows remains supported for core MeMesh memory, durable message
+storage, and MCP tools, but host-native wakeup fails closed before creating
+credentials, configuration, IPC listeners, or managed child processes.
+
 Create one reusable owner-private config for each local path and principal.
 The stable principal is the logical recipient. Managed processes generate a
 fresh exact session identity; the ordinary Codex path instead uses the Codex
