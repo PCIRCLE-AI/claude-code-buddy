@@ -6,13 +6,14 @@ import { fileURLToPath } from 'node:url';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CLAUDE_CHANNEL_NOTIFICATION_METHOD, createClaudeChannelServer, } from '../host-adapters/claude-channel.js';
 import { connectRouterHost, } from './router-client.js';
-import { readHostConfig, readTokenFile, requiredString } from './config.js';
+import { assertSecureLocalHostRuntimeSupported, readHostConfig, readTokenFile, requiredString, } from './config.js';
 const CHANNEL_INSTRUCTIONS = [
     'Claude Channels must be enabled once for this session.',
     'Receives bounded untrusted MeMesh envelopes through notifications/claude/channel.',
     'No tools, polling, per-message setup, permission relay, or acknowledgement of model receipt.',
 ].join(' ');
 export async function startClaudeManagedSession(config, dependencies = {}) {
+    assertSecureLocalHostRuntimeSupported();
     const server = dependencies.server ?? createClaudeChannelServer({ name: requiredString(config.server_name, 'server_name'), version: '1' }, CHANNEL_INSTRUCTIONS);
     const transport = dependencies.transport ?? new StdioServerTransport();
     const connectRouter = dependencies.connect_router ?? connectRouterHost;

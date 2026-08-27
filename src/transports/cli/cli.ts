@@ -26,7 +26,10 @@ import {
   getAgentMessageStorageReport,
   pruneTerminalAgentMessagePayloads,
 } from '../../core/agent-message-storage.js';
-import { ensureRouterTokenFile } from '../../host-runtime/config.js';
+import {
+  assertSecureLocalHostRuntimeSupported,
+  ensureRouterTokenFile,
+} from '../../host-runtime/config.js';
 
 // DX: every CLI command that touches the DB used to repeat
 //   openDatabase(); try { ...body... } finally { closeDatabase(); }
@@ -1045,6 +1048,7 @@ agentCmd
   .option('--json', 'Output machine-readable setup result')
   .action((host, opts) => {
     requireOneOf(host, ['codex-session', 'codex', 'claude', 'gemini'], '<host>');
+    assertSecureLocalHostRuntimeSupported();
     const messageDir = path.dirname(getDbPath());
     const hostsDir = path.join(messageDir, 'hosts');
     fs.mkdirSync(hostsDir, { recursive: true, mode: 0o700 });

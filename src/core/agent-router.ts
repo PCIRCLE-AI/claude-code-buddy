@@ -270,6 +270,12 @@ export class AgentRouter {
 
   async start(): Promise<void> {
     if (this.server) throw new AgentRouterError('already_started', 'The agent router is already started.');
+    if (process.platform === 'win32') {
+      throw new AgentRouterError(
+        'unsupported_secure_host_runtime',
+        'The secure local host runtime is not supported on Windows.',
+      );
+    }
     const directory = path.dirname(this.socket_path);
     if (!fs.existsSync(directory)) fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
     const directoryMode = fs.statSync(directory).mode & 0o777;

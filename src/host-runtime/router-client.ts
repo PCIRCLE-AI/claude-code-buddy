@@ -5,6 +5,7 @@ import net from 'node:net';
 import { fileURLToPath } from 'node:url';
 import type { AgentJsonObject, AgentMessagePayload } from '../core/agent-messaging.js';
 import { AGENT_ROUTER_MAX_FRAME_BYTES } from '../core/agent-router.js';
+import { assertSecureLocalHostRuntimeSupported } from './config.js';
 
 const DEFAULT_INITIAL_RETRY_MS = 100;
 const DEFAULT_MAX_RETRY_MS = 5_000;
@@ -388,6 +389,7 @@ class ActiveRouterHostConnection implements RouterHostConnection {
 }
 
 export async function connectRouterHost(input: ConnectRouterHostInput): Promise<RouterHostConnection> {
+  assertSecureLocalHostRuntimeSupported();
   const connection = new ActiveRouterHostConnection(input, normalizeResilience(input.resilience));
   await connection.connectInitial();
   return connection;

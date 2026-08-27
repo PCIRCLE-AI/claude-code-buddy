@@ -2,6 +2,12 @@ import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 const MAX_HOST_CONFIG_FILE_BYTES = 64 * 1024;
 const MAX_ROUTER_TOKEN_FILE_BYTES = 8 * 1024;
+export const SECURE_LOCAL_HOST_RUNTIME_UNSUPPORTED = 'The secure local host runtime is not supported on Windows.';
+export function assertSecureLocalHostRuntimeSupported() {
+    if (process.platform === 'win32') {
+        throw new Error(SECURE_LOCAL_HOST_RUNTIME_UNSUPPORTED);
+    }
+}
 export function readHostConfig() {
     const flag = process.argv.indexOf('--config');
     const configuredPath = flag >= 0 ? process.argv[flag + 1] : process.env.MEMESH_HOST_CONFIG;
@@ -20,6 +26,7 @@ export function readTokenFile(tokenFile) {
     return requiredString(readOwnerPrivateFile(file, 'router token file', MAX_ROUTER_TOKEN_FILE_BYTES).trim(), 'router token');
 }
 export function ensureRouterTokenFile(tokenFile) {
+    assertSecureLocalHostRuntimeSupported();
     try {
         fs.writeFileSync(tokenFile, `${randomBytes(32).toString('hex')}\n`, { mode: 0o600, flag: 'wx' });
     }
@@ -43,6 +50,7 @@ export function optionalStringArray(value, field) {
     return value.map((item, index) => requiredString(item, `${field}[${index}]`));
 }
 function readOwnerPrivateFile(file, label, maxBytes) {
+    assertSecureLocalHostRuntimeSupported();
     if (typeof fs.constants.O_NOFOLLOW !== 'number') {
         throw new Error(`This platform cannot safely reject a symlink ${label}.`);
     }

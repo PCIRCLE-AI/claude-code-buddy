@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -97,7 +97,7 @@ describe('ACP runtime session update output', () => {
     expect(fs.readdirSync(directory)).toEqual([]);
   });
 
-  it('writes only opted-in ACP session updates to an owner-private JSONL file', () => {
+  it.skipIf(process.platform === 'win32')('writes only opted-in ACP session updates to an owner-private JSONL file', () => {
     const directory = privateDirectory();
     const output = path.join(directory, 'session-updates.jsonl');
     const sink = createAcpSessionUpdateSink(output);
@@ -122,7 +122,7 @@ describe('ACP runtime session update output', () => {
     });
   });
 
-  it('rejects non-private paths and symlink output targets', () => {
+  it.skipIf(process.platform === 'win32')('rejects non-private paths and symlink output targets', () => {
     const directory = privateDirectory();
     const publicDirectory = path.join(directory, 'public');
     fs.mkdirSync(publicDirectory, { mode: 0o755 });
@@ -140,7 +140,7 @@ describe('ACP runtime session update output', () => {
     expect(() => createAcpSessionUpdateSink(symlinkFile)).toThrow(/owner-private regular file/);
   });
 
-  it('bounds individual records, total bytes, and record count', () => {
+  it.skipIf(process.platform === 'win32')('bounds individual records, total bytes, and record count', () => {
     const directory = privateDirectory();
 
     const recordFile = path.join(directory, 'record-bound.jsonl');
@@ -190,7 +190,7 @@ describe('ACP runtime session update output', () => {
 });
 
 describe('managed Gemini ACP runtime', () => {
-  it('generates one exact process identity, forces ACP mode, creates the session before registration, and closes in order', async () => {
+  it.skipIf(process.platform === 'win32')('generates one exact process identity, forces ACP mode, creates the session before registration, and closes in order', async () => {
     const events: string[] = [];
     let acpOptions: AcpClientOptions | undefined;
     let routerOptions: Parameters<ConnectRouterHost>[0] | undefined;
@@ -272,7 +272,7 @@ describe('managed Gemini ACP runtime', () => {
     expect(events.filter((event) => event === 'terminate')).toHaveLength(1);
   });
 
-  it('loads only through ACP and rejects ordinary Gemini UI lifecycle arguments before spawning', async () => {
+  it.skipIf(process.platform === 'win32')('loads only through ACP and rejects ordinary Gemini UI lifecycle arguments before spawning', async () => {
     let acpOptions: AcpClientOptions | undefined;
     const events: string[] = [];
     const runtime = await startManagedAcpHost(managedConfig({
@@ -306,6 +306,9 @@ describe('managed Gemini ACP runtime', () => {
     ]);
     await runtime.close();
 
+  });
+
+  it('rejects ordinary Gemini UI lifecycle arguments before spawning', () => {
     for (const args of [
       ['--resume', 'latest'],
       ['--session-id=session-from-ui'],
@@ -316,12 +319,15 @@ describe('managed Gemini ACP runtime', () => {
       ['--acp=false'],
       ['--no-acp'],
     ]) {
-      expect(() => resolveManagedAcpLaunch(managedConfig({ args }), () => 'generated-session'))
-        .toThrow(/not allowed.*managed ACP session/);
+      expect(() => resolveManagedAcpLaunch({
+        args,
+        principal_id: 'gemini-managed',
+        workspace: process.cwd(),
+      }, () => 'generated-session')).toThrow(/not allowed.*managed ACP session/);
     }
   });
 
-  it('does not register when authentication or capability setup fails', async () => {
+  it.skipIf(process.platform === 'win32')('does not register when authentication or capability setup fails', async () => {
     for (const startupError of [
       new AcpRemoteError('session/new', -32_000),
       new AcpUnsupportedCapabilityError('ACP loadSession is unavailable.'),
@@ -339,7 +345,7 @@ describe('managed Gemini ACP runtime', () => {
     }
   });
 
-  it('propagates process loss and rejects non-accepting receipts instead of resolving host acceptance', async () => {
+  it.skipIf(process.platform === 'win32')('propagates process loss and rejects non-accepting receipts instead of resolving host acceptance', async () => {
     for (const deliver of [
       async () => { throw new AcpProcessExitError('Gemini ACP process exited.'); },
       async () => { throw new AcpRemoteError('session/prompt', -32_000); },
@@ -372,4 +378,22 @@ describe('managed Gemini ACP runtime', () => {
       await runtime.close();
     }
   });
+});
+
+it.runIf(process.platform === 'win32')('fails closed before spawning ACP or registering with the router', async () => {
+  const connectRouterHost = vi.fn();
+  const connectAcpHost = vi.fn();
+  const output = path.join(privateDirectory(), 'unsupported.jsonl');
+
+  expect(() => createAcpSessionUpdateSink(output))
+    .toThrow(/secure local host runtime is not supported on Windows/i);
+  expect(fs.existsSync(output)).toBe(false);
+
+  await expect(startManagedAcpHost({}, {
+    connect_router_host: connectRouterHost as never,
+    connect_acp_host: connectAcpHost as never,
+  })).rejects.toThrow(/secure local host runtime is not supported on Windows/i);
+
+  expect(connectAcpHost).not.toHaveBeenCalled();
+  expect(connectRouterHost).not.toHaveBeenCalled();
 });

@@ -42,7 +42,7 @@ function setHostConfig(file: string): void {
   process.argv.splice(0, process.argv.length, 'node', 'host-config-test', '--config', file);
 }
 
-describe('host config and token files', () => {
+describe.skipIf(process.platform === 'win32')('host config and token files', () => {
   it('creates one owner-private router token and reuses it', () => {
     const directory = privateDirectory();
     const token = path.join(directory, 'router.token');
@@ -114,4 +114,14 @@ describe('host config and token files', () => {
     expect(() => readHostConfig()).toThrow(/byte limit/);
     expect(() => readTokenFile(token)).toThrow(/byte limit/);
   });
+});
+
+it.runIf(process.platform === 'win32')('rejects token creation before writing a file', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-host-config-windows-'));
+  temporaryDirectories.push(directory);
+  const token = path.join(directory, 'router.token');
+
+  expect(() => ensureRouterTokenFile(token))
+    .toThrow(/secure local host runtime is not supported on Windows/i);
+  expect(fs.existsSync(token)).toBe(false);
 });

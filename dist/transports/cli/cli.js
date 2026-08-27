@@ -18,7 +18,7 @@ import { getTaskState, setTaskState } from '../../core/task-state-store.js';
 import { TASK_STATE_FIELDS, taskStateLines } from '../../core/task-state.js';
 import { executeAgentMessageAction } from '../agent-messaging.js';
 import { getAgentMessageStorageReport, pruneTerminalAgentMessagePayloads, } from '../../core/agent-message-storage.js';
-import { ensureRouterTokenFile } from '../../host-runtime/config.js';
+import { assertSecureLocalHostRuntimeSupported, ensureRouterTokenFile, } from '../../host-runtime/config.js';
 async function withDatabase(fn) {
     try {
         openDatabase();
@@ -769,6 +769,7 @@ agentCmd
     .option('--json', 'Output machine-readable setup result')
     .action((host, opts) => {
     requireOneOf(host, ['codex-session', 'codex', 'claude', 'gemini'], '<host>');
+    assertSecureLocalHostRuntimeSupported();
     const messageDir = path.dirname(getDbPath());
     const hostsDir = path.join(messageDir, 'hosts');
     fs.mkdirSync(hostsDir, { recursive: true, mode: 0o700 });

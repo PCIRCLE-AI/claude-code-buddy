@@ -62,7 +62,7 @@ async function configFor(socketPath: string, directory: string): Promise<Managed
   };
 }
 
-describe('managed Codex host runtime', () => {
+describe.skipIf(process.platform === 'win32')('managed Codex host runtime', () => {
   it('registers only after an owned app-server has created a real thread', async () => {
     const socket = await privateSocket();
     const config = await configFor(socket.socketPath, socket.directory);
@@ -179,4 +179,28 @@ describe('managed Codex host runtime', () => {
       await socket.close();
     }
   });
+});
+
+it.runIf(process.platform === 'win32')('fails closed before spawning Codex or connecting to the router', async () => {
+  const config: ManagedCodexHostConfig = {
+    router_socket: 'router.sock',
+    token_file: 'router.token',
+    project: 'project-1',
+    principal_id: 'principal-1',
+    control_socket: 'control.sock',
+    workspace: process.cwd(),
+  };
+  const spawn = vi.fn();
+  const startThread = vi.fn();
+  const connectRouterHost = vi.fn();
+
+  await expect(startManagedCodexHost(config, {
+    spawn: spawn as never,
+    start_thread: startThread as never,
+    connect_router_host: connectRouterHost as never,
+  })).rejects.toThrow(/secure local host runtime is not supported on Windows/i);
+
+  expect(spawn).not.toHaveBeenCalled();
+  expect(startThread).not.toHaveBeenCalled();
+  expect(connectRouterHost).not.toHaveBeenCalled();
 });

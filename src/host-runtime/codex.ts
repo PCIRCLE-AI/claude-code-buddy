@@ -14,7 +14,12 @@ import {
   type CodexAppServerThread,
   type StartCodexAppServerThreadInput,
 } from '../host-adapters/codex-app-server.js';
-import { readHostConfig, readTokenFile, requiredString } from './config.js';
+import {
+  assertSecureLocalHostRuntimeSupported,
+  readHostConfig,
+  readTokenFile,
+  requiredString,
+} from './config.js';
 import { connectRouterHost, type RouterHostConnection } from './router-client.js';
 
 const DEFAULT_STARTUP_TIMEOUT_MS = 15_000;
@@ -80,6 +85,7 @@ export async function startManagedCodexHost(
   config: ManagedCodexHostConfig,
   dependencies: ManagedCodexHostDependencies = {},
 ): Promise<ManagedCodexHost> {
+  assertSecureLocalHostRuntimeSupported();
   const normalized = normalizeConfig(config);
   assertUnusedPrivateSocketPath(normalized.controlSocket);
 

@@ -5,11 +5,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CodexAppServerDisconnectedError, CodexAppServerTimeoutError, createCodexAppServerAdapter, startCodexAppServerThread, } from '../host-adapters/codex-app-server.js';
-import { readHostConfig, readTokenFile, requiredString } from './config.js';
+import { assertSecureLocalHostRuntimeSupported, readHostConfig, readTokenFile, requiredString, } from './config.js';
 import { connectRouterHost } from './router-client.js';
 const DEFAULT_STARTUP_TIMEOUT_MS = 15_000;
 const STARTUP_RETRY_MS = 50;
 export async function startManagedCodexHost(config, dependencies = {}) {
+    assertSecureLocalHostRuntimeSupported();
     const normalized = normalizeConfig(config);
     assertUnusedPrivateSocketPath(normalized.controlSocket);
     const spawnManagedCodex = dependencies.spawn ?? spawn;

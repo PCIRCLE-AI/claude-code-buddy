@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AcpClientHostAdapter, } from '../host-adapters/acp-client.js';
-import { optionalStringArray, readHostConfig, readTokenFile, requiredString } from './config.js';
+import { assertSecureLocalHostRuntimeSupported, optionalStringArray, readHostConfig, readTokenFile, requiredString, } from './config.js';
 export const ACP_SESSION_UPDATE_MAX_RECORD_BYTES = 64 * 1024;
 export const ACP_SESSION_UPDATE_MAX_FILE_BYTES = 1024 * 1024;
 export const ACP_SESSION_UPDATE_MAX_RECORDS = 1024;
@@ -24,6 +24,7 @@ const ACP_ACCEPTED_STOP_REASONS = new Set(['cancelled', 'end_turn', 'max_tokens'
 export function createAcpSessionUpdateSink(configuredPath) {
     if (configuredPath === undefined)
         return undefined;
+    assertSecureLocalHostRuntimeSupported();
     const outputPath = path.resolve(requiredString(configuredPath, 'session_update_file'));
     const parentPath = path.dirname(outputPath);
     const parentStat = fs.lstatSync(parentPath);
@@ -184,6 +185,7 @@ export function resolveManagedAcpLaunch(config, createSessionInstanceId = random
     });
 }
 export async function startManagedAcpHost(config, dependencies) {
+    assertSecureLocalHostRuntimeSupported();
     const launch = resolveManagedAcpLaunch(config, dependencies.create_session_instance_id ?? randomUUID);
     const socketPath = requiredString(config.router_socket, 'router_socket');
     const project = requiredString(config.project, 'project');

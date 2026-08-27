@@ -170,7 +170,7 @@ describe('CLI durable-message ingress', () => {
     }
   });
 
-  it('creates reusable owner-private managed host config without a fabricated session identity', () => {
+  it.skipIf(process.platform === 'win32')('creates reusable owner-private managed host config without a fabricated session identity', () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-cli-agent-'));
     try {
       const setup = spawnSync(process.execPath, cliArgs(
@@ -216,7 +216,7 @@ describe('CLI durable-message ingress', () => {
     }
   });
 
-  it('requires explicit owner-private opt-in before attaching an ordinary Codex workspace', () => {
+  it.skipIf(process.platform === 'win32')('requires explicit owner-private opt-in before attaching an ordinary Codex workspace', () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-cli-agent-'));
     try {
       const setup = spawnSync(process.execPath, cliArgs(
@@ -249,7 +249,7 @@ describe('CLI durable-message ingress', () => {
     }
   });
 
-  it('prints both Claude one-time registration and the required development-channel launch', () => {
+  it.skipIf(process.platform === 'win32')('prints both Claude one-time registration and the required development-channel launch', () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-cli-agent-'));
     try {
       const setup = spawnSync(process.execPath, cliArgs(
@@ -267,6 +267,25 @@ describe('CLI durable-message ingress', () => {
       expect(result.registration_command).toContain('claude mcp add --transport stdio --scope user memesh-channel');
       expect(result.next_command).toBe(result.registration_command);
       expect(result.launch_command).toBe('claude --dangerously-load-development-channels server:memesh-channel');
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it.runIf(process.platform === 'win32')('rejects managed host setup before creating host files', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-cli-agent-windows-'));
+    try {
+      const result = spawnSync(process.execPath, cliArgs(
+        'agent', 'setup', 'codex', '--project', 'test', '--principal', 'reviewer',
+        '--workspace', home, '--json',
+      ), {
+        encoding: 'utf8',
+        env: { ...process.env, HOME: home, MEMESH_AUTO_CAPTURE: 'false' },
+      });
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toMatch(/secure local host runtime is not supported on Windows/i);
+      expect(fs.existsSync(path.join(home, '.memesh'))).toBe(false);
     } finally {
       fs.rmSync(home, { recursive: true, force: true });
     }

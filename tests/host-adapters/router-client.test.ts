@@ -55,7 +55,7 @@ async function leaveOrphanedSocket(socketPath: string): Promise<void> {
   fixtureChild = undefined;
 }
 
-describe('production router host client', () => {
+describe.skipIf(process.platform === 'win32')('production router host client', () => {
   it('uses the unified correlated protocol and invokes a delivery only once for duplicate notify hints', async () => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-router-client-'));
     fs.chmodSync(tempDir, 0o700);
@@ -354,4 +354,25 @@ describe('production router host client', () => {
     await new Promise(resolve => setTimeout(resolve, 120));
     expect(startRouter).toHaveBeenCalledTimes(attemptsAtClose);
   });
+});
+
+it.runIf(process.platform === 'win32')('fails closed before starting a router or creating socket state', async () => {
+  tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-router-client-windows-'));
+  const socketPath = path.join(tempDir, 'nested', 'router.sock');
+  const startRouter = vi.fn();
+
+  await expect(connectRouterHost({
+    socket_path: socketPath,
+    auth_token: 'token',
+    identity: {
+      project: 'project-a', principal_id: 'principal-a',
+      session_instance_id: 'session-a', adapter_kind: 'codex-app-server',
+    },
+    deliver: async () => ({ host: 'unused', status: 'rejected' }),
+    resilience: { start_router: startRouter },
+  })).rejects.toThrow(/secure local host runtime is not supported on Windows/i);
+
+  expect(startRouter).not.toHaveBeenCalled();
+  expect(fs.existsSync(path.dirname(socketPath))).toBe(false);
+  expect(fs.existsSync(socketPath)).toBe(false);
 });

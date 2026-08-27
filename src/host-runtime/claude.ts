@@ -17,7 +17,12 @@ import {
   type RouterDelivery,
   type RouterHostConnection,
 } from './router-client.js';
-import { readHostConfig, readTokenFile, requiredString } from './config.js';
+import {
+  assertSecureLocalHostRuntimeSupported,
+  readHostConfig,
+  readTokenFile,
+  requiredString,
+} from './config.js';
 
 const CHANNEL_INSTRUCTIONS = [
   'Claude Channels must be enabled once for this session.',
@@ -69,6 +74,7 @@ export async function startClaudeManagedSession(
   config: ClaudeManagedSessionConfig,
   dependencies: ClaudeManagedSessionDependencies = {},
 ): Promise<ClaudeManagedSession> {
+  assertSecureLocalHostRuntimeSupported();
   const server = dependencies.server ?? createClaudeChannelServer(
     { name: requiredString(config.server_name, 'server_name'), version: '1' },
     CHANNEL_INSTRUCTIONS,

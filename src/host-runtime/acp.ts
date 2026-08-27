@@ -12,7 +12,13 @@ import {
   type AcpSessionSelection,
   type AcpSessionUpdate,
 } from '../host-adapters/acp-client.js';
-import { optionalStringArray, readHostConfig, readTokenFile, requiredString } from './config.js';
+import {
+  assertSecureLocalHostRuntimeSupported,
+  optionalStringArray,
+  readHostConfig,
+  readTokenFile,
+  requiredString,
+} from './config.js';
 
 export const ACP_SESSION_UPDATE_MAX_RECORD_BYTES = 64 * 1024;
 export const ACP_SESSION_UPDATE_MAX_FILE_BYTES = 1024 * 1024;
@@ -98,6 +104,7 @@ const ACP_ACCEPTED_STOP_REASONS = new Set(['cancelled', 'end_turn', 'max_tokens'
  */
 export function createAcpSessionUpdateSink(configuredPath: unknown): AcpSessionUpdateSink | undefined {
   if (configuredPath === undefined) return undefined;
+  assertSecureLocalHostRuntimeSupported();
 
   const outputPath = path.resolve(requiredString(configuredPath, 'session_update_file'));
   const parentPath = path.dirname(outputPath);
@@ -282,6 +289,7 @@ export async function startManagedAcpHost(
   config: Record<string, unknown>,
   dependencies: ManagedAcpHostDependencies,
 ): Promise<ManagedAcpHostRuntime> {
+  assertSecureLocalHostRuntimeSupported();
   const launch = resolveManagedAcpLaunch(
     config,
     dependencies.create_session_instance_id ?? randomUUID,

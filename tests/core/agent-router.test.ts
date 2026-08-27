@@ -213,7 +213,7 @@ function send(db: ReturnType<typeof openDatabase>, recipient: string, key: strin
   });
 }
 
-describe.sequential('AgentRouter real SQLite + UDS integration', () => {
+describe.runIf(process.platform !== 'win32').sequential('AgentRouter real SQLite + UDS integration', () => {
   it('rejects a nominally successful response that omits its result object', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-router-response-'));
     fs.chmodSync(dir, 0o700);
@@ -593,4 +593,16 @@ describe.sequential('AgentRouter real SQLite + UDS integration', () => {
     await vi.waitFor(() => expect(rateResponse).toContain('rate_limited'));
     rateLimited.destroy();
   });
+});
+
+it.runIf(process.platform === 'win32')('rejects secure router startup before creating socket state', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-router-windows-'));
+  tempDirs.push(directory);
+  const db = openDatabase(path.join(directory, 'messages.db'));
+  const socketPath = path.join(directory, 'nested', 'router.sock');
+  const candidate = new AgentRouter({ db, socket_path: socketPath, adapters: [] });
+
+  await expect(candidate.start()).rejects.toThrow(/secure local host runtime is not supported on Windows/i);
+  expect(fs.existsSync(path.dirname(socketPath))).toBe(false);
+  expect(fs.existsSync(socketPath)).toBe(false);
 });

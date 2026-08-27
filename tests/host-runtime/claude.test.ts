@@ -134,7 +134,7 @@ async function setup(overrides: ClaudeManagedSessionDependencies = {}) {
   };
 }
 
-describe('Claude managed host runtime', () => {
+describe.skipIf(process.platform === 'win32')('Claude managed host runtime', () => {
   it('waits for the completed MCP initialization before registering one stable generated identity', async () => {
     const generated = vi.fn(() => 'generated-session-stable');
     const server = fakeServer();
@@ -351,4 +351,20 @@ describe('Claude managed host runtime', () => {
     expect(fatal).toHaveBeenCalledTimes(1);
     expect(server.close).toHaveBeenCalledTimes(1);
   });
+});
+
+it.runIf(process.platform === 'win32')('fails closed before connecting or starting the Claude server', async () => {
+  const server = fakeServer();
+  const connectRouter = vi.fn();
+
+  await expect(startClaudeManagedSession(config(), {
+    server,
+    transport: {} as never,
+    lifecycle: new FakeLifecycle(),
+    connect_router: connectRouter as never,
+  })).rejects.toThrow(/secure local host runtime is not supported on Windows/i);
+
+  expect(server.connect).not.toHaveBeenCalled();
+  expect(server.close).not.toHaveBeenCalled();
+  expect(connectRouter).not.toHaveBeenCalled();
 });

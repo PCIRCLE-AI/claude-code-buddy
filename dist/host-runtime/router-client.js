@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { AGENT_ROUTER_MAX_FRAME_BYTES } from '../core/agent-router.js';
+import { assertSecureLocalHostRuntimeSupported } from './config.js';
 const DEFAULT_INITIAL_RETRY_MS = 100;
 const DEFAULT_MAX_RETRY_MS = 5_000;
 const DEFAULT_RETRY_JITTER = 0.2;
@@ -341,6 +342,7 @@ class ActiveRouterHostConnection {
     }
 }
 export async function connectRouterHost(input) {
+    assertSecureLocalHostRuntimeSupported();
     const connection = new ActiveRouterHostConnection(input, normalizeResilience(input.resilience));
     await connection.connectInitial();
     return connection;

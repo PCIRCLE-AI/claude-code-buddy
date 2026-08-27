@@ -74,4 +74,16 @@ describe('ordinary Codex session companion', () => {
     )).resolves.toBeNull();
     expect(connect).not.toHaveBeenCalled();
   });
+
+  it.runIf(process.platform === 'win32')('fails closed before connecting to the router', async () => {
+    const { config, hook } = fixture();
+    const connect = vi.fn();
+
+    await expect(startCodexSessionCompanion(
+      config, hook, { CODEX_THREAD_ID: threadId }, { connect },
+    )).rejects.toThrow(/secure local host runtime is not supported on Windows/i);
+
+    expect(connect).not.toHaveBeenCalled();
+    expect(fs.existsSync(config.router_socket as string)).toBe(false);
+  });
 });

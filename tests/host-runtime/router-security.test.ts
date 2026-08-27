@@ -33,7 +33,7 @@ function runRouter(directory: string, tokenFile: string) {
   });
 }
 
-describe('router token boundary', () => {
+describe.skipIf(process.platform === 'win32')('router token boundary', () => {
   it('rejects a symlink token instead of following its private target', () => {
     const directory = privateDirectory();
     const target = path.join(directory, 'target.token');
@@ -57,4 +57,17 @@ describe('router token boundary', () => {
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('8192-byte limit');
   });
+});
+
+it.runIf(process.platform === 'win32')('rejects router startup before creating runtime files', () => {
+  const directory = privateDirectory();
+  const token = path.join(directory, 'router.token');
+  const result = runRouter(directory, token);
+
+  expect(result.error).toBeUndefined();
+  expect(result.status).toBe(1);
+  expect(result.stderr).toMatch(/secure local host runtime is not supported on Windows/i);
+  expect(fs.existsSync(path.join(directory, 'knowledge-graph.db'))).toBe(false);
+  expect(fs.existsSync(path.join(directory, 'router.sock'))).toBe(false);
+  expect(fs.existsSync(token)).toBe(false);
 });
