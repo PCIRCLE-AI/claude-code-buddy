@@ -5,6 +5,7 @@ import {
   linkSync,
   openSync,
   readFileSync,
+  realpathSync,
   unlinkSync,
   writeFileSync,
   writeSync,
@@ -234,7 +235,9 @@ async function main() {
   process.exitCode = runAutoUpdate(targetVersion, lockPath);
 }
 
-const invokedPath = process.argv[1] ? pathToFileURL(process.argv[1]).href : null;
+const invokedPath = process.argv[1]
+  ? pathToFileURL(realpathSync(process.argv[1])).href
+  : null;
 if (invokedPath === import.meta.url) {
   await main();
 }

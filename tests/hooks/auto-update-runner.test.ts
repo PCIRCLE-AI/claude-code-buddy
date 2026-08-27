@@ -28,9 +28,10 @@ function runRunner(
   targetVersion: string,
   lockPath: string,
   env: NodeJS.ProcessEnv,
+  runner = runnerPath,
 ): Promise<RunnerResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [runnerPath, targetVersion, lockPath], {
+    const child = spawn(process.execPath, [runner, targetVersion, lockPath], {
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -217,6 +218,25 @@ describe.skipIf(process.platform === 'win32')('auto-update runner process bounda
     expect(result.stdout).not.toContain('SUCCESS');
     expect(result.stderr).toContain('FAILED target=4.8.0 stage=install-or-readback');
     expect(result.stderr).toContain('expected 4.8.0, but npm reports 4.7.9');
+    expect(fs.existsSync(lockPath)).toBe(false);
+  });
+
+  it('runs when its entry path reaches it through a symlink', async () => {
+    const fake = makeFakeNpm();
+    const lockPath = path.join(tempDir, 'auto-update.lock');
+    const linkedHooks = path.join(tempDir, 'linked-hooks');
+    fs.symlinkSync(path.dirname(runnerPath), linkedHooks, 'dir');
+
+    const result = await runRunner(
+      '4.8.0',
+      lockPath,
+      fake.env,
+      path.join(linkedHooks, 'auto-update-runner.mjs'),
+    );
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('START target=4.8.0');
+    expect(result.stdout).toContain('SUCCESS target=4.8.0 installed=4.8.0');
     expect(fs.existsSync(lockPath)).toBe(false);
   });
 
