@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -105,6 +105,67 @@ function npmGlobalInstall(specifier, prefix, env, mustFail = false) {
   if (failure) throw failure;
 }
 
+function runCandidateAutoUpdate(candidateTarball, prefix, env) {
+  const npmCli = process.env.npm_execpath;
+  assert.ok(npmCli && path.isAbsolute(npmCli) && fs.existsSync(npmCli),
+    'npm_execpath must identify the npm CLI running this release gate');
+  const stage = path.join(upgradeRoot, 'candidate-stage');
+  const shimDir = path.join(upgradeRoot, 'npm-shim');
+  const calls = path.join(upgradeRoot, 'auto-update-npm-calls.log');
+  fs.mkdirSync(shimDir, { recursive: true });
+  npmSync(['install', '--prefix', stage, '--omit=dev', '--cache', env.npm_config_cache,
+    '--userconfig', env.npm_config_userconfig, candidateTarball], {
+    cwd: repoRoot,
+    stdio: 'inherit',
+    env,
+    timeout: npmTimeoutMs,
+    killSignal: 'SIGTERM',
+  });
+  const runner = path.join(stage, 'node_modules', '@pcircle', 'memesh', 'scripts', 'hooks', 'auto-update-runner.mjs');
+  assert.ok(fs.existsSync(runner), 'packed candidate is missing its auto-update runner');
+
+  const shim = path.join(shimDir, 'npm');
+  fs.writeFileSync(shim, `#!/usr/bin/env node
+const { spawnSync } = require('node:child_process');
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+fs.appendFileSync(process.env.MEMESH_UPGRADE_NPM_CALLS, args.join(' ') + '\\n');
+if (args[0] === 'install' && process.env.MEMESH_UPGRADE_FORCE_FAILURE === '1') process.exit(42);
+const target = args.indexOf('@pcircle/memesh@4.8.0');
+if (target >= 0) args[target] = process.env.MEMESH_UPGRADE_TARBALL;
+const child = spawnSync(process.execPath, [process.env.MEMESH_UPGRADE_NPM_CLI, ...args], {
+  stdio: 'inherit', env: process.env,
+});
+if (child.error) throw child.error;
+process.exit(child.status ?? 1);
+`, { mode: 0o700 });
+
+  const runnerEnv = {
+    ...env,
+    PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ''}`,
+    MEMESH_UPGRADE_NPM_CALLS: calls,
+    MEMESH_UPGRADE_NPM_CLI: npmCli,
+    MEMESH_UPGRADE_TARBALL: candidateTarball,
+  };
+  const lockPath = path.join(upgradeRoot, 'auto-update.lock');
+  const success = spawnSync(process.execPath, [runner, expectedCandidateVersion, lockPath], {
+    cwd: stage,
+    env: runnerEnv,
+    encoding: 'utf8',
+    timeout: npmTimeoutMs,
+    killSignal: 'SIGTERM',
+  });
+  assert.equal(success.status, 0, success.stderr || success.stdout);
+  assert.match(success.stdout, /START target=4\.8\.0/);
+  assert.match(success.stdout, /SUCCESS target=4\.8\.0 installed=4\.8\.0/);
+  assert.doesNotMatch(success.stderr, /FAILED/);
+  assert.equal(fs.existsSync(lockPath), false, 'successful auto-update left its lock behind');
+  const callLines = fs.readFileSync(calls, 'utf8').trim().split('\n');
+  assert.ok(callLines.includes('install -g @pcircle/memesh@4.8.0'), 'runner did not request the exact candidate version');
+  assert.ok(callLines.some(line => line.startsWith('ls -g @pcircle/memesh')), 'runner did not read back the installed version');
+  return { runner, runnerEnv, lockPath };
+}
+
 function runMcp(serverPath, packageRoot, env, mode) {
   const source = `
     import assert from 'node:assert/strict';
@@ -206,7 +267,9 @@ try {
   runMcp(oldMcpEntry, installed.packageRoot, env, 'seed');
   console.log(`baseline: version=${installed.packageJson.version} package=${installed.packageRoot}`);
 
-  npmGlobalInstall(candidateTarball, prefix, env);
+  const autoUpdate = process.platform === 'win32'
+    ? (npmGlobalInstall(candidateTarball, prefix, env), null)
+    : runCandidateAutoUpdate(candidateTarball, prefix, env);
   installed = readInstalledPackage(prefix, env);
   assert.equal(installed.packageJson.version, expectedCandidateVersion,
     'npm did not replace the isolated global install with v4.8.0');
@@ -242,10 +305,26 @@ try {
   runMcp(candidateMcpEntry, installed.packageRoot, env, 'verify');
   console.log(`upgrade: version=${installed.packageJson.version} package=${installed.packageRoot} data=${memeshDir}`);
 
-  // Run a real npm failure against the already-upgraded disposable prefix.
-  // This is the direct falsification boundary: resolution must fail before
-  // npm can replace the usable v4.8.0 install or its v4.7.3-era data.
-  npmGlobalInstall(path.join(upgradeRoot, 'not-a-memesh-v4.8.0-candidate.tgz'), prefix, env, true);
+  // Force the same installed runner's real child-process boundary to fail.
+  // It must not print SUCCESS, retain a lock, replace the usable package, or
+  // make the v4.7.3-era data unreadable.
+  if (autoUpdate) {
+    const failed = spawnSync(process.execPath, [
+      autoUpdate.runner, expectedCandidateVersion, autoUpdate.lockPath,
+    ], {
+      cwd: path.dirname(autoUpdate.runner),
+      env: { ...autoUpdate.runnerEnv, MEMESH_UPGRADE_FORCE_FAILURE: '1' },
+      encoding: 'utf8',
+      timeout: processTimeoutMs,
+      killSignal: 'SIGTERM',
+    });
+    assert.equal(failed.status, 1, failed.stderr || failed.stdout);
+    assert.doesNotMatch(failed.stdout, /SUCCESS/);
+    assert.match(failed.stderr, /FAILED target=4\.8\.0 stage=install-or-readback/);
+    assert.equal(fs.existsSync(autoUpdate.lockPath), false, 'failed auto-update left its lock behind');
+  } else {
+    npmGlobalInstall(path.join(upgradeRoot, 'not-a-memesh-v4.8.0-candidate.tgz'), prefix, env, true);
+  }
   installed = readInstalledPackage(prefix, env);
   assert.equal(installed.packageJson.version, expectedCandidateVersion,
     'failed upgrade changed the existing v4.8.0 package');
@@ -255,8 +334,8 @@ try {
   }));
   assert.match(JSON.stringify(afterFailure), /packed-upgrade-existing-memory/,
     'failed upgrade made pre-existing data unreadable');
-  console.log('failure-path: invalid candidate rejected in the upgraded prefix; v4.8.0 CLI and pre-existing data remain readable');
-  console.log('✅ Packaged upgrade smoke passed — public v4.7.3 npm-global data survived an exact local v4.8.0 candidate upgrade.');
+  console.log('failure-path: auto-update install failure was reported without SUCCESS; v4.8.0 CLI and pre-existing data remain readable');
+  console.log('✅ Packaged upgrade smoke passed — public v4.7.3 npm-global data survived the packed v4.8.0 auto-update runner and its exact installed-version readback.');
 } finally {
   fs.rmSync(upgradeRoot, { recursive: true, force: true });
 }
