@@ -279,22 +279,31 @@ type PrunableMessageRow = {
 function readMessageStates(db: MemeshDatabase, cutoff: string): MessageStateCounts {
   return db.prepare(`
     WITH workflow_candidates AS (
-      SELECT delivery_id, workflow_state, created_at, 1 AS source_rank, rowid AS fact_order
+      SELECT delivery_id, workflow_state, created_at
       FROM agent_workflow_facts
       UNION ALL
       SELECT d.delivery_id, json_extract(r.detail_json, '$.disposition') AS workflow_state,
-        r.created_at, 0 AS source_rank, r.rowid AS fact_order
+        r.created_at
       FROM agent_message_receipts r
       JOIN agent_message_deliveries d
         ON d.message_id = r.message_id AND d.project = r.project AND d.recipient = r.recipient
       WHERE r.receipt_kind = 'disposition'
-    ), latest_workflow AS (
+    ), ranked_workflow AS (
       SELECT delivery_id, workflow_state, created_at,
-        ROW_NUMBER() OVER (
+        DENSE_RANK() OVER (
           PARTITION BY delivery_id
-          ORDER BY julianday(created_at) DESC, source_rank DESC, fact_order DESC
-        ) AS row_number
+          ORDER BY julianday(created_at) DESC
+        ) AS time_rank
       FROM workflow_candidates
+    ), latest_workflow AS (
+      SELECT delivery_id,
+        CASE WHEN SUM(CASE
+          WHEN workflow_state IN ('completed', 'cancelled', 'rejected') THEN 0 ELSE 1
+        END) = 0 THEN 1 ELSE 0 END AS is_terminal,
+        MAX(created_at) AS created_at
+      FROM ranked_workflow
+      WHERE time_rank = 1
+      GROUP BY delivery_id
     ), acknowledged_deliveries AS (
       SELECT delivery_id
       FROM agent_ack_facts
@@ -308,12 +317,12 @@ function readMessageStates(db: MemeshDatabase, cutoff: string): MessageStateCoun
       SELECT d.message_id,
         COUNT(*) AS delivery_count,
         SUM(CASE WHEN acknowledged_deliveries.delivery_id IS NOT NULL THEN 1 ELSE 0 END) AS acknowledged_count,
-        SUM(CASE WHEN lw.workflow_state IN ('completed', 'cancelled', 'rejected') THEN 1 ELSE 0 END) AS terminal_count,
-        SUM(CASE WHEN lw.workflow_state IN ('completed', 'cancelled', 'rejected')
+        SUM(CASE WHEN lw.is_terminal = 1 THEN 1 ELSE 0 END) AS terminal_count,
+        SUM(CASE WHEN lw.is_terminal = 1
                       AND julianday(lw.created_at) < julianday(?) THEN 1 ELSE 0 END) AS old_terminal_count
       FROM agent_message_deliveries d
       LEFT JOIN acknowledged_deliveries ON acknowledged_deliveries.delivery_id = d.delivery_id
-      LEFT JOIN latest_workflow lw ON lw.delivery_id = d.delivery_id AND lw.row_number = 1
+      LEFT JOIN latest_workflow lw ON lw.delivery_id = d.delivery_id
       GROUP BY d.message_id
     ), message_states AS (
       SELECT m.message_id, length(CAST(m.payload_json AS BLOB)) AS payload_bytes,
@@ -349,22 +358,31 @@ function readMessageStates(db: MemeshDatabase, cutoff: string): MessageStateCoun
 function selectPrunableMessages(db: MemeshDatabase, cutoff: string, batchSize: number): PrunableMessageRow[] {
   return db.prepare(`
     WITH workflow_candidates AS (
-      SELECT delivery_id, workflow_state, created_at, 1 AS source_rank, rowid AS fact_order
+      SELECT delivery_id, workflow_state, created_at
       FROM agent_workflow_facts
       UNION ALL
       SELECT d.delivery_id, json_extract(r.detail_json, '$.disposition') AS workflow_state,
-        r.created_at, 0 AS source_rank, r.rowid AS fact_order
+        r.created_at
       FROM agent_message_receipts r
       JOIN agent_message_deliveries d
         ON d.message_id = r.message_id AND d.project = r.project AND d.recipient = r.recipient
       WHERE r.receipt_kind = 'disposition'
-    ), latest_workflow AS (
+    ), ranked_workflow AS (
       SELECT delivery_id, workflow_state, created_at,
-        ROW_NUMBER() OVER (
+        DENSE_RANK() OVER (
           PARTITION BY delivery_id
-          ORDER BY julianday(created_at) DESC, source_rank DESC, fact_order DESC
-        ) AS row_number
+          ORDER BY julianday(created_at) DESC
+        ) AS time_rank
       FROM workflow_candidates
+    ), latest_workflow AS (
+      SELECT delivery_id,
+        CASE WHEN SUM(CASE
+          WHEN workflow_state IN ('completed', 'cancelled', 'rejected') THEN 0 ELSE 1
+        END) = 0 THEN 1 ELSE 0 END AS is_terminal,
+        MAX(created_at) AS created_at
+      FROM ranked_workflow
+      WHERE time_rank = 1
+      GROUP BY delivery_id
     ), acknowledged_deliveries AS (
       SELECT delivery_id
       FROM agent_ack_facts
@@ -378,11 +396,11 @@ function selectPrunableMessages(db: MemeshDatabase, cutoff: string, batchSize: n
       SELECT d.message_id,
         COUNT(*) AS delivery_count,
         SUM(CASE WHEN acknowledged_deliveries.delivery_id IS NOT NULL THEN 1 ELSE 0 END) AS acknowledged_count,
-        SUM(CASE WHEN lw.workflow_state IN ('completed', 'cancelled', 'rejected')
+        SUM(CASE WHEN lw.is_terminal = 1
                       AND julianday(lw.created_at) < julianday(?) THEN 1 ELSE 0 END) AS old_terminal_count
       FROM agent_message_deliveries d
       LEFT JOIN acknowledged_deliveries ON acknowledged_deliveries.delivery_id = d.delivery_id
-      LEFT JOIN latest_workflow lw ON lw.delivery_id = d.delivery_id AND lw.row_number = 1
+      LEFT JOIN latest_workflow lw ON lw.delivery_id = d.delivery_id
       GROUP BY d.message_id
     )
     SELECT m.message_id, m.payload_json, length(CAST(m.payload_json AS BLOB)) AS payload_bytes

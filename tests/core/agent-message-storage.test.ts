@@ -255,6 +255,34 @@ describe('bounded agent message storage', () => {
     expect(storedPayload(inboxOnly.message_id)).toContain('_agent_message_tombstone_v1');
   });
 
+  it('protects a delivery when same-timestamp workflow sources disagree about terminal state', () => {
+    const conflicted = send({ body: 'must survive an ambiguous latest timestamp' });
+    ack(conflicted);
+    workflow(conflicted, 'completed', OLD);
+    recordAgentReceipt(getDatabase(), {
+      project: conflicted.project,
+      recipient: conflicted.recipient,
+      message_id: conflicted.message_id,
+      receipt_kind: 'disposition',
+      disposition: 'deferred',
+      actor: conflicted.recipient,
+      idempotency_key: 'same-timestamp-deferred',
+    });
+    getDatabase().prepare(`
+      UPDATE agent_message_receipts SET created_at = ? WHERE message_id = ?
+    `).run(OLD, conflicted.message_id);
+
+    expect(getAgentMessageStorageReport(getDatabase(), { cutoff: CUTOFF })).toMatchObject({
+      protected_unresolved_message_count: 1,
+      terminal_prunable_message_count: 0,
+    });
+    expect(pruneTerminalAgentMessagePayloads(getDatabase(), {
+      cutoff: CUTOFF,
+      dryRun: false,
+    })).toMatchObject({ candidate_count: 0, tombstoned_count: 0 });
+    expect(storedPayload(conflicted.message_id)).toContain('must survive');
+  });
+
   it('tombstones only terminal old payloads in bounded batches, preserves audit, and continues idempotently', () => {
     const messages = [send({ body: 'one' }), send({ body: 'two' }), send({ body: 'three' })];
     messages.forEach((message) => {
