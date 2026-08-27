@@ -16,6 +16,9 @@ import { inspectHosts, allWired } from '../../core/setup.js';
 import { installHooks } from '../../core/install-hooks.js';
 import { getTaskState, setTaskState } from '../../core/task-state-store.js';
 import { TASK_STATE_FIELDS, taskStateLines } from '../../core/task-state.js';
+import { executeAgentMessageAction } from '../agent-messaging.js';
+import { getAgentMessageStorageReport, pruneTerminalAgentMessagePayloads, } from '../../core/agent-message-storage.js';
+import { assertSecureLocalHostRuntimeSupported, ensureRouterTokenFile, } from '../../host-runtime/config.js';
 async function withDatabase(fn) {
     try {
         openDatabase();
@@ -152,9 +155,11 @@ program
         console.error('Error: --obs needs some text. An empty or whitespace-only observation is not a memory.');
         process.exit(1);
     }
+    const supersedes = Array.isArray(opts.supersedes) ? opts.supersedes : [];
+    const contradicts = Array.isArray(opts.contradicts) ? opts.contradicts : [];
     const relations = [
-        ...(opts.supersedes ?? []).map(to => ({ to, type: 'supersedes' })),
-        ...(opts.contradicts ?? []).map(to => ({ to, type: 'contradicts' })),
+        ...supersedes.map(to => ({ to, type: 'supersedes' })),
+        ...contradicts.map(to => ({ to, type: 'contradicts' })),
     ];
     await withDatabase(async () => {
         const result = remember({
@@ -178,13 +183,15 @@ program
             if (result.superseded?.length) {
                 console.log(`   archived as superseded: ${result.superseded.join(', ')}`);
             }
-            const contradicted = (result.relationsCreated ?? [])
+            const relationsCreated = Array.isArray(result.relationsCreated) ? result.relationsCreated : [];
+            const contradicted = relationsCreated
                 .filter(r => r.type === 'contradicts')
                 .map(r => r.to);
             if (contradicted.length > 0) {
                 console.log(`   conflicts stated: ${contradicted.join(', ')}`);
             }
-            for (const err of result.relationErrors ?? [])
+            const relationErrors = Array.isArray(result.relationErrors) ? result.relationErrors : [];
+            for (const err of relationErrors)
                 console.error(`   ⚠️  ${err}`);
         }
         if (result.relationErrors?.length)
@@ -492,6 +499,334 @@ program
         }
     });
 });
+const messageCmd = program
+    .command('message')
+    .description('Send, wait for, fetch, and explicitly receipt durable local agent messages');
+function parseCliMessagePayload(raw, contentType) {
+    if (contentType !== 'application/json')
+        return raw;
+    try {
+        return JSON.parse(raw);
+    }
+    catch {
+        throw new Error('stdin must contain valid JSON when --content-type is application/json.');
+    }
+}
+const MAX_CLI_MESSAGE_STDIN_BYTES = 65_536;
+async function readCliMessagePayloadFromStdin(contentType) {
+    let raw = '';
+    let bytes = 0;
+    for await (const chunk of process.stdin) {
+        const text = typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8');
+        bytes += Buffer.byteLength(text, 'utf8');
+        if (bytes > MAX_CLI_MESSAGE_STDIN_BYTES) {
+            throw new Error(`stdin payload exceeds ${MAX_CLI_MESSAGE_STDIN_BYTES} UTF-8 bytes.`);
+        }
+        raw += text;
+    }
+    if (bytes === 0) {
+        throw new Error('stdin payload is empty.');
+    }
+    return parseCliMessagePayload(raw, contentType);
+}
+async function runCliMessage(input) {
+    await withDatabase(async () => {
+        try {
+            const result = await executeAgentMessageAction(getDatabase(), input, {
+                transport: 'cli',
+                sourceHost: 'cli',
+            });
+            console.log(JSON.stringify(result));
+        }
+        catch (error) {
+            console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+            process.exitCode = 1;
+        }
+    });
+}
+function isAgentPollResult(value) {
+    if (typeof value !== 'object' || value === null)
+        return false;
+    const candidate = value;
+    return Array.isArray(candidate.events) && typeof candidate.next_cursor === 'string';
+}
+messageCmd
+    .command('send')
+    .description('Durably send one exact-recipient local message (idempotent)')
+    .requiredOption('--project <name>', 'Project scope')
+    .requiredOption('--sender <id>', 'Stable sender agent/host ID')
+    .requiredOption('--recipient <id>', 'Stable recipient agent/host ID')
+    .option('--target-kind <kind>', 'principal | session', 'principal')
+    .requiredOption('--idempotency-key <key>', 'Stable retry key')
+    .requiredOption('--payload-stdin', 'Read the complete text or JSON payload from stdin (never argv)')
+    .option('--content-type <type>', 'text/plain | application/json', 'text/plain')
+    .option('--privacy <scope>', 'private | team', 'private')
+    .option('--correlation-id <id>', 'Conversation or task correlation ID')
+    .option('--reply-to <message-id>', 'Message ID this replies to')
+    .action(async (opts) => {
+    requireOneOf(opts.contentType, ['text/plain', 'application/json'], '--content-type');
+    requireOneOf(opts.privacy, ['private', 'team'], '--privacy');
+    requireOneOf(opts.targetKind, ['principal', 'session'], '--target-kind');
+    try {
+        await runCliMessage({
+            action: 'send',
+            project: opts.project,
+            sender: opts.sender,
+            recipient: opts.recipient,
+            target_kind: opts.targetKind,
+            idempotency_key: opts.idempotencyKey,
+            payload: await readCliMessagePayloadFromStdin(opts.contentType),
+            content_type: opts.contentType,
+            privacy: opts.privacy,
+            correlation_id: opts.correlationId,
+            reply_to: opts.replyTo,
+        });
+    }
+    catch (error) {
+        console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+        process.exitCode = 1;
+    }
+});
+messageCmd
+    .command('watch')
+    .description('Wait once for an exact-recipient event batch and emit privacy-minimized JSONL')
+    .requiredOption('--project <name>', 'Project scope')
+    .requiredOption('--recipient <id>', 'Stable recipient agent/host ID')
+    .option('--cursor <token>', 'Opaque cursor returned by an earlier watch/poll')
+    .option('--wait-ms <ms>', 'Bounded wait, 0-30000 milliseconds', wholeNumber('--wait-ms', 0), 30_000)
+    .option('--limit <n>', 'Maximum events, 1-100', wholeNumber('--limit'), 20)
+    .action(async (opts) => {
+    await withDatabase(async () => {
+        console.log(JSON.stringify({
+            type: 'ready',
+            project: opts.project,
+            recipient: opts.recipient,
+            cursor: opts.cursor ?? null,
+        }));
+        try {
+            const result = await executeAgentMessageAction(getDatabase(), {
+                action: 'poll',
+                project: opts.project,
+                recipient: opts.recipient,
+                cursor: opts.cursor,
+                wait_ms: opts.waitMs,
+                limit: opts.limit,
+            }, {
+                transport: 'cli',
+                sourceHost: 'cli',
+            });
+            if (!isAgentPollResult(result)) {
+                throw new Error('Message watch returned an invalid poll result.');
+            }
+            console.log(JSON.stringify({
+                type: result.events.length > 0 ? 'events' : 'timeout',
+                ...result,
+            }));
+        }
+        catch (error) {
+            console.error(JSON.stringify({
+                type: 'error',
+                error: error instanceof Error ? error.message : String(error),
+            }));
+            process.exitCode = 1;
+        }
+    });
+});
+messageCmd
+    .command('fetch')
+    .description('Fetch one payload routed to the exact principal or session without acknowledging it')
+    .requiredOption('--project <name>', 'Project scope')
+    .requiredOption('--recipient <id>', 'Stable recipient agent/host ID')
+    .option('--target-kind <kind>', 'principal | session', 'principal')
+    .requiredOption('--message-id <id>', 'Message ID')
+    .action((opts) => {
+    requireOneOf(opts.targetKind, ['principal', 'session'], '--target-kind');
+    return runCliMessage({
+        action: 'fetch', project: opts.project, recipient: opts.recipient,
+        target_kind: opts.targetKind, message_id: opts.messageId,
+    });
+});
+messageCmd
+    .command('intake')
+    .description('Record fetched/ingested state without implying ACK')
+    .requiredOption('--project <name>', 'Project scope')
+    .requiredOption('--recipient <id>', 'Stable recipient agent/host ID')
+    .requiredOption('--message-id <id>', 'Message ID')
+    .requiredOption('--idempotency-key <key>', 'Stable retry key')
+    .requiredOption('--state <state>', 'fetched | ingested')
+    .action(async (opts) => {
+    requireOneOf(opts.state, ['fetched', 'ingested'], '--state');
+    await runCliMessage({
+        action: 'intake', project: opts.project, recipient: opts.recipient,
+        message_id: opts.messageId, idempotency_key: opts.idempotencyKey, intake_state: opts.state,
+    });
+});
+messageCmd
+    .command('ack')
+    .description('Record explicit recipient acknowledgement')
+    .requiredOption('--project <name>', 'Project scope')
+    .requiredOption('--recipient <id>', 'Stable recipient agent/host ID')
+    .requiredOption('--message-id <id>', 'Message ID')
+    .requiredOption('--idempotency-key <key>', 'Stable retry key')
+    .action((opts) => runCliMessage({
+    action: 'ack', project: opts.project, recipient: opts.recipient,
+    message_id: opts.messageId, idempotency_key: opts.idempotencyKey,
+}));
+messageCmd
+    .command('disposition')
+    .description('Record a workflow disposition independently from ACK')
+    .requiredOption('--project <name>', 'Project scope')
+    .requiredOption('--recipient <id>', 'Stable recipient agent/host ID')
+    .requiredOption('--message-id <id>', 'Message ID')
+    .requiredOption('--idempotency-key <key>', 'Stable retry key')
+    .requiredOption('--value <state>', 'accepted | rejected | completed | cancelled | deferred')
+    .option('--detail <text>', 'Optional bounded explanation')
+    .action(async (opts) => {
+    requireOneOf(opts.value, ['accepted', 'rejected', 'completed', 'cancelled', 'deferred'], '--value');
+    await runCliMessage({
+        action: 'disposition', project: opts.project, recipient: opts.recipient,
+        message_id: opts.messageId, idempotency_key: opts.idempotencyKey,
+        disposition: opts.value, detail: opts.detail,
+    });
+});
+messageCmd
+    .command('activation')
+    .description('Record host activation outcome independently from ACK/disposition')
+    .requiredOption('--project <name>', 'Project scope')
+    .requiredOption('--recipient <id>', 'Stable recipient agent/host ID')
+    .requiredOption('--message-id <id>', 'Message ID')
+    .requiredOption('--idempotency-key <key>', 'Stable retry key')
+    .requiredOption('--value <state>', 'woken | manual_resume_required | unsupported | failed')
+    .option('--detail <text>', 'Optional bounded explanation')
+    .action(async (opts) => {
+    requireOneOf(opts.value, ['woken', 'manual_resume_required', 'unsupported', 'failed'], '--value');
+    await runCliMessage({
+        action: 'activation', project: opts.project, recipient: opts.recipient,
+        message_id: opts.messageId, idempotency_key: opts.idempotencyKey,
+        activation: opts.value, detail: opts.detail,
+    });
+});
+messageCmd
+    .command('receipts')
+    .description('Read receipt facts for one message routed to the logical recipient')
+    .requiredOption('--project <name>', 'Project scope')
+    .requiredOption('--recipient <id>', 'Stable recipient agent/host ID')
+    .requiredOption('--message-id <id>', 'Message ID')
+    .action((opts) => runCliMessage({
+    action: 'receipts', project: opts.project, recipient: opts.recipient, message_id: opts.messageId,
+}));
+const messageStorageCmd = messageCmd
+    .command('storage')
+    .description('Inspect or bound durable agent-message payload storage without deleting lifecycle audit facts');
+messageStorageCmd
+    .command('report')
+    .description('Report logical payload, unresolved protection, reusable pages, and SQLite/WAL size')
+    .requiredOption('--cutoff <iso-time>', 'Terminal workflows strictly older than this ISO timestamp are prunable')
+    .action(async (opts) => {
+    await withDatabase(() => {
+        const report = getAgentMessageStorageReport(getDatabase(), {
+            cutoff: opts.cutoff,
+            databasePath: getDbPath(),
+        });
+        console.log(JSON.stringify({
+            policy: {
+                cutoff: new Date(opts.cutoff).toISOString(),
+                quota_bytes: process.env.MEMESH_AGENT_MESSAGE_STORAGE_QUOTA_BYTES ?? null,
+                automatic_pruning: false,
+            },
+            ...report,
+        }));
+    });
+});
+messageStorageCmd
+    .command('prune')
+    .description('Dry-run one bounded terminal-payload tombstone batch; --apply performs it')
+    .requiredOption('--cutoff <iso-time>', 'Terminal workflows strictly older than this ISO timestamp are eligible')
+    .option('--batch-size <n>', 'Maximum payloads in this transaction, 1-1000', wholeNumber('--batch-size'), 100)
+    .option('--apply', 'Write hash-bound tombstones; without this flag nothing is changed')
+    .option('--actor <id>', 'Bounded audit actor', 'local-owner-cli')
+    .action(async (opts) => {
+    await withDatabase(() => {
+        const result = pruneTerminalAgentMessagePayloads(getDatabase(), {
+            cutoff: opts.cutoff,
+            databasePath: getDbPath(),
+            batchSize: opts.batchSize,
+            dryRun: !opts.apply,
+            actor: opts.actor,
+        });
+        console.log(JSON.stringify(result));
+    });
+});
+const agentCmd = program
+    .command('agent')
+    .description('Set up reusable owner-private local host configuration');
+agentCmd
+    .command('setup')
+    .argument('<host>', 'codex-session | codex | claude | gemini')
+    .requiredOption('--project <name>', 'Project scope used for exact routing')
+    .requiredOption('--principal <id>', 'Stable logical recipient ID')
+    .option('--workspace <path>', 'Managed Codex/Gemini workspace', process.cwd())
+    .option('--json', 'Output machine-readable setup result')
+    .action((host, opts) => {
+    requireOneOf(host, ['codex-session', 'codex', 'claude', 'gemini'], '<host>');
+    assertSecureLocalHostRuntimeSupported();
+    const messageDir = path.dirname(getDbPath());
+    const hostsDir = path.join(messageDir, 'hosts');
+    fs.mkdirSync(hostsDir, { recursive: true, mode: 0o700 });
+    const hostsStat = fs.lstatSync(hostsDir);
+    if (!hostsStat.isDirectory() || hostsStat.isSymbolicLink() || (hostsStat.mode & 0o077) !== 0) {
+        throw new Error('The managed host config directory must be a real owner-private directory.');
+    }
+    const filename = host === 'gemini' ? 'gemini-acp.json' : `${host}.json`;
+    const configPath = path.join(hostsDir, filename);
+    if (fs.existsSync(configPath)) {
+        throw new Error(`Managed ${host} config already exists at ${configPath}; it was not overwritten.`);
+    }
+    const routerTokenFile = path.join(messageDir, 'agent-router.token');
+    ensureRouterTokenFile(routerTokenFile);
+    const common = {
+        router_socket: path.join(messageDir, 'agent-router.sock'),
+        token_file: routerTokenFile,
+        project: opts.project,
+        principal_id: opts.principal,
+    };
+    const config = host === 'codex-session'
+        ? { ...common, workspace: fs.realpathSync(path.resolve(opts.workspace)) }
+        : host === 'codex'
+            ? { ...common, control_socket: path.join(hostsDir, 'codex-app-server.sock'), workspace: path.resolve(opts.workspace) }
+            : host === 'claude'
+                ? { ...common, server_name: 'memesh-channel' }
+                : { ...common, workspace: path.resolve(opts.workspace), command: 'gemini', args: [] };
+    fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+    const launchCommand = host === 'codex-session'
+        ? null
+        : host === 'codex'
+            ? `memesh-host-codex --config ${JSON.stringify(configPath)}`
+            : host === 'claude'
+                ? 'claude --dangerously-load-development-channels server:memesh-channel'
+                : `memesh-host-acp --config ${JSON.stringify(configPath)}`;
+    const registrationCommand = host === 'claude'
+        ? `claude mcp add --transport stdio --scope user memesh-channel -- memesh-host-claude --config ${JSON.stringify(configPath)}`
+        : null;
+    const result = {
+        host,
+        config_path: configPath,
+        mode: host === 'codex-session'
+            ? 'ordinary-session-native-queue'
+            : host === 'claude' ? 'session-owned-channel' : 'memesh-managed-session',
+        session_identity: host === 'codex-session' ? 'codex-thread-id-at-session-start' : 'generated-per-process',
+        ordinary_sessions: host === 'codex-session' ? 'explicit-workspace-opt-in' : 'presence-only/inbound-unavailable',
+        registration_command: registrationCommand,
+        launch_command: launchCommand,
+        next_command: registrationCommand ?? launchCommand ?? 'Restart Codex in the configured workspace',
+    };
+    console.log(opts.json ? JSON.stringify(result) : [
+        `Created owner-private ${host} config: ${configPath}`,
+        'No active or stopped ordinary session was attached.',
+        ...(registrationCommand ? [`Register once: ${registrationCommand}`] : []),
+        ...(launchCommand ? [`Launch: ${launchCommand}`] : ['Restart Codex in the configured workspace.']),
+    ].join('\n'));
+});
 program
     .command('briefing')
     .description('The assembled work topology for a project — task state, decisions, lessons, knowledge, recent activity')
@@ -639,7 +974,8 @@ program
     console.log('\nPlanned actions:');
     for (const st of pending)
         for (const a of st.actions) {
-            console.log(`  • [${st.title}] ${a.label}${a.cmd ? `\n      ${a.cmd} ${(a.args ?? []).join(' ')}` : ''}`);
+            const actionArgs = Array.isArray(a.args) ? a.args : [];
+            console.log(`  • [${st.title}] ${a.label}${a.cmd ? `\n      ${a.cmd} ${actionArgs.join(' ')}` : ''}`);
         }
     if (!opts.yes && !process.stdin.isTTY) {
         console.error('\nNot a terminal and --yes not given — nothing was changed. Re-run with: memesh setup --yes');
@@ -665,9 +1001,10 @@ program
                 console.log(`  ✅ ${wireUserHooks()}`);
             }
             else if (action.cmd) {
-                const r = runSeam(action.cmd, action.args ?? []);
+                const actionArgs = Array.isArray(action.args) ? action.args : [];
+                const r = runSeam(action.cmd, actionArgs);
                 if (r.status === 0)
-                    console.log(`  ✅ done (${action.cmd} ${(action.args ?? []).join(' ')})`);
+                    console.log(`  ✅ done (${action.cmd} ${actionArgs.join(' ')})`);
                 else {
                     console.error(`  ❌ ${action.cmd} exited ${r.status ?? 'without running'}${r.stderr ? `: ${r.stderr.trim()}` : ''}`);
                     failed = true;
@@ -1598,7 +1935,8 @@ dreamCmd
         console.log('');
         for (const p of proposals) {
             const srcLabel = p.kind === 'relation' ? ' (conflict)'
-                : p.source_kind === 'transcript' ? ' (transcript)' : '';
+                : p.kind === 'product_improvement' ? ' (product improvement)'
+                    : p.source_kind === 'transcript' ? ' (transcript)' : '';
             console.log(`  #${p.id}  [${p.project}/${p.cluster_key}]${srcLabel}  ${p.source_count} source(s) → "${p.digest_name}"`);
             if (p.digest_observations_preview !== null) {
                 console.log(`         ${p.digest_observations_preview}`);
@@ -1698,6 +2036,11 @@ dreamCmd
             console.log(`Accept: memesh dream accept ${detail.id}   |   Reject: memesh dream reject ${detail.id}`);
             return;
         }
+        if (detail.kind === 'product_improvement') {
+            const improvement = detail.digest;
+            console.log(`title: ${improvement.title ?? detail.digest.name}`);
+            console.log('authority: human review required; acceptance does not mean implemented or effective');
+        }
         console.log(`name: ${detail.digest.name}`);
         console.log(`type: ${detail.digest.type}`);
         console.log(`observations (${detail.digest.observations.length}):`);
@@ -1712,7 +2055,7 @@ dreamCmd
 });
 dreamCmd
     .command('accept <id>')
-    .description('Accept a pending proposal — creates digest entity, soft-archives sources')
+    .description('Apply a reviewed pending proposal (behaviour depends on proposal kind)')
     .action(async (id) => {
     await withDatabase(async () => {
         const { applyProposal } = await import('../../core/dreamer.js');
@@ -1729,8 +2072,15 @@ dreamCmd
             process.exit(1);
         }
         console.log(`Applied proposal #${result.proposalId}`);
-        console.log(`  digest entity: ${result.digestEntityName}`);
-        console.log(`  sources archived: ${result.sourcesArchived}`);
+        if (result.kind === 'product_improvement') {
+            console.log(`  product improvement: ${result.digestEntityName}`);
+            console.log(`  source memories preserved: ${result.sourcesLinked ?? 0}`);
+            console.log('  state: accepted for product work; implementation and outcome remain unverified');
+        }
+        else {
+            console.log(`  digest entity: ${result.digestEntityName}`);
+            console.log(`  sources archived: ${result.sourcesArchived}`);
+        }
     });
 });
 dreamCmd
@@ -2110,5 +2460,19 @@ program.action(async () => {
     program.outputHelp();
     process.exitCode = 0;
 });
-program.parse();
+export async function runCli(argv = process.argv) {
+    await program.parseAsync([...argv]);
+}
+const cliEntryPath = process.argv[1];
+if (cliEntryPath && isExecutedModule(cliEntryPath, import.meta.url)) {
+    await runCli();
+}
+function isExecutedModule(entryPath, moduleUrl) {
+    try {
+        return fs.realpathSync(entryPath) === fs.realpathSync(fileURLToPath(moduleUrl));
+    }
+    catch {
+        return false;
+    }
+}
 //# sourceMappingURL=cli.js.map

@@ -41,6 +41,11 @@ import { wrapUntrusted } from './prompt-safety.js';
 import { outputLanguageInstruction } from './output-language.js';
 import { isEmbeddingAvailable, scheduleEmbedAndStore, entityEmbedText } from './embedder.js';
 import { hasVectorIndex } from '../storage/vector-index.js';
+import {
+  PRODUCT_IMPROVEMENT_KIND,
+  readProductImprovementPayload,
+  readProductImprovementSourceIds,
+} from './product-improvements.js';
 
 const PROMPT_VERSION = 'v1';
 const COMPACT_MIN_CLUSTER_SIZE = 5;
@@ -1283,7 +1288,117 @@ export interface ApplyResult {
   // whose acceptance creates a relation and no entity. 'guard' = a lesson
   // promoted to a PreToolUse warning, whose acceptance patches the source
   // lesson's metadata and creates no entity either.
-  kind: 'digest' | 'pattern_emergent' | 'relation' | 'guard';
+  kind: 'digest' | 'pattern_emergent' | 'relation' | 'guard' | 'product_improvement';
+}
+
+type ProposalEntityWriter = {
+  createEntity: (
+    name: string,
+    type: string,
+    opts: {
+      observations: string[];
+      tags: string[];
+      metadata: Record<string, unknown>;
+      title?: string | null;
+      namespace?: string;
+      trustOverride?: 'trusted' | 'untrusted';
+    },
+  ) => number;
+};
+
+/**
+ * Promote a reviewed lesson/feedback proposal into the product work graph.
+ *
+ * Sources are evidence, not compaction input: they stay active and receive no
+ * metadata rewrite. The accepted work item points back to each source through
+ * an explicit learned-from relation. A guarded pending-to-applied transition
+ * shares the transaction with entity/relation creation so a concurrent review
+ * cannot leave a work item whose proposal says rejected.
+ */
+function applyProductImprovementProposal(
+  db: MemeshDatabase,
+  row: { id: number; project: string; source_ids: string; proposed_digest: string },
+  kg: ProposalEntityWriter,
+): ApplyResult {
+  const payload = readProductImprovementPayload(row.proposed_digest);
+  const sourceIds = readProductImprovementSourceIds(row.source_ids);
+  if (sourceIds.length === 0) {
+    throw new Error('proposal #' + row.id + ' names no source memories');
+  }
+
+  const tx = db.transaction(() => {
+    const placeholders = sourceIds.map(() => '?').join(',');
+    const sources = db.prepare(
+      'SELECT id, status FROM entities WHERE id IN (' + placeholders + ') ORDER BY id ASC',
+    ).all(...sourceIds) as Array<{ id: number; status: string }>;
+    const activeIds = new Set(sources.filter((source) => source.status === 'active').map((source) => source.id));
+    const unavailable = sourceIds.filter((id) => !activeIds.has(id));
+    if (unavailable.length > 0) {
+      throw new Error('proposal #' + row.id + ': source memories are missing or archived: ' + unavailable.join(', '));
+    }
+
+    const collision = db.prepare('SELECT 1 FROM entities WHERE name = ?').get(payload.name);
+    if (collision) {
+      throw new Error('proposal #' + row.id + ': product-improvement entity name already exists: ' + payload.name);
+    }
+
+    const observations = [
+      ...payload.observations.filter((observation) => !observation.startsWith('State:')),
+      'State: accepted for product work; implementation and outcome are not verified.',
+    ];
+    const tags = [
+      ...payload.tags.filter((tag) => !tag.startsWith('project:') && !tag.startsWith('status:')),
+      'project:' + row.project,
+      'status:accepted-for-product',
+      'implementation:unverified',
+      'outcome:unverified',
+    ];
+    const entityId = kg.createEntity(payload.name, PRODUCT_IMPROVEMENT_KIND, {
+      title: payload.title,
+      namespace: 'team',
+      observations,
+      tags,
+      trustOverride: 'trusted',
+      metadata: {
+        kind: PRODUCT_IMPROVEMENT_KIND,
+        proposal_id: row.id,
+        source_ids: sourceIds,
+        project: row.project,
+        priority: payload.improvement.priority,
+        verification_scenario: payload.improvement.verification_scenario,
+        success_criteria: payload.improvement.success_criteria,
+        implementation_state: 'unverified',
+        outcome_state: 'unverified',
+        accepted_at: new Date().toISOString(),
+        provenance: {
+          source: 'accepted-product-improvement',
+          ...(payload.improvement.source_host ? { source_host: payload.improvement.source_host } : {}),
+        },
+        signal_score: 1,
+      },
+    });
+
+    const relation = db.prepare(
+      'INSERT OR IGNORE INTO relations (from_entity_id, to_entity_id, relation_type) VALUES (?, ?, ?)',
+    );
+    for (const sourceId of sourceIds) relation.run(entityId, sourceId, 'learned-from');
+
+    const updated = db.prepare(
+      "UPDATE dream_proposals SET status = 'applied', reviewed_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'",
+    ).run(row.id);
+    if (Number(updated.changes) !== 1) {
+      throw new Error('proposal #' + row.id + ' was reviewed concurrently — no longer pending');
+    }
+  });
+  tx.immediate();
+
+  return {
+    proposalId: row.id,
+    digestEntityName: payload.name,
+    sourcesArchived: 0,
+    sourcesLinked: sourceIds.length,
+    kind: PRODUCT_IMPROVEMENT_KIND,
+  };
 }
 
 /**
@@ -1363,7 +1478,7 @@ function applyRelationProposal(
 function applyTranscriptProposal(
   db: MemeshDatabase,
   row: { id: number; project: string; cluster_key: string; source_ids: string; proposed_digest: string },
-  kg: { createEntity: (name: string, type: string, opts: { observations: string[]; tags: string[]; metadata: Record<string, unknown>; trustOverride?: 'trusted' | 'untrusted' }) => number },
+  kg: ProposalEntityWriter,
 ): ApplyResult {
   const digest = JSON.parse(row.proposed_digest) as ProposedDigest;
   let source: unknown = null;
@@ -1437,7 +1552,7 @@ function applyTranscriptProposal(
 export function applyProposal(
   db: MemeshDatabase,
   proposalId: number,
-  kg: { createEntity: (name: string, type: string, opts: { observations: string[]; tags: string[]; metadata: Record<string, unknown>; trustOverride?: 'trusted' | 'untrusted' }) => number },
+  kg: ProposalEntityWriter,
 ): ApplyResult {
   const row = db.prepare(
     `SELECT id, project, cluster_key, source_ids, proposed_digest, ${legacyProposalCols(db)} FROM dream_proposals WHERE id = ? AND status = 'pending'`
@@ -1456,6 +1571,13 @@ export function applyProposal(
   // guard payload, not a digest.
   if (row.kind === 'guard') {
     return applyGuardProposal(db, row);
+  }
+
+  // Product improvements preserve source memories and create a linked work
+  // item only after human review. They must never fall through to compaction,
+  // whose defining behaviour is archiving sources.
+  if (row.kind === PRODUCT_IMPROVEMENT_KIND) {
+    return applyProductImprovementProposal(db, row, kg);
   }
 
   // Transcript proposals (Task #18) have NO source ENTITIES — their source_ids
@@ -1804,9 +1926,10 @@ export interface ProposalSummary {
    * `'pattern_emergent'` is treated as a digest, matching the
    * apply-side check in `applyProposal`. `'relation'` rows come from the
    * kind COLUMN (the conflict judge), not from the payload type — and so
-   * do `'guard'` rows (a lesson promoted to a PreToolUse warning).
+   * do `'guard'` rows (a lesson promoted to a PreToolUse warning) and
+   * `'product_improvement'` rows (a memory promoted to reviewed product work).
    */
-  kind: 'digest' | 'pattern_emergent' | 'relation' | 'guard';
+  kind: 'digest' | 'pattern_emergent' | 'relation' | 'guard' | 'product_improvement';
   /**
    * Where the proposal's raw material came from: 'entities' (clusters of
    * captured KG rows — the original path) or 'transcript' (mined directly from
@@ -1910,16 +2033,23 @@ export function listProposals(db: MemeshDatabase, status: string = 'pending'): P
       const parsed = JSON.parse(r.source_ids);
       sourceCount = Array.isArray(parsed) ? parsed.length : (parsed && typeof parsed === 'object' ? 1 : 0);
     } catch { /* leave 0 */ }
+    const productTitle = r.kind === PRODUCT_IMPROVEMENT_KIND
+      && 'title' in digest
+      && typeof digest.title === 'string'
+      ? digest.title
+      : null;
     return {
       id: r.id,
       project: r.project,
       cluster_key: r.cluster_key,
       source_count: sourceCount,
-      digest_name: digest.name,
+      digest_name: productTitle ?? digest.name,
       digest_observations_preview: digest.observations[0]?.slice(0, 120) ?? null,
       status: r.status,
       created_at: r.created_at,
-      kind: digest.type === 'pattern_emergent' ? 'pattern_emergent' : 'digest',
+      kind: r.kind === PRODUCT_IMPROVEMENT_KIND
+        ? PRODUCT_IMPROVEMENT_KIND
+        : digest.type === 'pattern_emergent' ? 'pattern_emergent' : 'digest',
       source_kind: r.source_kind ?? 'entities',
     };
   });
@@ -1944,7 +2074,7 @@ export interface ProposalDetail {
   source: unknown;
   digest: ProposedDigest;
   /** 'relation' rows carry their payload here instead of a real digest. */
-  kind: 'digest' | 'pattern_emergent' | 'relation';
+  kind: 'digest' | 'pattern_emergent' | 'relation' | 'guard' | 'product_improvement';
   relation?: unknown;
 }
 
@@ -1984,7 +2114,11 @@ export function getProposalDetail(db: MemeshDatabase, id: number): ProposalDetai
     created_at: row.created_at,
     source,
     digest,
-    kind: digest.type === 'pattern_emergent' ? 'pattern_emergent' : 'digest',
+    kind: row.kind === PRODUCT_IMPROVEMENT_KIND
+      ? PRODUCT_IMPROVEMENT_KIND
+      : row.kind === 'guard'
+        ? 'guard'
+        : digest.type === 'pattern_emergent' ? 'pattern_emergent' : 'digest',
   };
 }
 

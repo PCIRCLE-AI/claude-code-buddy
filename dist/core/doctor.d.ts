@@ -43,6 +43,10 @@ interface DoctorOptions {
     readFileSyncImpl?: typeof fs.readFileSync;
     statSyncImpl?: typeof fs.statSync;
     fetchImpl?: typeof fetch;
+    agentMessageStoragePolicy?: {
+        storage_quota_bytes?: number;
+        retention_cutoff?: Date | string;
+    };
     nativeBindingProbeImpl?: (packageRoot: string) => {
         ok: true;
     } | {
@@ -50,7 +54,22 @@ interface DoctorOptions {
         message: string;
     };
     resolveShellMemeshImpl?: () => string | null;
+    probeMessageCapability?: boolean;
+    messageCapabilityProbeImpl?: (packageRoot: string) => {
+        ok: true;
+    } | {
+        ok: false;
+        message: string;
+    };
+    probeMessageRouterStatus?: boolean;
+    messageRouterStatusProbeImpl?: () => Promise<MessageRouterStatusProbe>;
 }
+type MessageRouterStatusProbe = {
+    socket_path: string;
+    socket: 'reachable' | 'missing' | 'insecure' | 'unreachable';
+    active_registrations?: number;
+    detail?: string;
+};
 export declare function hoursSince(sqliteTimestamp: string): number | null;
 export declare function satisfiesMinimumNodeRange(version: string, range: string): boolean | null;
 export declare function inspectNodeRuntime(packageRoot: string, existsSyncImpl: typeof fs.existsSync, readFileSyncImpl: typeof fs.readFileSync, nodeVersion?: string, moduleAbi?: string, hasNodeSqliteImpl?: () => boolean): DoctorCheck;

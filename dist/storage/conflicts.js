@@ -22,6 +22,13 @@ export function trackAccess(db, entityIds) {
         return;
     const now = new Date().toISOString();
     const placeholders = entityIds.map(() => '?').join(',');
-    db.prepare(`UPDATE entities SET access_count = access_count + 1, last_accessed_at = ? WHERE id IN (${placeholders})`).run(now, ...entityIds);
+    try {
+        db.prepare(`UPDATE entities SET access_count = access_count + 1, last_accessed_at = ? WHERE id IN (${placeholders})`).run(now, ...entityIds);
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (!/readonly database|SQLITE_READONLY/i.test(message))
+            throw error;
+    }
 }
 //# sourceMappingURL=conflicts.js.map

@@ -21,6 +21,15 @@ import { installHooks } from '../../core/install-hooks.js';
 import { getTaskState, setTaskState } from '../../core/task-state-store.js';
 import { TASK_STATE_FIELDS, taskStateLines, type TaskStateField } from '../../core/task-state.js';
 import type { LessonSeverity, MergeStrategy, ExportResult } from '../../core/types.js';
+import { executeAgentMessageAction } from '../agent-messaging.js';
+import {
+  getAgentMessageStorageReport,
+  pruneTerminalAgentMessagePayloads,
+} from '../../core/agent-message-storage.js';
+import {
+  assertSecureLocalHostRuntimeSupported,
+  ensureRouterTokenFile,
+} from '../../host-runtime/config.js';
 
 // DX: every CLI command that touches the DB used to repeat
 //   openDatabase(); try { ...body... } finally { closeDatabase(); }
@@ -297,9 +306,11 @@ program
       process.exit(1);
     }
 
+    const supersedes = Array.isArray(opts.supersedes) ? opts.supersedes as string[] : [];
+    const contradicts = Array.isArray(opts.contradicts) ? opts.contradicts as string[] : [];
     const relations = [
-      ...((opts.supersedes ?? []) as string[]).map(to => ({ to, type: 'supersedes' })),
-      ...((opts.contradicts ?? []) as string[]).map(to => ({ to, type: 'contradicts' })),
+      ...supersedes.map(to => ({ to, type: 'supersedes' })),
+      ...contradicts.map(to => ({ to, type: 'contradicts' })),
     ];
 
     await withDatabase(async () => {
@@ -333,13 +344,15 @@ program
         // error count from the request count only tells you whether SOMETHING
         // succeeded: with one good and one bad target it printed both, naming a
         // conflict that does not exist two lines above the error saying so.
-        const contradicted = (result.relationsCreated ?? [])
+        const relationsCreated = Array.isArray(result.relationsCreated) ? result.relationsCreated : [];
+        const contradicted = relationsCreated
           .filter(r => r.type === 'contradicts')
           .map(r => r.to);
         if (contradicted.length > 0) {
           console.log(`   conflicts stated: ${contradicted.join(', ')}`);
         }
-        for (const err of result.relationErrors ?? []) console.error(`   ⚠️  ${err}`);
+        const relationErrors = Array.isArray(result.relationErrors) ? result.relationErrors : [];
+        for (const err of relationErrors) console.error(`   ⚠️  ${err}`);
       }
       if (result.relationErrors?.length) process.exitCode = 1;
     });
@@ -741,6 +754,361 @@ program
     });
   });
 
+// --- local agent messages ---
+//
+// A host-neutral process boundary for runners that cannot keep an MCP tool
+// call open.  `watch` emits JSONL and returns after one bounded poll batch;
+// the host owns restart/retry with the returned opaque cursor.  No subcommand
+// executes payload content, and read commands never write an ACK.
+const messageCmd = program
+  .command('message')
+  .description('Send, wait for, fetch, and explicitly receipt durable local agent messages');
+
+function parseCliMessagePayload(raw: string, contentType: string): unknown {
+  if (contentType !== 'application/json') return raw;
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch {
+    throw new Error('stdin must contain valid JSON when --content-type is application/json.');
+  }
+}
+
+const MAX_CLI_MESSAGE_STDIN_BYTES = 65_536;
+
+async function readCliMessagePayloadFromStdin(contentType: string): Promise<unknown> {
+  let raw = '';
+  let bytes = 0;
+  for await (const chunk of process.stdin) {
+    const text = typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8');
+    bytes += Buffer.byteLength(text, 'utf8');
+    if (bytes > MAX_CLI_MESSAGE_STDIN_BYTES) {
+      throw new Error(`stdin payload exceeds ${MAX_CLI_MESSAGE_STDIN_BYTES} UTF-8 bytes.`);
+    }
+    raw += text;
+  }
+  if (bytes === 0) {
+    throw new Error('stdin payload is empty.');
+  }
+  return parseCliMessagePayload(raw, contentType);
+}
+
+async function runCliMessage(input: unknown): Promise<void> {
+  await withDatabase(async () => {
+    try {
+      const result = await executeAgentMessageAction(getDatabase(), input, {
+        transport: 'cli',
+        sourceHost: 'cli',
+      });
+      console.log(JSON.stringify(result));
+    } catch (error) {
+      console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+      process.exitCode = 1;
+    }
+  });
+}
+
+function isAgentPollResult(value: unknown): value is { events: unknown[]; next_cursor: string } {
+  if (typeof value !== 'object' || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  return Array.isArray(candidate.events) && typeof candidate.next_cursor === 'string';
+}
+
+messageCmd
+  .command('send')
+  .description('Durably send one exact-recipient local message (idempotent)')
+  .requiredOption('--project <name>', 'Project scope')
+  .requiredOption('--sender <id>', 'Stable sender agent/host ID')
+  .requiredOption('--recipient <id>', 'Stable recipient agent/host ID')
+  .option('--target-kind <kind>', 'principal | session', 'principal')
+  .requiredOption('--idempotency-key <key>', 'Stable retry key')
+  .requiredOption('--payload-stdin', 'Read the complete text or JSON payload from stdin (never argv)')
+  .option('--content-type <type>', 'text/plain | application/json', 'text/plain')
+  .option('--privacy <scope>', 'private | team', 'private')
+  .option('--correlation-id <id>', 'Conversation or task correlation ID')
+  .option('--reply-to <message-id>', 'Message ID this replies to')
+  .action(async (opts) => {
+    requireOneOf(opts.contentType, ['text/plain', 'application/json'], '--content-type');
+    requireOneOf(opts.privacy, ['private', 'team'], '--privacy');
+    requireOneOf(opts.targetKind, ['principal', 'session'], '--target-kind');
+    try {
+      await runCliMessage({
+        action: 'send',
+        project: opts.project,
+        sender: opts.sender,
+        recipient: opts.recipient,
+        target_kind: opts.targetKind,
+        idempotency_key: opts.idempotencyKey,
+        payload: await readCliMessagePayloadFromStdin(opts.contentType),
+        content_type: opts.contentType,
+        privacy: opts.privacy,
+        correlation_id: opts.correlationId,
+        reply_to: opts.replyTo,
+      });
+    } catch (error) {
+      console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+      process.exitCode = 1;
+    }
+  });
+
+messageCmd
+  .command('watch')
+  .description('Wait once for an exact-recipient event batch and emit privacy-minimized JSONL')
+  .requiredOption('--project <name>', 'Project scope')
+  .requiredOption('--recipient <id>', 'Stable recipient agent/host ID')
+  .option('--cursor <token>', 'Opaque cursor returned by an earlier watch/poll')
+  .option('--wait-ms <ms>', 'Bounded wait, 0-30000 milliseconds', wholeNumber('--wait-ms', 0), 30_000)
+  .option('--limit <n>', 'Maximum events, 1-100', wholeNumber('--limit'), 20)
+  .action(async (opts) => {
+    await withDatabase(async () => {
+      console.log(JSON.stringify({
+        type: 'ready',
+        project: opts.project,
+        recipient: opts.recipient,
+        cursor: opts.cursor ?? null,
+      }));
+      try {
+        const result = await executeAgentMessageAction(getDatabase(), {
+          action: 'poll',
+          project: opts.project,
+          recipient: opts.recipient,
+          cursor: opts.cursor,
+          wait_ms: opts.waitMs,
+          limit: opts.limit,
+        }, {
+          transport: 'cli',
+          sourceHost: 'cli',
+        });
+        if (!isAgentPollResult(result)) {
+          throw new Error('Message watch returned an invalid poll result.');
+        }
+        console.log(JSON.stringify({
+          type: result.events.length > 0 ? 'events' : 'timeout',
+          ...result,
+        }));
+      } catch (error) {
+        console.error(JSON.stringify({
+          type: 'error',
+          error: error instanceof Error ? error.message : String(error),
+        }));
+        process.exitCode = 1;
+      }
+    });
+  });
+
+messageCmd
+  .command('fetch')
+  .description('Fetch one payload routed to the exact principal or session without acknowledging it')
+  .requiredOption('--project <name>', 'Project scope')
+  .requiredOption('--recipient <id>', 'Stable recipient agent/host ID')
+  .option('--target-kind <kind>', 'principal | session', 'principal')
+  .requiredOption('--message-id <id>', 'Message ID')
+  .action((opts) => {
+    requireOneOf(opts.targetKind, ['principal', 'session'], '--target-kind');
+    return runCliMessage({
+      action: 'fetch', project: opts.project, recipient: opts.recipient,
+      target_kind: opts.targetKind, message_id: opts.messageId,
+    });
+  });
+
+messageCmd
+  .command('intake')
+  .description('Record fetched/ingested state without implying ACK')
+  .requiredOption('--project <name>', 'Project scope')
+  .requiredOption('--recipient <id>', 'Stable recipient agent/host ID')
+  .requiredOption('--message-id <id>', 'Message ID')
+  .requiredOption('--idempotency-key <key>', 'Stable retry key')
+  .requiredOption('--state <state>', 'fetched | ingested')
+  .action(async (opts) => {
+    requireOneOf(opts.state, ['fetched', 'ingested'], '--state');
+    await runCliMessage({
+      action: 'intake', project: opts.project, recipient: opts.recipient,
+      message_id: opts.messageId, idempotency_key: opts.idempotencyKey, intake_state: opts.state,
+    });
+  });
+
+messageCmd
+  .command('ack')
+  .description('Record explicit recipient acknowledgement')
+  .requiredOption('--project <name>', 'Project scope')
+  .requiredOption('--recipient <id>', 'Stable recipient agent/host ID')
+  .requiredOption('--message-id <id>', 'Message ID')
+  .requiredOption('--idempotency-key <key>', 'Stable retry key')
+  .action((opts) => runCliMessage({
+    action: 'ack', project: opts.project, recipient: opts.recipient,
+    message_id: opts.messageId, idempotency_key: opts.idempotencyKey,
+  }));
+
+messageCmd
+  .command('disposition')
+  .description('Record a workflow disposition independently from ACK')
+  .requiredOption('--project <name>', 'Project scope')
+  .requiredOption('--recipient <id>', 'Stable recipient agent/host ID')
+  .requiredOption('--message-id <id>', 'Message ID')
+  .requiredOption('--idempotency-key <key>', 'Stable retry key')
+  .requiredOption('--value <state>', 'accepted | rejected | completed | cancelled | deferred')
+  .option('--detail <text>', 'Optional bounded explanation')
+  .action(async (opts) => {
+    requireOneOf(opts.value, ['accepted', 'rejected', 'completed', 'cancelled', 'deferred'], '--value');
+    await runCliMessage({
+      action: 'disposition', project: opts.project, recipient: opts.recipient,
+      message_id: opts.messageId, idempotency_key: opts.idempotencyKey,
+      disposition: opts.value, detail: opts.detail,
+    });
+  });
+
+messageCmd
+  .command('activation')
+  .description('Record host activation outcome independently from ACK/disposition')
+  .requiredOption('--project <name>', 'Project scope')
+  .requiredOption('--recipient <id>', 'Stable recipient agent/host ID')
+  .requiredOption('--message-id <id>', 'Message ID')
+  .requiredOption('--idempotency-key <key>', 'Stable retry key')
+  .requiredOption('--value <state>', 'woken | manual_resume_required | unsupported | failed')
+  .option('--detail <text>', 'Optional bounded explanation')
+  .action(async (opts) => {
+    requireOneOf(opts.value, ['woken', 'manual_resume_required', 'unsupported', 'failed'], '--value');
+    await runCliMessage({
+      action: 'activation', project: opts.project, recipient: opts.recipient,
+      message_id: opts.messageId, idempotency_key: opts.idempotencyKey,
+      activation: opts.value, detail: opts.detail,
+    });
+  });
+
+messageCmd
+  .command('receipts')
+  .description('Read receipt facts for one message routed to the logical recipient')
+  .requiredOption('--project <name>', 'Project scope')
+  .requiredOption('--recipient <id>', 'Stable recipient agent/host ID')
+  .requiredOption('--message-id <id>', 'Message ID')
+  .action((opts) => runCliMessage({
+    action: 'receipts', project: opts.project, recipient: opts.recipient, message_id: opts.messageId,
+  }));
+
+const messageStorageCmd = messageCmd
+  .command('storage')
+  .description('Inspect or bound durable agent-message payload storage without deleting lifecycle audit facts');
+
+messageStorageCmd
+  .command('report')
+  .description('Report logical payload, unresolved protection, reusable pages, and SQLite/WAL size')
+  .requiredOption('--cutoff <iso-time>', 'Terminal workflows strictly older than this ISO timestamp are prunable')
+  .action(async (opts) => {
+    await withDatabase(() => {
+      const report = getAgentMessageStorageReport(getDatabase(), {
+        cutoff: opts.cutoff,
+        databasePath: getDbPath(),
+      });
+      console.log(JSON.stringify({
+        policy: {
+          cutoff: new Date(opts.cutoff).toISOString(),
+          quota_bytes: process.env.MEMESH_AGENT_MESSAGE_STORAGE_QUOTA_BYTES ?? null,
+          automatic_pruning: false,
+        },
+        ...report,
+      }));
+    });
+  });
+
+messageStorageCmd
+  .command('prune')
+  .description('Dry-run one bounded terminal-payload tombstone batch; --apply performs it')
+  .requiredOption('--cutoff <iso-time>', 'Terminal workflows strictly older than this ISO timestamp are eligible')
+  .option('--batch-size <n>', 'Maximum payloads in this transaction, 1-1000', wholeNumber('--batch-size'), 100)
+  .option('--apply', 'Write hash-bound tombstones; without this flag nothing is changed')
+  .option('--actor <id>', 'Bounded audit actor', 'local-owner-cli')
+  .action(async (opts) => {
+    await withDatabase(() => {
+      const result = pruneTerminalAgentMessagePayloads(getDatabase(), {
+        cutoff: opts.cutoff,
+        databasePath: getDbPath(),
+        batchSize: opts.batchSize,
+        dryRun: !opts.apply,
+        actor: opts.actor,
+      });
+      console.log(JSON.stringify(result));
+    });
+  });
+
+// --- local agent hosts ---
+//
+// This writes reusable owner-private configuration only. Managed hosts create
+// a fresh exact session after their native input boundary is ready. The
+// ordinary Codex path instead binds only the thread ID supplied by its own
+// SessionStart hook and only for an explicitly configured real workspace.
+const agentCmd = program
+  .command('agent')
+  .description('Set up reusable owner-private local host configuration');
+
+agentCmd
+  .command('setup')
+  .argument('<host>', 'codex-session | codex | claude | gemini')
+  .requiredOption('--project <name>', 'Project scope used for exact routing')
+  .requiredOption('--principal <id>', 'Stable logical recipient ID')
+  .option('--workspace <path>', 'Managed Codex/Gemini workspace', process.cwd())
+  .option('--json', 'Output machine-readable setup result')
+  .action((host, opts) => {
+    requireOneOf(host, ['codex-session', 'codex', 'claude', 'gemini'], '<host>');
+    assertSecureLocalHostRuntimeSupported();
+    const messageDir = path.dirname(getDbPath());
+    const hostsDir = path.join(messageDir, 'hosts');
+    fs.mkdirSync(hostsDir, { recursive: true, mode: 0o700 });
+    const hostsStat = fs.lstatSync(hostsDir);
+    if (!hostsStat.isDirectory() || hostsStat.isSymbolicLink() || (hostsStat.mode & 0o077) !== 0) {
+      throw new Error('The managed host config directory must be a real owner-private directory.');
+    }
+
+    const filename = host === 'gemini' ? 'gemini-acp.json' : `${host}.json`;
+    const configPath = path.join(hostsDir, filename);
+    if (fs.existsSync(configPath)) {
+      throw new Error(`Managed ${host} config already exists at ${configPath}; it was not overwritten.`);
+    }
+    const routerTokenFile = path.join(messageDir, 'agent-router.token');
+    ensureRouterTokenFile(routerTokenFile);
+    const common = {
+      router_socket: path.join(messageDir, 'agent-router.sock'),
+      token_file: routerTokenFile,
+      project: opts.project,
+      principal_id: opts.principal,
+    };
+    const config = host === 'codex-session'
+      ? { ...common, workspace: fs.realpathSync(path.resolve(opts.workspace)) }
+      : host === 'codex'
+        ? { ...common, control_socket: path.join(hostsDir, 'codex-app-server.sock'), workspace: path.resolve(opts.workspace) }
+        : host === 'claude'
+          ? { ...common, server_name: 'memesh-channel' }
+          : { ...common, workspace: path.resolve(opts.workspace), command: 'gemini', args: [] };
+    fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+
+    const launchCommand = host === 'codex-session'
+      ? null
+      : host === 'codex'
+        ? `memesh-host-codex --config ${JSON.stringify(configPath)}`
+        : host === 'claude'
+          ? 'claude --dangerously-load-development-channels server:memesh-channel'
+          : `memesh-host-acp --config ${JSON.stringify(configPath)}`;
+    const registrationCommand = host === 'claude'
+      ? `claude mcp add --transport stdio --scope user memesh-channel -- memesh-host-claude --config ${JSON.stringify(configPath)}`
+      : null;
+    const result = {
+      host,
+      config_path: configPath,
+      mode: host === 'codex-session'
+        ? 'ordinary-session-native-queue'
+        : host === 'claude' ? 'session-owned-channel' : 'memesh-managed-session',
+      session_identity: host === 'codex-session' ? 'codex-thread-id-at-session-start' : 'generated-per-process',
+      ordinary_sessions: host === 'codex-session' ? 'explicit-workspace-opt-in' : 'presence-only/inbound-unavailable',
+      registration_command: registrationCommand,
+      launch_command: launchCommand,
+      next_command: registrationCommand ?? launchCommand ?? 'Restart Codex in the configured workspace',
+    };
+    console.log(opts.json ? JSON.stringify(result) : [
+      `Created owner-private ${host} config: ${configPath}`,
+      'No active or stopped ordinary session was attached.',
+      ...(registrationCommand ? [`Register once: ${registrationCommand}`] : []),
+      ...(launchCommand ? [`Launch: ${launchCommand}`] : ['Restart Codex in the configured workspace.']),
+    ].join('\n'));
+  });
+
 // --- briefing ---
 // The shell-reachable half of A1c. Claude Code gets this block pushed by the
 // session-start hook; an MCP client gets it from the `briefing` tool; and an
@@ -932,7 +1300,8 @@ program
     render(statuses);
     console.log('\nPlanned actions:');
     for (const st of pending) for (const a of st.actions) {
-      console.log(`  • [${st.title}] ${a.label}${a.cmd ? `\n      ${a.cmd} ${(a.args ?? []).join(' ')}` : ''}`);
+      const actionArgs = Array.isArray(a.args) ? a.args : [];
+      console.log(`  • [${st.title}] ${a.label}${a.cmd ? `\n      ${a.cmd} ${actionArgs.join(' ')}` : ''}`);
     }
 
     // Non-interactive without --yes: show the plan, change nothing. The
@@ -960,8 +1329,9 @@ program
         if (action.kind === 'install-hooks') {
           console.log(`  ✅ ${wireUserHooks()}`);
         } else if (action.cmd) {
-          const r = runSeam(action.cmd, action.args ?? []);
-          if (r.status === 0) console.log(`  ✅ done (${action.cmd} ${(action.args ?? []).join(' ')})`);
+          const actionArgs = Array.isArray(action.args) ? action.args : [];
+          const r = runSeam(action.cmd, actionArgs);
+          if (r.status === 0) console.log(`  ✅ done (${action.cmd} ${actionArgs.join(' ')})`);
           else { console.error(`  ❌ ${action.cmd} exited ${r.status ?? 'without running'}${r.stderr ? `: ${r.stderr.trim()}` : ''}`); failed = true; }
         }
       }
@@ -2110,7 +2480,8 @@ dreamCmd
         // existing entities — and conflict-judge proposals, whose acceptance
         // creates a relation instead of an entity.
         const srcLabel = p.kind === 'relation' ? ' (conflict)'
-          : p.source_kind === 'transcript' ? ' (transcript)' : '';
+          : p.kind === 'product_improvement' ? ' (product improvement)'
+            : p.source_kind === 'transcript' ? ' (transcript)' : '';
         console.log(`  #${p.id}  [${p.project}/${p.cluster_key}]${srcLabel}  ${p.source_count} source(s) → "${p.digest_name}"`);
         // preview is null (not the old '(empty)' sentinel) when the digest
         // has no observations — print nothing rather than a fake value.
@@ -2232,6 +2603,11 @@ dreamCmd
         console.log(`Accept: memesh dream accept ${detail.id}   |   Reject: memesh dream reject ${detail.id}`);
         return;
       }
+      if (detail.kind === 'product_improvement') {
+        const improvement = detail.digest as unknown as { title?: string };
+        console.log(`title: ${improvement.title ?? detail.digest.name}`);
+        console.log('authority: human review required; acceptance does not mean implemented or effective');
+      }
       console.log(`name: ${detail.digest.name}`);
       console.log(`type: ${detail.digest.type}`);
       // ALL observations, in full — this is the point of `show`: nothing is
@@ -2247,7 +2623,7 @@ dreamCmd
 
 dreamCmd
   .command('accept <id>')
-  .description('Accept a pending proposal — creates digest entity, soft-archives sources')
+  .description('Apply a reviewed pending proposal (behaviour depends on proposal kind)')
   .action(async (id) => {
     await withDatabase(async () => {
       const { applyProposal } = await import('../../core/dreamer.js');
@@ -2270,8 +2646,14 @@ dreamCmd
       // on a closing DB and the dedup gap stays open in the real path. remember
       // flushes for the same reason (see the remember command).
       console.log(`Applied proposal #${result.proposalId}`);
-      console.log(`  digest entity: ${result.digestEntityName}`);
-      console.log(`  sources archived: ${result.sourcesArchived}`);
+      if (result.kind === 'product_improvement') {
+        console.log(`  product improvement: ${result.digestEntityName}`);
+        console.log(`  source memories preserved: ${result.sourcesLinked ?? 0}`);
+        console.log('  state: accepted for product work; implementation and outcome remain unverified');
+      } else {
+        console.log(`  digest entity: ${result.digestEntityName}`);
+        console.log(`  sources archived: ${result.sourcesArchived}`);
+      }
     });
   });
 
@@ -2812,4 +3194,19 @@ program.action(async () => {
   process.exitCode = 0;
 });
 
-program.parse();
+export async function runCli(argv: readonly string[] = process.argv): Promise<void> {
+  await program.parseAsync([...argv]);
+}
+
+const cliEntryPath = process.argv[1];
+if (cliEntryPath && isExecutedModule(cliEntryPath, import.meta.url)) {
+  await runCli();
+}
+
+function isExecutedModule(entryPath: string, moduleUrl: string): boolean {
+  try {
+    return fs.realpathSync(entryPath) === fs.realpathSync(fileURLToPath(moduleUrl));
+  } catch {
+    return false;
+  }
+}

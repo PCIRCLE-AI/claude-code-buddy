@@ -7,7 +7,12 @@
   "bin": {
     "memesh": "dist/transports/cli/cli.js",
     "memesh-mcp": "dist/mcp/server.js",
-    "memesh-http": "dist/transports/http/server.js"
+    "memesh-http": "dist/transports/http/server.js",
+    "memesh-router": "dist/host-runtime/router.js",
+    "memesh-host-claude": "dist/host-runtime/claude.js",
+    "memesh-host-codex": "dist/host-runtime/codex.js",
+    "memesh-host-codex-session": "dist/host-runtime/codex-session.js",
+    "memesh-host-acp": "dist/host-runtime/acp.js"
   },
   "files": [
     "dist/",
@@ -30,7 +35,7 @@
     "test:e2e-dashboard": "node scripts/dashboard-e2e-smoke.mjs",
     "test:packaged": "node scripts/smoke-packed-artifact.mjs",
     "audit:prod": "node scripts/check-consumer-audit.mjs",
-    "verify:release": "npm run lint && npm run typecheck && node scripts/check-version-coherence.mjs && node scripts/check-generated-mirror.mjs && node scripts/check-doc-claims.mjs && node scripts/audit/verification-audit.mjs && npm run audit:prod",
+    "verify:release": "npm run lint && npm run typecheck && node scripts/check-version-coherence.mjs && node scripts/check-generated-mirror.mjs && node scripts/check-agent-message-sync.mjs && node scripts/check-readme-tool-parity.mjs && node scripts/check-doc-claims.mjs && node scripts/audit/verification-audit.mjs && npm run audit:prod",
     "release:finish": "node scripts/finish-release.mjs",
     "prepublishOnly": "npm run build && npm run verify:release && npm run test:isolated && npm run test:packaged",
     "typecheck": "tsc -p tsconfig.check.json && tsc -p tsconfig.check-dashboard.json",
@@ -69,6 +74,7 @@
     "express": "^5.2.1",
     "express-rate-limit": "8.5.1",
     "sqlite-vec": "^0.1.9",
+    "ws": "^8.21.3",
     "zod": "4.4.3"
   },
   "overrides": {
@@ -83,7 +89,7 @@
     "protobufjs": "^7.6.5",
     "qs": "^6.15.3",
     "sharp": "^0.35.3",
-    "ws": "^8.21.1",
+    "ws": "$ws",
     "vite": "7.3.6"
   },
   "devDependencies": {
@@ -93,6 +99,7 @@
     "@testing-library/preact": "^3.2.4",
     "@types/express": "^5.0.6",
     "@types/node": "25.6.2",
+    "@types/ws": "^8.18.1",
     "@vitest/coverage-v8": "4.1.5",
     "eslint": "^10.3.0",
     "happy-dom": "^20.9.0",

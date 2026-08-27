@@ -57,16 +57,19 @@ export interface ApplyResult {
     sourcesArchived: number;
     sourcesLinked: number;
     sourcesAlreadyCompacted?: number;
-    kind: 'digest' | 'pattern_emergent' | 'relation' | 'guard';
+    kind: 'digest' | 'pattern_emergent' | 'relation' | 'guard' | 'product_improvement';
 }
-export declare function applyProposal(db: MemeshDatabase, proposalId: number, kg: {
+type ProposalEntityWriter = {
     createEntity: (name: string, type: string, opts: {
         observations: string[];
         tags: string[];
         metadata: Record<string, unknown>;
+        title?: string | null;
+        namespace?: string;
         trustOverride?: 'trusted' | 'untrusted';
     }) => number;
-}): ApplyResult;
+};
+export declare function applyProposal(db: MemeshDatabase, proposalId: number, kg: ProposalEntityWriter): ApplyResult;
 export declare class NothingToClaimError extends Error {
     readonly proposalId: number;
     readonly reason: string;
@@ -82,7 +85,7 @@ export interface ProposalSummary {
     digest_observations_preview: string | null;
     status: string;
     created_at: string;
-    kind: 'digest' | 'pattern_emergent' | 'relation' | 'guard';
+    kind: 'digest' | 'pattern_emergent' | 'relation' | 'guard' | 'product_improvement';
     source_kind: string;
 }
 export declare function listProposals(db: MemeshDatabase, status?: string): ProposalSummary[];
@@ -95,7 +98,7 @@ export interface ProposalDetail {
     created_at: string;
     source: unknown;
     digest: ProposedDigest;
-    kind: 'digest' | 'pattern_emergent' | 'relation';
+    kind: 'digest' | 'pattern_emergent' | 'relation' | 'guard' | 'product_improvement';
     relation?: unknown;
 }
 export declare function getProposalDetail(db: MemeshDatabase, id: number): ProposalDetail | null;

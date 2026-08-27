@@ -24,7 +24,7 @@ host is recallable from all of them. Not installed yet? Follow
 3. **"What do you remember?"** — call `briefing` and relay its content. Do
    not answer from your own conversation context.
 
-## All 9 MCP tools
+## All 11 MCP tools
 
 | Tool | Purpose |
 |---|---|
@@ -37,6 +37,8 @@ host is recallable from all of them. Not installed yet? Follow
 | `task_state` | Read or update where the work stands: goal / next / blocked / done |
 | `briefing` | The assembled work topology for a project — call once at session start |
 | `user_patterns` | Analyze work schedule, tool preferences, and focus areas from memory |
+| `improvement` | Propose an evidence-linked product improvement or read its status; only a human may accept/reject it |
+| `message` | Exchange durable exact-recipient local messages; polling/fetching never implies acknowledgement |
 
 ## Memory hygiene
 

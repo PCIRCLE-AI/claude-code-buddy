@@ -3,7 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { openDatabase, closeDatabase } from '../src/db.js';
-import { handleTool } from '../src/mcp/tools.js';
+import { handleTool, TOOL_DEFINITIONS } from '../src/mcp/tools.js';
 import { normalizeClientHost } from '../src/transports/mcp/handlers.js';
 
 // recall's MCP payload is an object envelope ({ entities, conflicts? }), never
@@ -13,15 +13,23 @@ const recallEntities = (result: { content: Array<{ text: string }> }) =>
 
 let tmpDir: string;
 let dbPath: string;
+let previousMemeshDir: string | undefined;
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-tools-'));
   dbPath = path.join(tmpDir, 'test.db');
+  previousMemeshDir = process.env.MEMESH_DIR;
+  // Tool tests must never inherit the developer's real embedder/LLM config.
+  // A configured Ollama instance otherwise schedules network work from
+  // `remember`, making a focused offline replay slow or non-terminating.
+  process.env.MEMESH_DIR = tmpDir;
   openDatabase(dbPath);
 });
 
 afterEach(() => {
   closeDatabase();
+  if (previousMemeshDir === undefined) delete process.env.MEMESH_DIR;
+  else process.env.MEMESH_DIR = previousMemeshDir;
   fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
@@ -482,6 +490,194 @@ describe('learn', () => {
   it('returns validation error for invalid severity', async () => {
     const result = await handleTool('learn', { error: 'Oops', fix: 'Fixed', severity: 'extreme' });
     expect(result.isError).toBe(true);
+  });
+});
+
+// ── Improvement ──────────────────────────────────────────────────────────────
+
+describe('improvement', () => {
+  const input = {
+    action: 'propose',
+    project: 'memesh',
+    source_names: ['improvement-source-a', 'improvement-source-b'],
+    title: 'Coordinate shared research ownership',
+    problem: 'Agents can unknowingly duplicate the same research.',
+    proposed_change: 'Add visible claims with leases and expiry recovery.',
+    verification_scenario: 'Start two agents on the same topic; the second must see the first claim.',
+    success_criteria: ['The second agent does not start duplicate work.'],
+    priority: 'p1',
+  };
+
+  async function seedSources(): Promise<void> {
+    await handleTool('remember', {
+      name: 'improvement-source-a',
+      type: 'lesson_learned',
+      observations: ['Duplicate work was observed.'],
+      tags: ['project:memesh'],
+      namespace: 'team',
+    });
+    await handleTool('remember', {
+      name: 'improvement-source-b',
+      type: 'feedback',
+      observations: ['Claims need ownership and expiry.'],
+      tags: ['project:memesh'],
+      namespace: 'team',
+    });
+  }
+
+  it('is advertised with proposal-only authority', () => {
+    expect(TOOL_DEFINITIONS).toHaveLength(11);
+    const tool = TOOL_DEFINITIONS.find((definition) => definition.name === 'improvement');
+    expect(tool?.description).toMatch(/Agents may only propose and read status/);
+    expect(tool?.inputSchema.properties.action.enum).toEqual(['propose', 'status']);
+  });
+
+  it('stages idempotently, attributes the transport host, and reads status', async () => {
+    await seedSources();
+    const first = await handleTool('improvement', input, 'codex');
+    const retry = await handleTool('improvement', input, 'claude-code');
+    expect(first.isError).toBeUndefined();
+    expect(retry.isError).toBeUndefined();
+    const created = JSON.parse(first.content[0].text);
+    const duplicate = JSON.parse(retry.content[0].text);
+    expect(created).toMatchObject({ created: true, status: 'pending' });
+    expect(duplicate).toMatchObject({ created: false, proposal_id: created.proposal_id });
+    expect(created.review).toMatchObject({ authority: 'human', state: 'pending' });
+
+    const statusResult = await handleTool('improvement', {
+      action: 'status',
+      proposal_id: created.proposal_id,
+    });
+    expect(JSON.parse(statusResult.content[0].text)).toMatchObject({
+      proposal_id: created.proposal_id,
+      status: 'pending',
+      accepted_entity_name: null,
+    });
+
+    const row = openDatabase(dbPath).prepare(
+      'SELECT proposed_digest FROM dream_proposals WHERE id = ?',
+    ).get(created.proposal_id) as { proposed_digest: string };
+    expect(JSON.parse(row.proposed_digest).improvement.source_host).toBe('codex');
+  });
+
+  it('rejects accept/reject actions and writes nothing', async () => {
+    await seedSources();
+    const before = openDatabase(dbPath).prepare("SELECT COUNT(*) AS n FROM dream_proposals WHERE kind = 'product_improvement'").get() as { n: number };
+    for (const action of ['accept', 'reject']) {
+      const result = await handleTool('improvement', { action, proposal_id: 1 });
+      expect(result.isError).toBe(true);
+    }
+    const after = openDatabase(dbPath).prepare("SELECT COUNT(*) AS n FROM dream_proposals WHERE kind = 'product_improvement'").get() as { n: number };
+    expect(after.n).toBe(before.n);
+  });
+
+  it('rejects blank, missing, archived, or spoofed proposal evidence', async () => {
+    await seedSources();
+    expect((await handleTool('improvement', { ...input, title: '   ' })).isError).toBe(true);
+    expect((await handleTool('improvement', { ...input, source_names: ['does-not-exist'] })).isError).toBe(true);
+    expect((await handleTool('improvement', { ...input, sourceHost: 'spoof' } as Record<string, unknown>, 'codex')).isError).toBe(true);
+
+    openDatabase(dbPath).prepare("UPDATE entities SET status = 'archived' WHERE name = 'improvement-source-a'").run();
+    expect((await handleTool('improvement', input)).isError).toBe(true);
+  });
+});
+
+// ── Durable local messages ──────────────────────────────────────────────────
+
+describe('message', () => {
+  it('is advertised as one lifecycle tool with explicit receipt axes', () => {
+    const tool = TOOL_DEFINITIONS.find((definition) => definition.name === 'message');
+    expect(TOOL_DEFINITIONS).toHaveLength(11);
+    expect(tool?.inputSchema.properties.action.enum).toEqual([
+      'send', 'poll', 'fetch', 'intake', 'ack', 'disposition', 'activation', 'receipts',
+    ]);
+    expect(tool?.description).toMatch(/Polling or fetching never acknowledges/);
+  });
+
+  it('routes exactly, keeps headers payload-free, and writes receipts only when asked', async () => {
+    const sentResult = await handleTool('message', {
+      action: 'send',
+      project: 'memesh',
+      sender: 'codex-agent',
+      recipient: 'claude-agent',
+      idempotency_key: 'send-1',
+      payload: { text: 'review this', private_detail: 'payload-only' },
+      content_type: 'application/json',
+      privacy: 'private',
+      correlation_id: 'review-42',
+    }, 'codex');
+    expect(sentResult.isError).toBeUndefined();
+    const sent = JSON.parse(sentResult.content[0].text);
+
+    const control = await handleTool('message', {
+      action: 'poll', project: 'memesh', recipient: 'gemini-agent', wait_ms: 0,
+    });
+    expect(JSON.parse(control.content[0].text).events).toEqual([]);
+
+    const polled = await handleTool('message', {
+      action: 'poll', project: 'memesh', recipient: 'claude-agent', wait_ms: 0,
+    });
+    const pollData = JSON.parse(polled.content[0].text);
+    expect(pollData.events).toHaveLength(1);
+    expect(pollData.events[0]).toMatchObject({
+      message_id: sent.message_id,
+      sender: 'codex-agent',
+      sender_host: 'codex',
+      recipient: 'claude-agent',
+      correlation_id: 'review-42',
+    });
+    expect(JSON.stringify(pollData.events[0])).not.toContain('payload-only');
+
+    const fetched = await handleTool('message', {
+      action: 'fetch', project: 'memesh', recipient: 'claude-agent', message_id: sent.message_id,
+    });
+    expect(JSON.parse(fetched.content[0].text)).toMatchObject({
+      payload: { text: 'review this', private_detail: 'payload-only' },
+      provenance: { transport: 'mcp', source_host: 'codex' },
+    });
+
+    const beforeReceipts = await handleTool('message', {
+      action: 'receipts', project: 'memesh', recipient: 'claude-agent', message_id: sent.message_id,
+    });
+    expect(JSON.parse(beforeReceipts.content[0].text)).toEqual([]);
+
+    await handleTool('message', {
+      action: 'intake', project: 'memesh', recipient: 'claude-agent', message_id: sent.message_id,
+      idempotency_key: 'intake-1', intake_state: 'ingested',
+    }, 'claude-code');
+    await handleTool('message', {
+      action: 'activation', project: 'memesh', recipient: 'claude-agent', message_id: sent.message_id,
+      idempotency_key: 'activation-1', activation: 'manual_resume_required',
+    }, 'claude-code');
+
+    const receipts = await handleTool('message', {
+      action: 'receipts', project: 'memesh', recipient: 'claude-agent', message_id: sent.message_id,
+    });
+    expect(JSON.parse(receipts.content[0].text).map((receipt: { receipt_kind: string }) => receipt.receipt_kind))
+      .toEqual(['intake', 'host_activation']);
+  });
+
+  it('rejects provenance spoofing and cancels a bounded wait', async () => {
+    const spoofed = await handleTool('message', {
+      action: 'send',
+      project: 'memesh',
+      sender: 'codex-agent',
+      recipient: 'claude-agent',
+      idempotency_key: 'send-1',
+      payload: 'hello',
+      sender_host: 'spoofed-host',
+    } as Record<string, unknown>, 'codex');
+    expect(spoofed.isError).toBe(true);
+    expect(spoofed.content[0].text).toMatch(/sender_host|unrecognized/i);
+
+    const controller = new AbortController();
+    const waiting = handleTool('message', {
+      action: 'poll', project: 'memesh', recipient: 'claude-agent', wait_ms: 30_000,
+    }, 'claude-code', controller.signal);
+    setTimeout(() => controller.abort(), 20);
+    const cancelled = await waiting;
+    expect(cancelled.isError).toBe(true);
+    expect(cancelled.content[0].text).toMatch(/aborted/i);
   });
 });
 

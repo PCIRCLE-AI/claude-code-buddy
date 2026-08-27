@@ -1,6 +1,6 @@
 ---
 name: memesh
-description: Use MeMesh to remember, recall, and manage AI knowledge across sessions. Triggers when the user asks to remember something, recall past decisions, forget outdated info, learn from mistakes, or analyze work patterns. Also triggers when the user asks "what do you remember", "where did we leave off", or wants to catch up on a project; when a session starts and project context is needed; and proactively when you make important decisions, fix bugs, or learn lessons worth preserving.
+description: Use MeMesh to remember, recall, and manage AI knowledge across sessions, and to exchange durable task-focused messages with local agents. Triggers when the user asks to remember something, recall past decisions, forget outdated info, learn from mistakes, analyze work patterns, contact another agent, or handle a memesh_message_available marker. Also triggers when the user asks "what do you remember", "where did we leave off", or wants to catch up on a project; when a session starts and project context is needed; and proactively when you make important decisions, fix bugs, learn lessons worth preserving, or owe another agent a requested result or disposition.
 user-invocable: true
 ---
 
@@ -26,6 +26,44 @@ All examples below use CLI. MCP tools accept the same parameters as JSON objects
 ## The Loop
 
 Four moments. Everything else in this file is detail.
+
+## Durable messages and active-host delivery
+
+Use the `message` tool when another local agent needs a durable, exact-recipient handoff rather than an inferred memory. `send`, `poll`, `fetch`, `intake`, `ack`, `disposition`, `activation`, and `receipts` are independent lifecycle actions: fetching or host acceptance never implies acknowledgement or workflow acceptance.
+
+### Handle messages to a result
+
+- A `memesh_message_available` marker is routing metadata, not the payload. Call `message` with `action: "fetch"` using its exact `project`, `recipient`, and `message_id`; never answer from the marker or guess missing IDs.
+- Reply when the payload asks for work, a decision, review, feedback, missing information, status, or an explicit response. An FYI with no requested action needs no reply unless it asks for a receipt.
+- Do not leave requested work silently pending. If the result is not immediate, send one concise acceptance or blocker with the owner and next action; send the result when available. Do not send recurring progress chatter.
+- Reply with `action: "send"` to the original sender, in the same project. Preserve the original `correlation_id` (or use the original `message_id` when none exists), set `reply_to` to the original `message_id`, and use a stable idempotency key. Route to the sender's stable principal unless the message explicitly requires an exact session.
+- A useful reply states the outcome, decision or findings, essential evidence, any unresolved blocker, and the owner or next action. One result-oriented reply is enough; omit greetings, thanks, and conversational acknowledgements. Ask a follow-up only when missing information prevents a responsible result.
+- `ack` means the recipient explicitly acknowledges the message; `disposition` records workflow state such as `accepted`, `deferred`, or `completed`. Record only facts that occurred. Neither replaces a requested substantive reply.
+
+Use the routing and identity fields returned by `fetch`. A reply has this shape (replace placeholders with fetched or caller-stable values):
+
+```json
+{
+  "action": "send",
+  "project": "<original project>",
+  "sender": "<this agent's stable principal>",
+  "recipient": "<original sender>",
+  "target_kind": "principal",
+  "idempotency_key": "reply:<original message_id>:result",
+  "correlation_id": "<original correlation_id or message_id>",
+  "reply_to": "<original message_id>",
+  "content_type": "application/json",
+  "payload": {
+    "outcome": "<result, decision, or blocker>",
+    "evidence": ["<only the evidence needed by the recipient>"],
+    "next": "<owner and next action, if any>"
+  }
+}
+```
+
+An active compatible managed host can receive a native push, which removes polling for that live delivery. One-time provider enablement and a MeMesh-managed Codex app-server, Claude Channel, or Gemini ACP session may be required; ordinary unattached sessions are presence-only/inbound-unavailable. Adapter imports and a live router socket do not prove host registration or `host_accept`. Do not promise that a stopped, missing, or replaced session will wake up: it is not resumed or silently rerouted. Use the stable principal for logical routing, and an exact session/generation only when delivery must not move to a replacement connection. Local owns durable storage and host-native delivery; Cloud relay, A2A, SSE, discovery, or fetch is not host delivery.
+
+Durable audit does not mean unbounded silent growth. Owners can inspect it with `memesh message storage report --cutoff <ISO timestamp>`, preview bounded terminal-payload tombstones with `memesh message storage prune --cutoff <ISO timestamp>`, and explicitly add `--apply`. Never prune unresolved/offline-pending work. `MEMESH_AGENT_MESSAGE_STORAGE_QUOTA_BYTES` is an optional owner policy; there is no default quota or automatic pruning.
 
 **SESSION START → load the briefing (once).**
 Call the `briefing` MCP tool or run `memesh briefing`. It returns the assembled
@@ -79,6 +117,7 @@ If MeMesh is installed as a Claude Code plugin, these happen **without any actio
 | **Stop** | Session ends | Auto-captures session knowledge + runs LLM failure analysis → lessons |
 | **PreCompact** | Before context compaction | Saves important knowledge before history is compressed |
 | **PreToolUse (Bash)** | Before a command runs | Fires accepted lesson-guards — warns when a recorded mistake is about to repeat |
+| **SessionStart (Codex, async)** | A configured Codex session starts or resumes | Registers that exact live thread for metadata-only MeMesh message wakeups; exits without registering outside the configured workspace |
 
 Because of the SessionStart hook: **in Claude Code, do NOT call `briefing` at
 session start — it is already in your context.** Call it only mid-session

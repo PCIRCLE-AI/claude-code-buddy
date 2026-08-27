@@ -19,7 +19,7 @@ So — **read the real documents.** Do not restate them here.
 | Colour, type, spacing, interaction — before ANY dashboard change | [DESIGN.md](DESIGN.md) |
 | How do I report a vulnerability | [SECURITY.md](SECURITY.md) |
 | I am an agent INSTALLING memesh for a user | [llms-install.md](llms-install.md) |
-| I am an agent USING memesh (the loop, the 9 tools, hygiene) | [AGENTS.md](AGENTS.md) |
+| I am an agent USING memesh (the loop, the 11 tools, hygiene) | [AGENTS.md](AGENTS.md) |
 | What changed, and what is merged but unreleased | [CHANGELOG.md](CHANGELOG.md) (`[Unreleased]`) |
 
 ---

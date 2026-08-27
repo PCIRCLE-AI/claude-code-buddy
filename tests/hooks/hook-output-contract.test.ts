@@ -288,13 +288,17 @@ describe('Feature: Claude Code hook-output contract', () => {
 
   it('Scenario: every hook declared in hooks.json has a contract case', () => {
     const hooksJson = JSON.parse(fs.readFileSync(path.resolve('hooks/hooks.json'), 'utf8')) as {
-      hooks: Record<string, Array<{ hooks: Array<{ command: string }> }>>;
+      hooks: Record<string, Array<{ hooks: Array<{ command: string; async?: boolean }> }>>;
     };
 
     const declared = new Set<string>();
     for (const matchers of Object.values(hooksJson.hooks)) {
       for (const matcher of matchers) {
         for (const entry of matcher.hooks) {
+          // Async hooks cannot apply control effects and their output is not
+          // parsed as a hook response. They have lifecycle/runtime tests
+          // instead of a synchronous output-contract case.
+          if (entry.async === true) continue;
           declared.add(path.basename(entry.command));
         }
       }

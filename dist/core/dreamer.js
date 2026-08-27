@@ -7,6 +7,7 @@ import { wrapUntrusted } from './prompt-safety.js';
 import { outputLanguageInstruction } from './output-language.js';
 import { isEmbeddingAvailable, scheduleEmbedAndStore, entityEmbedText } from './embedder.js';
 import { hasVectorIndex } from '../storage/vector-index.js';
+import { PRODUCT_IMPROVEMENT_KIND, readProductImprovementPayload, readProductImprovementSourceIds, } from './product-improvements.js';
 const PROMPT_VERSION = 'v1';
 const COMPACT_MIN_CLUSTER_SIZE = 5;
 const COMPACT_TIME_WINDOW_DAYS = 7;
@@ -639,6 +640,76 @@ function writePatternProposal(db, project, pattern, llm) {
     VALUES (?, ?, ?, ?, ?, ?)
   `).run(project, `pattern:${new Date().toISOString().slice(0, 10)}`, JSON.stringify(sourceIds), JSON.stringify({ name: pattern.name, type: pattern.type, observations: pattern.observations, tags: pattern.tags }), `${llm.provider}/${llm.model ?? 'default'}`, PATTERN_PROMPT_VERSION);
 }
+function applyProductImprovementProposal(db, row, kg) {
+    const payload = readProductImprovementPayload(row.proposed_digest);
+    const sourceIds = readProductImprovementSourceIds(row.source_ids);
+    if (sourceIds.length === 0) {
+        throw new Error('proposal #' + row.id + ' names no source memories');
+    }
+    const tx = db.transaction(() => {
+        const placeholders = sourceIds.map(() => '?').join(',');
+        const sources = db.prepare('SELECT id, status FROM entities WHERE id IN (' + placeholders + ') ORDER BY id ASC').all(...sourceIds);
+        const activeIds = new Set(sources.filter((source) => source.status === 'active').map((source) => source.id));
+        const unavailable = sourceIds.filter((id) => !activeIds.has(id));
+        if (unavailable.length > 0) {
+            throw new Error('proposal #' + row.id + ': source memories are missing or archived: ' + unavailable.join(', '));
+        }
+        const collision = db.prepare('SELECT 1 FROM entities WHERE name = ?').get(payload.name);
+        if (collision) {
+            throw new Error('proposal #' + row.id + ': product-improvement entity name already exists: ' + payload.name);
+        }
+        const observations = [
+            ...payload.observations.filter((observation) => !observation.startsWith('State:')),
+            'State: accepted for product work; implementation and outcome are not verified.',
+        ];
+        const tags = [
+            ...payload.tags.filter((tag) => !tag.startsWith('project:') && !tag.startsWith('status:')),
+            'project:' + row.project,
+            'status:accepted-for-product',
+            'implementation:unverified',
+            'outcome:unverified',
+        ];
+        const entityId = kg.createEntity(payload.name, PRODUCT_IMPROVEMENT_KIND, {
+            title: payload.title,
+            namespace: 'team',
+            observations,
+            tags,
+            trustOverride: 'trusted',
+            metadata: {
+                kind: PRODUCT_IMPROVEMENT_KIND,
+                proposal_id: row.id,
+                source_ids: sourceIds,
+                project: row.project,
+                priority: payload.improvement.priority,
+                verification_scenario: payload.improvement.verification_scenario,
+                success_criteria: payload.improvement.success_criteria,
+                implementation_state: 'unverified',
+                outcome_state: 'unverified',
+                accepted_at: new Date().toISOString(),
+                provenance: {
+                    source: 'accepted-product-improvement',
+                    ...(payload.improvement.source_host ? { source_host: payload.improvement.source_host } : {}),
+                },
+                signal_score: 1,
+            },
+        });
+        const relation = db.prepare('INSERT OR IGNORE INTO relations (from_entity_id, to_entity_id, relation_type) VALUES (?, ?, ?)');
+        for (const sourceId of sourceIds)
+            relation.run(entityId, sourceId, 'learned-from');
+        const updated = db.prepare("UPDATE dream_proposals SET status = 'applied', reviewed_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'").run(row.id);
+        if (Number(updated.changes) !== 1) {
+            throw new Error('proposal #' + row.id + ' was reviewed concurrently — no longer pending');
+        }
+    });
+    tx.immediate();
+    return {
+        proposalId: row.id,
+        digestEntityName: payload.name,
+        sourcesArchived: 0,
+        sourcesLinked: sourceIds.length,
+        kind: PRODUCT_IMPROVEMENT_KIND,
+    };
+}
 function applyRelationProposal(db, row) {
     const payload = JSON.parse(row.proposed_digest);
     if (!payload?.a?.id || !payload?.b?.id || !payload.relation_type) {
@@ -719,6 +790,9 @@ export function applyProposal(db, proposalId, kg) {
     }
     if (row.kind === 'guard') {
         return applyGuardProposal(db, row);
+    }
+    if (row.kind === PRODUCT_IMPROVEMENT_KIND) {
+        return applyProductImprovementProposal(db, row, kg);
     }
     if (row.source_kind === 'transcript') {
         return applyTranscriptProposal(db, row, kg);
@@ -948,16 +1022,23 @@ export function listProposals(db, status = 'pending') {
             sourceCount = Array.isArray(parsed) ? parsed.length : (parsed && typeof parsed === 'object' ? 1 : 0);
         }
         catch { }
+        const productTitle = r.kind === PRODUCT_IMPROVEMENT_KIND
+            && 'title' in digest
+            && typeof digest.title === 'string'
+            ? digest.title
+            : null;
         return {
             id: r.id,
             project: r.project,
             cluster_key: r.cluster_key,
             source_count: sourceCount,
-            digest_name: digest.name,
+            digest_name: productTitle ?? digest.name,
             digest_observations_preview: digest.observations[0]?.slice(0, 120) ?? null,
             status: r.status,
             created_at: r.created_at,
-            kind: digest.type === 'pattern_emergent' ? 'pattern_emergent' : 'digest',
+            kind: r.kind === PRODUCT_IMPROVEMENT_KIND
+                ? PRODUCT_IMPROVEMENT_KIND
+                : digest.type === 'pattern_emergent' ? 'pattern_emergent' : 'digest',
             source_kind: r.source_kind ?? 'entities',
         };
     });
@@ -1006,7 +1087,11 @@ export function getProposalDetail(db, id) {
         created_at: row.created_at,
         source,
         digest,
-        kind: digest.type === 'pattern_emergent' ? 'pattern_emergent' : 'digest',
+        kind: row.kind === PRODUCT_IMPROVEMENT_KIND
+            ? PRODUCT_IMPROVEMENT_KIND
+            : row.kind === 'guard'
+                ? 'guard'
+                : digest.type === 'pattern_emergent' ? 'pattern_emergent' : 'digest',
     };
 }
 const GUARD_PROMPT_VERSION = 'guard-v1';

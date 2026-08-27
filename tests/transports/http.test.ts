@@ -825,6 +825,69 @@ describe('HTTP Transport: POST /v1/learn', () => {
   });
 });
 
+describe('HTTP Transport: POST /v1/message', () => {
+  it('wakes one waiting recipient and keeps the notification payload-free', async () => {
+    const project = 'http-message-live';
+    const waiting = req('POST', '/v1/message', {
+      action: 'poll', project, recipient: 'receiver-http', wait_ms: 500, limit: 20,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const sent = await req('POST', '/v1/message', {
+      action: 'send',
+      project,
+      sender: 'sender-http',
+      recipient: 'receiver-http',
+      idempotency_key: 'http-send-1',
+      payload: { text: 'wake up', payload_only: 'not-in-header' },
+      content_type: 'application/json',
+      privacy: 'private',
+    });
+    expect(sent.status).toBe(200);
+
+    const delivered = await waiting;
+    expect(delivered.status).toBe(200);
+    expect(delivered.body.data.events).toHaveLength(1);
+    expect(delivered.body.data.events[0].message_id).toBe(sent.body.data.message_id);
+    expect(JSON.stringify(delivered.body.data.events[0])).not.toContain('not-in-header');
+
+    const control = await req('POST', '/v1/message', {
+      action: 'poll', project, recipient: 'control-http', wait_ms: 0,
+    });
+    expect(control.body.data.events).toEqual([]);
+  });
+
+  it('fetch does not imply ACK and foreign recipients get no payload', async () => {
+    const project = 'http-message-fetch';
+    const sent = await req('POST', '/v1/message', {
+      action: 'send',
+      project,
+      sender: 'sender-http',
+      recipient: 'receiver-http',
+      idempotency_key: 'http-send-1',
+      payload: 'private body',
+    });
+    const messageId = sent.body.data.message_id;
+
+    const fetched = await req('POST', '/v1/message', {
+      action: 'fetch', project, recipient: 'receiver-http', message_id: messageId,
+    });
+    expect(fetched.body.data.payload).toBe('private body');
+
+    const receipts = await req('POST', '/v1/message', {
+      action: 'receipts', project, recipient: 'receiver-http', message_id: messageId,
+    });
+    expect(receipts.body.data).toEqual([]);
+
+    const foreign = await req('POST', '/v1/message', {
+      action: 'fetch', project, recipient: 'control-http', message_id: messageId,
+    });
+    expect(foreign.status).toBe(400);
+    expect(foreign.body.success).toBe(false);
+    expect(JSON.stringify(foreign.body)).not.toContain('private body');
+  });
+});
+
 describe('HTTP Transport: POST /v1/why', () => {
   it('joins caller-resolved hashes to commit entities and reports typed abstentions', async () => {
     // The route runs NO git — hashes come from the caller (WhySchema's

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { exportOpenAITools } from '../../src/core/schema-export.js';
-import { RememberSchema, RecallSchema } from '../../src/transports/schemas.js';
+import { MessageSchema, RememberSchema, RecallSchema } from '../../src/transports/schemas.js';
 import { TOOL_DEFINITIONS } from '../../src/transports/mcp/handlers.js';
 
 describe('exportOpenAITools', () => {
@@ -62,6 +62,31 @@ describe('exportOpenAITools', () => {
   it('memesh_learn requires error and fix', () => {
     const tool = tools.find((t: any) => t.function.name === 'memesh_learn') as any;
     expect(tool.function.parameters.required).toEqual(['error', 'fix']);
+  });
+
+  it('memesh_improvement exposes proposal/status only and keeps review authority human', () => {
+    const tool = tools.find((t: any) => t.function.name === 'memesh_improvement') as any;
+    expect(tool.function.parameters.required).toEqual(['action']);
+    expect(tool.function.parameters.properties.action.enum).toEqual(['propose', 'status']);
+    expect(tool.function.parameters.properties).not.toHaveProperty('accept');
+    expect(tool.function.parameters.properties).not.toHaveProperty('reject');
+    expect(tool.function.description).toMatch(/cannot accept or reject/i);
+  });
+
+  it('memesh_message exposes every action and does not collapse reads into ACK', () => {
+    const tool = tools.find((t: any) => t.function.name === 'memesh_message') as any;
+    expect(tool.function.parameters.required).toEqual(['action']);
+    expect(tool.function.parameters.properties.action.enum).toEqual([
+      'send', 'poll', 'fetch', 'intake', 'ack', 'disposition', 'activation', 'receipts',
+    ]);
+    expect(tool.function.description).toMatch(/Reads never imply acknowledgement/);
+
+    expect(MessageSchema.safeParse({
+      action: 'poll', project: 'memesh', recipient: 'codex', wait_ms: 30_001,
+    }).success).toBe(false);
+    expect(MessageSchema.safeParse({
+      action: 'ack', project: 'memesh', recipient: 'codex', message_id: 'm-1', idempotency_key: 'ack-1', disposition: 'completed',
+    }).success).toBe(false);
   });
 
   // Non-tautological parity: derive the expected fields from the Zod schemas

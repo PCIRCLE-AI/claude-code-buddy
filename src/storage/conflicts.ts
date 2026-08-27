@@ -83,7 +83,16 @@ export function trackAccess(
   // is bounded by the search limit (~20) — far under SQLite's bound-variable
   // cap. A single UPDATE is atomic, so no transaction wrapper is needed.
   const placeholders = entityIds.map(() => '?').join(',');
-  db.prepare(
-    `UPDATE entities SET access_count = access_count + 1, last_accessed_at = ? WHERE id IN (${placeholders})`,
-  ).run(now, ...entityIds);
+  try {
+    db.prepare(
+      `UPDATE entities SET access_count = access_count + 1, last_accessed_at = ? WHERE id IN (${placeholders})`,
+    ).run(now, ...entityIds);
+  } catch (error) {
+    // Recall is still useful when a sandbox or snapshot permits SELECTs but
+    // rejects this optional accounting write. Keep every other SQLite failure
+    // visible: locks, corruption, missing schema, and disk errors are not a
+    // read-only operating mode and must not be hidden.
+    const message = error instanceof Error ? error.message : String(error);
+    if (!/readonly database|SQLITE_READONLY/i.test(message)) throw error;
+  }
 }

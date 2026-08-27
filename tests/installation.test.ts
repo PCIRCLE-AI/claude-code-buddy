@@ -13,10 +13,13 @@ const { hookCommands, binTargets } = require('../scripts/lib/executable-targets.
 
 describe('Installation Verification', () => {
   describe('Prerequisites', () => {
-    it('should have Node.js 20+ installed', () => {
+    it('runs on the published Node 22.13+ floor', () => {
       const version = execFileSync('node', ['-v'], { encoding: 'utf8' }).trim();
-      const major = parseInt(version.slice(1).split('.')[0]);
-      expect(major).toBeGreaterThanOrEqual(20);
+      const [major, minor] = version.slice(1).split('.').map(Number);
+      expect(major > 22 || (major === 22 && minor >= 13)).toBe(true);
+      const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+      expect(pkg.engines.node).toBe('>=22.13.0');
+      expect(fs.readFileSync('llms-install.md', 'utf8')).toContain('v22.13.0');
     });
   });
 
@@ -146,16 +149,48 @@ describe('Installation Verification', () => {
     it('should have memesh-review skill', () => {
       expect(fs.existsSync('skills/memesh-review/SKILL.md')).toBe(true);
     });
+
+    it('teaches durable message delivery without claiming stopped-session wakeup', () => {
+      const skill = fs.readFileSync('skills/memesh/SKILL.md', 'utf8');
+      expect(skill).toContain('active compatible managed host');
+      expect(skill).toContain('removes polling');
+      expect(skill).toContain('stopped, missing, or replaced session');
+    });
+
+    it('documents owner-private reusable setup for every installed managed Local host', () => {
+      const install = fs.readFileSync('llms-install.md', 'utf8');
+      const guide = fs.readFileSync('docs/platforms/agent-messaging.md', 'utf8');
+      for (const command of ['memesh-router', 'memesh-host-codex', 'memesh-host-claude']) {
+        expect(install).toContain(command);
+        expect(guide).toContain(command);
+      }
+      expect(install).toContain('memesh agent setup codex');
+      expect(install).toContain('memesh agent setup claude');
+      expect(install).not.toContain('memesh agent setup gemini');
+      expect(guide).toContain('Experimental ACP runner (not release-gated)');
+      expect(guide).toContain('owner-private');
+      expect(guide).toContain('presence-only/inbound-unavailable');
+      expect(guide).toContain('stopped, missing, disconnected, or replaced');
+    });
   });
 
   describe('Bin Entries', () => {
-    it('should have exactly the 3 supported bin entries', () => {
+    it('should have exactly the supported user, server, router, and host-adapter bin entries', () => {
       const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
       const bins = Object.keys(pkg.bin);
       // memesh-view was retired: it was a third dashboard implementation
       // (static snapshot) alongside view-live.ts and the Preact dashboard,
       // and every dashboard change was a three-place edit.
-      expect(bins.sort()).toEqual(['memesh', 'memesh-http', 'memesh-mcp']);
+      expect(bins.sort()).toEqual([
+        'memesh',
+        'memesh-http',
+        'memesh-mcp',
+        'memesh-router',
+        'memesh-host-claude',
+        'memesh-host-codex',
+        'memesh-host-codex-session',
+        'memesh-host-acp',
+      ].sort());
     });
   });
 

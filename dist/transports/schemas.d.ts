@@ -115,11 +115,116 @@ export declare const WhySchema: z.ZodObject<{
 }, z.core.$strict>;
 export declare const UserPatternsSchema: z.ZodObject<{
     categories: z.ZodOptional<z.ZodArray<z.ZodEnum<{
+        workflow: "workflow";
         workSchedule: "workSchedule";
         focusAreas: "focusAreas";
-        workflow: "workflow";
         strengths: "strengths";
         learningAreas: "learningAreas";
     }>>>;
 }, z.core.$strict>;
+export declare const ImprovementSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
+    action: z.ZodLiteral<"propose">;
+    project: z.ZodString;
+    source_names: z.ZodArray<z.ZodString>;
+    title: z.ZodString;
+    problem: z.ZodString;
+    proposed_change: z.ZodString;
+    verification_scenario: z.ZodString;
+    success_criteria: z.ZodArray<z.ZodString>;
+    priority: z.ZodOptional<z.ZodEnum<{
+        p0: "p0";
+        p1: "p1";
+        p2: "p2";
+        p3: "p3";
+    }>>;
+}, z.core.$strict>, z.ZodObject<{
+    action: z.ZodLiteral<"status">;
+    proposal_id: z.ZodNumber;
+}, z.core.$strict>], "action">;
+export declare const MessageSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
+    action: z.ZodLiteral<"send">;
+    project: z.ZodString;
+    sender: z.ZodString;
+    recipient: z.ZodString;
+    target_kind: z.ZodDefault<z.ZodEnum<{
+        principal: "principal";
+        session: "session";
+    }>>;
+    idempotency_key: z.ZodString;
+    payload: z.ZodJSONSchema;
+    content_type: z.ZodDefault<z.ZodEnum<{
+        "text/plain": "text/plain";
+        "application/json": "application/json";
+    }>>;
+    privacy: z.ZodDefault<z.ZodEnum<{
+        team: "team";
+        private: "private";
+    }>>;
+    correlation_id: z.ZodOptional<z.ZodString>;
+    reply_to: z.ZodOptional<z.ZodString>;
+}, z.core.$strict>, z.ZodObject<{
+    action: z.ZodLiteral<"poll">;
+    project: z.ZodString;
+    recipient: z.ZodString;
+    cursor: z.ZodOptional<z.ZodString>;
+    wait_ms: z.ZodDefault<z.ZodNumber>;
+    limit: z.ZodDefault<z.ZodNumber>;
+}, z.core.$strict>, z.ZodObject<{
+    action: z.ZodLiteral<"fetch">;
+    project: z.ZodString;
+    recipient: z.ZodString;
+    target_kind: z.ZodDefault<z.ZodEnum<{
+        principal: "principal";
+        session: "session";
+    }>>;
+    message_id: z.ZodString;
+}, z.core.$strict>, z.ZodObject<{
+    intake_state: z.ZodEnum<{
+        fetched: "fetched";
+        ingested: "ingested";
+    }>;
+    project: z.ZodString;
+    recipient: z.ZodString;
+    message_id: z.ZodString;
+    idempotency_key: z.ZodString;
+    action: z.ZodLiteral<"intake">;
+}, z.core.$strict>, z.ZodObject<{
+    project: z.ZodString;
+    recipient: z.ZodString;
+    message_id: z.ZodString;
+    idempotency_key: z.ZodString;
+    action: z.ZodLiteral<"ack">;
+}, z.core.$strict>, z.ZodObject<{
+    disposition: z.ZodEnum<{
+        completed: "completed";
+        cancelled: "cancelled";
+        rejected: "rejected";
+        accepted: "accepted";
+        deferred: "deferred";
+    }>;
+    detail: z.ZodOptional<z.ZodString>;
+    project: z.ZodString;
+    recipient: z.ZodString;
+    message_id: z.ZodString;
+    idempotency_key: z.ZodString;
+    action: z.ZodLiteral<"disposition">;
+}, z.core.$strict>, z.ZodObject<{
+    activation: z.ZodEnum<{
+        woken: "woken";
+        manual_resume_required: "manual_resume_required";
+        unsupported: "unsupported";
+        failed: "failed";
+    }>;
+    detail: z.ZodOptional<z.ZodString>;
+    project: z.ZodString;
+    recipient: z.ZodString;
+    message_id: z.ZodString;
+    idempotency_key: z.ZodString;
+    action: z.ZodLiteral<"activation">;
+}, z.core.$strict>, z.ZodObject<{
+    action: z.ZodLiteral<"receipts">;
+    project: z.ZodString;
+    recipient: z.ZodString;
+    message_id: z.ZodString;
+}, z.core.$strict>], "action">;
 //# sourceMappingURL=schemas.d.ts.map

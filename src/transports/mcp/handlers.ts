@@ -11,8 +11,14 @@ import { computePatterns } from '../../core/patterns.js';
 import { assembleBriefing } from '../../core/briefing.js';
 import { getTaskState, setTaskState } from '../../core/task-state-store.js';
 import {
+  getProductImprovementStatus,
+  stageProductImprovement,
+} from '../../core/product-improvements.js';
+import { executeAgentMessageAction } from '../agent-messaging.js';
+import {
   RememberSchema, RecallSchema, ForgetSchema,
   BriefingSchema, ExportSchema, ImportSchema, LearnSchema, TaskStateSchema, UserPatternsSchema,
+  ImprovementSchema, MessageSchema,
 } from '../schemas.js';
 
 // ---------------------------------------------------------------------------
@@ -266,6 +272,83 @@ export const TOOL_DEFINITIONS = [
       additionalProperties: false,
     },
   },
+  {
+    name: 'improvement',
+    description:
+      'Turn active memories or lessons into a governed product-improvement proposal, or inspect a proposal status. Agents may only propose and read status; a human must inspect and accept/reject through `memesh dream show|accept|reject` or the dashboard. Acceptance means approved for product work, not implemented or effective.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['propose', 'status'],
+          description: 'propose stages an idempotent human-review item; status reads one existing proposal.',
+        },
+        project: {
+          type: 'string',
+          description: 'Required for propose. Project whose product work should receive the improvement.',
+        },
+        source_names: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Required for propose. Stable names of 1-20 active memories that provide evidence.',
+        },
+        title: { type: 'string', description: 'Required for propose. Human-readable improvement title.' },
+        problem: { type: 'string', description: 'Required for propose. Evidence-backed problem observed.' },
+        proposed_change: { type: 'string', description: 'Required for propose. Bounded product change to consider.' },
+        verification_scenario: { type: 'string', description: 'Required for propose. A scenario capable of falsifying the change.' },
+        success_criteria: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Required for propose. One or more observable success criteria.',
+        },
+        priority: { type: 'string', enum: ['p0', 'p1', 'p2', 'p3'], description: 'Optional proposed priority; defaults to p1.' },
+        proposal_id: { type: 'number', description: 'Required for status. Positive proposal ID returned by propose.' },
+      },
+      required: ['action'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'message',
+    description:
+      'Exchange durable local agent messages on one MeMesh instance. send creates one message/delivery/wakeup event idempotently; poll waits or catches up with an opaque cursor; fetch reads the payload; intake, ack, disposition, and activation record separate explicit facts. Polling or fetching never acknowledges a message, and no action executes payload content.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['send', 'poll', 'fetch', 'intake', 'ack', 'disposition', 'activation', 'receipts'],
+          description: 'Lifecycle action. Each action validates only its documented fields and rejects unknown fields.',
+        },
+        project: { type: 'string', description: 'Local project scope shared by sender and recipient.' },
+        sender: { type: 'string', description: 'Required for send. Stable local sender/agent identifier.' },
+        recipient: { type: 'string', description: 'Stable target local agent/host identifier.' },
+        target_kind: {
+          type: 'string',
+          enum: ['principal', 'session'],
+          description:
+            'Recipient identity kind for send and fetch. Defaults to principal; exact-session delivery and fetch require session.',
+        },
+        idempotency_key: { type: 'string', description: 'Required for send and receipt writes. Stable retry key.' },
+        payload: { type: ['string', 'number', 'boolean', 'object', 'array', 'null'], description: 'Required for send. JSON value treated as untrusted data and never executed by MeMesh.' },
+        content_type: { type: 'string', enum: ['text/plain', 'application/json'], description: 'Send payload media type. Defaults to text/plain.' },
+        privacy: { type: 'string', enum: ['private', 'team'], description: 'Send privacy classification. Routing remains exact-recipient in v1.' },
+        correlation_id: { type: 'string', description: 'Optional caller-stable conversation or task correlation ID.' },
+        reply_to: { type: 'string', description: 'Optional earlier message ID this message replies to.' },
+        cursor: { type: 'string', description: 'Optional opaque cursor returned by poll. Clients must not parse it.' },
+        wait_ms: { type: 'number', description: 'Poll wait in milliseconds, 0-30000. Defaults to 0.' },
+        limit: { type: 'number', description: 'Maximum poll events, 1-100. Defaults to 20.' },
+        message_id: { type: 'string', description: 'Required for fetch, receipt writes, and receipt readback.' },
+        intake_state: { type: 'string', enum: ['fetched', 'ingested'], description: 'Required only for intake. Neither value implies ACK.' },
+        disposition: { type: 'string', enum: ['accepted', 'rejected', 'completed', 'cancelled', 'deferred'], description: 'Required only for disposition.' },
+        activation: { type: 'string', enum: ['woken', 'manual_resume_required', 'unsupported', 'failed'], description: 'Required only for activation; manual_resume_required never implies ACK or workflow disposition.' },
+        detail: { type: 'string', description: 'Optional bounded explanation for disposition or activation.' },
+      },
+      required: ['action'],
+      additionalProperties: false,
+    },
+  },
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -312,7 +395,7 @@ function stripNullProps(value: unknown): unknown {
 }
 
 function parseOrFail<T>(schema: z.ZodType<T>, args: unknown): { ok: true; data: T } | { ok: false; result: ToolResult } {
-  const raw = args ?? {};
+  const raw = args === undefined || args === null ? {} : args;
 
   // Unknown keys are rejected BEFORE any null-stripping.
   //
@@ -374,7 +457,12 @@ export function normalizeClientHost(name: string | undefined): string {
  * operations as provenance and is NOT a tool parameter: a provenance field
  * the model could set is not provenance.
  */
-export async function handleTool(name: string, args: Record<string, unknown> | undefined, sourceHost?: string): Promise<ToolResult> {
+export async function handleTool(
+  name: string,
+  args: Record<string, unknown> | undefined,
+  sourceHost?: string,
+  signal?: AbortSignal,
+): Promise<ToolResult> {
   try {
     if (name === 'remember') {
       const r = parseOrFail(RememberSchema, args);
@@ -526,6 +614,33 @@ export async function handleTool(name: string, args: Record<string, unknown> | u
       }
 
       return { content: [{ type: 'text', text: lines.join('\n') }] };
+    }
+    if (name === 'improvement') {
+      const r = parseOrFail(ImprovementSchema, args);
+      if (!r.ok) return r.result;
+      if (r.data.action === 'status') {
+        return ok(getProductImprovementStatus(getDatabase(), r.data.proposal_id));
+      }
+      return ok(stageProductImprovement(getDatabase(), {
+        project: r.data.project,
+        source_names: r.data.source_names,
+        title: r.data.title,
+        problem: r.data.problem,
+        proposed_change: r.data.proposed_change,
+        verification_scenario: r.data.verification_scenario,
+        success_criteria: r.data.success_criteria,
+        priority: r.data.priority,
+        sourceHost,
+      }));
+    }
+    if (name === 'message') {
+      const r = parseOrFail(MessageSchema, args);
+      if (!r.ok) return r.result;
+      return ok(await executeAgentMessageAction(getDatabase(), r.data, {
+        transport: 'mcp',
+        sourceHost: normalizeClientHost(sourceHost),
+        signal,
+      }));
     }
     return fail(`Unknown tool: ${name}`);
   } catch (err) {

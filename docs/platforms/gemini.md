@@ -2,6 +2,8 @@
 
 Gemini can use MeMesh when your application code or local bridge calls the MeMesh HTTP API. Gemini web or AI Studio system instructions alone do not automatically call `localhost`.
 
+When that bridge exists, Gemini can use MeMesh's explicit local message lifecycle as well as shared memory. The message surface exists now; Gemini web still needs a bridge, while Gemini CLI can use MCP, and neither path implies automatic stopped-session resume. See the [Local Agent Messaging Guide](./agent-messaging.md).
+
 ## Supported Shape
 
 Use this guide when you control one of these:

@@ -2,11 +2,23 @@
 
 Use MeMesh with any local app, script, or AI client that can call HTTP endpoints or run CLI commands.
 
+If your goal is host-to-host collaboration, read the [Local Agent Messaging Guide](./agent-messaging.md) first. This page explains the transport shapes; the messaging guide explains the durable message lifecycle, support matrix, and current limits.
+
 ## Install
 
 ```bash
 npm install -g @pcircle/memesh
 ```
+
+## Local Collaboration Surfaces
+
+Use the `message` MCP tool, `POST /v1/message`, or `memesh message` commands when exact recipient, cursor recovery, or explicit receipts matter. All three expose the same local actions: `send`, `poll`, `fetch`, `intake`, `ack`, `disposition`, `activation`, and `receipts`.
+
+- Delivery is durable. A verified registered host adapter receives native push without polling; `poll`/`watch` remain compatibility and diagnostic surfaces for hosts without a verified inbound channel.
+- Poll and fetch are reads; neither implies ACK or workflow acceptance.
+- A stopped model session is not resumed or replaced. Managed adapters register only a currently active session; exact-session messages never reroute.
+
+The `team` namespace remains useful for shared durable knowledge and coarse handoffs. Use unique entity names because supplying an existing name can update or move that memory. Topic routing, claims/leases, TTL, cross-machine delivery, and universal host resume remain outside the current local message surface.
 
 ## Option A: HTTP API
 

@@ -818,6 +818,63 @@ describe('dashboard components on degenerate data', () => {
     expect(CASES.map(c => c.name).filter(n => !diskSet.has(n))).toEqual([]);
   });
 
+  it('InsightsTab identifies and expands a governed product-improvement proposal', async () => {
+    const proposal = {
+      id: 42,
+      project: 'memesh',
+      cluster_key: 'product-improvement:agent-collaboration',
+      source_count: 2,
+      digest_name: 'Make agent handoffs durable',
+      digest_observations_preview: 'Preserve the agent feedback as reviewed work',
+      status: 'pending',
+      created_at: '2026-08-26T00:00:00.000Z',
+      kind: 'product_improvement',
+      source_kind: 'agent',
+    };
+    vi.spyOn(globalThis, 'fetch').mockImplementation(((input: RequestInfo | URL) => {
+      const url = typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url;
+      const data = url.includes('/v1/dream/proposals/42')
+        ? {
+            ...proposal,
+            proposed_digest: {
+              name: 'product-improvement:agent-collaboration',
+              type: 'product_improvement',
+              observations: ['Agents proposed a durable local handoff.'],
+              tags: ['implementation:unverified', 'outcome:unverified'],
+            },
+            source_ids: [7, 9],
+            llm_model: null,
+            prompt_version: 'agent-product-improvement/v1',
+            reason: null,
+            reviewed_at: null,
+          }
+        : url.includes('/v1/dream/proposals')
+          ? [proposal]
+          : { capabilities: { llm: null } };
+      const p = Promise.resolve(jsonResponse({ success: true, data }));
+      pendingResponses.push(p);
+      return p;
+    }) as typeof globalThis.fetch);
+
+    const { container, getByText } = render(<Recorder><InsightsTab /></Recorder>);
+    await settle();
+
+    expect(container.textContent).toContain('Make agent handoffs durable');
+    expect(container.textContent).toContain('product_improvement');
+
+    fireEvent.click(getByText(en('insights.viewDetail')));
+    await settle();
+
+    expect(container.textContent).toContain('Agents proposed a durable local handoff.');
+    expect(container.textContent).toContain('implementation:unverified');
+    expect(unhandled).toEqual([]);
+    expect(caught).toEqual([]);
+  });
+
   describe('the contract itself can fail', () => {
     it('detector 1 catches a text leak that neither rejects nor throws', async () => {
       stubEmptyApi();

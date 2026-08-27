@@ -3,7 +3,7 @@
 <p align="center">
   <h1 align="center">MeMesh</h1>
   <p align="center">
-    <strong>給程式開發代理的代理式記憶。</strong><br />
+    <strong>給程式開發代理的共享記憶與耐久化本機協作層。</strong><br />
     一個 SQLite 檔案。不需要 Docker。不需要雲端。
   </p>
   <p align="center">
@@ -16,9 +16,12 @@
 
 ---
 
-**MeMesh** 是給 AI 程式開發代理用的**開源記憶層**，支援 Claude Code、Codex、Gemini、Cursor 和其他 MCP 用戶端。
+**MeMesh** 是給 AI 程式開發代理用的**開源本機協作層**：讓 Claude Code、Codex、Cursor、自訂或 Ollama-backed agents 與相容的本機 MCP 用戶端共享記憶、交換耐久化單一收件人訊息，並把有價值的經驗轉成受治理的產品改善提案。全部存在一個 SQLite 檔案裡，不需要 Docker，也不需要雲端。
 
-它從代理實際做的事情裡擷取記憶，在代理要動手的那一刻把相關的部分送回去。記憶彼此矛盾時，它會說出來。全部存在一個 SQLite 檔案裡，不需要雲端。
+### 新的協作入口
+
+- `message` 讓本機 agent 擁有可恢復 cursor、可明確記錄 receipt 的單一收件人耐久化 inbox，MCP、HTTP、CLI 三個 surface 都可用。
+- `improvement` 讓 active memories 直接進入有證據連結的產品工作提案；agent 能發起與查狀態，但只有人類能接受或拒絕。
 
 ## 安裝
 
@@ -31,7 +34,7 @@
 
 重開 Claude Code。下一個 session 開頭出現 `◉ MeMesh` 狀態列，就代表它在記了。
 
-**在終端機裡** — `memesh` CLI、儀表板，以及給 Codex / Gemini / Cursor 用的 `memesh-mcp` server（需要 [Node 22.13+](https://nodejs.org)）：
+**在終端機裡** — `memesh` CLI、儀表板，以及給 Codex / Cursor 與相容本機 MCP 用戶端用的 `memesh-mcp` server（需要 [Node 22.13+](https://nodejs.org)）：
 
 ```bash
 npm install -g @pcircle/memesh
@@ -64,6 +67,28 @@ memesh doctor        # 端到端驗證這份安裝
 
 ---
 
+## Local Agent Collaboration，要說真話
+
+MeMesh 有一個很強的跨代理優勢：凡是連到同一個本機 MeMesh instance 的 host，都能共享持久化記憶；`message` tool 則提供 MCP、HTTP 與 CLI 共用的明確單一收件人訊息路徑。
+
+可選的安全 host-native 喚醒 runtime 目前支援 macOS 與 Linux。Windows 仍可使用 MeMesh 核心記憶、耐久化 message storage 與 MCP tools；Windows host-native 喚醒目前尚未支援。
+
+- 今天就能做的：MCP、HTTP 或 CLI sender 可把訊息耐久化送給一個指定的本機 recipient。接收端可另行擷取 payload、在重啟後用 opaque cursor 補收，並把 intake、acknowledgement、workflow disposition 與 host activation 分開記錄。
+- 啟用 MeMesh Codex plugin 並完成 owner-private 的 `memesh agent setup codex-session` opt-in 後，位於**確切設定本機 workspace** 的活動中 Codex session 可在沒有輪詢或人工提醒下收到原生 `memesh_message_available` 喚醒。marker 只含 routing metadata；Codex 接著以 scope 相符的 `message` tool 擷取耐久化 payload。
+- 成功的 queue admission（`host_accept`）只代表本機 Codex queue 接受了 marker；它不代表 agent 已讀 payload、已確認收到，或接受了工作。
+- Durable message storage 由 owner policy 控制，不會偷偷刪除未解決訊息：`memesh message storage report` 會顯示 logical payload、protected rows、可重用 SQLite pages 與 WAL 大小；bounded prune 預設只 dry-run，且只 tombstone 舊的 terminal payload。可選的 `MEMESH_AGENT_MESSAGE_STORAGE_QUOTA_BYTES` 會在交易內原子拒絕超額 send。詳見 [bounded storage and audit retention](docs/platforms/agent-messaging.md#bounded-storage-and-audit-retention)。
+- 已停止、缺失或斷線的 Codex session 不會被喚醒或取代。它的耐久化 inbox 仍可供稽核與復原；`poll` 與 `memesh message watch` 是相容與診斷路徑。原生傳遞不會自動恢復已停止的模型 session、不會執行 payload，也不代表已確認收到。
+- 協作式信任邊界：recipient 名稱只是邏輯 routing ID，不是每個 agent 各自登入的身分或 ACL。能存取同一本機 MeMesh instance 的 caller 都必須視為受信任的 workspace participant；host adapter 仍需自行落實權限與人工核准規則。
+- Adapter 邊界：這裡的原生喚醒只指已設定的本機 Codex-session 路徑。其他本機 MCP loop 可使用自己 host loop 支援的耐久化 message 操作；這不是通用 host 支援宣告。
+
+完整 lifecycle、現況邊界、支援矩陣和剩餘 adapter 工作，請看 [Local Agent Messaging Guide](docs/platforms/agent-messaging.md)。
+
+### 把 agent 經驗轉成受審核的產品工作
+
+`improvement` tool 能把仍有效的記憶與教訓轉成有證據連結的產品改善提案，不再讓有價值的 feedback 只停在 inbox。Agent 可以提案與查狀態，但不能核准自己的建議；人類透過既有 review surface 接受或拒絕。接受後，MeMesh 會保留全部來源記憶、把工作項目連回證據，並讓它出現在後續 project briefing。這讓學習真正進入產品流程，同時避免 agent 建議在沒有人工授權下直接變成產品政策。
+
+---
+
 ## 安裝路徑一覽
 
 MeMesh 有**兩條會共存的安裝路徑**。多數使用者兩條都需要。它們寫入**同一份記憶資料庫**（`~/.memesh/knowledge-graph.db`），所以 Claude Code 對話裡記下的東西在 terminal 也看得到，反之亦然。
@@ -78,7 +103,7 @@ flowchart TB
     subgraph clients["Where you use memesh from"]
       direction LR
       CC["Claude Code<br/>(chat + agent)"]:::client
-      TERM["Terminal / other<br/>MCP clients<br/>(Codex, Gemini, Cursor...)"]:::client
+      TERM["Terminal / other<br/>MCP clients<br/>(Codex, Cursor...)"]:::client
     end
 
     subgraph paths["Two install paths"]
@@ -159,7 +184,7 @@ npm install -g @pcircle/memesh
 如果你透過**選項 B**（`npm install -g`）安裝，CLI 已在 PATH 上 — 但**還沒有任何東西接進 Claude Code**：npm 套件刻意不執行安裝腳本，把 MCP server 和 hooks 接進 Claude Code 的是外掛（選項 A）。npm 路徑自己能接的是 session hooks。沒有這些 hooks 還是可以手動使用 `memesh remember` / `recall`，但**自動擷取迴路**（session → 教訓 → 下次 session 主動回憶）就會靜默不動。
 
 ```bash
-memesh setup                 # 偵測 Claude Code / Codex / Gemini、逐一詢問接線、接完驗證
+memesh setup                 # 檢查本機 host 接線並回報結果
 ```
 
 或手動逐步：
@@ -171,7 +196,7 @@ memesh setup --check         # 機器層級驗證：讀各主機自己的設定�
 
 這些 hooks 會跟你既有的 `~/.claude/hooks/` 自訂 hooks 共存 — `install-hooks` 用追加方式寫入，從不覆寫你的東西。要移除：`memesh uninstall-hooks`。
 
-### 從 Codex CLI、Gemini CLI、Cursor 與其他 MCP 用戶端使用同一份記憶
+### 從 Codex CLI、Cursor 與其他 MCP 用戶端使用同一份記憶
 
 `memesh-mcp` 是標準的 stdio MCP server，任何支援 MCP 的主機都能用 — 不限 Claude Code。裝好選項 B（`memesh-mcp` 在 `PATH` 上）之後，每個主機註冊一次：
 
@@ -179,8 +204,6 @@ memesh setup --check         # 機器層級驗證：讀各主機自己的設定�
 # OpenAI Codex CLI — 會把 [mcp_servers.memesh] 寫進 ~/.codex/config.toml
 codex mcp add memesh -- memesh-mcp
 
-# Google Gemini CLI — user 範圍，每個資料夾都能用
-gemini mcp add -s user memesh memesh-mcp
 ```
 
 Cursor 請將同一個 stdio server 加入 `~/.cursor/mcp.json`（全域），或專案內的 `.cursor/mcp.json`：
@@ -193,11 +216,10 @@ Cursor 請將同一個 stdio server 加入 `~/.cursor/mcp.json`（全域），�
 }
 ```
 
-每個主機讀寫的都是同一個 `~/.memesh/knowledge-graph.db`，所以在任何代理儲存的記憶，Codex、Gemini、Cursor 和其他 MCP 用戶端都能回憶得到。請從主機要求它呼叫 `recall` 工具驗證：
+每個已設定的本機 host 讀寫的都是同一個 `~/.memesh/knowledge-graph.db`，所以在任何代理儲存的記憶，Codex、Cursor 和其他 MCP 用戶端都能回憶得到。請從主機要求它呼叫 `recall` 工具驗證：
 
 ```bash
 codex mcp list       # memesh 應顯示為 enabled
-gemini mcp list      # memesh 應顯示 "Connected"
 ```
 
 > **設定的指令要用 `memesh-mcp`，不要用 `npx -p @pcircle/memesh`。**當主機的工作目錄在這個 repo 的 checkout 裡時，`npx -p` 會解析到*本地*套件，靜默執行工作樹當下的狀態而不是安裝好的正式版。
@@ -295,7 +317,7 @@ Claude Code 在 session 開始時自動收到的就是同一個區塊，其他 M
 |---------------|---------------------|
 | **使用 Claude Code 的開發者** | 在工作時自動回憶專案決策、檔案特定的經驗教訓和過去的失敗 |
 | **程式開發代理進階使用者** | 在多個 MCP 相容工具間共享一層在地記憶 |
-| **使用 Codex、Gemini、Cursor、Claude Code 或其他 MCP 用戶端的個人** | 在不同代理與 session 之間使用同一層在地記憶 |
+| **使用 Codex、Cursor、Claude Code 或其他 MCP 用戶端的個人** | 在不同代理與 session 之間使用同一層在地記憶 |
 | **整合 AI 代理的開發者** | 透過 MCP、HTTP 或 CLI 添加在地記憶 |
 
 ---
@@ -373,7 +395,7 @@ MeMesh 的檢索引擎**只用 FTS5**（熱路徑上不使用 LLM、不使用嵌
 
 ## Claude Code 自動進行的事情
 
-你不需要手動記住所有事情。MeMesh 有 **7 個 hooks**，會在你工作時自動擷取與注入知識：
+你不需要手動記住所有事情。MeMesh 有 **8 個 hooks**，會在你工作時自動擷取與注入知識：
 
 | 何時 | MeMesh 做什麼 |
 |------|------------------|
@@ -384,6 +406,7 @@ MeMesh 的檢索引擎**只用 FTS5**（熱路徑上不使用 LLM、不使用嵌
 | **Claude 停止時** | 擷取已編輯的檔案、已修復的錯誤，並從失敗自動產生結構化教訓 |
 | **上下文壓縮前** | 在知識被上下文限制丟掉之前先保存 |
 | **危險指令與編輯前** | 觸發你接受過的教訓守衛——在記錄過的錯誤即將重演的那一刻發出警告 |
+| **已 opt-in 的 Codex session 啟動或恢復時** | 註冊該確切活動 thread 以接收 metadata-only MeMesh 訊息喚醒；其他 workspace 與已停止 session 不會被附掛 |
 
 > **隨時退出：** `export MEMESH_AUTO_CAPTURE=false`
 
@@ -479,7 +502,7 @@ memesh recall "retry policy"  # → 警告：偵測到衝突
 
 ### 一份記憶，三個代理
 
-MeMesh 是一個 MCP server，所以同一個 SQLite 檔案能服務機器上的每一個 MCP 用戶端。每個工具只要註冊一次（確切指令見上方「60 秒快速開始」），在 Claude Code 記錄的決策，session 進行到一半時就能被 Codex 或 Gemini CLI 回憶起來 — 不用重新解釋，不用在不同廠商之間複製貼上 context。
+MeMesh 是一個 MCP server，所以同一個 SQLite 檔案能服務機器上的每一個 MCP 用戶端。每個工具只要註冊一次（確切指令見上方「60 秒快速開始」），在 Claude Code 記錄的決策，session 進行到一半時就能被 Codex 或另一個已設定的本機 MCP client 回憶起來 — 不用重新解釋，不用在不同廠商之間複製貼上 context。
 
 ### 記錄決策讓它們保持可被找到
 
@@ -535,7 +558,7 @@ memesh config set embedder.provider openai          # or: ollama
 
 ---
 
-## 全部 9 個記憶工具
+## 全部 11 個記憶與協作工具
 
 | 工具 | 做什麼 |
 |------|--------|
@@ -548,6 +571,8 @@ memesh config set embedder.provider openai          # or: ollama
 | `task_state` | 讀取或記下工作進度——目標、下一步、卡住的地方、剛完成的事 |
 | `briefing` | 組合好的工作拓撲——Claude Code 在 session 開始拿到的那個區塊，任何 MCP client 都拿得到 |
 | `user_patterns` | 分析你的工作模式——時間表、工具、優勢、學習領域 |
+| `improvement` | 將有證據來源的產品改善送交人類審核，或讀取其狀態；agent 不能自行接受或拒絕 |
+| `message` | 在同一個本機 MeMesh instance 上耐久化送出、輪詢、擷取並明確記錄單一收件人訊息狀態 |
 
 ---
 
@@ -556,7 +581,7 @@ memesh config set embedder.provider openai          # or: ollama
 ```
                     ┌─────────────────┐
                     │   核心引擎      │
-                    │  （7 項操作）  │
+                    │    核心操作     │
                     └────────┬────────┘
            ┌─────────────────┼─────────────────┐
            │                 │                 │

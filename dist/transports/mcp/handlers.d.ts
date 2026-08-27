@@ -246,6 +246,157 @@ export declare const TOOL_DEFINITIONS: readonly [{
         };
         readonly additionalProperties: false;
     };
+}, {
+    readonly name: "improvement";
+    readonly description: "Turn active memories or lessons into a governed product-improvement proposal, or inspect a proposal status. Agents may only propose and read status; a human must inspect and accept/reject through `memesh dream show|accept|reject` or the dashboard. Acceptance means approved for product work, not implemented or effective.";
+    readonly inputSchema: {
+        readonly type: "object";
+        readonly properties: {
+            readonly action: {
+                readonly type: "string";
+                readonly enum: readonly ["propose", "status"];
+                readonly description: "propose stages an idempotent human-review item; status reads one existing proposal.";
+            };
+            readonly project: {
+                readonly type: "string";
+                readonly description: "Required for propose. Project whose product work should receive the improvement.";
+            };
+            readonly source_names: {
+                readonly type: "array";
+                readonly items: {
+                    readonly type: "string";
+                };
+                readonly description: "Required for propose. Stable names of 1-20 active memories that provide evidence.";
+            };
+            readonly title: {
+                readonly type: "string";
+                readonly description: "Required for propose. Human-readable improvement title.";
+            };
+            readonly problem: {
+                readonly type: "string";
+                readonly description: "Required for propose. Evidence-backed problem observed.";
+            };
+            readonly proposed_change: {
+                readonly type: "string";
+                readonly description: "Required for propose. Bounded product change to consider.";
+            };
+            readonly verification_scenario: {
+                readonly type: "string";
+                readonly description: "Required for propose. A scenario capable of falsifying the change.";
+            };
+            readonly success_criteria: {
+                readonly type: "array";
+                readonly items: {
+                    readonly type: "string";
+                };
+                readonly description: "Required for propose. One or more observable success criteria.";
+            };
+            readonly priority: {
+                readonly type: "string";
+                readonly enum: readonly ["p0", "p1", "p2", "p3"];
+                readonly description: "Optional proposed priority; defaults to p1.";
+            };
+            readonly proposal_id: {
+                readonly type: "number";
+                readonly description: "Required for status. Positive proposal ID returned by propose.";
+            };
+        };
+        readonly required: readonly ["action"];
+        readonly additionalProperties: false;
+    };
+}, {
+    readonly name: "message";
+    readonly description: "Exchange durable local agent messages on one MeMesh instance. send creates one message/delivery/wakeup event idempotently; poll waits or catches up with an opaque cursor; fetch reads the payload; intake, ack, disposition, and activation record separate explicit facts. Polling or fetching never acknowledges a message, and no action executes payload content.";
+    readonly inputSchema: {
+        readonly type: "object";
+        readonly properties: {
+            readonly action: {
+                readonly type: "string";
+                readonly enum: readonly ["send", "poll", "fetch", "intake", "ack", "disposition", "activation", "receipts"];
+                readonly description: "Lifecycle action. Each action validates only its documented fields and rejects unknown fields.";
+            };
+            readonly project: {
+                readonly type: "string";
+                readonly description: "Local project scope shared by sender and recipient.";
+            };
+            readonly sender: {
+                readonly type: "string";
+                readonly description: "Required for send. Stable local sender/agent identifier.";
+            };
+            readonly recipient: {
+                readonly type: "string";
+                readonly description: "Stable target local agent/host identifier.";
+            };
+            readonly target_kind: {
+                readonly type: "string";
+                readonly enum: readonly ["principal", "session"];
+                readonly description: "Recipient identity kind for send and fetch. Defaults to principal; exact-session delivery and fetch require session.";
+            };
+            readonly idempotency_key: {
+                readonly type: "string";
+                readonly description: "Required for send and receipt writes. Stable retry key.";
+            };
+            readonly payload: {
+                readonly type: readonly ["string", "number", "boolean", "object", "array", "null"];
+                readonly description: "Required for send. JSON value treated as untrusted data and never executed by MeMesh.";
+            };
+            readonly content_type: {
+                readonly type: "string";
+                readonly enum: readonly ["text/plain", "application/json"];
+                readonly description: "Send payload media type. Defaults to text/plain.";
+            };
+            readonly privacy: {
+                readonly type: "string";
+                readonly enum: readonly ["private", "team"];
+                readonly description: "Send privacy classification. Routing remains exact-recipient in v1.";
+            };
+            readonly correlation_id: {
+                readonly type: "string";
+                readonly description: "Optional caller-stable conversation or task correlation ID.";
+            };
+            readonly reply_to: {
+                readonly type: "string";
+                readonly description: "Optional earlier message ID this message replies to.";
+            };
+            readonly cursor: {
+                readonly type: "string";
+                readonly description: "Optional opaque cursor returned by poll. Clients must not parse it.";
+            };
+            readonly wait_ms: {
+                readonly type: "number";
+                readonly description: "Poll wait in milliseconds, 0-30000. Defaults to 0.";
+            };
+            readonly limit: {
+                readonly type: "number";
+                readonly description: "Maximum poll events, 1-100. Defaults to 20.";
+            };
+            readonly message_id: {
+                readonly type: "string";
+                readonly description: "Required for fetch, receipt writes, and receipt readback.";
+            };
+            readonly intake_state: {
+                readonly type: "string";
+                readonly enum: readonly ["fetched", "ingested"];
+                readonly description: "Required only for intake. Neither value implies ACK.";
+            };
+            readonly disposition: {
+                readonly type: "string";
+                readonly enum: readonly ["accepted", "rejected", "completed", "cancelled", "deferred"];
+                readonly description: "Required only for disposition.";
+            };
+            readonly activation: {
+                readonly type: "string";
+                readonly enum: readonly ["woken", "manual_resume_required", "unsupported", "failed"];
+                readonly description: "Required only for activation; manual_resume_required never implies ACK or workflow disposition.";
+            };
+            readonly detail: {
+                readonly type: "string";
+                readonly description: "Optional bounded explanation for disposition or activation.";
+            };
+        };
+        readonly required: readonly ["action"];
+        readonly additionalProperties: false;
+    };
 }];
 type ToolResult = {
     content: Array<{
@@ -255,6 +406,6 @@ type ToolResult = {
     isError?: boolean;
 };
 export declare function normalizeClientHost(name: string | undefined): string;
-export declare function handleTool(name: string, args: Record<string, unknown> | undefined, sourceHost?: string): Promise<ToolResult>;
+export declare function handleTool(name: string, args: Record<string, unknown> | undefined, sourceHost?: string, signal?: AbortSignal): Promise<ToolResult>;
 export {};
 //# sourceMappingURL=handlers.d.ts.map

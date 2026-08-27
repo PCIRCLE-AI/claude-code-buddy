@@ -2,6 +2,8 @@
 
 ChatGPT can use MeMesh only when you provide a connector, action, proxy, or local bridge that can call your MeMesh HTTP server. Custom instructions alone cannot make ChatGPT call `localhost`.
 
+With that bridge in place, ChatGPT can use MeMesh's explicit local message lifecycle as well as shared memory. The message surface exists now; ChatGPT still needs a bridge that can reach it, and ordinary ChatGPT web sessions are not automatically resumed by a MeMesh wakeup event. See the [Local Agent Messaging Guide](./agent-messaging.md).
+
 ## Supported Shape
 
 Use this guide when you control one of these:
