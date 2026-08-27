@@ -641,4 +641,4 @@ fs.rmSync(smokeDir, { recursive: true, force: true });
 // Say something on success. A check that prints nothing when it passes is
 // indistinguishable from one that did not run — the exact failure mode this
 // repo has spent several releases removing from its own code.
-console.log('✅ Packaged artifact smoke test passed — tarball installs outside the repo, completes MCP lifecycle exchanges, and proves one installed message across metadata-only Codex wakeup → scoped durable fetch → persisted host_accept with no implicit ACK/disposition');
+console.log('✅ Packaged artifact smoke test passed — tarball installs outside the repo, completes MCP lifecycle exchanges, and proves one installed message without poll/watch across metadata-only Codex wakeup → scoped durable fetch → persisted host_accept with no implicit ACK/disposition');
