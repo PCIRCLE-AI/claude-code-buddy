@@ -22,10 +22,13 @@ const MAX_LEASE_MS = 5 * 60_000;
 const DEFAULT_DRAIN_LIMIT = 200;
 const DEFAULT_CLIENT_TIMEOUT_MS = 2_000;
 const STALE_SOCKET_PROBE_TIMEOUT_MS = 250;
+const STARTUP_LOCK_WAIT_MS = 1_000;
+const STARTUP_LOCK_STALE_MS = 5_000;
 const MAX_FIELD_LENGTH = 200;
 const MAX_ADAPTER_RECEIPT_BYTES = 16 * 1024;
 
 type SocketIdentity = Pick<fs.Stats, 'dev' | 'ino'>;
+type StartupLock = { fd: number; path: string; identity: SocketIdentity };
 
 export interface AgentHostRegistration {
   project: string;
@@ -274,6 +277,7 @@ export class AgentRouter {
       throw new AgentRouterError('insecure_socket_directory', 'Router socket directory must be private.');
     }
 
+    const startupLock = await acquireStartupLock(this.socket_path);
     const server = net.createServer((socket) => this.acceptSocket(socket));
     this.server = server;
     try {
@@ -298,6 +302,8 @@ export class AgentRouter {
       this.socketIdentity = null;
       try { server.close(); } catch { /* not listening */ }
       throw error;
+    } finally {
+      releaseStartupLock(startupLock);
     }
   }
 
@@ -1243,6 +1249,68 @@ async function removeOrphanedSocket(socketPath: string): Promise<boolean> {
   return true;
 }
 
+async function acquireStartupLock(socketPath: string): Promise<StartupLock> {
+  const lockPath = `${socketPath}.startup.lock`;
+  const deadline = Date.now() + STARTUP_LOCK_WAIT_MS;
+  for (;;) {
+    try {
+      const fd = fs.openSync(lockPath, 'wx', 0o600);
+      const stat = fs.fstatSync(fd);
+      const lock = { fd, path: lockPath, identity: { dev: stat.dev, ino: stat.ino } };
+      try {
+        fs.writeFileSync(fd, `${process.pid}\n`, 'utf8');
+        return lock;
+      } catch (error) {
+        fs.closeSync(fd);
+        unlinkPathIfSame(lockPath, lock.identity);
+        throw error;
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      const existing = readPrivateLockIdentity(lockPath);
+      if (startupLockIsStale(lockPath, existing)) {
+        unlinkPathIfSame(lockPath, existing);
+        continue;
+      }
+      if (Date.now() >= deadline) {
+        throw new AgentRouterError('router_start_in_progress', 'Another router process is starting.');
+      }
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+  }
+}
+
+function readPrivateLockIdentity(lockPath: string): SocketIdentity & Pick<fs.Stats, 'mtimeMs'> {
+  const stat = fs.lstatSync(lockPath);
+  if (!stat.isFile() || (stat.mode & 0o077) !== 0) {
+    throw new AgentRouterError('insecure_startup_lock', 'Router startup lock must be an owner-private regular file.');
+  }
+  if (typeof process.getuid === 'function' && stat.uid !== process.getuid()) {
+    throw new AgentRouterError('foreign_startup_lock', 'Router startup lock is owned by another user.');
+  }
+  return { dev: stat.dev, ino: stat.ino, mtimeMs: stat.mtimeMs };
+}
+
+function startupLockIsStale(lockPath: string, identity: Pick<fs.Stats, 'mtimeMs'>): boolean {
+  if (Date.now() - identity.mtimeMs >= STARTUP_LOCK_STALE_MS) return true;
+  try {
+    const raw = fs.readFileSync(lockPath, 'utf8').trim();
+    if (!/^[1-9][0-9]*$/.test(raw)) return false;
+    process.kill(Number(raw), 0);
+    return false;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'ESRCH';
+  }
+}
+
+function releaseStartupLock(lock: StartupLock): void {
+  try {
+    fs.closeSync(lock.fd);
+  } finally {
+    unlinkPathIfSame(lock.path, lock.identity);
+  }
+}
+
 function probeSocket(socketPath: string): Promise<'connected' | 'refused' | 'missing' | 'indeterminate'> {
   return new Promise((resolve) => {
     const socket = net.createConnection(socketPath);
@@ -1302,6 +1370,12 @@ function unlinkSocketIfSame(socketPath: string, expected: SocketIdentity): void 
   const current = lstatIfPresent(socketPath);
   if (!current || !current.isSocket() || !sameSocketIdentity(expected, current)) return;
   fs.unlinkSync(socketPath);
+}
+
+function unlinkPathIfSame(targetPath: string, expected: SocketIdentity): void {
+  const current = lstatIfPresent(targetPath);
+  if (!current || !sameSocketIdentity(expected, current)) return;
+  fs.unlinkSync(targetPath);
 }
 
 function validateSocketPath(socketPath: string): string {

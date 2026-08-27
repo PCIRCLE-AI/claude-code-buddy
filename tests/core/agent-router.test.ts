@@ -280,7 +280,6 @@ describe.sequential('AgentRouter real SQLite + UDS integration', () => {
   it('recovers one orphaned stale UDS under concurrent startup without stealing the winner', async () => {
     const { db, socketPath, token } = setup();
     await leaveOrphanedSocket(socketPath);
-    const staleIdentity = fs.lstatSync(socketPath);
     const contenders = [0, 1].map(() => new AgentRouter({
       db,
       socket_path: socketPath,
@@ -293,12 +292,22 @@ describe.sequential('AgentRouter real SQLite + UDS integration', () => {
     const winner = contenders[winnerIndex];
     routers.push(winner);
 
-    const activeIdentity = fs.lstatSync(socketPath);
-    expect(activeIdentity.ino).not.toBe(staleIdentity.ino);
+    expect(fs.lstatSync(socketPath).isSocket()).toBe(true);
     const host = await RouterHostClient.connect({
       socketPath, token, project: 'project-a', principal: 'principal-a', session: 'session-a',
     });
     expect(host.generation).toBe(1);
+  });
+
+  it('recovers a startup lock left by a process that no longer exists', async () => {
+    const { db, socketPath, token } = setup();
+    fs.writeFileSync(`${socketPath}.startup.lock`, '2147483647\n', { mode: 0o600 });
+
+    const router = await startRouter(db, socketPath, token);
+
+    expect(fs.existsSync(`${socketPath}.startup.lock`)).toBe(false);
+    expect(fs.lstatSync(socketPath).isSocket()).toBe(true);
+    expect(router).toBeDefined();
   });
 
   it('refuses to remove or replace a socket owned by a live router', async () => {

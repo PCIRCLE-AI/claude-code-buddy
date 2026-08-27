@@ -1,6 +1,8 @@
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import net from 'node:net';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
   startManagedCodexHost,
@@ -23,7 +25,7 @@ async function privateSocket(): Promise<{
   listen: () => Promise<void>;
   close: () => Promise<void>;
 }> {
-  const directory = await fs.promises.mkdtemp('/private/tmp/memesh-managed-codex-');
+  const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'memesh-managed-codex-'));
   await fs.promises.chmod(directory, 0o700);
   const socketPath = `${directory}/control.sock`;
   const server = net.createServer();

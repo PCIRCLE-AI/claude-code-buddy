@@ -1,6 +1,8 @@
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import { createServer } from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import { WebSocketServer } from 'ws';
@@ -111,7 +113,7 @@ async function acceptQueuedMessage(socket: FakeWebSocket, response = queueRespon
 
 describe('Codex app-server host adapter', () => {
   it.skipIf(process.platform === 'win32')('performs the real /rpc WebSocket upgrade over a Unix socket', async () => {
-    const tempDir = await fs.promises.mkdtemp('/private/tmp/memesh-codex-ws-');
+    const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'memesh-codex-ws-'));
     const socketPath = `${tempDir}/control.sock`;
     const frames: Array<Record<string, unknown>> = [];
     const server = createServer();

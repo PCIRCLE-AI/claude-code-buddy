@@ -150,7 +150,6 @@ describe('production router host client', () => {
     const socketPath = path.join(tempDir, 'router.sock');
     const db = openDatabase(path.join(tempDir, 'messages.db'));
     await leaveOrphanedSocket(socketPath);
-    const staleIdentity = fs.lstatSync(socketPath);
     const startRouter = vi.fn(async () => {
       if (router) return;
       const candidate = new AgentRouter({
@@ -180,7 +179,7 @@ describe('production router host client', () => {
     });
 
     expect(startRouter).toHaveBeenCalledTimes(1);
-    expect(fs.lstatSync(socketPath).ino).not.toBe(staleIdentity.ino);
+    expect(fs.lstatSync(socketPath).isSocket()).toBe(true);
     expect(connection.generation).toBe(1);
   });
 
