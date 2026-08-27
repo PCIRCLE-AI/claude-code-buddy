@@ -621,10 +621,10 @@
       "reason": "entity.observations can be genuinely undefined for a raw import bundle \u2014 describeInvalidEntity (this file) explicitly permits the field to be absent, only rejecting it if present-and-not-an-array. The ?? [] covers that documented-optional case, not a hidden failure.",
       "triaged": "2026-08-24"
     },
-    "C5 src/core/agent-router.ts:769": {
+    "C5 src/core/agent-router.ts:794": {
       "class": "SAFE-BY-CONSTRUCTION",
       "reason": "A host adapter may accept a delivery without optional transport metadata. The empty receipt is still validated and persisted as an explicit host_accept fact; accepted itself is required and no ACK, read, or workflow state is inferred from the missing receipt.",
-      "triaged": "2026-08-27 host-native push release audit"
+      "triaged": "2026-08-27 host-native push release audit; re-keyed 2026-08-28 after bounded backlog drain moved the unchanged statement"
     },
     "C5 src/host-adapters/acp-client.ts:771": {
       "class": "SAFE-BY-CONSTRUCTION",
