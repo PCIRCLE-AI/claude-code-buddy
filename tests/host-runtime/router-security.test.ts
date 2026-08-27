@@ -43,7 +43,7 @@ describe('router token boundary', () => {
 
     const result = runRouter(directory, link);
     expect(result.error).toBeUndefined();
-    expect(result.status).not.toBe(0);
+    expect(result.status).toBe(1);
     expect(result.stderr).toMatch(/ELOOP|symlink|symbolic/i);
   });
 
@@ -54,7 +54,7 @@ describe('router token boundary', () => {
 
     const result = runRouter(directory, token);
     expect(result.error).toBeUndefined();
-    expect(result.status).not.toBe(0);
+    expect(result.status).toBe(1);
     expect(result.stderr).toContain('8192-byte limit');
   });
 });
