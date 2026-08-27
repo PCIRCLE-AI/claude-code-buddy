@@ -446,7 +446,7 @@
       "reason": "the added scan extracts the set of registered .option() flags from cli.ts and asserts that no user-facing advice string names a flag outside it. The text is the DATA (which flags exist), not the behaviour under test \u2014 and it caught two real defects on its first run: the two 'reindex --vectors' messages this commit fixes, plus the older 'memesh doctor --verbose', a flag that never existed. The existing cli-hints detector could not see either, because it reads only cli.ts and only .command() registrations.",
       "triaged": "2026-08-18"
     },
-    "C5 src/core/config.ts:379": {
+    "C5 src/core/config.ts:378": {
       "class": "SAFE-GUARDED",
       "reason": "absent key truthfully means no failover; corrupt config caught by doctor inspectConfigParse",
       "triaged": "2026-08-04 (re-keyed 353->359->369: the transcriptMining field + isTranscriptMiningEnabled additions shifted the line down 10; same llmFallbacks ?? [] code verified before re-keying); re-keyed 2026-08-10 (the AUTO_CAPTURE_TAG-driven detectCapabilities guard shifted it +7; same statement, classification unchanged); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-14 266->268 (causal-convention sentences in the relation-type description; same statement \u2014 verified) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position)"
