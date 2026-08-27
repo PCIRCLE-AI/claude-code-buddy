@@ -61,10 +61,10 @@ function tryCreateLock(lockPath, version) {
       token,
       `${token}\n${process.pid}\n${startedAt}\n${version}\n`,
     );
-    return { acquired: true, lockPath, ownerToken: token };
+    return { acquired: true, lockPath, ownerToken: token, recoveredStale: false };
   } catch (err) {
     if (err?.code === 'EEXIST') {
-      return { acquired: false, lockPath, ownerToken: null };
+      return { acquired: false, lockPath, ownerToken: null, recoveredStale: false };
     }
     throw err;
   }
