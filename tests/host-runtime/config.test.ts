@@ -49,6 +49,7 @@ describe('host config and token files', () => {
 
     const created = ensureRouterTokenFile(token);
     expect(created).toMatch(/^[0-9a-f]{64}$/);
+    expect(created).toHaveLength(64);
     expect(fs.statSync(token).mode & 0o077).toBe(0);
     expect(ensureRouterTokenFile(token)).toBe(created);
   });

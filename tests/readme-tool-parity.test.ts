@@ -40,6 +40,7 @@ function run(root: string) {
 
 describe('three-language README tool parity gate', () => {
   it('accepts exactly the canonical 11-tool inventory once per README', () => {
+    expect(names).toHaveLength(11);
     const result = run(fixture());
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain('PASS (11 tools across 3 READMEs)');
