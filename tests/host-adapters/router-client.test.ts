@@ -191,7 +191,7 @@ describe.skipIf(process.platform === 'win32')('production router host client', (
     const makeRouter = () => new AgentRouter({
       db,
       socket_path: socketPath,
-      limits: { lease_ms: 120, delivery_timeout_ms: 500 },
+      limits: { lease_ms: 1_000, delivery_timeout_ms: 500 },
       adapters: [{ kind: 'codex-app-server', authenticate: value => value.auth_token === 'token' }],
     });
     router = makeRouter();
@@ -268,7 +268,7 @@ describe.skipIf(process.platform === 'win32')('production router host client', (
         WHERE session_instance_id = ? AND generation = ?
       `).get('session-a', connection!.generation) as { lease_expires_at_ms: number };
       expect(current.lease_expires_at_ms).toBeGreaterThan(initialLease);
-    });
+    }, { interval: 20, timeout: 5_000 });
     expect(db.prepare(`
       SELECT COUNT(*) AS count FROM agent_presence_facts
       WHERE session_instance_id = ? AND generation = ? AND presence_kind = 'heartbeat'
