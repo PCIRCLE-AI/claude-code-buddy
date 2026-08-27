@@ -173,6 +173,10 @@ export declare const MessageSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
     action: z.ZodLiteral<"fetch">;
     project: z.ZodString;
     recipient: z.ZodString;
+    target_kind: z.ZodDefault<z.ZodEnum<{
+        principal: "principal";
+        session: "session";
+    }>>;
     message_id: z.ZodString;
 }, z.core.$strict>, z.ZodObject<{
     intake_state: z.ZodEnum<{

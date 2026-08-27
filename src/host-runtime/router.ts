@@ -6,6 +6,7 @@ import path from 'node:path';
 import { closeDatabase, openDatabase } from '../db.js';
 import { AgentRouter, type AgentHostRegistration } from '../core/agent-router.js';
 import { getMemeshDirFromDbPath } from '../core/paths.js';
+import { readTokenFile } from './config.js';
 
 const dataDir = getMemeshDirFromDbPath();
 const socketPath = process.env.MEMESH_ROUTER_SOCKET ?? path.join(dataDir, 'agent-router.sock');
@@ -16,11 +17,7 @@ fs.chmodSync(dataDir, 0o700);
 if (!fs.existsSync(tokenFile)) {
   fs.writeFileSync(tokenFile, `${randomBytes(32).toString('hex')}\n`, { mode: 0o600, flag: 'wx' });
 }
-const tokenStat = fs.statSync(tokenFile);
-if (!tokenStat.isFile() || (tokenStat.mode & 0o077) !== 0) {
-  throw new Error('The router token file must be owner-private.');
-}
-const expectedToken = fs.readFileSync(tokenFile, 'utf8').trim();
+const expectedToken = readTokenFile(tokenFile);
 
 function authenticate(registration: AgentHostRegistration): boolean {
   if (!registration.auth_token) return false;

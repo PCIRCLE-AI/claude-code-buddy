@@ -62,6 +62,33 @@ describe('agent message transport', () => {
       recipient: 'session-instance-7',
       target_kind: 'session',
     });
+
+    const fetched = await executeAgentMessageAction(getDatabase(), {
+      action: 'fetch',
+      project: 'transport-session',
+      recipient: 'session-instance-7',
+      target_kind: 'session',
+      message_id: sent.message_id,
+    }, {
+      transport: 'mcp',
+      sourceHost: 'test-host',
+    }) as { message_id: string; target_kind: string; payload: string };
+    expect(fetched).toMatchObject({
+      message_id: sent.message_id,
+      target_kind: 'session',
+      payload: 'review this model feedback',
+    });
+
+    await expect(executeAgentMessageAction(getDatabase(), {
+      action: 'fetch',
+      project: 'transport-session',
+      recipient: 'session-instance-7',
+      target_kind: 'principal',
+      message_id: sent.message_id,
+    }, {
+      transport: 'mcp',
+      sourceHost: 'test-host',
+    })).rejects.toThrow(/not available/);
   });
 
   it('rejects target kinds outside the public principal-or-session contract', async () => {

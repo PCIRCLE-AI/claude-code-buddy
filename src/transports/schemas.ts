@@ -251,6 +251,7 @@ export const MessageSchema = z.discriminatedUnion('action', [
     action: z.literal('fetch'),
     project: messageProject,
     recipient: messageAgentId,
+    target_kind: z.enum(['principal', 'session']).default('principal'),
     message_id: messageId,
   }).strict(),
   z.object({

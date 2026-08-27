@@ -633,13 +633,18 @@ messageCmd
 });
 messageCmd
     .command('fetch')
-    .description('Fetch one payload routed to the logical recipient without acknowledging it')
+    .description('Fetch one payload routed to the exact principal or session without acknowledging it')
     .requiredOption('--project <name>', 'Project scope')
     .requiredOption('--recipient <id>', 'Stable recipient agent/host ID')
+    .option('--target-kind <kind>', 'principal | session', 'principal')
     .requiredOption('--message-id <id>', 'Message ID')
-    .action((opts) => runCliMessage({
-    action: 'fetch', project: opts.project, recipient: opts.recipient, message_id: opts.messageId,
-}));
+    .action((opts) => {
+    requireOneOf(opts.targetKind, ['principal', 'session'], '--target-kind');
+    return runCliMessage({
+        action: 'fetch', project: opts.project, recipient: opts.recipient,
+        target_kind: opts.targetKind, message_id: opts.messageId,
+    });
+});
 messageCmd
     .command('intake')
     .description('Record fetched/ingested state without implying ACK')

@@ -110,7 +110,7 @@ and diagnostics, not as a requirement for active host delivery.
 - MCP, HTTP, and CLI use the same message lifecycle and SQLite system of record.
 - `send` creates one canonical message, recipient delivery, and payload-free notification event under an idempotency key.
 - `poll` and `memesh message watch` return only events for the exact project and recipient. The opaque cursor can be persisted and reused after a timeout, dropped hint, duplicate delivery, or process restart.
-- `fetch` returns the payload only to the named recipient in the named project. Polling and fetching do not acknowledge the message.
+- `fetch` returns the payload only to the named recipient and matching `target_kind` in the named project. Exact-session messages require `target_kind=session`; polling and fetching do not acknowledge the message.
 - `intake`, `ack`, `disposition`, and `activation` are explicit, separate, idempotent receipt facts. For example, `manual_resume_required` does not imply ACK, acceptance, rejection, cancellation, or completion.
 - The transport, rather than model-provided payload data, records sender-host provenance.
 
@@ -181,7 +181,7 @@ There is deliberately no default quota or automatic retention policy.
 
 1. A sender calls `message` with `action: "send"`, a stable sender, one recipient, a project, an idempotency key, and a payload.
 2. The router pushes the full authorized envelope to an eligible registered host-native adapter. An explicit `poll`/`watch` client may instead read privacy-minimized events for compatibility or diagnosis.
-3. A host-native adapter receives the full envelope; a poll client must call `fetch` with the logical recipient ID to read the payload.
+3. A host-native adapter receives the full envelope; a poll client must call `fetch` with the recipient ID and the message's matching principal/session target kind to read the payload.
 4. The receiver records only the facts that actually happened:
    - `intake`: payload fetched or durably ingested;
    - `ack`: explicit recipient acknowledgement;

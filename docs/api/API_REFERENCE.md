@@ -636,7 +636,7 @@ The `action` field is one of:
 |--------|-----------------|---------|
 | `send` | `project`, `sender`, `recipient`, `idempotency_key`, `payload` | Transactionally create one canonical message, one recipient delivery, and one notification event. Exact retries return the same IDs; a conflicting retry is rejected. |
 | `poll` | `project`, `recipient` | Read a bounded batch after an optional opaque `cursor`. `wait_ms` is 0–30000 and `limit` is 1–100. Events contain routing metadata, never the payload. |
-| `fetch` | `project`, `recipient`, `message_id` | Return the payload routed to that logical recipient ID. Fetch is a read and does not imply intake or ACK. |
+| `fetch` | `project`, `recipient`, `message_id` | Return the payload routed to that principal or exact session. Optional `target_kind` defaults to `principal`; exact-session fetches must pass `session`. Fetch is a read and does not imply intake or ACK. |
 | `intake` | receipt base plus `intake_state` | Record `fetched` or `ingested` without implying ACK. |
 | `ack` | receipt base | Record explicit recipient acknowledgement. |
 | `disposition` | receipt base plus `disposition` | Record `accepted`, `rejected`, `completed`, `cancelled`, or `deferred`. |
@@ -1278,7 +1278,7 @@ printf '%s' '{"kind":"handoff","text":"review ready"}' | memesh message send \
   --content-type application/json --payload-stdin
 ```
 
-`--target-kind` accepts `principal` (the default) or `session` and maps directly to the public `target_kind` send field.
+`--target-kind` accepts `principal` (the default) or `session` on both `send` and `fetch`. An exact-session payload must be fetched with the same target kind and is never exposed through a principal fetch.
 
 ### memesh remember — stating a relation
 

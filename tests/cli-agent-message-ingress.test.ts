@@ -64,6 +64,32 @@ describe('CLI durable-message ingress', () => {
         recipient: 'session-instance-9',
         target_kind: 'session',
       });
+      const messageId = (JSON.parse(result.stdout) as { message_id: string }).message_id;
+
+      const fetched = spawnSync(process.execPath, cliArgs(
+        'message', 'fetch', '--project', 'test', '--recipient', 'session-instance-9',
+        '--target-kind', 'session', '--message-id', messageId,
+      ), {
+        encoding: 'utf8',
+        env: { ...process.env, HOME: home, MEMESH_AUTO_CAPTURE: 'false' },
+      });
+      expect(fetched.status, fetched.stderr).toBe(0);
+      expect(JSON.parse(fetched.stdout)).toMatchObject({
+        message_id: messageId,
+        recipient: 'session-instance-9',
+        target_kind: 'session',
+        payload: 'exact session only',
+      });
+
+      const wrongKind = spawnSync(process.execPath, cliArgs(
+        'message', 'fetch', '--project', 'test', '--recipient', 'session-instance-9',
+        '--target-kind', 'principal', '--message-id', messageId,
+      ), {
+        encoding: 'utf8',
+        env: { ...process.env, HOME: home, MEMESH_AUTO_CAPTURE: 'false' },
+      });
+      expect(wrongKind.status).not.toBe(0);
+      expect(wrongKind.stderr).toContain('not available');
     } finally {
       fs.rmSync(home, { recursive: true, force: true });
     }
