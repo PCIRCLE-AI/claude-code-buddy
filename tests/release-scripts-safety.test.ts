@@ -208,8 +208,12 @@ describe('Feature: release scripts never edit the real ~/.memesh', () => {
     expect(smoke).toContain("installedBin('memesh-router')");
     expect(smoke).toContain("'dist', 'host-runtime', 'router-client.js'");
     expect(smoke).toContain("'message', 'send'");
+    expect(smoke).toContain("'message', 'fetch'");
+    expect(smoke).toContain("'message', 'receipts'");
     expect(smoke).toContain("'--payload-stdin'");
+    expect(smoke).toContain("adapter_kind: 'codex-cli-queue'");
     expect(smoke).toContain('agent_host_accepts');
+    expect(smoke).toContain('no implicit ACK/disposition');
     expect(smoke).toContain('stopped-or-missing-host');
     expect(smoke).toContain('without poll/watch');
     expect(smoke).toContain('consumerInstallTimeoutMs');
