@@ -1,5 +1,5 @@
 import type { MemeshDatabase } from '../storage/sqlite.js';
-import { type AgentJsonObject, type AgentMessagePayload, type AgentMessagePostCommitNotifier } from './agent-messaging.js';
+import { type AgentJsonObject, type AgentMessagePayload, type AgentMessagePostCommitNotifier, type AgentTargetKind } from './agent-messaging.js';
 export declare const AGENT_ROUTER_PROTOCOL_VERSION = 1;
 export declare const AGENT_ROUTER_MAX_FRAME_BYTES: number;
 export declare const AGENT_ROUTER_MAX_HOPS = 4;
@@ -22,6 +22,23 @@ export interface AgentHostDispatchInput {
     untrusted_payload: true;
     envelope: AgentMessagePayload;
 }
+export interface AgentHostMetadataDispatchInput {
+    dispatch_id: string;
+    attempt_id: string;
+    project: string;
+    principal_id: string;
+    session_instance_id: string;
+    connection_id: string;
+    generation: number;
+    hops: number;
+    routing: {
+        project: string;
+        recipient: string;
+        target_kind: AgentTargetKind;
+        message_id: string;
+        delivery_id: string;
+    };
+}
 export interface AgentHostDispatchResult {
     accepted: boolean;
     receipt?: AgentJsonObject;
@@ -30,6 +47,7 @@ export interface AgentHostAdapter {
     readonly kind: string;
     authenticate(registration: AgentHostRegistration): boolean | Promise<boolean>;
     dispatch?(input: AgentHostDispatchInput): AgentHostDispatchResult | Promise<AgentHostDispatchResult>;
+    dispatch_metadata_only?(input: AgentHostMetadataDispatchInput): AgentHostDispatchResult | Promise<AgentHostDispatchResult>;
 }
 export interface AgentRouterLimits {
     max_frame_bytes?: number;

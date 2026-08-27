@@ -216,6 +216,39 @@ describe('CLI durable-message ingress', () => {
     }
   });
 
+  it('requires explicit owner-private opt-in before attaching an ordinary Codex workspace', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-cli-agent-'));
+    try {
+      const setup = spawnSync(process.execPath, cliArgs(
+        'agent', 'setup', 'codex-session', '--project', 'test', '--principal', 'reviewer',
+        '--workspace', home, '--json',
+      ), {
+        encoding: 'utf8',
+        env: { ...process.env, HOME: home, MEMESH_AUTO_CAPTURE: 'false' },
+      });
+      expect(setup.status, setup.stderr).toBe(0);
+      const result = JSON.parse(setup.stdout) as Record<string, unknown>;
+      expect(result).toMatchObject({
+        mode: 'ordinary-session-native-queue',
+        session_identity: 'codex-thread-id-at-session-start',
+        ordinary_sessions: 'explicit-workspace-opt-in',
+        launch_command: null,
+        next_command: 'Restart Codex in the configured workspace',
+      });
+      const configPath = String(result.config_path);
+      expect(configPath).toMatch(/hosts\/codex-session\.json$/);
+      expect(fs.statSync(configPath).mode & 0o077).toBe(0);
+      expect(JSON.parse(fs.readFileSync(configPath, 'utf8'))).toMatchObject({
+        project: 'test', principal_id: 'reviewer', workspace: fs.realpathSync(home),
+      });
+      const tokenPath = path.join(home, '.memesh', 'agent-router.token');
+      expect(fs.readFileSync(tokenPath, 'utf8').trim()).toMatch(/^[0-9a-f]{64}$/);
+      expect(fs.statSync(tokenPath).mode & 0o077).toBe(0);
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   it('prints both Claude one-time registration and the required development-channel launch', () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-cli-agent-'));
     try {

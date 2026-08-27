@@ -67,7 +67,10 @@ After installation, run `memesh doctor`. To probe the **installed** message MCP 
 MEMESH_DOCTOR_PROBE_MESSAGE_CAPABILITY=1 memesh doctor
 ```
 
-This probe does not dogfood a real host session and never wakes a stopped session. An active supported host can receive native delivery without polling; other or stopped sessions use the durable cursor-recovery path.
+This probe does not exercise a real host session and never wakes a stopped
+session. The ordinary Codex path below is the documented native local wakeup
+path; `poll`/`watch` and cursor recovery remain available for compatibility and
+diagnosis.
 
 Message storage remains owner-controlled. There is no default quota or
 automatic pruning. To inspect it after installation:
@@ -83,20 +86,22 @@ lifecycle audit facts are preserved. Set an explicit hard quota for all send
 transports with `MEMESH_AGENT_MESSAGE_STORAGE_QUOTA_BYTES=<bytes>`; an
 over-quota send is rejected atomically.
 
-### Optional: one-time Local managed-host setup
+### Optional: one-time local host setup
 
 This is separate from MCP setup. It is for the owner of an active local Codex
-app-server or Claude channel. Keep all files private to that Unix account; do
-not commit the token or config files.
+session, a MeMesh-managed Codex app-server, or a Claude channel. Keep all
+files private to that Unix account; do not commit the token or config files.
 
-Start the installed router once and leave it running:
+Each configured host connection starts the packaged router and retries its
+connection when the owner-private socket is absent or refused. Start the router
+yourself only when you want to inspect the socket directly:
 
 ```bash
 umask 077
 memesh-router
 ```
 
-It creates `agent-router.sock` and `agent-router.token` beside the active
+If you start it yourself, it creates `agent-router.sock` and `agent-router.token` beside the active
 MeMesh database (normally `~/.memesh/`) with owner-private permissions. Check
 the installed adapter imports and the live socket as distinct facts:
 
@@ -106,9 +111,34 @@ MEMESH_DOCTOR_PROBE_MESSAGE_ROUTER=1 memesh doctor
 ```
 
 The router probe does not register a host, send content, or wake a stopped
-session. Generate reusable `0600` configs; session identities and Codex thread
-IDs are created by each managed process rather than copied from an active
-ordinary session.
+session. Generate reusable `0600` configs; session identities are not copied
+from an active ordinary session.
+
+For an ordinary active local Codex session, first install and enable the MeMesh
+Codex plugin (Option A), which supplies the packaged SessionStart hook. Then
+run this from the exact workspace you want to configure and restart Codex in
+that same workspace:
+
+```bash
+memesh agent setup codex-session --project my-project --principal codex-recipient --workspace "$PWD"
+```
+
+This stores the configured workspace realpath and principal in
+`~/.memesh/hosts/codex-session.json`. On `SessionStart` (`startup` or
+`resume`), an asynchronous companion registers only when its Codex thread ID,
+hook session ID, and workspace realpath match that config. It receives no
+message payload. Instead, an active registered session receives a
+metadata-only `memesh_message_available` queue marker with routing identifiers,
+then uses the scoped `message` `fetch` operation to read the durable payload.
+
+`host_accept` records only that the local Codex queue accepted that marker. It
+does not prove an agent read the payload, acknowledged it, or accepted the
+work. If the session is stopped, missing, disconnected, or in another
+workspace, MeMesh neither starts nor replaces it; the durable inbox remains
+available to scoped fetch, cursor recovery, `poll`, and `memesh message watch`
+for audit and diagnosis.
+
+The following are separate managed-host paths:
 
 ```bash
 memesh agent setup codex --project my-project --principal codex-recipient --workspace "$PWD"
@@ -120,13 +150,13 @@ memesh agent setup claude --project my-project --principal claude-recipient
 claude --dangerously-load-development-channels server:memesh-channel
 ```
 
-The Codex runner owns its app-server and thread; Claude owns its Channel MCP
-child. Neither attaches to, resumes, or replaces an ordinary stopped host.
-When no active registration exists, the message remains durable with no false
-dispatch or host acceptance. A generic ACP adapter remains experimental and
-is not an advertised provider integration. The package includes the
-`memesh-host-acp` experimental binary for protocol development, but this guide
-does not provide a provider setup command or support claim for it.
+The managed Codex runner owns its app-server and thread; Claude owns its
+Channel MCP child. Neither is the ordinary Codex-session path, and neither
+attaches to, resumes, or replaces an ordinary stopped host. When no active
+registration exists, the message remains durable with no false dispatch or
+host acceptance. The package also contains the experimental
+`memesh-host-acp` binary for protocol development, but no ACP provider is a
+documented native-wakeup integration here.
 
 Expected: exits without error; `memesh`, `memesh-mcp` and `memesh-http` are
 now in `$(npm prefix -g)/bin/`. No compiler is involved and no install script
@@ -180,31 +210,7 @@ Expected: `memesh` is listed as enabled.
 | `memesh` absent from the list | The add did not persist. Re-run `codex mcp add memesh -- memesh-mcp` and re-check. |
 | Listed, but tool calls fail | Run `command -v memesh-mcp`. Empty output means section 2 is incomplete or PATH is wrong — fix per section 2's table. |
 
-## 4. Gemini CLI
-
-Prerequisite: section 2 — `memesh-mcp` must resolve on PATH.
-
-```
-gemini mcp add -s user memesh memesh-mcp
-```
-
-`-s user` registers at user scope, so it works from every folder.
-
-**Verify**:
-
-```
-gemini mcp list
-```
-
-Expected: `memesh` shows **Connected**.
-
-| Failure | Remedy |
-|---|---|
-| `command not found: gemini` | Gemini CLI itself is not installed — out of scope here; install it first, then re-run the add. |
-| Shows Disconnected | Run `command -v memesh-mcp`. Empty output means section 2 is incomplete or PATH is wrong — fix per section 2's table, then re-run `gemini mcp list`. |
-| `memesh` absent from the list | The add was made in a different scope or did not persist. Re-run `gemini mcp add -s user memesh memesh-mcp`. |
-
-## 5. Cursor
+## 4. Cursor
 
 Prerequisite: section 2 — `memesh-mcp` must resolve on PATH.
 

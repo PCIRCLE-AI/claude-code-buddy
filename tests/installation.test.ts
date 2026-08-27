@@ -188,6 +188,7 @@ describe('Installation Verification', () => {
         'memesh-router',
         'memesh-host-claude',
         'memesh-host-codex',
+        'memesh-host-codex-session',
         'memesh-host-acp',
       ].sort());
     });

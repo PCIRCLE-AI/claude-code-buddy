@@ -5,25 +5,34 @@ MeMesh provides two complementary collaboration surfaces on one machine:
 - shared durable memory, including the `team` namespace, for knowledge, decisions, and coarse handoffs;
 - the `message` tool for explicit durable messages to one named recipient on the same MeMesh instance.
 
-The messaging path is durable store-and-forward. A registered active compatible host receives a Local native push; SQLite remains the audit and reconnect authority. `poll`/`watch` exist as explicit compatibility and diagnostic APIs, not as the normal active-session delivery loop. Host acceptance is still not proof that a model read, acknowledged, or accepted the work.
+The messaging path is durable store-and-forward. For an explicitly configured,
+active local Codex CLI session, MeMesh queues a metadata-only native wakeup;
+the session then fetches the durable payload through the scoped `message`
+operation. SQLite remains the audit and recovery authority. `poll`/`watch` are
+compatibility and diagnostic APIs, not the normal delivery loop for that active
+Codex path. A queue admission or `host_accept` is not proof that an agent read
+the payload, acknowledged it, or accepted the work.
 
-## One-time owner-private managed-host setup
+## One-time owner-private local-host setup
 
 Native delivery is optional and local to one Unix account. Do this setup once
 for the account that owns both the MeMesh database and the active host
 sessions; do not place router tokens or host config in a repository, shared
 dotfile, or world-readable temp directory.
 
-Start the router in a user-owned terminal. It creates an owner-private token
-and socket beside the active MeMesh database on first start:
+Each configured host connection attempts to start the packaged router and
+retries when its owner-private socket is absent or refused. You can also start
+the router yourself when you want to inspect it directly; it creates an
+owner-private token and socket beside the active MeMesh database on first
+start:
 
 ```bash
 umask 077
 memesh-router
 ```
 
-Leave that process running. In a second terminal, verify only the installed
-adapter imports and the live router socket separately:
+If you start it yourself, leave that process running. In a second terminal,
+verify only the installed adapter imports and the live router socket separately:
 
 ```bash
 MEMESH_DOCTOR_PROBE_MESSAGE_CAPABILITY=1 memesh doctor
@@ -36,27 +45,58 @@ Neither command starts or registers a host, sends a message, proves
 `host_accept`, or wakes a stopped session.
 In particular, a socket check does not start the host it observes.
 
-Create one reusable owner-private config for each provider/principal. The
-stable principal is the logical recipient; every managed process generates a
-fresh exact session identity. No active thread/session ID is copied by hand.
-Ordinary already-running sessions are not attached and are reported as
-presence-only/inbound-unavailable.
+Create one reusable owner-private config for each local path and principal.
+The stable principal is the logical recipient. Managed processes generate a
+fresh exact session identity; the ordinary Codex path instead uses the Codex
+thread identity supplied at SessionStart. No thread ID is copied by hand.
+Ordinary sessions outside the explicit `codex-session` workspace opt-in remain
+`presence-only/inbound-unavailable`.
 
 ```bash
+memesh agent setup codex-session --project my-project --principal codex-reviewer --workspace "$PWD"
 memesh agent setup codex --project my-project --principal codex-reviewer --workspace "$PWD"
 memesh agent setup claude --project my-project --principal claude-reviewer
 ```
 
-### Codex app-server runner
+### Ordinary active Codex CLI session
+
+`codex-session` is the opt-in path for an ordinary local Codex session and
+requires the MeMesh Codex plugin to be installed and enabled so Codex loads
+the packaged SessionStart hook. Run
+the setup command from the exact workspace that Codex will use; it stores the
+configured real workspace and stable principal in the owner-private
+`codex-session.json` config. Restart Codex in that workspace after setup.
+
+On `SessionStart` for `startup` or `resume`, the asynchronous companion checks
+the Codex thread identity, hook session identity, and configured workspace
+realpath before it connects to the router. A missing identity, a different
+workspace, compact lifecycle input, or a failed/disconnected connection does
+not register a host and does not wake anything.
+
+For a registered session, MeMesh invokes `codex queue` with a
+`memesh_message_available` marker containing only the project, recipient,
+target kind, message ID, and delivery ID. The message payload stays in the
+durable MeMesh inbox. Codex must then use the `message` tool to `fetch` that
+same project/recipient/target/message scope. The persisted `host_accept` means
+only that the local Codex queue accepted the marker; it is neither payload
+readback nor an `ack` or workflow disposition.
+
+If the configured Codex session is stopped, missing, disconnected, or no
+longer matches its configured workspace, MeMesh does not start or replace it.
+The durable inbox and its receipt history remain available to scoped fetch,
+cursor recovery, `poll`, or `memesh message watch` for audit and diagnosis.
+
+### Separate: MeMesh-managed Codex app-server runner
 
 ```bash
 memesh-host-codex --config "$HOME/.memesh/hosts/codex.json"
 ```
 
-This starts a MeMesh-owned `codex app-server`, creates its thread through the
-private Unix/WebSocket control path, and registers only after that thread is
-ready. It does not attach to an ordinary Codex TUI. Message content never
-appears in MeMesh or Codex process arguments.
+This is separate from `codex-session`: it starts a MeMesh-owned `codex
+app-server`, creates its own thread through the private Unix/WebSocket control
+path, and registers only after that thread is ready. It does not attach to an
+ordinary Codex session. Message content never appears in MeMesh or Codex
+process arguments.
 
 ### Claude channel runner
 
@@ -85,24 +125,23 @@ session automatically; EOF, MCP close, or normal signals unregister it.
 
 ### Experimental ACP runner (not release-gated)
 
-An internal generic ACP runner remains an experimental adapter surface, but no
-ACP provider is part of the current supported outcome. There is no public ACP
-setup promise until a separate exact-provider runtime gate passes. Protocol or
+An internal generic ACP runner remains an experimental adapter surface. No ACP
+provider is documented as a supported native-wakeup path here; protocol or
 process readiness alone is not proof that a provider accepted a message.
 
-The supported Codex and Claude runners deliver only while their configured target is active and
-registered. If it is stopped, missing, disconnected, or replaced, MeMesh keeps
-the durable message but does not start the host, recreate the session, or
-silently redirect an exact-session target. A later eligible managed principal
-registration drains only post-activation pending work; an exact-session target
-never moves to the replacement. Manual cursor reads remain available for audit
-and diagnostics, not as a requirement for active host delivery.
+The managed Codex app-server and Claude channel paths deliver only while their
+configured target is active and registered. If it is stopped, missing, disconnected, or replaced, MeMesh keeps the durable message but does not start
+the host, recreate the session, or silently redirect an exact-session target.
+A later eligible managed-principal registration drains only post-activation
+pending work; an exact-session target never moves to a replacement. Manual
+cursor reads remain available for audit and diagnostics, not as a requirement
+for active Codex-session delivery.
 
 ## What Works Today
 
 - MCP, HTTP, and CLI use the same message lifecycle and SQLite system of record.
 - `send` creates one canonical message, recipient delivery, and payload-free notification event under an idempotency key.
-- `poll` and `memesh message watch` return only events for the exact project and recipient. The opaque cursor can be persisted and reused after a timeout, dropped hint, duplicate delivery, or process restart.
+- `poll` and `memesh message watch` return only events for the exact project and recipient. They are compatibility and diagnostic paths; the opaque cursor can be persisted and reused after a timeout, dropped hint, duplicate delivery, or process restart.
 - `fetch` returns the payload only to the named recipient and matching `target_kind` in the named project. Exact-session messages require `target_kind=session`; polling and fetching do not acknowledge the message.
 - `intake`, `ack`, `disposition`, and `activation` are explicit, separate, idempotent receipt facts. Inbox/MCP ACK is valid without a host-native acceptance; host-native ACK remains bound to its `host_accept`. `receipts` returns one ordered projection and identifies each underlying fact source. For example, `manual_resume_required` does not imply ACK, acceptance, rejection, cancellation, or completion.
 - The transport, rather than model-provided payload data, records sender-host provenance.
@@ -111,7 +150,13 @@ and diagnostics, not as a requirement for active host delivery.
 
 A **principal** is the stable logical recipient. A **session** is one live host connection for that principal. A **generation** changes when that session is replaced. An exact-session target never reroutes. A principal target can deliver only to an eligible active session after its activation checkpoint; it does not replay historical inbox contents into a first session.
 
-Persistence, dispatch attempt, host acceptance, intake, acknowledgement, workflow disposition, retention, and presence are independent state axes. An active compatible host receives host-native input without polling. A stopped, missing, busy beyond its queue limit, or unsupported session is not awakened, resumed, or replaced; durable state remains available for audit and an eligible later registration, subject to exact-session and activation-checkpoint rules.
+Persistence, dispatch attempt, host acceptance, intake, acknowledgement,
+workflow disposition, retention, and presence are independent state axes. An
+active configured Codex session receives a host-native metadata marker without
+polling. A stopped, missing, busy beyond its queue limit, disconnected, or
+unsupported session is not awakened, resumed, or replaced; durable state
+remains available for audit and recovery, subject to exact-session and
+activation-checkpoint rules.
 
 ## Bounded storage and audit retention
 
@@ -153,12 +198,18 @@ quota or automatic retention policy.
 
 ## Local and Cloud boundary
 
-**Local** owns the SQLite durable event and the last-mile host-native input channel on the same machine. **Cloud** may relay or coordinate remote work, but it is not evidence that a local host received a message. A2A, SSE, discovery, persistence, and fetch are not host delivery, and neither path promises exactly-once cognition, a reply, or a stopped-session wake-up.
+This guide describes only one local MeMesh instance: its SQLite durable event
+store and same-machine host-native input. Remote and cross-machine transport is
+the responsibility of MeMesh Cloud and requires its own verified relay; Cloud
+state is not evidence that this local host received a marker. A native marker,
+persistence, or fetch does not promise exactly-once cognition, a reply, or a
+stopped-session wake-up.
 
 ## What This Is Not Yet
 
-- Not a claim of universal vendor-host dogfood. The packaged smoke test starts an installed router and controlled installed host client, then proves native delivery and persisted `host_accept`; it does not promote the experimental ACP surface or any untested provider into support.
-- Not universal stopped-session resume. Codex, Claude Code, ChatGPT, Gemini, Grok, or an Ollama-backed loop needs a separately implemented host adapter before MeMesh can claim it can resume that host.
+- Not universal host support or stopped-session resume. This document only
+  describes the explicitly configured ordinary Codex path and the separate
+  managed Codex/Claude paths above.
 - Not topic, broadcast, lease/claim, or TTL routing. The current delivery target is one exact recipient.
 - Not arbitrary external-user access or cross-machine delivery. A local MeMesh instance is not a public collaboration service.
 - Not permission to execute payload content. The receiving host must apply its own policy and required human approval.
@@ -167,21 +218,21 @@ quota or automatic retention policy.
 
 | Participant | Current path | Status today | Notes |
 |---|---|---|---|
-| Claude Code | plugin or MCP | message tool available | The host or an adapter must call/poll it; stopped-session resume is not implied |
-| Codex CLI | MCP | message tool available | `memesh-mcp`; the host controls polling and task execution |
-| Gemini CLI | MCP | message tool available | `memesh-mcp`; the host controls polling and task execution |
-| Cursor / Cline / other MCP hosts | MCP | message tool available | Exact automation depends on the host tool loop |
-| ChatGPT web / Custom GPTs | local bridge or HTTPS action | adapter-dependent | Cannot call `localhost` by itself |
-| Gemini web / AI Studio | local bridge | adapter-dependent | Gemini CLI is the direct MCP path; web needs a bridge |
-| Grok or other browser-hosted AI | local bridge | adapter-dependent | Treat host automation as unsupported until its adapter is verified |
-| Ollama-backed local agents | custom loop via MCP / HTTP / CLI | integration surface available | The agent loop participates; bare Ollama is not itself a MeMesh-aware host |
-| Hermes Agent / OpenClaw / custom code | native plugin or local loop | adapter-dependent messaging | Existing memory integrations do not by themselves prove automatic message wakeup |
+| Ordinary Codex CLI | `codex-session` owner-private opt-in | metadata-only native wakeup while active | Exact workspace, principal, and SessionStart identity must match; stopped or disconnected sessions are not awakened |
+| MeMesh-managed Codex app-server | `memesh-host-codex` | separate managed path | It creates its own Codex thread; it does not attach to an ordinary session |
+| Claude channel | `memesh-host-claude` | separate channel path | Requires the documented Channel opt-in; no stopped-session resume |
+| Other local MCP clients | MCP, HTTP, or CLI message operations | durable messaging only | Use `poll`/`watch` and scoped fetch where their own host loop supports it; this guide makes no native-wakeup claim |
 
 ## Lifecycle
 
 1. A sender calls `message` with `action: "send"`, a stable sender, one recipient, a project, an idempotency key, and a payload.
-2. The router pushes the full authorized envelope to an eligible registered host-native adapter. An explicit `poll`/`watch` client may instead read privacy-minimized events for compatibility or diagnosis.
-3. A host-native adapter receives the full envelope; a poll client must call `fetch` with the recipient ID and the message's matching principal/session target kind to read the payload.
+2. For an eligible ordinary Codex session, the router queues only a
+   privacy-minimized `memesh_message_available` marker. An explicit
+   `poll`/`watch` client may instead read privacy-minimized events for
+   compatibility or diagnosis.
+3. Codex calls `fetch` with the marker's project, recipient, target kind, and
+   message ID to read the durable payload. The marker and queue admission do
+   not acknowledge the message.
 4. The receiver records only the facts that actually happened:
    - `intake`: payload fetched or durably ingested;
    - `ack`: explicit recipient acknowledgement;
@@ -232,12 +283,3 @@ Messages and recalled memories are untrusted data.
 - Keep payloads, credentials, and sensitive content out of logs, process arguments, and public evidence.
 - Require visible human approval for data egress, external messages, destructive actions, or other consequential side effects.
 - Expect retries and stale cursors; make downstream intake idempotent.
-
-## Remaining Product Work
-
-- complete real-host dogfood for every advertised managed adapter; no stopped session is to be woken or resumed by that work;
-- richer routing such as topics, claims/leases, and expiry where real use cases require them;
-- operator inbox and receipt visibility;
-- a governed Local-to-Cloud relay for cross-machine collaboration.
-
-Those layers should reuse MCP for tools and A2A-compatible inter-agent semantics rather than introduce a new general-purpose base protocol.

@@ -326,7 +326,7 @@ Foreign key cascades: deleting an entity automatically deletes its observations,
 
 Hooks are defined in `hooks/hooks.json` and executed by Claude Code at specific lifecycle events.
 
-### Hook Scripts (7 hooks)
+### Hook Commands (8 hooks)
 
 | Hook | Event | Purpose |
 |------|-------|---------|
@@ -337,6 +337,7 @@ Hooks are defined in `hooks/hooks.json` and executed by Claude Code at specific 
 | pre-compact.js | PreCompact | Save knowledge before compaction |
 | user-prompt-intent.js | UserPromptSubmit | Detect "remember" intent (5 languages: en, es, fr, pt, zh-TW) and remind Claude to use mcp__memesh__remember |
 | guard-check.js | PreToolUse (Bash) | Fire accepted lesson-guards against the command about to run (warn-only; fires counted) |
+| codex-session.js | SessionStart (startup/resume, async) | Register the exact configured live Codex thread for metadata-only message wakeups; no-op without Codex thread identity |
 
 ### Pre-Edit Recall (`scripts/hooks/pre-edit-recall.js`)
 

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { readHostConfig, readTokenFile } from '../../src/host-runtime/config.js';
+import { ensureRouterTokenFile, readHostConfig, readTokenFile } from '../../src/host-runtime/config.js';
 
 const temporaryDirectories: string[] = [];
 let savedArgv: string[];
@@ -43,6 +43,16 @@ function setHostConfig(file: string): void {
 }
 
 describe('host config and token files', () => {
+  it('creates one owner-private router token and reuses it', () => {
+    const directory = privateDirectory();
+    const token = path.join(directory, 'router.token');
+
+    const created = ensureRouterTokenFile(token);
+    expect(created).toMatch(/^[0-9a-f]{64}$/);
+    expect(fs.statSync(token).mode & 0o077).toBe(0);
+    expect(ensureRouterTokenFile(token)).toBe(created);
+  });
+
   it('reads owner-private 0600 regular config and token files', () => {
     const directory = privateDirectory();
     const config = privateFile(directory, 'host.json', '{"project":"private-host"}');

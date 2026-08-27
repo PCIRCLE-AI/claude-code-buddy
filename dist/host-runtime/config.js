@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 const MAX_HOST_CONFIG_FILE_BYTES = 64 * 1024;
 const MAX_ROUTER_TOKEN_FILE_BYTES = 8 * 1024;
@@ -6,6 +7,9 @@ export function readHostConfig() {
     const configuredPath = flag >= 0 ? process.argv[flag + 1] : process.env.MEMESH_HOST_CONFIG;
     if (!configuredPath)
         throw new Error('A host config file is required via --config or MEMESH_HOST_CONFIG.');
+    return readHostConfigFile(configuredPath);
+}
+export function readHostConfigFile(configuredPath) {
     const value = JSON.parse(readOwnerPrivateFile(configuredPath, 'host config', MAX_HOST_CONFIG_FILE_BYTES));
     if (!isRecord(value))
         throw new Error('The host config must contain one JSON object.');
@@ -14,6 +18,16 @@ export function readHostConfig() {
 export function readTokenFile(tokenFile) {
     const file = requiredString(tokenFile, 'token_file');
     return requiredString(readOwnerPrivateFile(file, 'router token file', MAX_ROUTER_TOKEN_FILE_BYTES).trim(), 'router token');
+}
+export function ensureRouterTokenFile(tokenFile) {
+    try {
+        fs.writeFileSync(tokenFile, `${randomBytes(32).toString('hex')}\n`, { mode: 0o600, flag: 'wx' });
+    }
+    catch (error) {
+        if (error.code !== 'EEXIST')
+            throw error;
+    }
+    return readTokenFile(tokenFile);
 }
 export function requiredString(value, field) {
     if (typeof value !== 'string' || value.length === 0 || Buffer.byteLength(value) > 4096) {

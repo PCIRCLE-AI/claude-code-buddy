@@ -16,7 +16,7 @@
 
 ---
 
-**MeMesh** ist die **Open-Source-Kollaborationsschicht** für lokale KI-Coding-Agenten: gemeinsamer Speicher, dauerhafte Nachrichten an einen bestimmten Empfänger und kontrollierte Memory-to-Product-Vorschläge für Claude Code, Codex, Gemini, Cursor, eigene oder Ollama-basierte Agenten und andere MCP-Clients. Alles liegt in einer SQLite-Datei. Kein Docker und keine Cloud erforderlich.
+**MeMesh** ist die **Open-Source-Kollaborationsschicht** für lokale KI-Coding-Agenten: gemeinsamer Speicher, dauerhafte Nachrichten an einen bestimmten Empfänger und kontrollierte Memory-to-Product-Vorschläge für Claude Code, Codex, Cursor, eigene oder Ollama-basierte Agenten und kompatible lokale MCP-Clients. Alles liegt in einer SQLite-Datei. Kein Docker und keine Cloud erforderlich.
 
 ### Neue Kollaborationsflächen
 
@@ -34,7 +34,7 @@
 
 Claude Code neu starten. Eine `◉ MeMesh`-Statuszeile am Anfang der nächsten Session bedeutet: es zeichnet auf.
 
-**Im Terminal** — die `memesh`-CLI, das Dashboard und der `memesh-mcp`-Server für Codex / Gemini / Cursor (braucht [Node 22.13+](https://nodejs.org)):
+**Im Terminal** — die `memesh`-CLI, das Dashboard und der `memesh-mcp`-Server für Codex / Cursor und kompatible lokale MCP-Clients (braucht [Node 22.13+](https://nodejs.org)):
 
 ```bash
 npm install -g @pcircle/memesh
@@ -71,10 +71,13 @@ Installation über npm, gespeichert wird in `~/.memesh/knowledge-graph.db`, ange
 
 Alle Hosts, die mit derselben lokalen MeMesh-Instanz verbunden sind, teilen dauerhaften Speicher. Das `message`-Tool ergänzt einen expliziten Nachrichtenpfad über MCP, HTTP und CLI.
 
-- Heute verfügbar: Ein Sender kann eine Nachricht dauerhaft an genau einen lokalen Empfänger senden. Der Empfänger kann pollen oder `memesh message watch` verwenden, den Payload getrennt abrufen, nach einem Neustart mit einem opaken Cursor fortsetzen und Intake, Bestätigung, Workflow-Status und Host-Aktivierung getrennt protokollieren.
-- Weiterhin lokal und Pull-basiert: Der empfangende Host muss die Poll-/Watch-Schleife ausführen oder neu starten. Ein Wakeup-Event startet keine beendete Modell-Session, führt keinen Payload aus und gilt nicht als Bestätigung.
+- Heute verfügbar: Ein Sender kann eine Nachricht dauerhaft an genau einen lokalen Empfänger senden. Der Empfänger kann den Payload getrennt abrufen, nach einem Neustart mit einem opaken Cursor fortsetzen und Intake, Bestätigung, Workflow-Status und Host-Aktivierung getrennt protokollieren.
+- Mit aktiviertem MeMesh-Codex-Plugin und dem owner-private Opt-in `memesh agent setup codex-session` erhält eine aktive Codex-Session im exakt konfigurierten lokalen Workspace ohne Polling oder menschliche Erinnerung einen nativen `memesh_message_available`-Wakeup. Der Marker enthält nur Routing-Metadaten; Codex ruft danach den dauerhaften Payload mit dem passend eingegrenzten `message`-Tool ab.
+- Eine erfolgreiche Queue-Annahme (`host_accept`) bedeutet nur, dass die lokale Codex-Queue den Marker annahm. Sie beweist nicht, dass ein Agent den Payload gelesen, bestätigt oder die Arbeit akzeptiert hat.
+- Der dauerhafte Nachrichtenspeicher wird durch eine Owner-Richtlinie begrenzt, nicht still gelöscht: `memesh message storage report` zeigt logische Payload-Größe, geschützte Zeilen, wiederverwendbare SQLite-Seiten und WAL-Größe. Das begrenzte Pruning ist standardmäßig ein Dry Run und tombstoniert nur alte terminale Payloads.
+- Eine gestoppte, fehlende oder getrennte Codex-Session wird weder geweckt noch ersetzt. Ihr dauerhafter Posteingang bleibt für Audit und Wiederherstellung erhalten; `poll` und `memesh message watch` sind Kompatibilitäts- und Diagnosepfade. Native Zustellung setzt keine beendete Modell-Session fort, führt keinen Payload aus und gilt nicht als Bestätigung.
 - Kooperative Vertrauensgrenze: Der Empfängername ist eine logische Routing-ID, keine Anmeldung oder ACL pro Agent. Jeder Aufrufer mit Zugriff auf dieselbe lokale MeMesh-Instanz muss als vertrauenswürdiger Workspace-Teilnehmer gelten; Host-Adapter setzen weiterhin ihre eigenen Berechtigungen und menschlichen Freigaben durch.
-- Adapter-Grenze: Claude Code, Codex, Gemini CLI, Cursor sowie eigene oder Ollama-basierte Agenten können die von ihrem Host unterstützten lokalen Schnittstellen verwenden. Browser-Produkte wie ChatGPT, Gemini Web oder Grok benötigen weiterhin eine ausdrückliche Bridge zur lokalen Instanz.
+- Adapter-Grenze: Der hier beschriebene native Wakeup ist nur der konfigurierte lokale Codex-Session-Pfad. Andere lokale MCP-Loops können die dauerhaften Nachrichtenoperationen nutzen, die ihr eigener Host-Loop unterstützt; dies ist keine universelle Host-Support-Aussage.
 
 Der Leitfaden [Local Agent Messaging](docs/platforms/agent-messaging.md) beschreibt Lifecycle, Support-Matrix und Grenzen im Detail.
 
@@ -98,7 +101,7 @@ flowchart TB
     subgraph clients["Where you use memesh from"]
       direction LR
       CC["Claude Code<br/>(chat + agent)"]:::client
-      TERM["Terminal / other<br/>MCP clients<br/>(Codex, Gemini, Cursor...)"]:::client
+      TERM["Terminal / other<br/>MCP clients<br/>(Codex, Cursor...)"]:::client
     end
 
     subgraph paths["Two install paths"]
@@ -173,7 +176,7 @@ npm install -g @pcircle/memesh
 `npm install -g` legt die CLI in den PATH — aber nichts ist damit in Claude Code eingebunden: Das npm-Paket führt bewusst keine Install-Skripte aus; MCP-Server und Hooks in Claude Code registriert das Plugin (Option A). Was der npm-Pfad selbst verdrahten kann, sind die Session-Hooks. Ohne diese Hooks können Sie `memesh remember` / `recall` manuell verwenden, aber die **Auto-Capture-Schleife** (Session → Lektionen → proaktive Erinnerung in der nächsten Session) bleibt stumm.
 
 ```bash
-memesh setup                 # erkennt Claude Code / Codex / Gemini, bietet die Verdrahtung an, prüft danach
+memesh setup                 # prüft die lokale Host-Verdrahtung und meldet den Befund
 ```
 
 Oder die Einzelschritte von Hand:
@@ -185,7 +188,7 @@ memesh setup --check         # Prüfung auf Maschinenebene: liest die Host-Confi
 
 Die Hooks existieren neben Ihren bestehenden Custom-Hooks unter `~/.claude/hooks/` — `install-hooks` schreibt additiv und überschreibt nie Ihre Einträge. Zum Entfernen: `memesh uninstall-hooks`.
 
-### Dieselben Memories aus Codex CLI, Gemini CLI, Cursor und anderen MCP-Clients
+### Dieselben Memories aus Codex CLI, Cursor und anderen MCP-Clients
 
 `memesh-mcp` ist ein gewöhnlicher stdio-MCP-Server — jeder MCP-fähige Host kann ihn nutzen, nicht nur Claude Code. Mit installierter Option B (`memesh-mcp` im `PATH`) einmal pro Host registrieren:
 
@@ -193,8 +196,6 @@ Die Hooks existieren neben Ihren bestehenden Custom-Hooks unter `~/.claude/hooks
 # OpenAI Codex CLI — schreibt [mcp_servers.memesh] in ~/.codex/config.toml
 codex mcp add memesh -- memesh-mcp
 
-# Google Gemini CLI — User-Scope, funktioniert in jedem Ordner
-gemini mcp add -s user memesh memesh-mcp
 ```
 
 Für Cursor fügen Sie denselben stdio-Server in `~/.cursor/mcp.json` (global)
@@ -208,11 +209,10 @@ oder in `.cursor/mcp.json` (projektspezifisch) ein:
 }
 ```
 
-Jeder Host liest und schreibt dieselbe `~/.memesh/knowledge-graph.db` — eine in einem Agenten gespeicherte Memory ist aus Codex, Gemini, Cursor oder einem anderen MCP-Client abrufbar. Prüfen:
+Jeder konfigurierte lokale Host liest und schreibt dieselbe `~/.memesh/knowledge-graph.db` — eine in einem Agenten gespeicherte Memory ist aus Codex, Cursor oder einem anderen MCP-Client abrufbar. Prüfen:
 
 ```bash
 codex mcp list       # memesh sollte als enabled gelistet sein
-gemini mcp list      # memesh sollte "Connected" zeigen
 ```
 
 > **Als konfigurierten Befehl `memesh-mcp` verwenden, NICHT `npx -p @pcircle/memesh`.** `npx -p` löst zum *lokalen* Paket auf, sobald das Arbeitsverzeichnis des Hosts in einem Checkout dieses Repositories liegt — und führt dann stillschweigend dessen aktuellen Stand statt des installierten Release aus.
@@ -308,7 +308,7 @@ Denselben Block erhält Claude Code automatisch beim Session-Start, und jeder an
 |---------------|---------------------|
 | **Claude Code verwenden** | Projektentscheidungen, dateispezifische Erkenntnisse und vergangene Fehler während der Arbeit automatisch abrufen |
 | **Power-User von Coding-Agenten** | Eine lokale Speicherschicht über MCP-kompatible Tools verteilen |
-| **Codex, Gemini, Cursor, Claude Code oder einen anderen MCP-Client einzeln nutzt** | Eine lokale Speicherschicht über Agenten und Sessions hinweg verwenden |
+| **Codex, Cursor, Claude Code oder einen anderen MCP-Client einzeln nutzt** | Eine lokale Speicherschicht über Agenten und Sessions hinweg verwenden |
 | **einen Agenten integrieren** | Lokalen Speicher via MCP, HTTP oder CLI hinzufügen |
 
 ---
@@ -386,16 +386,18 @@ Reproduktionsbefehle, Datensatz-SHA256, rohe Ergebnisse pro Frage und Analyse be
 
 ## Was läuft in Claude Code automatisch ab
 
-Sie müssen nicht manuell alles speichern. MeMesh verfügt über **7 Hooks**, die Wissen während der Arbeit erfassen und injizieren:
+Sie müssen nicht manuell alles speichern. MeMesh verfügt über **8 Hooks**, die Wissen während der Arbeit erfassen und injizieren:
 
 | Wenn | Was MeMesh tut |
 |------|------------------|
 | **Am Anfang jeder Session** | Lädt Ihre relevantesten Memories + proaktive Warnungen aus früheren Lektionen + Agentur-Orchestrierungs-Banner |
 | **Vor Dateibearbeitungen** | Ruft Memories ab, die an die Datei oder das Projekt gebunden sind, bevor Claude Code schreibt |
+| **Wenn Sie etwas zu merken bitten** | Erkennt „remember this“-/„guardar en memesh“-/„sauvegarder dans memesh“-/„記下來“-Absicht und erinnert an MeMesh |
 | **Nach jedem `git commit`** | Erfasst Ihre Änderungen mit Diff-Statistiken |
 | **Wenn Claude stoppt** | Erfasst bearbeitete Dateien und behobene Fehler; generiert automatisch strukturierte Lektionen aus Fehlern |
 | **Vor Context-Verdichtung** | Speichert Wissen, bevor es durch Context-Limits verloren geht |
 | **Vor riskanten Befehlen und Edits** | Löst die von Ihnen akzeptierten Lektions-Guards aus — eine Warnung genau in dem Moment, in dem sich ein erfasster Fehler wiederholen würde |
+| **Wenn eine optierte Codex-Session startet oder fortgesetzt wird** | Registriert genau diesen aktiven Thread für metadata-only MeMesh-Wakeups; andere Workspaces und gestoppte Sessions werden nicht angehängt |
 
 > **Jederzeit abschalten:** `export MEMESH_AUTO_CAPTURE=false`
 
@@ -491,7 +493,7 @@ Ab dann wird jedem Assistenten, der eine der beiden Entscheidungen abruft, gesag
 
 ### Eine Erinnerung, drei Assistenten
 
-MeMesh ist ein MCP-Server, daher bedient dieselbe SQLite-Datei jeden MCP-Client auf der Maschine. Einmal pro Tool registrieren (die genauen Befehle stehen oben unter „In 60 Sekunden starten") — und eine in Claude Code gespeicherte Entscheidung wird mitten in der Session von Codex oder Gemini CLI abgerufen: kein erneutes Erklären, kein Kontext zwischen Anbietern hin- und herkopieren.
+MeMesh ist ein MCP-Server, daher bedient dieselbe SQLite-Datei jeden MCP-Client auf der Maschine. Einmal pro Tool registrieren (die genauen Befehle stehen oben unter „In 60 Sekunden starten") — und eine in Claude Code gespeicherte Entscheidung wird mitten in der Session von Codex oder einem anderen konfigurierten lokalen MCP-Client abgerufen: kein erneutes Erklären, kein Kontext zwischen Anbietern hin- und herkopieren.
 
 ### Entscheidungen so festhalten, dass sie auffindbar bleiben
 

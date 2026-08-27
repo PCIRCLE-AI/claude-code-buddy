@@ -81,9 +81,13 @@ for (const doc of ['docs/ARCHITECTURE.md', 'docs/api/API_REFERENCE.md']) {
 // --- 2. Hooks, derived from the manifest that invokes them -------------------
 const hookManifest = JSON.parse(read('hooks/hooks.json'));
 const manifestHooks = new Set();
+const manifestHookCommands = new Set();
 for (const matchers of Object.values(hookManifest.hooks ?? {})) {
   for (const matcher of matchers) {
-    for (const h of matcher.hooks ?? []) manifestHooks.add(h.command.split('/').pop());
+    for (const h of matcher.hooks ?? []) {
+      manifestHooks.add(h.command.split('/').pop());
+      manifestHookCommands.add(h.command.replace('${CLAUDE_PLUGIN_ROOT}/', ''));
+    }
   }
 }
 if (manifestHooks.size === 0) {
@@ -91,16 +95,25 @@ if (manifestHooks.size === 0) {
 } else {
   // Files only, nothing `_`-prefixed — the rule lives in scripts/lib/
   // hook-files.mjs where a test can feed it a fixture directory.
+  const missingCommands = [...manifestHookCommands].filter(command => !fs.existsSync(path.join(repoRoot, command)));
+  if (missingCommands.length) fail(`hooks/hooks.json invokes missing commands: ${missingCommands.join(', ')}`);
   const onDisk = listHookFiles(path.join(repoRoot, 'scripts/hooks'));
-  const missing = [...manifestHooks].filter(h => !onDisk.includes(h));
-  const extra = onDisk.filter(h => !manifestHooks.has(h));
-  if (missing.length) fail(`hooks/hooks.json invokes ${missing.join(', ')}, which is not in scripts/hooks/`);
+  const scriptManifestHooks = new Set(
+    [...manifestHookCommands]
+      .filter(command => command.startsWith('scripts/hooks/'))
+      .map(command => path.basename(command)),
+  );
+  const missing = [...scriptManifestHooks].filter(h => !onDisk.includes(h));
+  const extra = onDisk.filter(h => !scriptManifestHooks.has(h));
+  if (missing.length) fail(`hooks/hooks.json omits scripts/hooks commands: ${missing.join(', ')}`);
   if (extra.length) fail(`scripts/hooks/ holds ${extra.join(', ')}, which hooks.json never invokes`);
-  if (!missing.length && !extra.length) ok(`${onDisk.length} hooks, manifest and directory agree`);
+  if (!missingCommands.length && !missing.length && !extra.length) {
+    ok(`${manifestHooks.size} hook commands exist and scripts/hooks agrees with the manifest`);
+  }
 
   const archText = read('docs/ARCHITECTURE.md');
-  const archCount = archText.match(/### Hook Scripts \((\d+) hooks?\)/);
-  if (!archCount) fail('docs/ARCHITECTURE.md no longer states its hook count in `### Hook Scripts (N hooks)`');
+  const archCount = archText.match(/### Hook Commands \((\d+) hooks?\)/);
+  if (!archCount) fail('docs/ARCHITECTURE.md no longer states its hook count in `### Hook Commands (N hooks)`');
   else if (Number(archCount[1]) !== manifestHooks.size)
     fail(`docs/ARCHITECTURE.md says ${archCount[1]} hooks, the manifest registers ${manifestHooks.size}`);
   else ok(`ARCHITECTURE.md hook count ${archCount[1]}`);

@@ -173,6 +173,16 @@ class ActiveRouterHostConnection {
                         }
                         continue;
                     }
+                    if (frame.type === 'session_superseded'
+                        && frame.connection_id === connectionId
+                        && frame.generation === generation) {
+                        this.closed = true;
+                        this.clearHeartbeat();
+                        if (this.currentSocket === socket)
+                            this.currentSocket = null;
+                        socket.destroy();
+                        continue;
+                    }
                     if (frame.type !== 'deliver')
                         continue;
                     this.deliveryTail = this.deliveryTail.then(() => this.handleDelivery(socket, frame, connectionId, generation)).catch(() => undefined);

@@ -13,8 +13,8 @@
     },
     {
       "path": "hooks/hooks.json",
-      "sha256": "6dab1d96f600b6b0f85c3ca276f660127582ba0b6f7f8a460a4ed6bf1611ca95",
-      "bytes": 1803
+      "sha256": "f39efb39a90594141cf7b5e79062b42f7376f7e0007307040b4fed77022fd024",
+      "bytes": 2083
     },
     {
       "path": "scripts/hooks/_generated/capture-flag.js",
@@ -123,8 +123,8 @@
     },
     {
       "path": "skills/memesh/SKILL.md",
-      "sha256": "30a81912ab68923f2fd540375f7c027d16c36d69132f7c5bf09244ace972887a",
-      "bytes": 11313
+      "sha256": "935b426979cbe18c21a01847f4d8df68f65ed2add715aded1f376dd6c997670b",
+      "bytes": 11532
     }
   ]
 }

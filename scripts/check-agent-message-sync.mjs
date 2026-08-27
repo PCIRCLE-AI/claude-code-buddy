@@ -99,6 +99,24 @@ requireText('src/host-adapters/codex-app-server.ts', [
 requireText('dist/host-adapters/codex-app-server.js', [
   'experimentalApi: true', 'thread/queue/add', 'ws://localhost/rpc', 'perMessageDeflate: false',
 ]);
+requireText('src/host-adapters/codex-cli-queue.ts', [
+  'dispatch_metadata_only', "'queue', '--thread'", "'--message', marker", 'shell: false',
+]);
+requireText('dist/host-adapters/codex-cli-queue.js', [
+  'dispatch_metadata_only', "'queue', '--thread'", "'--message', marker", 'shell: false',
+]);
+requireText('src/host-runtime/codex-session.ts', [
+  'CODEX_THREAD_ID', "hook_event_name !== 'SessionStart'", "adapter_kind: 'codex-cli-queue'", 'workspace !== cwd',
+]);
+requireText('dist/host-runtime/codex-session.js', [
+  'CODEX_THREAD_ID', "hook_event_name !== 'SessionStart'", "adapter_kind: 'codex-cli-queue'", 'workspace !== cwd',
+]);
+requireText('src/transports/cli/cli.ts', [
+  "'codex-session'", "mode: host === 'codex-session'", "'ordinary-session-native-queue'",
+]);
+requireText('dist/transports/cli/cli.js', [
+  "'codex-session'", "mode: host === 'codex-session'", "'ordinary-session-native-queue'",
+]);
 requireText('src/host-runtime/acp.ts', ['session_update_file', 'O_NOFOLLOW']);
 requireText('dist/host-runtime/acp.js', ['session_update_file', 'O_NOFOLLOW']);
 
@@ -120,6 +138,7 @@ if (!fs.existsSync(hostRuntimeDir)) {
 for (const [name, target] of Object.entries({
   'memesh-router': 'dist/host-runtime/router.js',
   'memesh-host-codex': 'dist/host-runtime/codex.js',
+  'memesh-host-codex-session': 'dist/host-runtime/codex-session.js',
   'memesh-host-claude': 'dist/host-runtime/claude.js',
   'memesh-host-acp': 'dist/host-runtime/acp.js',
 })) requirePackageBin(name, target);
@@ -132,6 +151,7 @@ for (const artifact of [
   'dist/transports/cli/cli.js',
   'dist/transports/agent-messaging.js',
   'dist/host-adapters/codex-app-server.js',
+  'dist/host-adapters/codex-cli-queue.js',
   'dist/host-adapters/claude-channel.js',
   'dist/host-adapters/acp-client.js',
 ]) read(artifact);
@@ -153,13 +173,24 @@ requireText('.claude-plugin/marketplace.json', ['"name": "pcircle-memesh"', '"ve
 requireText('hooks/hooks.json', [
   'session-start.js', 'session-summary.js', 'pre-compact.js',
   'user-prompt-intent.js', 'pre-edit-recall.js', 'guard-check.js', 'post-commit.js',
+  'codex-session.js', 'startup|resume', '"async": true',
 ]);
 requireText('llms-install.md', [
   '22.13.0', 'memesh doctor', 'message', 'memesh-router',
   'memesh-host-codex', 'memesh-host-claude', 'memesh-host-acp', '--config', 'message storage report',
 ]);
-requireText('README.md', ['message', 'active supported managed host', 'stopped session', 'message storage report']);
-requireText('README.zh-TW.md', ['message', '活動中 managed host', '停止', 'message storage report']);
+requireText('README.md', [
+  'message', 'memesh agent setup codex-session', 'without polling or a human reminder',
+  'stopped, missing, or disconnected Codex session', 'message storage report',
+]);
+requireText('README.zh-TW.md', [
+  'message', 'memesh agent setup codex-session', '沒有輪詢或人工提醒',
+  '停止、缺失或斷線', 'message storage report',
+]);
+requireText('README.de.md', [
+  'message', 'memesh agent setup codex-session', 'ohne Polling oder menschliche Erinnerung',
+  'gestoppte, fehlende oder getrennte Codex-Session', 'message storage report',
+]);
 const packageJsonText = read('package.json');
 for (const token of ['">=22.13.0"', 'check-agent-message-sync.mjs', 'test:packaged']) {
   if (!packageJsonText.includes(token)) missing.push(`package.json (missing ${JSON.stringify(token)})`);

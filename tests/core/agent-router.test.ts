@@ -13,6 +13,9 @@ import {
   AgentRouterProtocolError,
   createAgentRouterNotifier,
   sendAgentRouterRequest,
+  type AgentHostAdapter,
+  type AgentHostDispatchResult,
+  type AgentHostMetadataDispatchInput,
   type AgentHostRegistration,
 } from '../../src/core/agent-router.js';
 
@@ -73,12 +76,13 @@ async function startRouter(
   socketPath: string,
   token: string,
   limits: ConstructorParameters<typeof AgentRouter>[0]['limits'] = {},
+  adapters?: AgentHostAdapter[],
 ) {
   const router = new AgentRouter({
     db,
     socket_path: socketPath,
     limits: { delivery_timeout_ms: 200, ...limits },
-    adapters: [{
+    adapters: adapters ?? [{
       kind: 'test-host',
       authenticate(registration: AgentHostRegistration) {
         return registration.auth_token === token;
@@ -111,6 +115,7 @@ class RouterHostClient {
     principal: string;
     session: string;
     onDelivery?: (frame: Frame, client: RouterHostClient) => void;
+    adapterKind?: string;
   }): Promise<RouterHostClient> {
     const socket = net.createConnection(input.socketPath);
     await new Promise<void>((resolve, reject) => {
@@ -127,7 +132,7 @@ class RouterHostClient {
       project: input.project,
       principal_id: input.principal,
       session_instance_id: input.session,
-      adapter_kind: 'test-host',
+      adapter_kind: input.adapterKind ?? 'test-host',
       auth_token: input.token,
       hops: 0,
     });
@@ -341,6 +346,107 @@ describe.sequential('AgentRouter real SQLite + UDS integration', () => {
     await vi.waitFor(() => expect(db.prepare(
       'SELECT COUNT(*) AS count FROM agent_host_accepts WHERE delivery_id = ?',
     ).get(current.delivery_id)).toEqual({ count: 1 }));
+  });
+
+  it('keeps durable payload out of a metadata-only native adapter even with a live companion socket', async () => {
+    const { db, socketPath, token } = setup();
+    const metadataDispatch = vi.fn<(
+      input: AgentHostMetadataDispatchInput,
+    ) => Promise<AgentHostDispatchResult>>(async () => ({
+      accepted: true,
+      receipt: { host: 'codex-cli', status: 'queued' },
+    }));
+    await startRouter(db, socketPath, token, {}, [{
+      kind: 'codex-cli-queue',
+      authenticate: registration => registration.auth_token === token,
+      dispatch_metadata_only: metadataDispatch,
+    }]);
+    const companion = await RouterHostClient.connect({
+      socketPath, token, project: 'project-a', principal: 'principal-a',
+      session: '01a041b4-5c67-75b3-9505-4e33d7942b8e', adapterKind: 'codex-cli-queue',
+    });
+    const message = sendAgentMessage(db, {
+      project: 'project-a', sender: 'sender-a', recipient: 'principal-a',
+      idempotency_key: 'metadata-only-native',
+      payload: { sentinel: 'payload-must-not-cross-adapter-api' },
+      content_type: 'application/json',
+    }, { notifier: createAgentRouterNotifier(socketPath) });
+
+    await vi.waitFor(() => expect(metadataDispatch).toHaveBeenCalledTimes(1));
+    expect(metadataDispatch).toHaveBeenCalledWith(expect.objectContaining({
+      session_instance_id: '01a041b4-5c67-75b3-9505-4e33d7942b8e',
+      routing: {
+        project: 'project-a', recipient: 'principal-a', target_kind: 'principal',
+        message_id: message.message_id, delivery_id: message.delivery_id,
+      },
+    }));
+    const adapterInput = metadataDispatch.mock.calls[0][0];
+    expect(adapterInput).not.toHaveProperty('envelope');
+    expect(JSON.stringify(adapterInput)).not.toContain('payload-must-not-cross-adapter-api');
+    expect(companion.deliveries).toHaveLength(0);
+    await vi.waitFor(() => expect(db.prepare(
+      'SELECT COUNT(*) AS count FROM agent_host_accepts WHERE delivery_id = ?',
+    ).get(message.delivery_id)).toEqual({ count: 1 }));
+  });
+
+  it('does not record native acceptance when the live companion disappears during queue admission', async () => {
+    const { db, socketPath, token } = setup();
+    const companionRef: { current?: RouterHostClient } = {};
+    const metadataDispatch = vi.fn(async (): Promise<AgentHostDispatchResult> => {
+      companionRef.current?.close();
+      await new Promise(resolve => setTimeout(resolve, 10));
+      return { accepted: true, receipt: { host: 'codex-cli', status: 'queued' } };
+    });
+    await startRouter(db, socketPath, token, {}, [{
+      kind: 'codex-cli-queue',
+      authenticate: registration => registration.auth_token === token,
+      dispatch_metadata_only: metadataDispatch,
+    }]);
+    companionRef.current = await RouterHostClient.connect({
+      socketPath, token, project: 'project-a', principal: 'principal-a',
+      session: '01a041b4-5c67-75b3-9505-4e33d7942b8e', adapterKind: 'codex-cli-queue',
+    });
+    const message = sendAgentMessage(db, {
+      project: 'project-a', sender: 'sender-a', recipient: 'principal-a',
+      idempotency_key: 'metadata-companion-race', payload: 'durable payload',
+      content_type: 'text/plain',
+    }, { notifier: createAgentRouterNotifier(socketPath) });
+
+    await vi.waitFor(() => expect(metadataDispatch).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(db.prepare(
+      'SELECT result FROM agent_dispatch_attempts WHERE delivery_id = ?',
+    ).get(message.delivery_id)).toEqual({ result: 'stale_generation' }));
+    expect(db.prepare(
+      'SELECT COUNT(*) AS count FROM agent_host_accepts WHERE delivery_id = ?',
+    ).get(message.delivery_id)).toEqual({ count: 0 });
+  });
+
+  it('persists a bounded native rejection reason without creating host acceptance', async () => {
+    const { db, socketPath, token } = setup();
+    await startRouter(db, socketPath, token, {}, [{
+      kind: 'codex-cli-queue',
+      authenticate: registration => registration.auth_token === token,
+      dispatch_metadata_only: async () => ({
+        accepted: false,
+        receipt: { failure_code: 'thread_unavailable' },
+      }),
+    }]);
+    await RouterHostClient.connect({
+      socketPath, token, project: 'project-a', principal: 'principal-a',
+      session: '01a041b4-5c67-75b3-9505-4e33d7942b8e', adapterKind: 'codex-cli-queue',
+    });
+    const message = sendAgentMessage(db, {
+      project: 'project-a', sender: 'sender-a', recipient: 'principal-a',
+      idempotency_key: 'metadata-native-rejection', payload: 'durable payload',
+      content_type: 'text/plain',
+    }, { notifier: createAgentRouterNotifier(socketPath) });
+
+    await vi.waitFor(() => expect(db.prepare(
+      'SELECT result, failure_code FROM agent_dispatch_attempts WHERE delivery_id = ?',
+    ).get(message.delivery_id)).toEqual({ result: 'adapter_rejected', failure_code: 'thread_unavailable' }));
+    expect(db.prepare(
+      'SELECT COUNT(*) AS count FROM agent_host_accepts WHERE delivery_id = ?',
+    ).get(message.delivery_id)).toEqual({ count: 0 });
   });
 
   it('rejects wrong scope and stale generation while a replacement receives eligible principal pending', async () => {

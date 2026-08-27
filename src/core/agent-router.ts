@@ -49,6 +49,24 @@ export interface AgentHostDispatchInput {
   envelope: AgentMessagePayload;
 }
 
+export interface AgentHostMetadataDispatchInput {
+  dispatch_id: string;
+  attempt_id: string;
+  project: string;
+  principal_id: string;
+  session_instance_id: string;
+  connection_id: string;
+  generation: number;
+  hops: number;
+  routing: {
+    project: string;
+    recipient: string;
+    target_kind: AgentTargetKind;
+    message_id: string;
+    delivery_id: string;
+  };
+}
+
 export interface AgentHostDispatchResult {
   accepted: boolean;
   receipt?: AgentJsonObject;
@@ -63,6 +81,10 @@ export interface AgentHostAdapter {
   readonly kind: string;
   authenticate(registration: AgentHostRegistration): boolean | Promise<boolean>;
   dispatch?(input: AgentHostDispatchInput): AgentHostDispatchResult | Promise<AgentHostDispatchResult>;
+  /** Native wakeup paths receive routing identifiers only, never the durable payload. */
+  dispatch_metadata_only?(
+    input: AgentHostMetadataDispatchInput,
+  ): AgentHostDispatchResult | Promise<AgentHostDispatchResult>;
 }
 
 export interface AgentRouterLimits {
@@ -521,7 +543,16 @@ export class AgentRouter {
         WHERE project = ? AND session_instance_id = ? AND disconnected_at IS NULL
       `).all(registration.project, registration.session_instance_id) as ConnectionRow[];
       for (const previous of active) {
+        const previousSocket = this.externalConnections.get(previous.connection_id);
         this.externalConnections.delete(previous.connection_id);
+        if (previousSocket && !previousSocket.destroyed) {
+          previousSocket.end(`${JSON.stringify({
+            version: 1,
+            type: 'session_superseded',
+            connection_id: previous.connection_id,
+            generation: previous.generation,
+          })}\n`);
+        }
         for (const [attemptId, pending] of this.pendingExternal) {
           if (pending.connection.connection_id !== previous.connection_id) continue;
           clearTimeout(pending.timer);
@@ -681,19 +712,16 @@ export class AgentRouter {
     if (!connection) return false;
     const adapter = this.adapters.get(connection.adapter_kind);
     const externalSocket = this.externalConnections.get(connection.connection_id);
-    if (!externalSocket && !adapter?.dispatch) return false;
+    const metadataDispatch = adapter?.dispatch_metadata_only;
+    const metadataOnly = Boolean(metadataDispatch);
+    if (metadataOnly && !externalSocket) return false;
+    if (!metadataOnly && !externalSocket && !adapter?.dispatch) return false;
 
     const attempt = this.beginDispatchAttempt(delivery, connection);
-    const envelope = fetchAgentMessage(this.db, {
-      project: delivery.project,
-      recipient: delivery.recipient,
-      target_kind: parseTargetKind(delivery.target_kind),
-      message_id: delivery.message_id,
-    });
 
     let result: AgentHostDispatchResult;
     try {
-      const input: AgentHostDispatchInput = {
+      const common = {
         dispatch_id: delivery.delivery_id,
         attempt_id: attempt.attempt_id,
         project: delivery.project,
@@ -702,23 +730,50 @@ export class AgentRouter {
         connection_id: connection.connection_id,
         generation: connection.generation,
         hops,
-        untrusted_payload: true,
-        envelope,
       };
-      result = externalSocket
-        ? await this.dispatchExternal(externalSocket, connection, attempt.attempt_id, input)
-        : await adapter!.dispatch!(input);
+      if (metadataDispatch) {
+        result = await metadataDispatch({
+          ...common,
+          routing: {
+            project: delivery.project,
+            recipient: delivery.recipient,
+            target_kind: parseTargetKind(delivery.target_kind),
+            message_id: delivery.message_id,
+            delivery_id: delivery.delivery_id,
+          },
+        });
+      } else {
+        const envelope = fetchAgentMessage(this.db, {
+          project: delivery.project,
+          recipient: delivery.recipient,
+          target_kind: parseTargetKind(delivery.target_kind),
+          message_id: delivery.message_id,
+        });
+        const input: AgentHostDispatchInput = {
+          ...common,
+          untrusted_payload: true,
+          envelope,
+        };
+        result = externalSocket
+          ? await this.dispatchExternal(externalSocket, connection, attempt.attempt_id, input)
+          : await adapter!.dispatch!(input);
+      }
     } catch {
       this.finishAttempt(attempt.attempt_id, 'adapter_failed', 'adapter_error');
       return false;
     }
     if (!result.accepted) {
-      this.finishAttempt(attempt.attempt_id, 'adapter_rejected', 'adapter_rejected');
+      this.finishAttempt(attempt.attempt_id, 'adapter_rejected', adapterFailureCode(result.receipt));
       return false;
     }
     const receipt = validateReceipt(result.receipt ?? {});
     try {
       this.requireCurrentConnection(connection);
+      if (metadataOnly && (
+        !externalSocket
+        || externalSocket.destroyed
+        || this.externalConnections.get(connection.connection_id) !== externalSocket
+      )) throw new AgentRouterStaleGenerationError();
     } catch {
       this.finishAttempt(attempt.attempt_id, 'stale_generation', 'stale_generation');
       return false;
@@ -1303,6 +1358,13 @@ function validateReceipt(value: AgentJsonObject): AgentJsonObject {
 function parseTargetKind(value: string): AgentTargetKind {
   if (value === 'principal' || value === 'session') return value;
   throw new AgentRouterError('invalid_target_kind', 'Stored delivery target kind is invalid.');
+}
+
+function adapterFailureCode(receipt: AgentJsonObject | undefined): string {
+  const value = receipt?.failure_code;
+  return typeof value === 'string' && /^[a-z0-9_]{1,64}$/.test(value)
+    ? value
+    : 'adapter_rejected';
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

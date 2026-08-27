@@ -26,6 +26,7 @@ import {
   getAgentMessageStorageReport,
   pruneTerminalAgentMessagePayloads,
 } from '../../core/agent-message-storage.js';
+import { ensureRouterTokenFile } from '../../host-runtime/config.js';
 
 // DX: every CLI command that touches the DB used to repeat
 //   openDatabase(); try { ...body... } finally { closeDatabase(); }
@@ -1025,26 +1026,25 @@ messageStorageCmd
     });
   });
 
-// --- managed local agent hosts ---
+// --- local agent hosts ---
 //
-// This writes reusable owner-private configuration only. Session identity is
-// deliberately absent: each managed host process creates a fresh exact
-// session, registers only after its native input boundary is ready, and drops
-// that registration on exit. Ordinary already-running provider sessions are
-// never guessed or attached.
+// This writes reusable owner-private configuration only. Managed hosts create
+// a fresh exact session after their native input boundary is ready. The
+// ordinary Codex path instead binds only the thread ID supplied by its own
+// SessionStart hook and only for an explicitly configured real workspace.
 const agentCmd = program
   .command('agent')
-  .description('Set up reusable owner-private managed host configuration');
+  .description('Set up reusable owner-private local host configuration');
 
 agentCmd
   .command('setup')
-  .argument('<host>', 'codex | claude | gemini')
+  .argument('<host>', 'codex-session | codex | claude | gemini')
   .requiredOption('--project <name>', 'Project scope used for exact routing')
   .requiredOption('--principal <id>', 'Stable logical recipient ID')
   .option('--workspace <path>', 'Managed Codex/Gemini workspace', process.cwd())
   .option('--json', 'Output machine-readable setup result')
   .action((host, opts) => {
-    requireOneOf(host, ['codex', 'claude', 'gemini'], '<host>');
+    requireOneOf(host, ['codex-session', 'codex', 'claude', 'gemini'], '<host>');
     const messageDir = path.dirname(getDbPath());
     const hostsDir = path.join(messageDir, 'hosts');
     fs.mkdirSync(hostsDir, { recursive: true, mode: 0o700 });
@@ -1058,42 +1058,50 @@ agentCmd
     if (fs.existsSync(configPath)) {
       throw new Error(`Managed ${host} config already exists at ${configPath}; it was not overwritten.`);
     }
+    const routerTokenFile = path.join(messageDir, 'agent-router.token');
+    ensureRouterTokenFile(routerTokenFile);
     const common = {
       router_socket: path.join(messageDir, 'agent-router.sock'),
-      token_file: path.join(messageDir, 'agent-router.token'),
+      token_file: routerTokenFile,
       project: opts.project,
       principal_id: opts.principal,
     };
-    const config = host === 'codex'
-      ? { ...common, control_socket: path.join(hostsDir, 'codex-app-server.sock'), workspace: path.resolve(opts.workspace) }
-      : host === 'claude'
-        ? { ...common, server_name: 'memesh-channel' }
-        : { ...common, workspace: path.resolve(opts.workspace), command: 'gemini', args: [] };
+    const config = host === 'codex-session'
+      ? { ...common, workspace: fs.realpathSync(path.resolve(opts.workspace)) }
+      : host === 'codex'
+        ? { ...common, control_socket: path.join(hostsDir, 'codex-app-server.sock'), workspace: path.resolve(opts.workspace) }
+        : host === 'claude'
+          ? { ...common, server_name: 'memesh-channel' }
+          : { ...common, workspace: path.resolve(opts.workspace), command: 'gemini', args: [] };
     fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
 
-    const launchCommand = host === 'codex'
-      ? `memesh-host-codex --config ${JSON.stringify(configPath)}`
-      : host === 'claude'
-        ? 'claude --dangerously-load-development-channels server:memesh-channel'
-        : `memesh-host-acp --config ${JSON.stringify(configPath)}`;
+    const launchCommand = host === 'codex-session'
+      ? null
+      : host === 'codex'
+        ? `memesh-host-codex --config ${JSON.stringify(configPath)}`
+        : host === 'claude'
+          ? 'claude --dangerously-load-development-channels server:memesh-channel'
+          : `memesh-host-acp --config ${JSON.stringify(configPath)}`;
     const registrationCommand = host === 'claude'
       ? `claude mcp add --transport stdio --scope user memesh-channel -- memesh-host-claude --config ${JSON.stringify(configPath)}`
       : null;
     const result = {
       host,
       config_path: configPath,
-      mode: host === 'claude' ? 'session-owned-channel' : 'memesh-managed-session',
-      session_identity: 'generated-per-process',
-      ordinary_sessions: 'presence-only/inbound-unavailable',
+      mode: host === 'codex-session'
+        ? 'ordinary-session-native-queue'
+        : host === 'claude' ? 'session-owned-channel' : 'memesh-managed-session',
+      session_identity: host === 'codex-session' ? 'codex-thread-id-at-session-start' : 'generated-per-process',
+      ordinary_sessions: host === 'codex-session' ? 'explicit-workspace-opt-in' : 'presence-only/inbound-unavailable',
       registration_command: registrationCommand,
       launch_command: launchCommand,
-      next_command: registrationCommand ?? launchCommand,
+      next_command: registrationCommand ?? launchCommand ?? 'Restart Codex in the configured workspace',
     };
     console.log(opts.json ? JSON.stringify(result) : [
-      `Created owner-private managed ${host} config: ${configPath}`,
+      `Created owner-private ${host} config: ${configPath}`,
       'No active or stopped ordinary session was attached.',
       ...(registrationCommand ? [`Register once: ${registrationCommand}`] : []),
-      `Launch: ${launchCommand}`,
+      ...(launchCommand ? [`Launch: ${launchCommand}`] : ['Restart Codex in the configured workspace.']),
     ].join('\n'));
   });
 

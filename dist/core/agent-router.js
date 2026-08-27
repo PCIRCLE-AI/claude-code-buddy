@@ -314,7 +314,16 @@ export class AgentRouter {
         WHERE project = ? AND session_instance_id = ? AND disconnected_at IS NULL
       `).all(registration.project, registration.session_instance_id);
             for (const previous of active) {
+                const previousSocket = this.externalConnections.get(previous.connection_id);
                 this.externalConnections.delete(previous.connection_id);
+                if (previousSocket && !previousSocket.destroyed) {
+                    previousSocket.end(`${JSON.stringify({
+                        version: 1,
+                        type: 'session_superseded',
+                        connection_id: previous.connection_id,
+                        generation: previous.generation,
+                    })}\n`);
+                }
                 for (const [attemptId, pending] of this.pendingExternal) {
                     if (pending.connection.connection_id !== previous.connection_id)
                         continue;
@@ -426,18 +435,16 @@ export class AgentRouter {
             return false;
         const adapter = this.adapters.get(connection.adapter_kind);
         const externalSocket = this.externalConnections.get(connection.connection_id);
-        if (!externalSocket && !adapter?.dispatch)
+        const metadataDispatch = adapter?.dispatch_metadata_only;
+        const metadataOnly = Boolean(metadataDispatch);
+        if (metadataOnly && !externalSocket)
+            return false;
+        if (!metadataOnly && !externalSocket && !adapter?.dispatch)
             return false;
         const attempt = this.beginDispatchAttempt(delivery, connection);
-        const envelope = fetchAgentMessage(this.db, {
-            project: delivery.project,
-            recipient: delivery.recipient,
-            target_kind: parseTargetKind(delivery.target_kind),
-            message_id: delivery.message_id,
-        });
         let result;
         try {
-            const input = {
+            const common = {
                 dispatch_id: delivery.delivery_id,
                 attempt_id: attempt.attempt_id,
                 project: delivery.project,
@@ -446,24 +453,51 @@ export class AgentRouter {
                 connection_id: connection.connection_id,
                 generation: connection.generation,
                 hops,
-                untrusted_payload: true,
-                envelope,
             };
-            result = externalSocket
-                ? await this.dispatchExternal(externalSocket, connection, attempt.attempt_id, input)
-                : await adapter.dispatch(input);
+            if (metadataDispatch) {
+                result = await metadataDispatch({
+                    ...common,
+                    routing: {
+                        project: delivery.project,
+                        recipient: delivery.recipient,
+                        target_kind: parseTargetKind(delivery.target_kind),
+                        message_id: delivery.message_id,
+                        delivery_id: delivery.delivery_id,
+                    },
+                });
+            }
+            else {
+                const envelope = fetchAgentMessage(this.db, {
+                    project: delivery.project,
+                    recipient: delivery.recipient,
+                    target_kind: parseTargetKind(delivery.target_kind),
+                    message_id: delivery.message_id,
+                });
+                const input = {
+                    ...common,
+                    untrusted_payload: true,
+                    envelope,
+                };
+                result = externalSocket
+                    ? await this.dispatchExternal(externalSocket, connection, attempt.attempt_id, input)
+                    : await adapter.dispatch(input);
+            }
         }
         catch {
             this.finishAttempt(attempt.attempt_id, 'adapter_failed', 'adapter_error');
             return false;
         }
         if (!result.accepted) {
-            this.finishAttempt(attempt.attempt_id, 'adapter_rejected', 'adapter_rejected');
+            this.finishAttempt(attempt.attempt_id, 'adapter_rejected', adapterFailureCode(result.receipt));
             return false;
         }
         const receipt = validateReceipt(result.receipt ?? {});
         try {
             this.requireCurrentConnection(connection);
+            if (metadataOnly && (!externalSocket
+                || externalSocket.destroyed
+                || this.externalConnections.get(connection.connection_id) !== externalSocket))
+                throw new AgentRouterStaleGenerationError();
         }
         catch {
             this.finishAttempt(attempt.attempt_id, 'stale_generation', 'stale_generation');
@@ -990,6 +1024,12 @@ function parseTargetKind(value) {
     if (value === 'principal' || value === 'session')
         return value;
     throw new AgentRouterError('invalid_target_kind', 'Stored delivery target kind is invalid.');
+}
+function adapterFailureCode(receipt) {
+    const value = receipt?.failure_code;
+    return typeof value === 'string' && /^[a-z0-9_]{1,64}$/.test(value)
+        ? value
+        : 'adapter_rejected';
 }
 function isPlainObject(value) {
     return typeof value === 'object' && value !== null && !Array.isArray(value);

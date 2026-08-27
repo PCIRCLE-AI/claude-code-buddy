@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 
-import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { timingSafeEqual } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { closeDatabase, openDatabase } from '../db.js';
 import { AgentRouter, type AgentHostRegistration } from '../core/agent-router.js';
+import { createCodexCliQueueAdapter } from '../host-adapters/codex-cli-queue.js';
 import { getMemeshDirFromDbPath } from '../core/paths.js';
-import { readTokenFile } from './config.js';
+import { ensureRouterTokenFile } from './config.js';
 
 const dataDir = getMemeshDirFromDbPath();
 const socketPath = process.env.MEMESH_ROUTER_SOCKET ?? path.join(dataDir, 'agent-router.sock');
@@ -14,10 +15,7 @@ const tokenFile = process.env.MEMESH_ROUTER_TOKEN_FILE ?? path.join(dataDir, 'ag
 
 fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
 fs.chmodSync(dataDir, 0o700);
-if (!fs.existsSync(tokenFile)) {
-  fs.writeFileSync(tokenFile, `${randomBytes(32).toString('hex')}\n`, { mode: 0o600, flag: 'wx' });
-}
-const expectedToken = readTokenFile(tokenFile);
+const expectedToken = ensureRouterTokenFile(tokenFile);
 
 function authenticate(registration: AgentHostRegistration): boolean {
   if (!registration.auth_token) return false;
@@ -29,7 +27,10 @@ function authenticate(registration: AgentHostRegistration): boolean {
 const router = new AgentRouter({
   db: openDatabase(),
   socket_path: socketPath,
-  adapters: ['claude-channel', 'codex-app-server', 'acp'].map(kind => ({ kind, authenticate })),
+  adapters: [
+    createCodexCliQueueAdapter({ authenticate }),
+    ...['claude-channel', 'codex-app-server', 'acp'].map(kind => ({ kind, authenticate })),
+  ],
 });
 
 async function shutdown(): Promise<void> {

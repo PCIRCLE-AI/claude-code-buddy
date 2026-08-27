@@ -277,6 +277,43 @@ describe('production router host client', () => {
     expect(startRouter).toHaveBeenCalled();
   });
 
+  it('terminates a superseded companion instead of reconnecting against the replacement generation', async () => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-router-client-superseded-'));
+    fs.chmodSync(tempDir, 0o700);
+    const socketPath = path.join(tempDir, 'router.sock');
+    const db = openDatabase(path.join(tempDir, 'messages.db'));
+    router = new AgentRouter({
+      db,
+      socket_path: socketPath,
+      adapters: [{ kind: 'codex-cli-queue', authenticate: value => value.auth_token === 'token' }],
+    });
+    await router.start();
+    const connect = () => connectRouterHost({
+      socket_path: socketPath,
+      auth_token: 'token',
+      identity: {
+        project: 'project-a', principal_id: 'principal-a',
+        session_instance_id: 'thread-a', adapter_kind: 'codex-cli-queue',
+      },
+      deliver: async () => ({ host: 'unused', status: 'rejected' }),
+      resilience: { initial_retry_ms: 10, max_retry_ms: 20, retry_jitter: 0 },
+    });
+    const first = await connect();
+    connection = await connect();
+    expect(connection.generation).toBe(first.generation + 1);
+
+    await new Promise(resolve => setTimeout(resolve, 80));
+    expect(db.prepare(`
+      SELECT COUNT(*) AS count FROM agent_session_connections
+      WHERE project = ? AND session_instance_id = ?
+    `).get('project-a', 'thread-a')).toEqual({ count: 2 });
+    expect(db.prepare(`
+      SELECT COUNT(*) AS count FROM agent_session_connections
+      WHERE project = ? AND session_instance_id = ? AND disconnected_at IS NULL
+    `).get('project-a', 'thread-a')).toEqual({ count: 1 });
+    await first.close();
+  });
+
   it('uses delayed capped retries and close cancels the pending reconnect loop', async () => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-router-client-close-'));
     fs.chmodSync(tempDir, 0o700);

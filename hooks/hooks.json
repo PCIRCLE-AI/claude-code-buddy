@@ -32,6 +32,17 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/dist/host-runtime/codex-session.js",
+            "async": true,
+            "timeout": 31536000
+          }
+        ]
       }
     ],
     "PostToolUse": [
