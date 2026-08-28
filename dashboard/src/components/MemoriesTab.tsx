@@ -405,6 +405,13 @@ export function MemoriesTab({ health, dataRevision = 0 }: { health?: HealthData 
           <button class="btn btn-sm" onClick={load} title={t('browse.refresh')}>↻</button>
         </div>
 
+        <div
+          role="status"
+          style={{ fontSize: 12, color: 'var(--text-2)', padding: '8px 10px', marginBottom: 10, background: 'var(--bg-2)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-xs)' }}
+        >
+          {t(signalMode ? 'globalFilter.focusedStatus' : 'globalFilter.allStatus')}
+        </div>
+
         {/* One search box, two truths: typing filters the loaded window
             instantly (free, no writes); Enter / the button runs the ranked
             server search (/v1/recall — which counts as a real recall). */}

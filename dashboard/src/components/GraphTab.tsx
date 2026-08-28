@@ -1549,6 +1549,15 @@ export function GraphTab({ dataRevision = 0 }: { dataRevision?: number }) {
     ? data.entities.find((e) => e.name === egoNodeId)
     : null;
 
+  const globalFilterStatus = (
+    <div
+      role="status"
+      style={{ fontSize: 12, color: 'var(--text-2)', padding: '8px 10px', marginBottom: 8, background: 'var(--bg-2)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-xs)' }}
+    >
+      {t(signalMode ? 'globalFilter.focusedStatus' : 'globalFilter.allStatus')}
+    </div>
+  );
+
   // An empty library used to render as a bare black canvas — indistinguishable
   // from a rendering bug, and mute about what to do next. /v1/graph returns
   // every signal entity, so zero entities here IS an empty database: show the
@@ -1559,6 +1568,7 @@ export function GraphTab({ dataRevision = 0 }: { dataRevision?: number }) {
       <div>
         {loading && <div class="loading" role="status" />}
         {failure && <div class="error-box" role="alert">{failureMessage(failure)}</div>}
+        {globalFilterStatus}
         <div class="stats-row">
           <div class="stat">
             <div class="stat-val">0</div>
@@ -1587,6 +1597,7 @@ export function GraphTab({ dataRevision = 0 }: { dataRevision?: number }) {
     <div>
       {loading && <div class="loading" role="status" />}
       {failure && <div class="error-box" role="alert">{failureMessage(failure)}</div>}
+      {globalFilterStatus}
       {/* Stats row: 3 cards. The entities stat reports the LIBRARY size
           (pre-cap) — the cap note right below owns the discrepancy. */}
       <div class="stats-row">
