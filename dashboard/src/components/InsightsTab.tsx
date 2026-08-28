@@ -197,7 +197,11 @@ export function InsightsTab({ dataRevision = 0 }: { dataRevision?: number }) {
     const gen = ++configGen.current;
     api<{ capabilities?: { llm?: { provider?: string } | null } }>('GET', '/v1/config')
       .then((d) => { if (gen === configGen.current) setLlmConfigured(!!d?.capabilities?.llm); })
-      .catch(() => { if (gen === configGen.current) setLlmConfigured(false); });
+      .catch((e) => {
+        if (gen !== configGen.current) return;
+        console.warn('[memesh dashboard] /v1/config failed to refresh:', e);
+        setError(failureMessage(classifyLoadError(e)));
+      });
   }, [dataRevision]);
 
   const proposals = filter === 'all' ? allProposals : allProposals.filter(p => p.status === filter);

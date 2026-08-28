@@ -192,6 +192,11 @@ export function App() {
   return (
     <div class="shell">
       <Header health={health} error={error} />
+      {health && error && (
+        <div class="error-box" role="alert" style={{ margin: '8px 16px 0' }}>
+          {t('common.error')}: {error}
+        </div>
+      )}
       {/* The notice slot: one banner at a time. Each banner self-decides
           eligibility (ineligible = no DOM), and DOM order IS the priority —
           Doctor (broken install) > Onboarding (empty library) > Insights

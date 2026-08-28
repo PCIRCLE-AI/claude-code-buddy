@@ -218,11 +218,11 @@ export function AnalyticsTab({ dataRevision = 0 }: { dataRevision?: number }) {
           across the 5 Smart-Mode flows. Renders even when other
           analytics fail; sourced from a separate endpoint. */}
       <div style={{ marginTop: 8 }}>
-        <LlmTelemetryPanel key={`llm-telemetry-${dataRevision}`} />
+        <LlmTelemetryPanel dataRevision={dataRevision} />
       </div>
 
       {/* Row 5c: PM metrics — velocity, open decisions, KG orphan rate. */}
-      <PmAnalyticsPanel key={`pm-analytics-${dataRevision}`} />
+      <PmAnalyticsPanel dataRevision={dataRevision} />
 
       {/* Row 6: Topics cloud */}
       {stats && (() => {

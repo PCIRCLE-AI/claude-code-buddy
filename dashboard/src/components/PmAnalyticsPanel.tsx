@@ -20,7 +20,7 @@ export function isPmAnalyticsRenderable(d: PmAnalytics | null): d is PmAnalytics
   );
 }
 
-export function PmAnalyticsPanel() {
+export function PmAnalyticsPanel({ dataRevision = 0 }: { dataRevision?: number }) {
   const [data, setData] = useState<PmAnalytics | null>(null);
   // The dashboard's shared classifier, not a raw `String(e)`. It already draws
   // the distinction this panel's states need — `unreachable` / `unreadable` /
@@ -39,6 +39,9 @@ export function PmAnalyticsPanel() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let stale = false;
+    setLoading(true);
+    setFailure(null);
     // `api()` already unwraps the {success, data} envelope and returns
     // `json.data`, so the type argument is the PAYLOAD, not the envelope.
     // Declaring `{ data: PmAnalytics }` and then reading `r.data` unwrapped
@@ -47,20 +50,26 @@ export function PmAnalyticsPanel() {
     // it on every load.
     api<PmAnalytics>('GET', '/v1/analytics/pm')
       .then((r) => {
+        if (stale) return;
         // A rejected shape must not be silent: the request SUCCEEDED, so no
         // other path will ever log, and the card just never appears.
-        if (r !== null && !isPmAnalyticsRenderable(r)) {
-          console.warn('[PmAnalyticsPanel] /v1/analytics/pm answered, but with a shape this bundle cannot render — stale bundle or version skew, not an outage:', r);
+        if (!isPmAnalyticsRenderable(r)) {
+          if (r !== null) {
+            console.warn('[PmAnalyticsPanel] /v1/analytics/pm answered, but with a shape this bundle cannot render — stale bundle or version skew, not an outage:', r);
+          }
+          setFailure('unreadable');
+          return;
         }
         setData(r);
       })
-      .catch((e) => setFailure(classifyLoadError(e)))
-      .finally(() => setLoading(false));
-  }, []);
+      .catch((e) => { if (!stale) setFailure(classifyLoadError(e)); })
+      .finally(() => { if (!stale) setLoading(false); });
+    return () => { stale = true; };
+  }, [dataRevision]);
 
-  if (loading) return <div class="empty"><div class="loading" /></div>;
+  if (loading && !data) return <div class="empty"><div class="loading" /></div>;
 
-  if (failure) {
+  if (failure && !data) {
     // role="alert" per DESIGN.md: a box that stands in for content has to
     // announce itself to a screen reader rather than repaint silently.
     return <div class="error-box" role="alert">{failureMessage(failure)}</div>;
@@ -86,7 +95,10 @@ export function PmAnalyticsPanel() {
     : 'var(--success)';
 
   return (
-    <div class="card" style={{ marginTop: 8, padding: 16 }}>
+    <div>
+      {loading && <div class="loading" role="status" />}
+      {failure && <div class="error-box" role="alert">{failureMessage(failure)}</div>}
+      <div class="card" style={{ marginTop: 8, padding: 16 }}>
       <div class="card-title" style={{ marginBottom: 12 }}>{t('pm.title')}</div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
         <div style={{ textAlign: 'center' }}>
@@ -119,6 +131,7 @@ export function PmAnalyticsPanel() {
           {t('pm.stalePlans', { count: data.staleness.stalePlanCount })}
         </div>
       )}
+      </div>
     </div>
   );
 }
