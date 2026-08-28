@@ -3,7 +3,7 @@
  * version is deprecated.
  *
  * `decideAutoUpdateHook` runs from the Stop hook, unattended, and its `run:
- * true` makes `session-summary.js` spawn a DETACHED `npm install -g`. It
+ * true` makes `session-summary.js` dispatch a detached updater runner. It
  * carried a deprecation override that fired only for a `patch` bump — and
  * every policy above `off` already permits a patch, so `off` was the only
  * setting the override could ever change.

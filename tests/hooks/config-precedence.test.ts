@@ -122,9 +122,12 @@ describe('resolveAutoUpdatePolicy — env > config > default(off)', () => {
     expect(resolveAutoUpdatePolicy(envFor({ MEMESH_AUTO_UPDATE: 'Patch' }))).toBe('patch');
   });
 
-  it('invalid env value falls through to config', () => {
+  it('invalid explicit env value fails closed instead of uncovering permissive config', () => {
     writeConfig({ autoUpdate: 'minor' });
-    expect(resolveAutoUpdatePolicy(envFor({ MEMESH_AUTO_UPDATE: 'yolo' }))).toBe('minor');
+    expect(resolveAutoUpdatePolicy(envFor({ MEMESH_AUTO_UPDATE: 'yolo' }))).toBe('off');
+    expect(resolveAutoUpdatePolicy(envFor({ MEMESH_AUTO_UPDATE: '' }))).toBe('off');
+    expect(resolveAutoUpdatePolicy(envFor({ MEMESH_AUTO_UPDATE: 'off ' }))).toBe('off');
+    expect(resolveAutoUpdatePolicy({ MEMESH_AUTO_UPDATE: null } as unknown as NodeJS.ProcessEnv)).toBe('off');
   });
 
   it('invalid config value falls through to default', () => {

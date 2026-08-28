@@ -208,12 +208,27 @@ describe('Feature: release scripts never edit the real ~/.memesh', () => {
     expect(smoke).toContain("installedBin('memesh-router')");
     expect(smoke).toContain("'dist', 'host-runtime', 'router-client.js'");
     expect(smoke).toContain("'message', 'send'");
+    expect(smoke).toContain("'message', 'fetch'");
+    expect(smoke).toContain("'message', 'receipts'");
     expect(smoke).toContain("'--payload-stdin'");
+    expect(smoke).toContain("adapter_kind: 'codex-cli-queue'");
     expect(smoke).toContain('agent_host_accepts');
+    expect(smoke).toContain('no implicit ACK/disposition');
     expect(smoke).toContain('stopped-or-missing-host');
     expect(smoke).toContain('without poll/watch');
     expect(smoke).toContain('consumerInstallTimeoutMs');
     expect(smoke).toContain('timeout: consumerInstallTimeoutMs');
+  });
+
+  it('wires the isolated packaged upgrade acceptance into CI and npm publication', () => {
+    const pkg = JSON.parse(read('package.json'));
+    expect(pkg.scripts['test:packaged:upgrade']).toBe('node scripts/smoke-packed-upgrade.mjs');
+    expect(pkg.scripts.prepublishOnly).toContain('test:packaged:upgrade');
+    const upgrade = read('scripts/smoke-packed-upgrade.mjs');
+    expect(upgrade).toContain('auto-update-runner.mjs');
+    expect(upgrade).toContain('SUCCESS target=4\\.8\\.0 installed=4\\.8\\.0');
+    expect(upgrade).toContain('MEMESH_UPGRADE_FORCE_FAILURE');
+    expect(read('.github/workflows/ci.yml')).toContain('run: npm run test:packaged:upgrade');
   });
 
   it('fails the sync gate when an installed adapter artifact is missing', () => {

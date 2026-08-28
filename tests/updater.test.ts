@@ -8,16 +8,20 @@ import {
 } from '../src/core/updater.js';
 
 function makeExecFileSyncMock(handlers: {
-  install?: (args: string[]) => void;
-  ls?: (args: string[]) => string;
+  install?: (args: string[], options: Record<string, unknown>) => void;
+  ls?: (args: string[], options: Record<string, unknown>) => string;
 }) {
-  return ((file: string, args: readonly string[] | undefined | null) => {
+  return ((
+    file: string,
+    args: readonly string[] | undefined | null,
+    options: Record<string, unknown> = {},
+  ) => {
     expect(file).toBe('npm');
     expect(Array.isArray(args)).toBe(true);
 
     const command = args as string[];
     if (command[0] === 'install') {
-      handlers.install?.(command);
+      handlers.install?.(command, options);
       return '';
     }
 
@@ -27,7 +31,7 @@ function makeExecFileSyncMock(handlers: {
       // command had been run: dropping `-g` from `npm ls` left every test
       // green while the updater read the LOCAL tree and reported the global
       // package as missing.
-      return handlers.ls?.(command) ?? JSON.stringify({});
+      return handlers.ls?.(command, options) ?? JSON.stringify({});
     }
 
     throw new Error(`Unexpected command: ${command.join(' ')}`);
@@ -86,6 +90,53 @@ describe('updater', () => {
 
     expect(installedSpec).toBe('@pcircle/memesh@4.0.3');
     expect(result).toEqual({ installedVersion: '4.0.3' });
+  });
+
+  it('bounds both the install and exact-version readback', () => {
+    let installTimeout: unknown;
+    let readbackTimeout: unknown;
+
+    runGlobalUpdate('4.0.3', {
+      installTimeoutMs: 1234,
+      readbackTimeoutMs: 567,
+      execFileSyncImpl: makeExecFileSyncMock({
+        install: (_args, options) => { installTimeout = options.timeout; },
+        ls: (_args, options) => {
+          readbackTimeout = options.timeout;
+          return JSON.stringify({
+            dependencies: { '@pcircle/memesh': { version: '4.0.3' } },
+          });
+        },
+      }),
+    });
+
+    expect(installTimeout).toBe(1234);
+    expect(readbackTimeout).toBe(567);
+  });
+
+  it.each(['latest', '^4.0.3', '4.0.3 ', '4.0'])('rejects non-exact target %j before npm mutation', (target) => {
+    let installCalled = false;
+    expect(() => runGlobalUpdate(target, {
+      execFileSyncImpl: makeExecFileSyncMock({
+        install: () => { installCalled = true; },
+      }),
+    })).toThrow('refusing non-exact npm version target');
+    expect(installCalled).toBe(false);
+  });
+
+  it('surfaces install timeout/nonzero failures without attempting readback', () => {
+    let readbackCalled = false;
+    const timedOut = Object.assign(new Error('install timed out'), { code: 'ETIMEDOUT' });
+    expect(() => runGlobalUpdate('4.0.3', {
+      execFileSyncImpl: makeExecFileSyncMock({
+        install: () => { throw timedOut; },
+        ls: () => {
+          readbackCalled = true;
+          return JSON.stringify({});
+        },
+      }),
+    })).toThrow('install timed out');
+    expect(readbackCalled).toBe(false);
   });
 
   it('fails when npm reports a different installed version after update', () => {

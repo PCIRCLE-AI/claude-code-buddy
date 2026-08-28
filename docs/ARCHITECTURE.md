@@ -1,6 +1,6 @@
 # MeMesh Plugin Architecture
 
-**Version**: 4.7.3
+**Version**: 4.8.0
 
 > Looking for "which file do I change for X?" — see [CODEMAP.md](../CODEMAP.md).
 
@@ -41,6 +41,7 @@ MeMesh separates concerns into two layers:
 - `types.ts` — shared TypeScript interfaces (zero external deps)
 - `operations.ts` — `remember`, `recall`, `forget`, `export`, `import` as pure functions called by all transports
 - `agent-messaging.ts` — transactional exact-recipient messages, opaque cursors, bounded waits, payload fetch, and independent receipt facts
+- `agent-router.ts` — owner-private local routing from a durable message event to an eligible active host adapter; native wakeups carry routing metadata, never the payload
 - `config.ts` — config management + capability detection (incl. `llmFallbacks` chain); exports `logCapabilities()` for startup logging
 - `paths.ts` — centralised filesystem path resolution (HOME-first override; shared with hooks via a build-generated copy in `scripts/hooks/_generated/`)
 - `scoring.ts` — multi-factor scoring engine: weights search relevance, recency, frequency, confidence, recall-impact; exports `rankEntities()` used by all recall paths
@@ -104,7 +105,9 @@ src/
 ├── knowledge-graph.ts     # Entity CRUD, relations, FTS5 search, findConflicts
 ├── index.ts               # Package exports
 ├── cli/
-│   └── view.ts            # HTML dashboard generator
+│   └── view-live.ts       # Legacy HTML dashboard generator
+├── host-adapters/         # Supported host-specific metadata-only wakeup adapters
+├── host-runtime/          # Private-router connection and managed host runtime
 ├── mcp/
 │   ├── server.ts          # MCP stdio server (logs capabilities on startup)
 │   └── tools.ts           # Re-export shim → transports/mcp/handlers.ts
@@ -230,7 +233,7 @@ The primary dashboard is now the packaged Preact single-page app served by `GET 
 | Graph | Interactive knowledge graph with **signal-first node loading**, **access_count node sizing**, and **Drift Mode** (recency coloring) |
 | Settings | LLM provider setup, capabilities, and language selection |
 
-The dashboard is a client of the ordinary HTTP API — no private endpoints — so the endpoint list lives in exactly one place: the route table in [API_REFERENCE.md](api/API_REFERENCE.md#http-rest-api), which `scripts/check-doc-claims.mjs` checks against `server.ts`'s registrations. A copy of it used to sit here and had already rotted: it named seven endpoints and missed `/v1/graph/evidence` and `/v1/projects`, both of which the dashboard calls. A second list nothing gates is a list that goes quietly wrong. When the packaged build is unavailable, the HTTP server falls back to the legacy `cli/view.ts` HTML generator for compatibility.
+The dashboard is a client of the ordinary HTTP API — no private endpoints — so the endpoint list lives in exactly one place: the route table in [API_REFERENCE.md](api/API_REFERENCE.md#http-rest-api), which `scripts/check-doc-claims.mjs` checks against `server.ts`'s registrations. A copy of it used to sit here and had already rotted: it named seven endpoints and missed `/v1/graph/evidence` and `/v1/projects`, both of which the dashboard calls. A second list nothing gates is a list that goes quietly wrong. When the packaged build is unavailable, the HTTP server falls back to the legacy `cli/view-live.ts` HTML generator for compatibility.
 
 **Graph data contract**: `/v1/graph` returns `{ entities, relations, noiseTypes }` — `noiseTypes` is the server-supplied list of high-volume / low-diagnostic types (`session_keypoint`, `commit`, etc.) the dashboard default-hides. Single source of truth lives in `src/core/analytics.ts NOISE_TYPES`.
 
@@ -252,6 +255,19 @@ Tool call: remember({name, type, observations, tags, relations})
   -> KnowledgeGraph.createRelation() for each relation
   -> Return {stored: true, entityId, ...}
 ```
+
+### Wake an eligible local message recipient (optional)
+
+```
+message send (MCP / HTTP / CLI)
+  -> durable exact-recipient message + notification event in SQLite
+  -> owner-private local agent router
+  -> eligible active supported host adapter (for example, configured Codex)
+  -> routing-metadata marker only
+  -> recipient explicitly fetches the durable payload with message fetch
+```
+
+This branch is optional and local-only: unavailable, stopped, disconnected, or unsupported sessions are not resumed or replaced. A host queue acceptance is a host receipt, not recipient acknowledgement or workflow disposition. See the [`message` API contract](api/API_REFERENCE.md#message) and the [Local Agent Messaging Guide](platforms/agent-messaging.md) for the lifecycle and supported-host limits.
 
 ### Search knowledge (recall)
 
