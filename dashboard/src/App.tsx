@@ -197,6 +197,9 @@ export function App() {
           {t('common.error')}: {error}
         </div>
       )}
+      {/* Demo cleanup is an available action rather than a competing notice,
+          so it stays outside the one-notice slot after seeding. */}
+      {(health?.demo_entity_count ?? 0) > 0 && <OnboardingBanner health={health} />}
       {/* The notice slot: one banner at a time. Each banner self-decides
           eligibility (ineligible = no DOM), and DOM order IS the priority —
           Doctor (broken install) > Onboarding (empty library) > Insights
@@ -206,7 +209,7 @@ export function App() {
           previously stack into a wall above the nav. */}
       <div class="notice-slot">
         <DoctorBanner />
-        <OnboardingBanner health={health} />
+        {(health?.demo_entity_count ?? 0) === 0 && <OnboardingBanner health={health} />}
         <InsightsBanner currentTab={tab} onNavigateToInsights={() => selectTab('Home')} />
       </div>
       <TabNav tabs={tabLabels} active={tab} onSelect={(k) => selectTab(k as Tab)} />
