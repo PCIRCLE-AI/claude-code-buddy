@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'preact/hooks';
+import { useState, useEffect, useRef } from 'preact/hooks';
 import {
   api,
   type ConfigData,
@@ -192,6 +192,15 @@ export function SettingsTab({ locale, onLocaleChange, onDirtyChange }: SettingsT
   const [indexMsg, setIndexMsg] = useState('');
   const [reindexStatus, setReindexStatus] = useState<ReindexStatusData | null>(null);
   const [reindexBusy, setReindexBusy] = useState(false);
+  const [outputLanguageDraft, setOutputLanguageDraft] = useState<string | null>(null);
+  const [outputLanguageStatus, setOutputLanguageStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [outputLanguageError, setOutputLanguageError] = useState('');
+  // Serialize language writes so a slower earlier POST can never land after a
+  // newer selection and silently become the server truth. Superseded jobs may
+  // finish, but the latest queued selection always writes last and is the only
+  // one allowed to update visible status.
+  const outputLanguageGeneration = useRef(0);
+  const outputLanguageQueue = useRef<Promise<void>>(Promise.resolve());
   const primaryLlmDirty =
     provider !== initialProvider ||
     !!apiKey ||
@@ -429,6 +438,49 @@ export function SettingsTab({ locale, onLocaleChange, onDirtyChange }: SettingsT
     } catch (e) {
       setMsg(t('common.error') + ': ' + actionFailureMessage(e));
     }
+  }
+
+  function saveOutputLanguage(language: string) {
+    const generation = ++outputLanguageGeneration.current;
+    setOutputLanguageDraft(language);
+    setOutputLanguageStatus('saving');
+    setOutputLanguageError('');
+
+    outputLanguageQueue.current = outputLanguageQueue.current
+      .catch(() => undefined)
+      .then(async () => {
+        // If this job was superseded before it started, skip its write. If it
+        // was superseded while in flight, let it settle before the newer job
+        // writes last; never let the stale job claim success or failure.
+        if (generation !== outputLanguageGeneration.current) return;
+        try {
+          await api('POST', '/v1/config', { language });
+          if (generation !== outputLanguageGeneration.current) return;
+
+          const readback = await api<ConfigData>('GET', '/v1/config');
+          if (generation !== outputLanguageGeneration.current) return;
+          if (!isConfigRenderable(readback) || readback.config.language !== language) {
+            throw new Error(t('settings.outputLanguageReadbackFailed'));
+          }
+
+          setConfig(readback);
+          setOutputLanguageDraft(null);
+          setOutputLanguageStatus('saved');
+        } catch (e) {
+          if (generation !== outputLanguageGeneration.current) return;
+          setOutputLanguageStatus('error');
+          setOutputLanguageError(actionFailureMessage(e));
+        }
+      });
+  }
+
+  function changeInterfaceLanguage(nextLocale: Locale) {
+    // Interface locale is browser-local and immediate. Generated-content
+    // language is a separate server setting with its own confirmed state.
+    setLocale(nextLocale);
+    onLocaleChange(nextLocale);
+    const displayName = getLocales().find((candidate) => candidate.code === nextLocale)?.name;
+    if (displayName) saveOutputLanguage(displayName);
   }
 
   async function saveIndexProvider() {
@@ -1330,34 +1382,61 @@ export function SettingsTab({ locale, onLocaleChange, onDirtyChange }: SettingsT
       {/* Language */}
       <div class="card">
         <div class="card-title">{t('settings.language')}</div>
-        <select
-          aria-label={t('settings.language')}
-          value={locale}
-          onChange={(e) => {
-            const nextLocale = (e.target as HTMLSelectElement).value as Locale;
-            setLocale(nextLocale);
-            onLocaleChange(nextLocale);
-            // Server-side counterpart: config.language decides what language
-            // the LLM writes generated CONTENT in (dreamer digests, patterns,
-            // lessons), which the client-side locale cannot reach. Post the
-            // locale's display name ('繁體中文', 'Deutsch', …) — it lands
-            // inside a prompt, and a native language name is unambiguous
-            // where a bare code like 'th' is not. Non-blocking: the UI
-            // language changed either way, and the next visit to Settings
-            // shows the truth.
-            const displayName = getLocales().find((l) => l.code === nextLocale)?.name;
-            if (displayName) {
-              void api('POST', '/v1/config', { language: displayName }).catch(() => {
-                /* offline / auth lapse — UI locale still applied; not worth blocking */
-              });
-            }
-          }}
-          style={{ fontSize: 13, padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text-1)', cursor: 'pointer' }}
-        >
-          {getLocales().map((l) => (
-            <option key={l.code} value={l.code}>{l.name}</option>
-          ))}
-        </select>
+        <div style={{ display: 'grid', gap: 12 }}>
+          <div>
+            <label id="settings-interface-language-label" style={{ fontSize: 12, color: 'var(--text-2)', display: 'block', marginBottom: 4 }}>
+              {t('settings.interfaceLanguage')}
+            </label>
+            <select
+              aria-labelledby="settings-interface-language-label"
+              value={locale}
+              onChange={(e) => changeInterfaceLanguage((e.target as HTMLSelectElement).value as Locale)}
+              style={{ fontSize: 13, padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text-1)', cursor: 'pointer' }}
+            >
+              {getLocales().map((l) => (
+                <option key={l.code} value={l.code}>{l.name}</option>
+              ))}
+            </select>
+            <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>
+              {t('settings.interfaceLanguageHint')}
+            </div>
+          </div>
+
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 12 }}>
+              <span style={{ color: 'var(--text-2)' }}>{t('settings.outputLanguage')}</span>
+              <strong data-testid="confirmed-output-language" style={{ color: 'var(--text-0)' }}>
+                {config?.config.language || t('settings.outputLanguageNotConfigured')}
+              </strong>
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>
+              {t('settings.outputLanguageHint')}
+            </div>
+
+            {outputLanguageStatus === 'saving' && outputLanguageDraft && (
+              <div role="status" style={{ color: 'var(--text-2)', fontSize: 12, marginTop: 8 }}>
+                {t('settings.outputLanguageSaving', { language: outputLanguageDraft })}
+              </div>
+            )}
+            {outputLanguageStatus === 'saved' && (
+              <div role="status" style={{ color: 'var(--success)', fontSize: 12, marginTop: 8 }}>
+                {t('settings.outputLanguageSaved', { language: config?.config.language || '' })}
+              </div>
+            )}
+            {outputLanguageStatus === 'error' && outputLanguageDraft && (
+              <div role="alert" style={{ color: 'var(--danger)', fontSize: 12, lineHeight: 1.5, marginTop: 8 }}>
+                <div>{t('settings.outputLanguageFailed', { language: outputLanguageDraft, message: outputLanguageError })}</div>
+                <button
+                  type="button"
+                  onClick={() => saveOutputLanguage(outputLanguageDraft)}
+                  style={{ marginTop: 6, padding: '5px 9px', fontSize: 12 }}
+                >
+                  {t('settings.retryOutputLanguage')}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
