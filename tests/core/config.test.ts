@@ -319,6 +319,57 @@ describe('Config: a corrupt config file is traced, not silently ignored', () => 
   });
 });
 
+describe('Config: primary LLM provider changes do not inherit credentials', () => {
+  let dir: string;
+  let savedMemeshDir: string | undefined;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-cfg-provider-switch-'));
+    savedMemeshDir = process.env.MEMESH_DIR;
+    process.env.MEMESH_DIR = dir;
+  });
+
+  afterEach(() => {
+    if (savedMemeshDir === undefined) delete process.env.MEMESH_DIR;
+    else process.env.MEMESH_DIR = savedMemeshDir;
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  });
+
+  it('drops the previous provider key when the provider changes', () => {
+    writeConfig({ llm: { provider: 'openai', model: 'gpt-5.4-nano', apiKey: 'fixture-openai-key' } });
+
+    const updated = updateConfig({ llm: { provider: 'ollama', model: 'llama3.2' } });
+
+    expect(updated.llm).toEqual({ provider: 'ollama', model: 'llama3.2' });
+    expect(readConfig().llm).toEqual({ provider: 'ollama', model: 'llama3.2' });
+  });
+
+  it('keeps the stored key for a model-only edit on the same provider', () => {
+    writeConfig({ llm: { provider: 'openai', model: 'gpt-4.1', apiKey: 'fixture-openai-key' } });
+
+    const updated = updateConfig({ llm: { provider: 'openai', model: 'gpt-5.4-nano' } });
+
+    expect(updated.llm).toEqual({
+      provider: 'openai',
+      model: 'gpt-5.4-nano',
+      apiKey: 'fixture-openai-key',
+    });
+  });
+
+  it('removes an explicitly cleared search-index provider', () => {
+    writeConfig({
+      llm: { provider: 'ollama', model: 'llama3.2' },
+      embedder: { provider: 'ollama' },
+    });
+
+    const updated = updateConfig({ llm: null, embedder: null });
+
+    expect(updated.llm).toBeUndefined();
+    expect(updated.embedder).toBeUndefined();
+    expect(readConfig()).not.toHaveProperty('embedder');
+  });
+});
+
 // ── #36: embedder/llm decoupling ──────────────────────────────────────────────
 
 describe('Config: embedder.provider decoupled from llm.provider (#36)', () => {

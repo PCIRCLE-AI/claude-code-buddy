@@ -889,9 +889,10 @@ const ConfigBody = z.object({
     // ever saw it. Resolved and then stripped there — never persisted.
     keepKeyFrom: z.number().int().nonnegative().nullable().optional(),
   })).optional(),
-  embedder: z.object({
-    provider: z.enum(['openai', 'ollama']),
-  }).optional(),
+  embedder: z.union([
+    z.object({ provider: z.enum(['openai', 'ollama']) }),
+    z.null(),
+  ]).optional(),
   autoCapture: z.boolean().optional(),
   sessionLimit: z.number().int().min(1).max(100).optional(),
   // Auto-update policy for the session-start hook. Mirrors
@@ -932,7 +933,7 @@ app.post('/v1/config', (req, res) => handlePost(ConfigBody, req, res, (data) => 
   // Acceptable for the single-user MeMesh dashboard; revisit if the HTTP API
   // ever serves multi-tenant config writes.
   const before = readConfig();
-  if (data.embedder && reindexJob?.state === 'running') {
+  if (data.embedder !== undefined && reindexJob?.state === 'running') {
     throw new Error('The search index is being rebuilt. Wait for it to finish before changing the embedding provider.');
   }
   // Backstop the PRIMARY llm key the same way as the fallbacks: a posted-back

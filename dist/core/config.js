@@ -62,16 +62,22 @@ export function updateConfig(partial) {
     const { config: existing, state } = readConfigResult();
     if (state === 'unreadable')
         throw new ConfigUnreadableError(configFilePath());
-    const { llm: partialLlm, ...partialRest } = partial;
+    const { llm: partialLlm, embedder: partialEmbedder, ...partialRest } = partial;
     const config = { ...existing, ...partialRest };
     if (partialLlm === null) {
         delete config.llm;
     }
-    else if (partialLlm && existing.llm) {
+    else if (partialLlm && existing.llm?.provider === partialLlm.provider) {
         config.llm = { ...existing.llm, ...partialLlm };
     }
     else if (partialLlm) {
         config.llm = partialLlm;
+    }
+    if (partialEmbedder === null) {
+        delete config.embedder;
+    }
+    else if (partialEmbedder) {
+        config.embedder = partialEmbedder;
     }
     writeConfig(config);
     return config;

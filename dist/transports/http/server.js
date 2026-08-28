@@ -439,9 +439,10 @@ const ConfigBody = z.object({
         apiKey: z.string().optional(),
         keepKeyFrom: z.number().int().nonnegative().nullable().optional(),
     })).optional(),
-    embedder: z.object({
-        provider: z.enum(['openai', 'ollama']),
-    }).optional(),
+    embedder: z.union([
+        z.object({ provider: z.enum(['openai', 'ollama']) }),
+        z.null(),
+    ]).optional(),
     autoCapture: z.boolean().optional(),
     sessionLimit: z.number().int().min(1).max(100).optional(),
     autoUpdate: z.enum(['off', 'patch', 'minor', 'major']).optional(),
@@ -454,7 +455,7 @@ const ConfigBody = z.object({
 }).strict();
 app.post('/v1/config', (req, res) => handlePost(ConfigBody, req, res, (data) => {
     const before = readConfig();
-    if (data.embedder && reindexJob?.state === 'running') {
+    if (data.embedder !== undefined && reindexJob?.state === 'running') {
         throw new Error('The search index is being rebuilt. Wait for it to finish before changing the embedding provider.');
     }
     if (data.llm && data.llm.apiKey === API_KEY_MASK) {

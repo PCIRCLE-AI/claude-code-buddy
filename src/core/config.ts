@@ -241,7 +241,10 @@ export class ConfigUnreadableError extends Error {
 }
 
 export function updateConfig(
-  partial: Omit<Partial<MeMeshConfig>, 'llm'> & { llm?: LLMConfig | null },
+  partial: Omit<Partial<MeMeshConfig>, 'llm' | 'embedder'> & {
+    llm?: LLMConfig | null;
+    embedder?: EmbedderConfig | null;
+  },
 ): MeMeshConfig {
   // Read-modify-write, so it must use the tri-state read. `readConfig()`
   // collapses "no config" and "config could not be read" into `{}`, and this
@@ -261,15 +264,22 @@ export function updateConfig(
   // + model so memesh falls back to either env-var auto-detect or no LLM.
   // Build the new config explicitly so the Partial<...> & null union doesn't
   // leak into the MeMeshConfig output type.
-  const { llm: partialLlm, ...partialRest } = partial;
+  const { llm: partialLlm, embedder: partialEmbedder, ...partialRest } = partial;
   const config: MeMeshConfig = { ...existing, ...partialRest };
   if (partialLlm === null) {
     delete config.llm;
-  } else if (partialLlm && existing.llm) {
-    // Deep-merge llm object to preserve apiKey when only provider/model change
+  } else if (partialLlm && existing.llm?.provider === partialLlm.provider) {
+    // Preserve a stored key only while editing the same provider. Carrying a
+    // cloud key across provider changes silently retains credentials for the
+    // provider that the user replaced.
     config.llm = { ...existing.llm, ...partialLlm };
   } else if (partialLlm) {
     config.llm = partialLlm;
+  }
+  if (partialEmbedder === null) {
+    delete config.embedder;
+  } else if (partialEmbedder) {
+    config.embedder = partialEmbedder;
   }
   writeConfig(config);
   return config;

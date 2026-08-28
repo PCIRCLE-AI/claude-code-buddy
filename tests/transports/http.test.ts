@@ -405,6 +405,24 @@ describe('HTTP Transport: POST /v1/config', () => {
     await req('POST', '/v1/config', { llm: null });
   });
 
+  it('can explicitly remove matching Ollama LLM and search-index settings together', async () => {
+    const saved = await req('POST', '/v1/config', {
+      llm: { provider: 'ollama', model: 'llama3.2' },
+      embedder: { provider: 'ollama' },
+    });
+    expect(saved.status).toBe(200);
+
+    const removed = await req('POST', '/v1/config', { llm: null, embedder: null });
+    expect(removed.status).toBe(200);
+    expect(removed.body.data.llm).toBeUndefined();
+    expect(removed.body.data.embedder).toBeUndefined();
+
+    const check = await req('GET', '/v1/config');
+    expect(check.body.data.config.llm).toBeUndefined();
+    expect(check.body.data.config.embedder).toBeUndefined();
+    expect(check.body.data.capabilities.embeddings).toBe('tfidf');
+  });
+
   it('rejects an unsupported embedder provider instead of silently writing nothing', async () => {
     const before = await req('GET', '/v1/config');
     const res = await req('POST', '/v1/config', {

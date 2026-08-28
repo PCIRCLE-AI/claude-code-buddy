@@ -71,6 +71,12 @@ function initialTab(): Tab {
 export function App() {
   const [locale, setLocale] = useState<Locale>(() => initLocale());
   const [tab, setTab] = useState<Tab>(initialTab);
+  const [settingsDirty, setSettingsDirty] = useState(false);
+  const selectTab = useCallback((next: Tab) => {
+    if (tab === 'Settings' && next !== 'Settings' && settingsDirty
+      && !confirm(t('settings.unsavedConfirm'))) return;
+    setTab(next);
+  }, [settingsDirty, tab]);
   // Tabs that have been activated at least once. Memories and Project each
   // fetch /v1/entities?limit=2000 fully hydrated plus /v1/projects on
   // mount — they keep their component state across tab switches
@@ -188,9 +194,9 @@ export function App() {
       <div class="notice-slot">
         <DoctorBanner />
         <OnboardingBanner health={health} />
-        <InsightsBanner currentTab={tab} onNavigateToInsights={() => setTab('Home')} />
+        <InsightsBanner currentTab={tab} onNavigateToInsights={() => selectTab('Home')} />
       </div>
-      <TabNav tabs={tabLabels} active={tab} onSelect={(k) => setTab(k as Tab)} />
+      <TabNav tabs={tabLabels} active={tab} onSelect={(k) => selectTab(k as Tab)} />
       {/* Each panel is the tabpanel for its TabNav tab: id + role +
           aria-labelledby wire the roving-tablist relationship (see TabNav). */}
       <div class="main">
@@ -199,7 +205,7 @@ export function App() {
         <div id="panel-Project" role="tabpanel" aria-labelledby="tab-Project" class={`panel ${tab === 'Project' ? 'active' : ''}`}>{keepMounted('Project') && <ProjectTab health={health} />}</div>
         <div id="panel-Graph" role="tabpanel" aria-labelledby="tab-Graph" class={`panel ${tab === 'Graph' ? 'active' : ''}`}>{tab === 'Graph' && <GraphTab />}</div>
         <div id="panel-Settings" role="tabpanel" aria-labelledby="tab-Settings" class={`panel ${tab === 'Settings' ? 'active' : ''}`}>
-          {tab === 'Settings' && <SettingsTab locale={locale} onLocaleChange={setLocale} />}
+          {tab === 'Settings' && <SettingsTab locale={locale} onLocaleChange={setLocale} onDirtyChange={setSettingsDirty} />}
         </div>
       </div>
       <FeedbackWidget health={health} />

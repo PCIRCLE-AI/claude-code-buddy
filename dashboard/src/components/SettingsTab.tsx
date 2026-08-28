@@ -14,6 +14,7 @@ import { actionFailureMessage } from '../lib/failure';
 interface SettingsTabProps {
   locale: Locale;
   onLocaleChange: (locale: Locale) => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 type FallbackProvider = 'anthropic' | 'openai' | 'ollama';
@@ -158,7 +159,7 @@ function getInstallChannelGuidance(channel: UpdateStatusData['installChannel'] |
   }
 }
 
-export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
+export function SettingsTab({ locale, onLocaleChange, onDirtyChange }: SettingsTabProps) {
   const [config, setConfig] = useState<ConfigData | null>(null);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatusData | null>(null);
   const [provider, setProvider] = useState('');
@@ -191,6 +192,21 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
   const [indexMsg, setIndexMsg] = useState('');
   const [reindexStatus, setReindexStatus] = useState<ReindexStatusData | null>(null);
   const [reindexBusy, setReindexBusy] = useState(false);
+  const primaryLlmDirty =
+    provider !== initialProvider ||
+    !!apiKey ||
+    model !== initialModel;
+
+  useEffect(() => {
+    onDirtyChange?.(primaryLlmDirty);
+    if (!primaryLlmDirty) return;
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warnBeforeUnload);
+    return () => window.removeEventListener('beforeunload', warnBeforeUnload);
+  }, [primaryLlmDirty, onDirtyChange]);
 
   async function loadUpdateStatus(forceFresh = true, keepCurrentState = false) {
     if (keepCurrentState) {
@@ -332,15 +348,18 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
       if (model) llm.model = model;
       if (apiKey) llm.apiKey = apiKey;
       await api('POST', '/v1/config', { llm });
-      setMsg(t('settings.saved'));
-      // If the user just submitted a new apiKey for this provider, the
-      // server now has it on disk — reflect that in the gate state so
-      // the Remove button appears immediately without a page reload.
-      if (apiKey) setInitialHasApiKey(true);
+      const readback = await api<ConfigData>('GET', '/v1/config');
+      const saved = isConfigRenderable(readback) ? readback.config.llm : undefined;
+      if (!saved || saved.provider !== provider || (model && saved.model !== model) || (apiKey && !saved.apiKey)) {
+        throw new Error(t('settings.configReadbackFailed'));
+      }
+      setConfig(readback);
+      setInitialProvider(saved.provider);
+      setInitialModel(saved.model ?? '');
+      setInitialHasApiKey(!!saved.apiKey);
       setApiKey('');
       setTestResult(null);
-      setInitialProvider(provider);
-      setInitialModel(model);
+      setMsg(t('settings.saved'));
     } catch (e) {
       setMsg(t('common.error') + ': ' + actionFailureMessage(e));
     } finally {
@@ -353,11 +372,23 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
   // > ollama). If no env credential is present either, memesh runs in Core
   // Mode (FTS5 keyword search, no LLM-backed features).
   async function removeProvider() {
-    if (!confirm(t('settings.removeProviderConfirm'))) return;
+    const removeMatchingOllamaIndex = initialProvider === 'ollama' && savedIndexProvider === 'ollama';
+    if (!confirm(t(removeMatchingOllamaIndex
+      ? 'settings.removeMatchingProvidersConfirm'
+      : 'settings.removeProviderConfirm'))) return;
     setSaving(true);
     setMsg('');
     try {
-      await api('POST', '/v1/config', { llm: null });
+      await api('POST', '/v1/config', removeMatchingOllamaIndex
+        ? { llm: null, embedder: null }
+        : { llm: null });
+      const readback = await api<ConfigData>('GET', '/v1/config');
+      if (!isConfigRenderable(readback)
+        || readback.config.llm
+        || (removeMatchingOllamaIndex && readback.config.embedder)) {
+        throw new Error(t('settings.configReadbackFailed'));
+      }
+      setConfig(readback);
       setProvider('');
       setModel('');
       setApiKey('');
@@ -365,6 +396,12 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
       setInitialModel('');
       setInitialHasApiKey(false);
       setTestResult(null);
+      if (removeMatchingOllamaIndex) {
+        setIndexProvider('');
+        setSavedIndexProvider('');
+        setReindexStatus(null);
+        setIndexMsg('');
+      }
       setMsg(t('settings.providerRemoved'));
     } catch (e) {
       setMsg(t('common.error') + ': ' + actionFailureMessage(e));
@@ -864,6 +901,12 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
             </div>
           )}
 
+          {primaryLlmDirty && (
+            <div role="status" style={{ marginBottom: 12, fontSize: 12, color: 'var(--warning)' }}>
+              {t('settings.unsaved')}
+            </div>
+          )}
+
           {testResult?.valid && testResult.models && testResult.models.length > 0 && (
             <div style={{ marginBottom: 14 }}>
               <label style={{ fontSize: 12, color: 'var(--text-2)', display: 'block', marginBottom: 4 }}>
@@ -894,23 +937,18 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
               Untouched form (e.g. user opened Settings just to glance) does
               not require a fresh Test before Save. */}
           {(() => {
-            const dirty =
-              provider !== initialProvider ||
-              !!apiKey ||
-              model !== initialModel;
-            const needsTest = dirty && !testResult?.valid;
+            const needsTest = primaryLlmDirty && !testResult?.valid;
             const saveDisabled = !provider || saving || needsTest;
             return (
               <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
                 <button class="btn btn-primary" type="submit" disabled={saveDisabled}>
                   {saving ? t('settings.saving') : t('settings.save')}
                 </button>
-                {/* F17: Show Remove button only when a credential exists
-                    on disk. Per the destructive-action UX pattern, hide it
-                    when there's nothing concrete to remove. Ollama is keyless
-                    so it doesn't show this button — users switch ollama by
-                    picking a different provider radio, not by "removing". */}
-                {initialHasApiKey && (
+                {/* A persisted provider is concrete state even when it is a
+                    keyless Ollama install. Let users remove that state; when
+                    the search index points at the same Ollama, the button and
+                    confirmation explicitly name the combined removal. */}
+                {initialProvider && (
                   <button
                     type="button"
                     class="btn"
@@ -923,7 +961,9 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
                     }}
                     title={t('settings.removeProviderHint')}
                   >
-                    {t('settings.removeProvider')}
+                    {t(initialProvider === 'ollama' && savedIndexProvider === 'ollama'
+                      ? 'settings.removeMatchingProviders'
+                      : 'settings.removeProvider')}
                   </button>
                 )}
                 {needsTest && (
