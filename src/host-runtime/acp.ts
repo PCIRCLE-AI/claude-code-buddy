@@ -114,19 +114,24 @@ export function createAcpSessionUpdateSink(configuredPath: unknown): AcpSessionU
     throw new Error('The session update parent must be a real owner-private directory.');
   }
 
-  const beforeOpen = fs.lstatSync(outputPath, { throwIfNoEntry: false });
-  if (beforeOpen) assertSafeOutputFile(beforeOpen);
   if (typeof fs.constants.O_NOFOLLOW !== 'number') {
     throw new Error('This platform cannot safely reject a symlink session update file.');
   }
 
   let descriptor: number | undefined;
   try {
-    descriptor = fs.openSync(
-      outputPath,
-      fs.constants.O_APPEND | fs.constants.O_CREAT | fs.constants.O_RDWR | fs.constants.O_NOFOLLOW,
-      0o600,
-    );
+    try {
+      descriptor = fs.openSync(
+        outputPath,
+        fs.constants.O_APPEND | fs.constants.O_CREAT | fs.constants.O_RDWR | fs.constants.O_NOFOLLOW,
+        0o600,
+      );
+    } catch (error) {
+      if (isFileSystemError(error, 'ELOOP')) {
+        throw new Error('The session update file must be a real owner-private regular file.', { cause: error });
+      }
+      throw error;
+    }
     const opened = fs.fstatSync(descriptor);
     assertSafeOutputFile(opened);
     const linked = fs.lstatSync(outputPath);
@@ -161,6 +166,10 @@ export function createAcpSessionUpdateSink(configuredPath: unknown): AcpSessionU
     if (descriptor !== undefined) fs.closeSync(descriptor);
     throw error;
   }
+}
+
+function isFileSystemError(error: unknown, code: string): error is NodeJS.ErrnoException {
+  return error instanceof Error && 'code' in error && error.code === code;
 }
 
 function assertSafeOutputFile(stat: fs.Stats): void {

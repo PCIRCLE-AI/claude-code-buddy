@@ -32,15 +32,20 @@ export function createAcpSessionUpdateSink(configuredPath) {
     if (parentStat.isSymbolicLink() || !parentStat.isDirectory()) {
         throw new Error('The session update parent must be a real owner-private directory.');
     }
-    const beforeOpen = fs.lstatSync(outputPath, { throwIfNoEntry: false });
-    if (beforeOpen)
-        assertSafeOutputFile(beforeOpen);
     if (typeof fs.constants.O_NOFOLLOW !== 'number') {
         throw new Error('This platform cannot safely reject a symlink session update file.');
     }
     let descriptor;
     try {
-        descriptor = fs.openSync(outputPath, fs.constants.O_APPEND | fs.constants.O_CREAT | fs.constants.O_RDWR | fs.constants.O_NOFOLLOW, 0o600);
+        try {
+            descriptor = fs.openSync(outputPath, fs.constants.O_APPEND | fs.constants.O_CREAT | fs.constants.O_RDWR | fs.constants.O_NOFOLLOW, 0o600);
+        }
+        catch (error) {
+            if (isFileSystemError(error, 'ELOOP')) {
+                throw new Error('The session update file must be a real owner-private regular file.', { cause: error });
+            }
+            throw error;
+        }
         const opened = fs.fstatSync(descriptor);
         assertSafeOutputFile(opened);
         const linked = fs.lstatSync(outputPath);
@@ -78,6 +83,9 @@ export function createAcpSessionUpdateSink(configuredPath) {
             fs.closeSync(descriptor);
         throw error;
     }
+}
+function isFileSystemError(error, code) {
+    return error instanceof Error && 'code' in error && error.code === code;
 }
 function assertSafeOutputFile(stat) {
     if (stat.isSymbolicLink() || !stat.isFile()) {

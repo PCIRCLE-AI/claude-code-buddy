@@ -437,7 +437,7 @@ export class AgentRouter {
     async dispatchDelivery(deliveryId, project, hops, preferred) {
         const inFlight = this.inFlightDeliveries.get(deliveryId);
         if (inFlight)
-            return inFlight;
+            return await inFlight;
         const operation = this.dispatchDeliveryOnce(deliveryId, project, hops, preferred);
         this.inFlightDeliveries.set(deliveryId, operation);
         try {

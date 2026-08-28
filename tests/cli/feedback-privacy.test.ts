@@ -21,6 +21,7 @@ import { execFileSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { createHostConfigAtomically, feedbackBrowserOpenCommand } from '../../src/transports/cli/cli.js';
 
 const CLI_PATH = path.join(__dirname, '..', '..', 'dist', 'transports', 'cli', 'cli.js');
 
@@ -60,6 +61,27 @@ afterEach(() => {
 });
 
 describe('CLI: feedback does not publish the account name', () => {
+  it('creates host configuration atomically without overwriting an existing file', () => {
+    const configPath = path.join(home, 'hosts', 'codex.json');
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    const original = { project: 'first-project', principal_id: 'first-principal' };
+
+    createHostConfigAtomically('codex', configPath, original);
+    expect(JSON.parse(fs.readFileSync(configPath, 'utf8'))).toEqual(original);
+
+    expect(() => createHostConfigAtomically('codex', configPath, { project: 'replacement' }))
+      .toThrow(`Managed codex config already exists at ${configPath}; it was not overwritten.`);
+    expect(JSON.parse(fs.readFileSync(configPath, 'utf8'))).toEqual(original);
+  });
+
+  it('uses a direct platform opener with the issue URL as one argv value', () => {
+    const url = 'https://github.com/PCIRCLE-AI/memesh/issues/new?title=%5BBug%5D%20&body=one%26two';
+
+    expect(feedbackBrowserOpenCommand('darwin', url)).toEqual({ command: 'open', args: [url] });
+    expect(feedbackBrowserOpenCommand('linux', url)).toEqual({ command: 'xdg-open', args: [url] });
+    expect(feedbackBrowserOpenCommand('win32', url)).toEqual({ command: 'explorer.exe', args: [url] });
+  });
+
   it('replaces the home directory with ~ in the issue body', () => {
     const r = runCli(['feedback', '--no-open']);
     expect(r.exitCode).toBe(0);
