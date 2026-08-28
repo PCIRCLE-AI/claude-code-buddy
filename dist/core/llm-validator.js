@@ -1,5 +1,6 @@
 import { callLLM } from './llm-client.js';
 import { redactSecrets } from './paths.js';
+import { sanitizeForPrompt } from './prompt-safety.js';
 class ProbeError extends Error {
     errorCode;
     constructor(message, errorCode) {
@@ -224,7 +225,7 @@ export async function probeProvider(provider, apiKey, host, model) {
         };
     }
     try {
-        const response = await callLLM('Reply with exactly: OK', {
+        const response = await callLLM(sanitizeForPrompt('Reply with exactly: OK'), {
             provider,
             model: testedModel,
             ...(apiKey ? { apiKey } : {}),

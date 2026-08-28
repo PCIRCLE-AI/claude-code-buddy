@@ -12,6 +12,7 @@
 
 import { callLLM } from './llm-client.js';
 import { redactSecrets } from './paths.js';
+import { sanitizeForPrompt } from './prompt-safety.js';
 
 export interface ModelInfo {
   id: string;
@@ -331,7 +332,7 @@ export async function probeProvider(
   }
 
   try {
-    const response = await callLLM('Reply with exactly: OK', {
+    const response = await callLLM(sanitizeForPrompt('Reply with exactly: OK'), {
       provider,
       model: testedModel,
       ...(apiKey ? { apiKey } : {}),
