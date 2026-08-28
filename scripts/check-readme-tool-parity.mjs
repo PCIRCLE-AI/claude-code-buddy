@@ -29,18 +29,24 @@ for (const tool of tools) {
   if (!tool.description) errors.push(`canonical MCP tool ${tool.name} has an empty description`);
 }
 
-const contractDigest = createHash('sha256').update(contract).digest('hex');
+const semanticContract = contract
+  .replace(/^\s*\/\/[^\n]*$/gm, '')
+  .replace(/\s+/g, ' ')
+  .trim();
+const contractDigest = createHash('sha256').update(semanticContract).digest('hex');
 const lock = JSON.parse(read('scripts/mcp-doc-contract.json'));
-const surfaceDigest = (surface) => createHash('sha256').update(surface.trim()).digest('hex');
+const surfaceDigest = (surface) => createHash('sha256')
+  .update(`${contractDigest}\0${surface.trim()}`)
+  .digest('hex');
 const checkedSurfaces = new Set();
-if (lock.schema_version !== 'mcp-doc-contract/v1') errors.push('scripts/mcp-doc-contract.json: unsupported schema_version');
+if (lock.schema_version !== 'mcp-doc-contract/v2') errors.push('scripts/mcp-doc-contract.json: unsupported schema_version');
 if (lock.source_sha256 !== contractDigest) {
   errors.push('scripts/mcp-doc-contract.json: canonical MCP source digest is stale; review every documented tool description');
 }
 const checkLockedSurface = (file, surface) => {
   checkedSurfaces.add(file);
   if (lock.surfaces?.[file] !== surfaceDigest(surface)) {
-    errors.push(`${file}: certified MCP documentation surface is stale; review its tool names and descriptions, then update scripts/mcp-doc-contract.json`);
+    errors.push(`${file}: certified MCP documentation surface is stale for the current source contract; review its tool names and descriptions, then recertify scripts/mcp-doc-contract.json`);
   }
 };
 const tableDocs = [

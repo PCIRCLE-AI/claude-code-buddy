@@ -69,11 +69,23 @@ function fixture(): string {
       : path.basename(file);
     return `| \`${source}\` | event | purpose |`;
   });
+  const architectureHookRows = hookFiles.map(file => `| ${path.basename(file)} | event | purpose |`);
+  const architectureEntryRows = Object.entries(bins).map(([name, target]) => {
+    const source = target.replace(/^dist\//, 'src/').replace(/\.js$/, '.ts');
+    return `| \`${name}\` | \`${source}\` |`;
+  });
   write(root, 'CODEMAP.md', [
     '# CODEMAP', '', '**Version**: 4.8.1', '',
     '## Start here (entry points)', '', '| You run… | Entry point |', '|---|---|', ...entryRows, '', '---', '',
     '### Durable local agent messaging', ...messaging.map(file => `- \`${file}\``), '',
     '### Hook commands (`hooks/hooks.json`)', '', '| Command | Fires on | Does |', '|---|---|---|', ...hookRows, '', '---',
+  ].join('\n'));
+  write(root, 'docs/ARCHITECTURE.md', [
+    '# Architecture', '',
+    '## Package Entry Points', '', '| Executable | Source entry point |', '|---|---|', ...architectureEntryRows, '', '---', '',
+    'Implementation anchors:', ...messaging.map(file => `- \`${file}\``), '',
+    '### Hook Commands (8 hooks)', '', '| Hook | Event | Purpose |', '|---|---|---|', ...architectureHookRows, '',
+    '### Next',
   ].join('\n'));
   return root;
 }
@@ -98,6 +110,19 @@ describe('CODEMAP pre-release parity gate', () => {
   ])('rejects %s drift', (_label, mutate, expected) => {
     const root = fixture();
     const file = path.join(root, 'CODEMAP.md');
+    fs.writeFileSync(file, mutate(fs.readFileSync(file, 'utf8')));
+    const result = run(root);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain(expected);
+  });
+
+  it.each([
+    ['package bin', (text: string) => text.replace(/^\| `memesh-router`.*\n/m, ''), 'package entry points omit memesh-router'],
+    ['hook', (text: string) => text.replace(/^\| guard-check\.js.*\n/m, ''), 'hook table omits guard-check.js'],
+    ['messaging', (text: string) => text.replace(/^- `src\/core\/agent-router\.ts`\n/m, ''), 'omits messaging architecture anchor src/core/agent-router.ts'],
+  ])('rejects ARCHITECTURE %s drift', (_label, mutate, expected) => {
+    const root = fixture();
+    const file = path.join(root, 'docs/ARCHITECTURE.md');
     fs.writeFileSync(file, mutate(fs.readFileSync(file, 'utf8')));
     const result = run(root);
     expect(result.status).not.toBe(0);

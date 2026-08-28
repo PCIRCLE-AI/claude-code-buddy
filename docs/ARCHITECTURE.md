@@ -33,6 +33,21 @@ This repository is the standalone local package. Hosted workspace and enterprise
                      SQLite (FTS5 + sqlite-vec)
 ```
 
+## Package Entry Points
+
+| Executable | Source entry point |
+|---|---|
+| `memesh` | `src/transports/cli/cli.ts` |
+| `memesh-mcp` | `src/mcp/server.ts` |
+| `memesh-http` | `src/transports/http/server.ts` |
+| `memesh-router` | `src/host-runtime/router.ts` |
+| `memesh-host-claude` | `src/host-runtime/claude.ts` |
+| `memesh-host-codex` | `src/host-runtime/codex.ts` |
+| `memesh-host-codex-session` | `src/host-runtime/codex-session.ts` |
+| `memesh-host-acp` | `src/host-runtime/acp.ts` |
+
+---
+
 ## Core/Transport Architecture
 
 MeMesh separates concerns into two layers:
@@ -268,6 +283,10 @@ message send (MCP / HTTP / CLI)
   -> routing-metadata marker only
   -> recipient explicitly fetches the durable payload with message fetch
 ```
+
+Implementation anchors: `src/core/agent-messaging.ts`, `src/core/agent-router.ts`,
+`src/transports/agent-messaging.ts`, `src/host-adapters/`, `src/host-runtime/`, and
+`docs/platforms/agent-messaging.md`.
 
 This branch is optional and local-only: unavailable, stopped, disconnected, or unsupported sessions are not resumed or replaced. A host queue acceptance is a host receipt, not recipient acknowledgement or workflow disposition. See the [`message` API contract](api/API_REFERENCE.md#message) and the [Local Agent Messaging Guide](platforms/agent-messaging.md) for the lifecycle and supported-host limits.
 

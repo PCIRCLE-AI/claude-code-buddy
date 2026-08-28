@@ -13,6 +13,7 @@ const errors = [];
 
 const pkg = JSON.parse(read('package.json'));
 const codemap = read('CODEMAP.md');
+const architecture = read('docs/ARCHITECTURE.md');
 const hooks = JSON.parse(read('hooks/hooks.json'));
 
 const version = codemap.match(/\*\*Version\*\*:\s*([0-9]+\.[0-9]+\.[0-9]+)/)?.[1];
@@ -21,6 +22,8 @@ else if (version !== pkg.version) errors.push(`CODEMAP.md says ${version}, packa
 
 const entrySection = codemap.match(/## Start here \(entry points\)([\s\S]*?)\n---/m)?.[1] ?? '';
 if (!entrySection) errors.push('CODEMAP.md has no bounded `Start here (entry points)` section');
+const architectureEntries = architecture.match(/## Package Entry Points([\s\S]*?)\n---/m)?.[1] ?? '';
+if (!architectureEntries) errors.push('docs/ARCHITECTURE.md has no bounded `Package Entry Points` section');
 
 const bins = Object.entries(pkg.bin ?? {});
 if (bins.length === 0) errors.push('package.json yielded no bin entry points');
@@ -32,6 +35,9 @@ for (const [name, target] of bins) {
   }
   if (!entrySection.includes(`\`${source}\``)) {
     errors.push(`CODEMAP.md entry-point table omits ${source} for package bin ${name}`);
+  }
+  if (!architectureEntries.includes(`\`${name}\``) || !architectureEntries.includes(`\`${source}\``)) {
+    errors.push(`docs/ARCHITECTURE.md package entry points omit ${name} → ${source}`);
   }
 }
 
@@ -51,10 +57,18 @@ for (const matchers of Object.values(hooks.hooks ?? {})) {
 if (hookCommands.length === 0) errors.push('hooks/hooks.json yielded no hook commands');
 const hookTable = codemap.match(/### Hook commands \(`hooks\/hooks\.json`\)([\s\S]*?)\n---/m)?.[1] ?? '';
 if (!hookTable) errors.push('CODEMAP.md has no bounded hook-command table');
+const architectureHooks = architecture.match(/### Hook Commands \(8 hooks\)([\s\S]*?)(?=\n### )/m)?.[1] ?? '';
+if (!architectureHooks) errors.push('docs/ARCHITECTURE.md has no bounded 8-hook command table');
 for (const command of hookCommands) {
   if (!exists(command)) errors.push(`hooks/hooks.json maps to a missing source command: ${command}`);
   const documented = command.startsWith('scripts/hooks/') ? path.basename(command) : command;
   if (!hookTable.includes(`\`${documented}\``)) errors.push(`CODEMAP.md hook table omits ${documented}`);
+  const architectureName = command.startsWith('src/host-runtime/')
+    ? path.basename(command).replace(/\.ts$/, '.js')
+    : path.basename(command);
+  if (!architectureHooks.includes(`| ${architectureName} |`)) {
+    errors.push(`docs/ARCHITECTURE.md hook table omits ${architectureName}`);
+  }
 }
 
 const messagingAnchors = [
@@ -68,6 +82,7 @@ const messagingAnchors = [
 for (const anchor of messagingAnchors) {
   if (!exists(anchor.replace(/\/$/, ''))) errors.push(`required messaging architecture path is missing: ${anchor}`);
   if (!codemap.includes(`\`${anchor}\``)) errors.push(`CODEMAP.md omits messaging architecture anchor ${anchor}`);
+  if (!architecture.includes(`\`${anchor}\``)) errors.push(`docs/ARCHITECTURE.md omits messaging architecture anchor ${anchor}`);
 }
 
 const referencedFiles = [...codemap.matchAll(/`([A-Za-z0-9_./-]+\.(?:js|ts|mjs|tsx|md|json|toml))`/g)]

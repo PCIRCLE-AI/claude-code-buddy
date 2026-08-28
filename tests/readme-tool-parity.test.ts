@@ -22,6 +22,15 @@ function write(root: string, file: string, value: string) {
   fs.writeFileSync(target, value);
 }
 
+function contractDigest(contract: string) {
+  const semantic = contract.replace(/^\s*\/\/[^\n]*$/gm, '').replace(/\s+/g, ' ').trim();
+  return createHash('sha256').update(semantic).digest('hex');
+}
+
+function surfaceDigest(sourceDigest: string, surface: string) {
+  return createHash('sha256').update(`${sourceDigest}\0${surface.trim()}`).digest('hex');
+}
+
 function fixture(): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-mcp-doc-parity-'));
   dirs.push(root);
@@ -31,7 +40,8 @@ function fixture(): string {
     '] as const;',
   ].join('\n');
   write(root, 'src/transports/mcp/handlers.ts', contract);
-  const digest = (surface: string) => createHash('sha256').update(surface.trim()).digest('hex');
+  const sourceDigest = contractDigest(contract);
+  const digest = (surface: string) => surfaceDigest(sourceDigest, surface);
   const table = ['| Tool | Description |', '|---|---|', ...names.map(name => `| \`${name}\` | ${name} documentation |`)].join('\n');
   for (const file of ['README.md', 'README.zh-TW.md', 'README.de.md']) {
     write(root, file, `## All 11 Tools\n\n${table}\n\n---\n`);
@@ -43,8 +53,8 @@ function fixture(): string {
   const overview = names.map(name => `\`${name}\``).join(', ');
   write(root, 'docs/ARCHITECTURE.md', `## Overview\n\n${overview}\n\n\`\`\`\narchitecture\n\`\`\`\n`);
   write(root, 'scripts/mcp-doc-contract.json', `${JSON.stringify({
-    schema_version: 'mcp-doc-contract/v1',
-    source_sha256: createHash('sha256').update(contract).digest('hex'),
+    schema_version: 'mcp-doc-contract/v2',
+    source_sha256: sourceDigest,
     surfaces: {
       'README.md': digest(table),
       'README.zh-TW.md': digest(table),
@@ -91,6 +101,28 @@ describe('MCP agent-facing documentation parity gate', () => {
     const result = run(root);
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain('canonical MCP source digest is stale');
+  });
+
+  it('rejects refreshing only the source digest without recertifying every documentation surface', () => {
+    const root = fixture();
+    const sourceFile = path.join(root, 'src/transports/mcp/handlers.ts');
+    const changed = fs.readFileSync(sourceFile, 'utf8').replace('remember canonical description', 'changed canonical description');
+    fs.writeFileSync(sourceFile, changed);
+    const lockFile = path.join(root, 'scripts/mcp-doc-contract.json');
+    const lock = JSON.parse(fs.readFileSync(lockFile, 'utf8'));
+    lock.source_sha256 = contractDigest(changed);
+    fs.writeFileSync(lockFile, JSON.stringify(lock));
+    const result = run(root);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('README.md: certified MCP documentation surface is stale for the current source contract');
+  });
+
+  it('does not require recertification for a source comment-only change', () => {
+    const root = fixture();
+    const sourceFile = path.join(root, 'src/transports/mcp/handlers.ts');
+    fs.writeFileSync(sourceFile, fs.readFileSync(sourceFile, 'utf8').replace('[\n', '[\n  // formatting note\n'));
+    const result = run(root);
+    expect(result.status, result.stderr).toBe(0);
   });
 
   it('rejects a false non-empty tool description even when the old marker remains', () => {
