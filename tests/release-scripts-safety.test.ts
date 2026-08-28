@@ -401,4 +401,40 @@ describe('Feature: release scripts never edit the real ~/.memesh', () => {
     expect(text).toMatch(/delete env\.MEMESH_DIR/);
     expect(text).toMatch(/delete env\.MEMESH_DB_PATH/);
   });
+
+  it('removes ambient provider settings without printing their values', () => {
+    const providerKeys = ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'OLLAMA_HOST'];
+    const runner = read('scripts/run-tests-isolated.mjs');
+    for (const key of providerKeys) {
+      expect(runner).toContain(`delete env.${key}`);
+    }
+
+    const sentinels = {
+      ANTHROPIC_API_KEY: 'ambient-anthropic-sentinel',
+      OPENAI_API_KEY: 'ambient-openai-sentinel',
+      OLLAMA_HOST: 'http://ambient-ollama.invalid',
+    };
+    const result = spawnSync(
+      process.execPath,
+      [
+        path.join(repoRoot, 'scripts/run-tests-isolated.mjs'),
+        'tests/fixtures/isolated-provider-env.probe.test.ts',
+        '--maxWorkers=1',
+      ],
+      {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          ...sentinels,
+          MEMESH_PROVIDER_ISOLATION_PROBE: '1',
+        },
+      },
+    );
+    const output = `${result.stdout ?? ''}${result.stderr ?? ''}`;
+    expect(result.status, output).toBe(0);
+    for (const value of Object.values(sentinels)) {
+      expect(output).not.toContain(value);
+    }
+  });
 });

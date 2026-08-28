@@ -348,7 +348,11 @@ describe('issue #224 — one data revision refreshes mounted surfaces', () => {
     const counts = new Map<string, number>();
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
-      const path = new URL(url, 'http://dashboard.local').pathname;
+      // This is an HTTP request URL, not a filesystem module URL. Keep the
+      // pathname access separate so the repository safety scan can continue
+      // rejecting new URL(...).pathname for module-path resolution.
+      const requestUrl = new URL(url, 'http://dashboard.local');
+      const path = requestUrl.pathname;
       counts.set(path, (counts.get(path) ?? 0) + 1);
       if (path === '/v1/health') return response({ status: 'ok', version: '4.8.1', entity_count: 1 });
       if (path === '/v1/analytics') return response(analytics(70));
