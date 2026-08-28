@@ -127,10 +127,29 @@ describe('HTTP Transport: GET /v1/health', () => {
     expect(res.body.data.status).toBe('ok');
   });
 
-  it('includes version and entity_count', async () => {
+  it('includes version, entity_count, and demo_entity_count', async () => {
     const res = await req('GET', '/v1/health');
     expect(typeof res.body.data.version).toBe('string');
     expect(typeof res.body.data.entity_count).toBe('number');
+    expect(typeof res.body.data.demo_entity_count).toBe('number');
+  });
+
+  it('tracks demo-tagged entities across seed and reset without removing real entities', async () => {
+    await req('POST', '/v1/remember', { name: 'health-real-memory', type: 'note' });
+    const before = await req('GET', '/v1/health');
+    expect(before.body.data.demo_entity_count).toBe(0);
+
+    const seeded = await req('POST', '/v1/demo/seed');
+    expect(seeded.status).toBe(200);
+    const afterSeed = await req('GET', '/v1/health');
+    expect(afterSeed.body.data.demo_entity_count).toBe(30);
+    expect(afterSeed.body.data.entity_count).toBe(before.body.data.entity_count + 30);
+
+    const reset = await req('POST', '/v1/demo/reset');
+    expect(reset.status).toBe(200);
+    const afterReset = await req('GET', '/v1/health');
+    expect(afterReset.body.data.demo_entity_count).toBe(0);
+    expect(afterReset.body.data.entity_count).toBe(before.body.data.entity_count);
   });
 });
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'preact/hooks';
+import { useState } from 'preact/hooks';
 import { api, type HealthData } from '../lib/api';
 import { t } from '../lib/i18n';
 import { actionFailureMessage } from '../lib/failure';
@@ -23,14 +23,15 @@ interface SeedResult {
  * One-click affordance: a user staring at empty charts should not
  * have to open a terminal to bootstrap. The "Try the demo" button
  * POSTs `/v1/demo/seed` and dispatches `memesh:data-changed` so the
- * dashboard refetches `/v1/health`; the banner then auto-retires
- * once entity_count climbs above zero. CLI users still have
+ * dashboard refetches `/v1/health`; the welcome content then becomes
+ * a compact demo-only cleanup surface while demo_entity_count remains
+ * above zero. CLI users still have
  * `memesh demo` for headless / CI flows; the on-screen code chips
  * are kept as power-user reference, not the primary path.
  *
  * Dismissal is local-only (`localStorage.memesh.onboardingDismissed`).
- * Once the user runs the demo or stores a real memory the entity
- * count climbs above zero and the banner stops rendering by itself.
+ * Dismissal hides only the empty-library welcome. A populated library
+ * with demo-tagged rows always keeps its scoped cleanup action visible.
  */
 export function OnboardingBanner({ health }: Props) {
   const [dismissed, setDismissed] = useState<boolean>(() => {
@@ -39,16 +40,11 @@ export function OnboardingBanner({ health }: Props) {
   const [pending, setPending] = useState<'seed' | 'reset' | null>(null);
   const [error, setError] = useState<string>('');
 
-  // If the dataset transitions from empty to non-empty, hide the
-  // banner immediately — even before the user dismisses — so the
-  // "demo command finished" experience is not the banner persisting.
-  useEffect(() => {
-    if (health && health.entity_count > 0) setDismissed(true);
-  }, [health?.entity_count]);
-
   if (!health) return null;
-  if (health.entity_count > 0) return null;
-  if (dismissed) return null;
+  const demoCount = health.demo_entity_count ?? 0;
+  const showOnboarding = health.entity_count === 0 && !dismissed;
+  const showDemoCleanup = demoCount > 0;
+  if (!showOnboarding && !showDemoCleanup) return null;
 
   function dismiss() {
     setDismissed(true);
@@ -61,16 +57,16 @@ export function OnboardingBanner({ health }: Props) {
     try {
       await api<SeedResult>('POST', '/v1/demo/seed');
       // Tell App + every other tab to refetch — `/v1/health`
-      // entity_count will now be 30 and the banner auto-retires.
+      // entity_count and demo_entity_count will now move the region from
+      // empty-library onboarding to the compact cleanup state.
       window.dispatchEvent(new Event('memesh:data-changed'));
     } catch (e) {
       // Localized sentence with a next step — never the browser's raw
       // "Failed to fetch" for a server that simply is not running.
       setError(actionFailureMessage(e));
     } finally {
-      // Clear regardless of outcome. On success the banner unmounts
-      // a moment later when health refetch lands; if that refetch
-      // fails or is slow, we still want the buttons re-enabled so
+      // Clear regardless of outcome. If the health refetch fails or is slow,
+      // we still want the buttons re-enabled so
       // the user can retry instead of being stuck in "Seeding…".
       setPending(null);
     }
@@ -82,6 +78,10 @@ export function OnboardingBanner({ health }: Props) {
     setPending('reset');
     try {
       await api<SeedResult>('POST', '/v1/demo/reset');
+      const readback = await api<HealthData>('GET', '/v1/health');
+      if ((readback.demo_entity_count ?? 0) !== 0) {
+        throw new Error(t('onboarding.resetReadbackFailed'));
+      }
       window.dispatchEvent(new Event('memesh:data-changed'));
     } catch (e) {
       setError(actionFailureMessage(e));
@@ -93,7 +93,7 @@ export function OnboardingBanner({ health }: Props) {
   return (
     <div
       role="region"
-      aria-label={t('onboarding.title')}
+      aria-label={showDemoCleanup ? t('onboarding.demoLoadedTitle') : t('onboarding.title')}
       style={{
         position: 'relative',
         margin: '12px auto 8px',
@@ -105,39 +105,43 @@ export function OnboardingBanner({ health }: Props) {
         color: 'var(--text-1)',
       }}
     >
-      <button
-        type="button"
-        onClick={dismiss}
-        aria-label={t('onboarding.dismiss')}
-        style={{
-          position: 'absolute',
-          top: 8,
-          right: 10,
-          background: 'transparent',
-          border: 'none',
-          color: 'var(--text-3)',
-          fontSize: 18,
-          lineHeight: 1,
-          cursor: 'pointer',
-          padding: 4,
-        }}
-      >
-        ×
-      </button>
+      {showOnboarding && (
+        <button
+          type="button"
+          onClick={dismiss}
+          aria-label={t('onboarding.dismiss')}
+          style={{
+            position: 'absolute',
+            top: 8,
+            right: 10,
+            background: 'transparent',
+            border: 'none',
+            color: 'var(--text-3)',
+            fontSize: 18,
+            lineHeight: 1,
+            cursor: 'pointer',
+            padding: 4,
+          }}
+        >
+          ×
+        </button>
+      )}
       <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-0)', marginBottom: 6 }}>
-        {t('onboarding.title')}
+        {showDemoCleanup ? t('onboarding.demoLoadedTitle') : t('onboarding.title')}
       </div>
       <div style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--text-1)' }}>
-        {t('onboarding.body')}
+        {showDemoCleanup ? t('onboarding.demoLoadedBody', { count: demoCount }) : t('onboarding.body')}
       </div>
-      <ul style={{ fontSize: 11, lineHeight: 1.55, color: 'var(--text-3)', margin: '6px 0 0', paddingLeft: 18 }}>
-        <li>{t('onboarding.coreHint')}</li>
-        <li>{t('onboarding.semanticHint')}</li>
-        <li>{t('onboarding.llmHint')}</li>
-      </ul>
+      {showOnboarding && (
+        <ul style={{ fontSize: 11, lineHeight: 1.55, color: 'var(--text-3)', margin: '6px 0 0', paddingLeft: 18 }}>
+          <li>{t('onboarding.coreHint')}</li>
+          <li>{t('onboarding.semanticHint')}</li>
+          <li>{t('onboarding.llmHint')}</li>
+        </ul>
+      )}
 
       {/* Primary one-click affordance — no terminal required. */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 12, alignItems: 'center' }}>
+      {showOnboarding && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 12, alignItems: 'center' }}>
         <button
           type="button"
           class="btn btn-primary"
@@ -150,10 +154,26 @@ export function OnboardingBanner({ health }: Props) {
         <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
           {t('onboarding.seedHint')}
         </span>
-      </div>
+      </div>}
+
+      {showDemoCleanup && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 12, alignItems: 'center' }}>
+          <button
+            type="button"
+            class="btn"
+            onClick={runReset}
+            disabled={pending !== null}
+          >
+            {pending === 'reset' ? t('onboarding.resettingButton') : t('onboarding.resetButton')}
+          </button>
+          <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
+            {t('onboarding.hintReset')}
+          </span>
+        </div>
+      )}
 
       {/* Power-user CLI reference — kept for headless / CI flows. */}
-      <details style={{ marginTop: 10, fontSize: 12, color: 'var(--text-3)' }}>
+      {showOnboarding && <details style={{ marginTop: 10, fontSize: 12, color: 'var(--text-3)' }}>
         <summary style={{ cursor: 'pointer' }}>{t('onboarding.cliReference')}</summary>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 8 }}>
           <code
@@ -200,7 +220,7 @@ export function OnboardingBanner({ health }: Props) {
             {t('onboarding.hintReset')}
           </span>
         </div>
-      </details>
+      </details>}
 
       {error && (
         // role="alert" alone: it already implies aria-live="assertive",

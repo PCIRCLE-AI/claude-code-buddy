@@ -14,6 +14,12 @@ import { getLocale, setLocale } from '../../dashboard/src/lib/i18n';
 
 const emptyHealth: HealthData = { status: 'ok', version: 'test', entity_count: 0 };
 const populatedHealth: HealthData = { status: 'ok', version: 'test', entity_count: 30 };
+const populatedDemoHealth: HealthData = {
+  status: 'ok',
+  version: 'test',
+  entity_count: 31,
+  demo_entity_count: 30,
+};
 
 describe('OnboardingBanner', () => {
   beforeEach(() => {
@@ -21,6 +27,7 @@ describe('OnboardingBanner', () => {
   });
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     localStorage.clear();
   });
 
@@ -52,6 +59,85 @@ describe('OnboardingBanner', () => {
   it('hides itself once entity_count climbs above zero', () => {
     const { container } = render(<OnboardingBanner health={populatedHealth} />);
     expect(container.querySelector('button.btn-primary')).toBeNull();
+  });
+
+  it('keeps a demo-only cleanup action visible after the populated library reloads', () => {
+    const { container, getByRole } = render(<OnboardingBanner health={populatedDemoHealth} />);
+    getByRole('region', { name: /Demo data|示範資料|示范数据|デモデータ|데모 데이터/i });
+    expect(container.textContent).toContain('30');
+    expect(container.querySelector('button.btn')).not.toBeNull();
+    expect(container.querySelector('button.btn-primary')).toBeNull();
+  });
+
+  it('confirms scope and recovery, reads back reset, then broadcasts refresh', async () => {
+    const confirmSpy = vi.fn().mockReturnValue(true);
+    vi.stubGlobal('confirm', confirmSpy);
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        success: true,
+        data: { inserted: 0, removed: 30 },
+      }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        success: true,
+        data: { status: 'ok', version: 'test', entity_count: 1, demo_entity_count: 0 },
+      }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    const changed = vi.fn();
+    window.addEventListener('memesh:data-changed', changed);
+    try {
+      const { container } = render(<OnboardingBanner health={populatedDemoHealth} />);
+      fireEvent.click(container.querySelector('button.btn')!);
+
+      await waitFor(() => expect(changed).toHaveBeenCalledTimes(1));
+      expect(fetchSpy.mock.calls.map(([url]) => url)).toEqual(['/v1/demo/reset', '/v1/health']);
+      const confirmation = String(confirmSpy.mock.calls[0]?.[0]);
+      expect(confirmation).toContain('metadata.demo');
+      expect(confirmation).toMatch(/restore|還原|还原|復元|복원|restaur|wiederher|khôi phục|กู้คืน/i);
+      expect(confirmation).toMatch(/real|真實|真实|実際|실제|reais|réelles|echte|thật|ความทรงจำจริง/i);
+    } finally {
+      window.removeEventListener('memesh:data-changed', changed);
+    }
+  });
+
+  it('keeps cleanup visible and reports an error when reset fails', async () => {
+    vi.stubGlobal('confirm', vi.fn().mockReturnValue(true));
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('reset unavailable'));
+    const changed = vi.fn();
+    window.addEventListener('memesh:data-changed', changed);
+    try {
+      const { container } = render(<OnboardingBanner health={populatedDemoHealth} />);
+      fireEvent.click(container.querySelector('button.btn')!);
+
+      await waitFor(() => expect(container.querySelector('[role="alert"]')).not.toBeNull());
+      expect(container.querySelector('button.btn')).not.toBeNull();
+      expect(changed).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('memesh:data-changed', changed);
+    }
+  });
+
+  it('withholds refresh when reset readback still reports demo memories', async () => {
+    vi.stubGlobal('confirm', vi.fn().mockReturnValue(true));
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        success: true,
+        data: { inserted: 0, removed: 30 },
+      }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        success: true,
+        data: populatedDemoHealth,
+      }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    const changed = vi.fn();
+    window.addEventListener('memesh:data-changed', changed);
+    try {
+      const { container } = render(<OnboardingBanner health={populatedDemoHealth} />);
+      fireEvent.click(container.querySelector('button.btn')!);
+
+      await waitFor(() => expect(container.querySelector('[role="alert"]')).not.toBeNull());
+      expect(container.querySelector('button.btn')).not.toBeNull();
+      expect(changed).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('memesh:data-changed', changed);
+    }
   });
 
   it('hides itself when the user has previously dismissed it', () => {

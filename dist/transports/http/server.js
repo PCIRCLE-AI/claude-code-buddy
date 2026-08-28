@@ -241,8 +241,21 @@ app.get('/dashboard', (_req, res) => {
 app.get('/v1/health', (_req, res) => {
     try {
         const db = getDatabase();
-        const count = db.prepare('SELECT COUNT(*) as c FROM entities').get();
-        res.json({ success: true, data: { status: 'ok', version: packageVersion, entity_count: count.c } });
+        const count = db.prepare(`
+      SELECT
+        COUNT(*) AS c,
+        SUM(CASE WHEN json_extract(metadata, '$.demo') = 1 THEN 1 ELSE 0 END) AS demo_c
+      FROM entities
+    `).get();
+        res.json({
+            success: true,
+            data: {
+                status: 'ok',
+                version: packageVersion,
+                entity_count: count.c,
+                demo_entity_count: count.demo_c ?? 0,
+            },
+        });
     }
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);

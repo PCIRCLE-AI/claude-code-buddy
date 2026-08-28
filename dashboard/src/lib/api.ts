@@ -182,6 +182,7 @@ export interface HealthData {
   status: string;
   version: string;
   entity_count: number;
+  demo_entity_count?: number;
 }
 
 export interface UpdateStatusData {

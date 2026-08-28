@@ -40,6 +40,7 @@
     "test:issue-227": "vitest run tests/dashboard/ProjectRoadmap.test.tsx --maxWorkers=1",
     "test:issue-228": "vitest run tests/dashboard/FeedbackWidget.test.tsx --maxWorkers=1",
     "test:issue-229": "vitest run tests/dashboard/OnboardingBanner.test.tsx tests/dashboard-i18n.test.ts --maxWorkers=1",
+    "test:issue-230": "vitest run tests/dashboard/OnboardingBanner.test.tsx tests/transports/http.test.ts tests/core/demo.test.ts --maxWorkers=1",
     "test:packaged": "node scripts/smoke-packed-artifact.mjs",
     "test:packaged:upgrade": "node scripts/smoke-packed-upgrade.mjs",
     "audit:prod": "node scripts/check-consumer-audit.mjs",
