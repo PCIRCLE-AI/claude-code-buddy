@@ -20,6 +20,9 @@ export function FeedbackWidget({ health }: { health: HealthData | null }) {
   const [desc, setDesc] = useState('');
   const [includeSys, setIncludeSys] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [handoffUrl, setHandoffUrl] = useState('');
+  const [handoffError, setHandoffError] = useState('');
+  const [copied, setCopied] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -85,6 +88,8 @@ export function FeedbackWidget({ health }: { health: HealthData | null }) {
   const submit = async () => {
     if (!desc.trim() || submitting) return;
     setSubmitting(true);
+    setHandoffError('');
+    setCopied(false);
     try {
       const labels = `feedback,from-dashboard,${fbType}`;
       let body = desc.trim();
@@ -99,11 +104,31 @@ export function FeedbackWidget({ health }: { health: HealthData | null }) {
       }
       const typeLabel = t(TYPE_I18N_KEYS[fbType]);
       const url = `https://github.com/PCIRCLE-AI/memesh/issues/new?title=${encodeURIComponent(`[${typeLabel}] `)}&body=${encodeURIComponent(body)}&labels=${encodeURIComponent(labels)}`;
-      window.open(url, '_blank');
+      const opened = window.open(url, '_blank');
+      if (!opened) {
+        setHandoffUrl(url);
+        setHandoffError(t('feedback.popupBlocked'));
+        return;
+      }
+      // Sever the new tab's reference to the Dashboard without using the
+      // noopener window feature, which makes successful opens return null in
+      // some browsers and therefore indistinguishable from popup blocking.
+      try { opened.opener = null; } catch { /* cross-origin browser policy */ }
+      setHandoffUrl('');
       setDesc('');
       setOpen(false);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const copyHandoffLink = async () => {
+    if (!handoffUrl) return;
+    try {
+      await navigator.clipboard.writeText(handoffUrl);
+      setCopied(true);
+    } catch {
+      setHandoffError(t('feedback.copyFailed'));
     }
   };
 
@@ -165,6 +190,21 @@ export function FeedbackWidget({ health }: { health: HealthData | null }) {
           <button class="btn btn-primary fb-submit" onClick={submit} disabled={submitting}>
             {submitting ? t('feedback.submitting') : t('feedback.submit')}
           </button>
+          {handoffError && (
+            <div role="alert" class="fb-handoff-error">
+              <div>{handoffError}</div>
+              {handoffUrl && (
+                <div class="fb-handoff-actions">
+                  <a href={handoffUrl} target="_blank" rel="noopener noreferrer">
+                    {t('feedback.retry')}
+                  </a>
+                  <button type="button" class="btn btn-sm" onClick={copyHandoffLink}>
+                    {copied ? t('feedback.linkCopied') : t('feedback.copyLink')}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </>
