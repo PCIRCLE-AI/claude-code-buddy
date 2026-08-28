@@ -109,7 +109,7 @@ export interface CallLLMOptions {
  *                ANTHROPIC_API_KEY env
  *   - openai:    model=gpt-4o-mini, requires apiKey from config or
  *                OPENAI_API_KEY env
- *   - ollama:    model=llama3.2, host from OLLAMA_HOST env or localhost
+ *   - ollama:    model=llama3.2, host from config, OLLAMA_HOST env, or localhost
  *
  * If `opts.fallbacks` is set, walks the primary + fallback chain and
  * returns the first successful response. Throws the LAST error if every
@@ -247,7 +247,7 @@ async function callSingle(
   }
 
   if (config.provider === 'ollama') {
-    const host = process.env.OLLAMA_HOST || 'http://localhost:11434';
+    const host = config.host || process.env.OLLAMA_HOST || 'http://localhost:11434';
     const res = await fetchWithTimeout(`${host}/api/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

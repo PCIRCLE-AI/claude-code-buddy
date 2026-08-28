@@ -228,6 +228,7 @@ export async function probeProvider(provider, apiKey, host, model) {
             provider,
             model: testedModel,
             ...(apiKey ? { apiKey } : {}),
+            ...(provider === 'ollama' && host ? { host } : {}),
         }, { maxTokens: 8 });
         if (!response.trim())
             throw new Error('provider returned an empty response');

@@ -2,6 +2,7 @@ export interface LLMConfig {
     provider: 'anthropic' | 'openai' | 'ollama';
     model?: string;
     apiKey?: string;
+    host?: string;
 }
 export interface EmbedderConfig {
     provider: 'openai' | 'ollama';

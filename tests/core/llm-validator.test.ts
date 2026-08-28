@@ -294,4 +294,32 @@ describe('provider probes (mocked fetch)', () => {
     expect(inferenceCall).toBeDefined();
     expect(JSON.parse(String(inferenceCall?.[1]?.body))).toMatchObject({ model: 'gpt-listed-only' });
   });
+
+  it('uses the tested Ollama host for both catalog and inference requests', async () => {
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/api/tags')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ models: [{ name: 'fixture-model' }] }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ response: 'OK' }),
+      };
+    });
+    global.fetch = fetchSpy as any;
+
+    const host = 'http://127.0.0.1:23456';
+    const r = await probeProvider('ollama', undefined, host, 'fixture-model');
+
+    expect(r.valid).toBe(true);
+    expect(fetchSpy.mock.calls.map(([url]) => String(url))).toEqual([
+      `${host}/api/tags`,
+      `${host}/api/generate`,
+    ]);
+  });
 });

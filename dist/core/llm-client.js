@@ -102,7 +102,7 @@ async function callSingle(prompt, config, maxTokens) {
         return text;
     }
     if (config.provider === 'ollama') {
-        const host = process.env.OLLAMA_HOST || 'http://localhost:11434';
+        const host = config.host || process.env.OLLAMA_HOST || 'http://localhost:11434';
         const res = await fetchWithTimeout(`${host}/api/generate`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

@@ -8,6 +8,8 @@ export interface LLMConfig {
   provider: 'anthropic' | 'openai' | 'ollama';
   model?: string;
   apiKey?: string;
+  /** Ollama-only request target. Probe callers use this to keep catalogue and inference on one host. */
+  host?: string;
 }
 
 /**
