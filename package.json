@@ -37,6 +37,7 @@
     "test:issue-224": "vitest run tests/dashboard/issue-224-data-refresh.test.tsx --maxWorkers=1",
     "test:issue-225": "vitest run tests/dashboard/issue-225-language-persistence.test.tsx --maxWorkers=1",
     "test:issue-226": "vitest run tests/dashboard/SettingsTab-primary-llm.test.tsx tests/transports/http.test.ts --maxWorkers=1",
+    "test:issue-227": "vitest run tests/dashboard/ProjectRoadmap.test.tsx --maxWorkers=1",
     "test:packaged": "node scripts/smoke-packed-artifact.mjs",
     "test:packaged:upgrade": "node scripts/smoke-packed-upgrade.mjs",
     "audit:prod": "node scripts/check-consumer-audit.mjs",
