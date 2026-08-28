@@ -6,6 +6,7 @@ import { t, getLocale } from '../lib/i18n';
 import { relativeDate, timeBucket, accessSignal, typeLabel, displayTitle } from '../lib/entity-display';
 import { EntityIcon } from './icons/EntityIcon';
 import { CaptureDensityBand } from './CaptureDensityBand';
+import { EntityTechnicalDetails } from './LessonCards';
 
 /** The decision species, for the ADR view. `architecture` alone is a
  *  structure description, not a choice — it stays out. */
@@ -1154,6 +1155,7 @@ function DecisionsView({ entities, onJump }: { entities: Entity[]; onJump: (id: 
                     {obs}
                   </p>
                 ))}
+                <EntityTechnicalDetails entity={e} />
                 {(supersedesTargets.length > 0 || replacedBy.length > 0) && (
                   <div style={{ fontSize: 11, color: 'var(--text-2)', marginTop: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
                     {supersedesTargets.map((name) => (

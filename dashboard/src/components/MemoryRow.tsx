@@ -60,10 +60,10 @@ export function MemoryRow({ entity: e, actions, highlight }: Props) {
         <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 2 }}>{relTime}</div>
       </div>
       <div class="mem-body">
-        {/* The machine key (e.name) is deliberately NOT in the visible row —
-            it is a dedup/append key, not a label. Hovering the headline
-            reveals it for the rare "which entity is this exactly" case. */}
-        <div class="mem-preview" title={e.name}>
+        {/* The machine key (e.name) is deliberately NOT in the primary row or
+            its accessible name — it is a dedup/append key, not a label. The
+            expanded technical details preserve it for exact identification. */}
+        <div class="mem-preview">
           {highlight ? <Highlight text={truncate(preview, 160)} term={highlight} /> : truncate(preview, 160)}
         </div>
         <div class="mem-meta" style={{ flexWrap: 'wrap', gap: 6 }}>

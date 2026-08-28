@@ -163,6 +163,22 @@ function ObservationsBody({ entity }: { entity: Entity }) {
   );
 }
 
+/** Secondary, exact identity for export/debugging. The readable headline owns
+ * the primary row; these storage values stay one deliberate expansion away. */
+export function EntityTechnicalDetails({ entity }: { entity: Entity }) {
+  return (
+    <details style={{ marginTop: 10, fontSize: 11, color: 'var(--text-3)' }}>
+      <summary style={{ cursor: 'pointer' }}>{t('memory.technicalDetails')}</summary>
+      <dl style={{ display: 'grid', gridTemplateColumns: 'max-content minmax(0, 1fr)', gap: '4px 10px', margin: '8px 0 0' }}>
+        <dt>{t('memory.canonicalName')}</dt>
+        <dd style={{ margin: 0, fontFamily: 'var(--mono)', overflowWrap: 'anywhere' }}>{entity.name}</dd>
+        <dt>{t('memory.rawType')}</dt>
+        <dd style={{ margin: 0, fontFamily: 'var(--mono)', overflowWrap: 'anywhere' }}>{entity.type}</dd>
+      </dl>
+    </details>
+  );
+}
+
 /** The expanded body for ANY memory row. Lessons get their structured
  *  shapes (failure fields / plan record); everything else gets its
  *  observations — the universal detail view the dashboard never had.
@@ -174,6 +190,7 @@ export function ExpandedBody({ entity }: { entity: Entity }) {
       {kind === 'failure' ? <FailureBody entity={entity} />
         : kind === 'plan-completion' ? <PlanBody entity={entity} />
         : <ObservationsBody entity={entity} />}
+      <EntityTechnicalDetails entity={entity} />
     </div>
   );
 }

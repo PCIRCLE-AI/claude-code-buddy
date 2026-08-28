@@ -22,9 +22,10 @@ describe('MemoryRow', () => {
     const { container } = render(<MemoryRow entity={makeEntity()} />);
     expect(container.textContent).toContain('Use OAuth 2.0 with PKCE');
     // UX-1: the machine key must NOT be visible row text — it is a dedup
-    // key, not a label. It stays discoverable as the headline's tooltip.
+    // key, not a label. Exact identity lives in expanded technical details,
+    // so it must not replace the readable accessible name via a tooltip.
     expect(container.textContent).not.toContain('auth-decision');
-    expect(container.querySelector('.mem-preview')?.getAttribute('title')).toBe('auth-decision');
+    expect(container.querySelector('.mem-preview')?.getAttribute('title')).toBeNull();
   });
 
   it('prefers the human title as the headline when present', () => {
