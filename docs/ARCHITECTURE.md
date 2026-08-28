@@ -46,6 +46,8 @@ This repository is the standalone local package. Hosted workspace and enterprise
 | `memesh-host-codex-session` | `src/host-runtime/codex-session.ts` |
 | `memesh-host-acp` | `src/host-runtime/acp.ts` |
 
+`memesh-host-acp` is experimental protocol-development code, not a release-gated native-wakeup provider.
+
 ---
 
 ## Core/Transport Architecture
@@ -121,7 +123,7 @@ src/
 ├── index.ts               # Package exports
 ├── cli/
 │   └── view-live.ts       # Legacy HTML dashboard generator
-├── host-adapters/         # Supported host-specific metadata-only wakeup adapters
+├── host-adapters/         # Native Claude/Codex adapters; ACP remains experimental and not release-gated
 ├── host-runtime/          # Private-router connection and managed host runtime
 ├── mcp/
 │   ├── server.ts          # MCP stdio server (logs capabilities on startup)

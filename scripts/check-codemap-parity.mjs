@@ -10,6 +10,17 @@ const root = option >= 0 ? path.resolve(process.argv[option + 1] ?? '') : path.r
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 const exists = (file) => fs.existsSync(path.join(root, file));
 const errors = [];
+const checkExact = (label, actual, expected) => {
+  const counts = new Map();
+  for (const value of actual) counts.set(value, (counts.get(value) ?? 0) + 1);
+  const expectedSet = new Set(expected);
+  const missing = expected.filter((value) => !counts.has(value));
+  const extra = actual.filter((value) => !expectedSet.has(value));
+  const duplicate = [...counts].filter(([, count]) => count !== 1).map(([value]) => value);
+  if (actual.length !== expected.length || missing.length || extra.length || duplicate.length) {
+    errors.push(`${label} must match exactly; missing=[${missing}] extra=[${extra}] duplicates=[${duplicate}]`);
+  }
+};
 
 const pkg = JSON.parse(read('package.json'));
 const codemap = read('CODEMAP.md');
@@ -40,6 +51,13 @@ for (const [name, target] of bins) {
     errors.push(`docs/ARCHITECTURE.md package entry points omit ${name} → ${source}`);
   }
 }
+const architectureBins = [...architectureEntries.matchAll(/^\|\s*`([^`]+)`\s*\|\s*`([^`]+)`\s*\|\s*$/gm)]
+  .map((match) => `${match[1]}→${match[2]}`);
+checkExact(
+  'docs/ARCHITECTURE.md package entry points',
+  architectureBins,
+  bins.map(([name, target]) => `${name}→${String(target).replace(/^dist\//, 'src/').replace(/\.js$/, '.ts')}`),
+);
 
 const hookCommands = [];
 for (const matchers of Object.values(hooks.hooks ?? {})) {
@@ -70,6 +88,20 @@ for (const command of hookCommands) {
     errors.push(`docs/ARCHITECTURE.md hook table omits ${architectureName}`);
   }
 }
+const codemapHookNames = [...hookTable.matchAll(/^\|\s*`([^`]+)`\s*\|/gm)].map((match) => match[1]);
+const expectedCodemapHooks = hookCommands.map((command) => (
+  command.startsWith('scripts/hooks/') ? path.basename(command) : command
+));
+checkExact('CODEMAP.md hook commands', codemapHookNames, expectedCodemapHooks);
+const architectureHookNames = [...architectureHooks.matchAll(/^\|\s*([^|]+?)\s*\|/gm)]
+  .map((match) => match[1].trim())
+  .filter((name) => name !== 'Hook' && !/^-+$/.test(name));
+const expectedArchitectureHooks = hookCommands.map((command) => (
+  command.startsWith('src/host-runtime/')
+    ? path.basename(command).replace(/\.ts$/, '.js')
+    : path.basename(command)
+));
+checkExact('docs/ARCHITECTURE.md hook commands', architectureHookNames, expectedArchitectureHooks);
 
 const messagingAnchors = [
   'src/core/agent-messaging.ts',
@@ -79,11 +111,23 @@ const messagingAnchors = [
   'src/host-runtime/',
   'docs/platforms/agent-messaging.md',
 ];
+const codemapMessaging = codemap.match(/### Durable local agent messaging \+ active-host delivery([\s\S]*?)(?=\n### )/m)?.[1] ?? '';
+const architectureMessaging = architecture.match(/Implementation anchors:([\s\S]*?)\n\n/m)?.[1] ?? '';
 for (const anchor of messagingAnchors) {
   if (!exists(anchor.replace(/\/$/, ''))) errors.push(`required messaging architecture path is missing: ${anchor}`);
   if (!codemap.includes(`\`${anchor}\``)) errors.push(`CODEMAP.md omits messaging architecture anchor ${anchor}`);
   if (!architecture.includes(`\`${anchor}\``)) errors.push(`docs/ARCHITECTURE.md omits messaging architecture anchor ${anchor}`);
 }
+checkExact(
+  'CODEMAP.md messaging anchors',
+  [...codemapMessaging.matchAll(/`([^`]+)`/g)].map((match) => match[1]),
+  messagingAnchors,
+);
+checkExact(
+  'docs/ARCHITECTURE.md messaging anchors',
+  [...architectureMessaging.matchAll(/`([^`]+)`/g)].map((match) => match[1]),
+  messagingAnchors,
+);
 
 const referencedFiles = [...codemap.matchAll(/`([A-Za-z0-9_./-]+\.(?:js|ts|mjs|tsx|md|json|toml))`/g)]
   .map((match) => match[1])

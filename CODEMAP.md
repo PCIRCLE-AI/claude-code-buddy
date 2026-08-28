@@ -19,7 +19,7 @@ for the public API surface see [`docs/api/API_REFERENCE.md`](docs/api/API_REFERE
 | `memesh-host-claude` | `src/host-runtime/claude.ts` |
 | `memesh-host-codex` | `src/host-runtime/codex.ts` |
 | `memesh-host-codex-session` | `src/host-runtime/codex-session.ts` |
-| `memesh-host-acp` | `src/host-runtime/acp.ts` |
+| `memesh-host-acp` (experimental, not release-gated) | `src/host-runtime/acp.ts` |
 | `memesh serve` (HTTP REST) | `src/transports/http/server.ts` |
 | `memesh` (dashboard) | `dashboard/src/App.tsx` (served from `dashboard/dist/index.html`) |
 | Claude Code hooks | `scripts/hooks/*.js` (wired in `hooks/hooks.json`) |
@@ -39,7 +39,7 @@ src/
 ├── knowledge-graph.ts  # Entity CRUD, relations, FTS5 search, access tracking
 ├── storage/         # conflicts.ts (detection) + fts-index.ts (contentless-FTS5 primitives)
 ├── transports/      # cli/ · http/ · mcp/ (+ schemas.ts = shared Zod validation)
-├── host-adapters/   # host-native wakeup adapters (Claude, Codex, ACP)
+├── host-adapters/   # native Claude/Codex adapters + experimental ACP protocol adapter
 ├── host-runtime/    # managed host processes + private-router client/server
 ├── mcp/             # stdio server (NOTE: server lives here, handlers in transports/mcp/)
 └── cli/             # view.ts + view-live.ts (dashboard fallback, NOT a transport)

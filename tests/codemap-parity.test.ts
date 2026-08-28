@@ -77,7 +77,7 @@ function fixture(): string {
   write(root, 'CODEMAP.md', [
     '# CODEMAP', '', '**Version**: 4.8.1', '',
     '## Start here (entry points)', '', '| You run… | Entry point |', '|---|---|', ...entryRows, '', '---', '',
-    '### Durable local agent messaging', ...messaging.map(file => `- \`${file}\``), '',
+    '### Durable local agent messaging + active-host delivery', ...messaging.map(file => `- \`${file}\``), '',
     '### Hook commands (`hooks/hooks.json`)', '', '| Command | Fires on | Does |', '|---|---|---|', ...hookRows, '', '---',
   ].join('\n'));
   write(root, 'docs/ARCHITECTURE.md', [
@@ -107,6 +107,8 @@ describe('CODEMAP pre-release parity gate', () => {
     ['bin', (text: string) => text.replace(/^\| `memesh-router`.*\n/m, ''), 'omits package bin memesh-router'],
     ['hook', (text: string) => text.replace(/^\| `guard-check\.js`.*\n/m, ''), 'hook table omits guard-check.js'],
     ['messaging', (text: string) => text.replace(/^- `src\/core\/agent-router\.ts`\n/m, ''), 'omits messaging architecture anchor'],
+    ['extra hook', (text: string) => text.replace('| `guard-check.js` | event | purpose |', '| `guard-check.js` | event | purpose |\n| `obsolete.js` | event | purpose |'), 'extra=[obsolete.js]'],
+    ['extra messaging anchor', (text: string) => text.replace('- `src/core/agent-router.ts`', '- `src/core/agent-router.ts`\n- `CODEMAP.md`'), 'extra=[CODEMAP.md]'],
   ])('rejects %s drift', (_label, mutate, expected) => {
     const root = fixture();
     const file = path.join(root, 'CODEMAP.md');
@@ -120,6 +122,9 @@ describe('CODEMAP pre-release parity gate', () => {
     ['package bin', (text: string) => text.replace(/^\| `memesh-router`.*\n/m, ''), 'package entry points omit memesh-router'],
     ['hook', (text: string) => text.replace(/^\| guard-check\.js.*\n/m, ''), 'hook table omits guard-check.js'],
     ['messaging', (text: string) => text.replace(/^- `src\/core\/agent-router\.ts`\n/m, ''), 'omits messaging architecture anchor src/core/agent-router.ts'],
+    ['extra package bin', (text: string) => text.replace('\n\n---', '\n| `obsolete` | `src/obsolete.ts` |\n\n---'), 'extra=[obsolete→src/obsolete.ts]'],
+    ['extra hook', (text: string) => text.replace('| guard-check.js | event | purpose |', '| guard-check.js | event | purpose |\n| obsolete.js | event | purpose |'), 'extra=[obsolete.js]'],
+    ['extra messaging anchor', (text: string) => text.replace('- `src/core/agent-router.ts`', '- `src/core/agent-router.ts`\n- `CODEMAP.md`'), 'extra=[CODEMAP.md]'],
   ])('rejects ARCHITECTURE %s drift', (_label, mutate, expected) => {
     const root = fixture();
     const file = path.join(root, 'docs/ARCHITECTURE.md');
