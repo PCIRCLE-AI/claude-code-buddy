@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'preact/hooks';
+import { useState, useEffect, useCallback, useRef } from 'preact/hooks';
 import { api } from '../lib/api';
 import { t } from '../lib/i18n';
 import { actionFailureMessage, classifyLoadError, failureMessage } from '../lib/failure';
@@ -126,7 +126,7 @@ function statusLabel(status: string): string {
   return label === key ? status : label;
 }
 
-export function InsightsTab() {
+export function InsightsTab({ dataRevision = 0 }: { dataRevision?: number }) {
   // Fetch ALL proposals once and filter client-side. The hero stat
   // row needs cross-status counts, so a server-side filter would
   // require a second round-trip per render. The proposal list is
@@ -157,8 +157,11 @@ export function InsightsTab() {
   // disable BOTH buttons during a fast click and obscure which was
   // pressed. `null` = idle.
   const [dreamRunning, setDreamRunning] = useState<'plain' | 'validate' | null>(null);
+  const refreshGen = useRef(0);
+  const configGen = useRef(0);
 
   const refresh = useCallback(async () => {
+    const gen = ++refreshGen.current;
     setLoading(true);
     setError('');
     try {
@@ -170,30 +173,32 @@ export function InsightsTab() {
       // `allProposals.filter` threw "filter is not a function". And a
       // payload that is not the array must not read as "no insights yet" —
       // that is a false empty from a response nobody could parse.
+      if (gen !== refreshGen.current) return;
       if (!Array.isArray(data)) {
         console.warn('[memesh dashboard] /v1/dream/proposals answered, but with a shape this bundle cannot render — stale bundle or version skew, not an outage:', data);
-        setAllProposals([]);
         setError(failureMessage('unreadable'));
       } else {
         setAllProposals(data);
       }
     } catch (e) {
+      if (gen !== refreshGen.current) return;
       console.warn('[memesh dashboard] /v1/dream/proposals failed to load:', e);
       setError(failureMessage(classifyLoadError(e)));
     } finally {
-      setLoading(false);
+      if (gen === refreshGen.current) setLoading(false);
     }
   }, []);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => { refresh(); }, [refresh, dataRevision]);
 
   // One-shot capability probe — answers "is the empty-state
   // 'configure your LLM' or 'run dream run'?".
   useEffect(() => {
+    const gen = ++configGen.current;
     api<{ capabilities?: { llm?: { provider?: string } | null } }>('GET', '/v1/config')
-      .then((d) => setLlmConfigured(!!d?.capabilities?.llm))
-      .catch(() => setLlmConfigured(false));
-  }, []);
+      .then((d) => { if (gen === configGen.current) setLlmConfigured(!!d?.capabilities?.llm); })
+      .catch(() => { if (gen === configGen.current) setLlmConfigured(false); });
+  }, [dataRevision]);
 
   const proposals = filter === 'all' ? allProposals : allProposals.filter(p => p.status === filter);
 
@@ -234,13 +239,12 @@ export function InsightsTab() {
     try {
       await api('POST', `/v1/dream/proposals/${id}/accept`);
       window.dispatchEvent(new Event('memesh:data-changed'));
-      await refresh();
     } catch (e) {
       setError(actionFailureMessage(e));
     } finally {
       clearBusy(id);
     }
-  }, [refresh]);
+  }, []);
 
   // Confirmed, because rejection is one click and permanent. The dreamer
   // deliberately never re-proposes a rejected cluster (dreamer.ts:226) — that
@@ -255,13 +259,12 @@ export function InsightsTab() {
     try {
       await api('POST', `/v1/dream/proposals/${id}/reject`, { reason: 'rejected via dashboard' });
       window.dispatchEvent(new Event('memesh:data-changed'));
-      await refresh();
     } catch (e) {
       setError(actionFailureMessage(e));
     } finally {
       clearBusy(id);
     }
-  }, [refresh]);
+  }, []);
 
   // Trigger a dreamer pass on demand. `mode === 'validate'` plumbs the
   // optional second LLM call through `digest-validator.ts`. Bounded to
@@ -278,7 +281,6 @@ export function InsightsTab() {
         validate: mode === 'validate',
       });
       window.dispatchEvent(new Event('memesh:data-changed'));
-      await refresh();
       const providerErrors = result.skipped.filter((entry) => entry.code === 'provider_error');
       if (providerErrors.length > 0) {
         setError(t('insights.runProviderError', {
@@ -294,7 +296,7 @@ export function InsightsTab() {
     } finally {
       setDreamRunning(null);
     }
-  }, [refresh]);
+  }, []);
 
   const pendingCount = allProposals.filter(p => p.status === 'pending').length;
   const appliedCount = allProposals.filter(p => p.status === 'applied').length;

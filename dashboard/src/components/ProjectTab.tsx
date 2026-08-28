@@ -67,7 +67,7 @@ export function selectProjectEntities(entities: Entity[], selected: string | nul
  * dispatch here: this surface is read-only, and the event exists to sync
  * the header after mutations.
  */
-export function ProjectTab({ health }: { health?: HealthData | null }) {
+export function ProjectTab({ health, dataRevision = 0 }: { health?: HealthData | null; dataRevision?: number }) {
   const [entities, setEntities] = useState<Entity[]>([]);
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [selected, setSelected] = useState<string | null>(urlProject);
@@ -78,6 +78,9 @@ export function ProjectTab({ health }: { health?: HealthData | null }) {
 
   useEffect(() => {
     const gen = ++loadGen.current;
+    setLoading(true);
+    setError('');
+    setProjectsError('');
     Promise.all([
       api<Entity[]>('GET', `/v1/entities?limit=${FETCH_LIMIT}&status=all`),
       // `.catch(() => [])` reported a projects fetch that FAILED as a library
@@ -97,7 +100,6 @@ export function ProjectTab({ health }: { health?: HealthData | null }) {
       .then(([data, projs]) => {
         if (gen !== loadGen.current) return;
         if (!Array.isArray(data)) {
-          setEntities([]);
           setError(failureMessage('unreadable'));
         } else {
           setEntities(data);
@@ -119,15 +121,15 @@ export function ProjectTab({ health }: { health?: HealthData | null }) {
       .finally(() => {
         if (gen === loadGen.current) setLoading(false);
       });
-  }, []);
+  }, [dataRevision]);
 
   const projectEntities = useMemo(
     () => selectProjectEntities(entities, selected),
     [entities, selected],
   );
 
-  if (loading) return <div class="empty"><div class="loading" /></div>;
-  if (error) return <div class="error-box" role="alert">{error}</div>;
+  if (loading && entities.length === 0) return <div class="empty"><div class="loading" /></div>;
+  if (error && entities.length === 0) return <div class="error-box" role="alert">{error}</div>;
 
   // Tri-state before claiming emptiness: health arrives from App's own
   // async fetch, and `null?.entity_count === 0` is false — deciding before
@@ -140,7 +142,7 @@ export function ProjectTab({ health }: { health?: HealthData | null }) {
   // projects, and `project.empty` speaks about the user's DATA. Named as a
   // failure it is something the user can act on; folded into `[]` it is a
   // first-run claim they have no way to see through.
-  if (projectsError) return <div class="error-box" role="alert">{projectsError}</div>;
+  if (projectsError && projects.length === 0) return <div class="error-box" role="alert">{projectsError}</div>;
 
   if (projects.length === 0) {
     return <div class="empty">{t('project.empty')}</div>;
@@ -148,6 +150,9 @@ export function ProjectTab({ health }: { health?: HealthData | null }) {
 
   return (
     <div>
+      {loading && <div class="loading" role="status" />}
+      {error && <div class="error-box" role="alert">{error}</div>}
+      {projectsError && <div class="error-box" role="alert">{projectsError}</div>}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12, alignItems: 'center' }}>
         <span style={{ fontSize: 11, color: 'var(--text-3)', marginRight: 4 }}>{t('project.selectLabel')}</span>
         {projects.map((p) => (

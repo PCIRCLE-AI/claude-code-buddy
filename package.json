@@ -34,6 +34,7 @@
     "build:dashboard": "node scripts/build-dashboard.mjs",
     "test": "vitest",
     "test:e2e-dashboard": "node scripts/dashboard-e2e-smoke.mjs",
+    "test:issue-224": "vitest run tests/dashboard/issue-224-data-refresh.test.tsx --maxWorkers=1",
     "test:packaged": "node scripts/smoke-packed-artifact.mjs",
     "test:packaged:upgrade": "node scripts/smoke-packed-upgrade.mjs",
     "audit:prod": "node scripts/check-consumer-audit.mjs",

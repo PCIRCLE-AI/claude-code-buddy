@@ -26,11 +26,6 @@ import { t, getLocale } from '../lib/i18n';
  * have.
  */
 
-type Load =
-  | { phase: 'loading' }
-  | { phase: 'loaded'; data: AnalyticsData }
-  | { phase: 'failed'; failure: LoadFailure };
-
 /** What a tile renders. `value: null` is the not-measured state and carries
  *  its own sentence; it is deliberately not expressible as a number. */
 interface Tile {
@@ -135,54 +130,64 @@ export function buildTiles(data: AnalyticsData, locale: string): Tile[] {
   return [health, critical, citation, loop];
 }
 
-export function MetricsRow() {
-  const [state, setState] = useState<Load>({ phase: 'loading' });
+export function MetricsRow({ dataRevision = 0 }: { dataRevision?: number }) {
+  const [data, setData] = useState<AnalyticsData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [failure, setFailure] = useState<LoadFailure | null>(null);
 
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
+    setFailure(null);
     api<AnalyticsData>('GET', '/v1/analytics')
       .then((data) => {
         if (cancelled) return;
         if (!isMetricsRenderable(data)) {
           console.warn('[memesh dashboard] /v1/analytics answered without the groups this row reads — stale server or version skew:', data);
-          setState({ phase: 'failed', failure: 'unreadable' });
+          setFailure('unreadable');
           return;
         }
-        setState({ phase: 'loaded', data });
+        setData(data);
+        setFailure(null);
       })
       .catch((e) => {
         if (cancelled) return;
         console.warn('[memesh dashboard] /v1/analytics failed to load for the metrics row:', e);
-        setState({ phase: 'failed', failure: classifyLoadError(e) });
-      });
+        setFailure(classifyLoadError(e));
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, []);
+  }, [dataRevision]);
 
-  if (state.phase === 'loading') {
+  if (loading && !data) {
     return <div class="stats-row" aria-busy="true"><div class="stat"><div class="loading" /></div></div>;
   }
-  if (state.phase === 'failed') {
+  if (failure && !data) {
     // The row says what happened. It does NOT render four zeroes, which
     // would report four measurements from a request that never answered.
     return (
       <div role="alert" class="card" style={{ marginBottom: 8, fontSize: 12, color: 'var(--text-2)' }}>
-        {failureMessage(state.failure)}
+        {failureMessage(failure)}
       </div>
     );
   }
 
-  const tiles = buildTiles(state.data, getLocale());
+  if (!data) return null;
+  const tiles = buildTiles(data, getLocale());
   return (
-    <div class="stats-row">
-      {tiles.map((tile) => (
-        <div class="stat" key={tile.key}>
+    <div>
+      {failure && <div role="alert" class="card" style={{ marginBottom: 8 }}>{failureMessage(failure)}</div>}
+      <div class="stats-row" aria-busy={loading}>
+        {tiles.map((tile) => (
+          <div class="stat" key={tile.key}>
           <div class="stat-val" style={{ color: tone(tile.tone), fontSize: tile.value === null ? 13 : undefined }}>
             {tile.value ?? t('metrics.notMeasured')}
           </div>
           <div class="stat-lbl">{tile.label}</div>
           <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 2 }}>{tile.note}</div>
-        </div>
-      ))}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

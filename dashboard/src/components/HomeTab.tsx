@@ -12,7 +12,7 @@ import { t } from '../lib/i18n';
  * while closed); once visited it stays mounted so collapse/expand keeps
  * its state without refetching (DESIGN.md expander pattern).
  */
-export function HomeTab() {
+export function HomeTab({ dataRevision = 0 }: { dataRevision?: number }) {
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
   const [analyticsVisited, setAnalyticsVisited] = useState(false);
 
@@ -27,8 +27,8 @@ export function HomeTab() {
       {/* Numbers first, then what needs a decision, then what was applied —
           the order the work-topology plan asked for. The row degrades per
           tile: one unmeasured metric says so and the others still show. */}
-      <MetricsRow />
-      <InsightsTab />
+      <MetricsRow dataRevision={dataRevision} />
+      <InsightsTab dataRevision={dataRevision} />
       <div class="card" style={{ marginTop: 8 }}>
         <button
           onClick={toggleAnalytics}
@@ -57,7 +57,7 @@ export function HomeTab() {
           )}
         </button>
         <div id="home-analytics" hidden={!analyticsOpen} style={{ marginTop: analyticsOpen ? 14 : 0 }}>
-          {analyticsVisited && <AnalyticsTab />}
+          {analyticsVisited && <AnalyticsTab dataRevision={dataRevision} />}
         </div>
       </div>
     </div>

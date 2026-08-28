@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'preact/hooks';
+import { useState, useEffect, useCallback, useRef } from 'preact/hooks';
 import { Header } from './components/Header';
 import { TabNav } from './components/TabNav';
 import { HomeTab } from './components/HomeTab';
@@ -108,6 +108,8 @@ export function App() {
     } catch { /* no-op — same private-mode tolerance as storage */ }
   }, [tab]);
   const [health, setHealth] = useState<HealthData | null>(null);
+  const [dataRevision, setDataRevision] = useState(0);
+  const healthGen = useRef(0);
   const [error, setError] = useState('');
   // Codex fix (2026-05-05): the server protects /v1/* with a bearer
   // token whenever it is bound non-loopback. The dashboard SPA stores
@@ -128,13 +130,16 @@ export function App() {
   const [authRejected, setAuthRejected] = useState(false);
 
   const refetchHealth = useCallback(() => {
+    const gen = ++healthGen.current;
     api<HealthData>('GET', '/v1/health')
       .then((data) => {
+        if (gen !== healthGen.current) return;
         setHealth(data);
         setError('');
         setNeedsAuth(false);
       })
       .catch((e) => {
+        if (gen !== healthGen.current) return;
         if (e instanceof AuthRequiredError) {
           // A 401 while a token is already stored means that token was
           // rejected, not that none was supplied.
@@ -155,7 +160,10 @@ export function App() {
   // mutation site keeps the header in sync without coupling components.
   useEffect(() => {
     refetchHealth();
-    const handler = () => refetchHealth();
+    const handler = () => {
+      setDataRevision((revision) => revision + 1);
+      refetchHealth();
+    };
     window.addEventListener('memesh:data-changed', handler);
     return () => window.removeEventListener('memesh:data-changed', handler);
   }, [refetchHealth]);
@@ -200,10 +208,10 @@ export function App() {
       {/* Each panel is the tabpanel for its TabNav tab: id + role +
           aria-labelledby wire the roving-tablist relationship (see TabNav). */}
       <div class="main">
-        <div id="panel-Home" role="tabpanel" aria-labelledby="tab-Home" class={`panel ${tab === 'Home' ? 'active' : ''}`}>{tab === 'Home' && <HomeTab />}</div>
-        <div id="panel-Memories" role="tabpanel" aria-labelledby="tab-Memories" class={`panel ${tab === 'Memories' ? 'active' : ''}`}>{keepMounted('Memories') && <MemoriesTab health={health} />}</div>
-        <div id="panel-Project" role="tabpanel" aria-labelledby="tab-Project" class={`panel ${tab === 'Project' ? 'active' : ''}`}>{keepMounted('Project') && <ProjectTab health={health} />}</div>
-        <div id="panel-Graph" role="tabpanel" aria-labelledby="tab-Graph" class={`panel ${tab === 'Graph' ? 'active' : ''}`}>{tab === 'Graph' && <GraphTab />}</div>
+        <div id="panel-Home" role="tabpanel" aria-labelledby="tab-Home" class={`panel ${tab === 'Home' ? 'active' : ''}`}>{tab === 'Home' && <HomeTab dataRevision={dataRevision} />}</div>
+        <div id="panel-Memories" role="tabpanel" aria-labelledby="tab-Memories" class={`panel ${tab === 'Memories' ? 'active' : ''}`}>{keepMounted('Memories') && <MemoriesTab health={health} dataRevision={dataRevision} />}</div>
+        <div id="panel-Project" role="tabpanel" aria-labelledby="tab-Project" class={`panel ${tab === 'Project' ? 'active' : ''}`}>{keepMounted('Project') && <ProjectTab health={health} dataRevision={dataRevision} />}</div>
+        <div id="panel-Graph" role="tabpanel" aria-labelledby="tab-Graph" class={`panel ${tab === 'Graph' ? 'active' : ''}`}>{tab === 'Graph' && <GraphTab dataRevision={dataRevision} />}</div>
         <div id="panel-Settings" role="tabpanel" aria-labelledby="tab-Settings" class={`panel ${tab === 'Settings' ? 'active' : ''}`}>
           {tab === 'Settings' && <SettingsTab locale={locale} onLocaleChange={setLocale} onDirtyChange={setSettingsDirty} />}
         </div>

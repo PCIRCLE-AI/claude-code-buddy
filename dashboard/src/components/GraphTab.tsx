@@ -277,7 +277,7 @@ export function capGraphEntities(entities: Entity[], cap: number = GRAPH_NODE_CA
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
-export function GraphTab() {
+export function GraphTab({ dataRevision = 0 }: { dataRevision?: number }) {
   const [data, setData] = useState<GraphData | null>(null);
   // Two-layer state (UX-4). `layer` is what the user asked for; `activeLayer`
   // is what is actually on screen — they differ exactly when the work layer
@@ -399,7 +399,6 @@ export function GraphTab() {
       // Loudly: the request succeeded, so nothing else will ever log this.
       console.warn('[memesh dashboard] /v1/graph answered, but with a shape this bundle cannot render — stale bundle or version skew, not an outage:', d);
       setFailure('unreadable');
-      setData(null);
       return;
     }
     setFailure(null);
@@ -437,6 +436,7 @@ export function GraphTab() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setFailure(null);
     setEvidenceNode(null);
     const loadFull = () => fetchGraph().then((d) => {
       if (cancelled) return;
@@ -480,7 +480,7 @@ export function GraphTab() {
     return () => { cancelled = true; };
     // Complete deps, and deliberately cheap: `applyGraph` is stable (empty
     // deps), so the only thing that re-runs this loader is a layer switch.
-  }, [layer, applyGraph]);
+  }, [layer, applyGraph, dataRevision]);
 
 
   // ONE derivation of the human-readable headline for the whole tab: the
@@ -1471,14 +1471,14 @@ export function GraphTab() {
   }, [data, loading, onWheel]);
 
   /* ---------- derived data for render ---------- */
-  if (loading) return <div class="empty"><div class="loading" /></div>;
+  if (loading && !data) return <div class="empty"><div class="loading" /></div>;
   // The two failures carry different next steps — "check the server" vs
   // "reload / memesh doctor" — so they get different sentences; the console
   // has the raw details either way. There used to be a third branch showing
   // a raw error string here, but nothing could reach it: the only place it
   // was set also set `failure`, which returns first. A branch that reads as
   // a safety net and cannot run is exactly the shape this repo hunts.
-  if (failure) return <div class="error-box" role="alert">{failureMessage(failure)}</div>;
+  if (failure && !data) return <div class="error-box" role="alert">{failureMessage(failure)}</div>;
   if (!data) return <div class="error-box" role="alert">{t('common.error')}: {t('common.noData')}</div>;
 
   // Type counts
@@ -1557,6 +1557,8 @@ export function GraphTab() {
   if (data.entities.length === 0) {
     return (
       <div>
+        {loading && <div class="loading" role="status" />}
+        {failure && <div class="error-box" role="alert">{failureMessage(failure)}</div>}
         <div class="stats-row">
           <div class="stat">
             <div class="stat-val">0</div>
@@ -1583,6 +1585,8 @@ export function GraphTab() {
 
   return (
     <div>
+      {loading && <div class="loading" role="status" />}
+      {failure && <div class="error-box" role="alert">{failureMessage(failure)}</div>}
       {/* Stats row: 3 cards. The entities stat reports the LIBRARY size
           (pre-cap) — the cap note right below owns the discrepancy. */}
       <div class="stats-row">
