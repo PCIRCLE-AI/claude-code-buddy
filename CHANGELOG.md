@@ -2,6 +2,24 @@
 
 All notable changes to MeMesh are documented here.
 
+## [4.8.1] — 2026-08-28
+
+### Fixed
+
+- **Local host files are handled without check-then-use races.** Managed ACP
+  configuration and response files now use atomic creation or validate and
+  consume the same opened file descriptor, preserving owner-private,
+  non-overwrite, symlink, regular-file, and payload safeguards.
+
+- **Feedback links on Windows no longer pass through a command parser.** The
+  CLI opens the prebuilt GitHub Issue URL directly with Explorer, while macOS
+  and Linux retain their existing direct argument-vector openers.
+
+- **Concurrent local delivery keeps one explicit in-flight owner.** The router
+  now awaits the shared delivery operation through a non-Promise ownership
+  entry, preserving same-delivery deduplication and safe cleanup even when a
+  host adapter re-enters synchronously.
+
 ## [4.8.0] — 2026-08-28
 
 ### Added
