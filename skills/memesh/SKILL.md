@@ -23,6 +23,22 @@ Persistent memory for AI agents. The point is continuity: the next session start
 
 All examples below use CLI. MCP tools accept the same parameters as JSON objects.
 
+## All 11 MCP tools
+
+| Tool | Purpose |
+|---|---|
+| `remember` | Store knowledge as an entity with observations, tags, and relations |
+| `recall` | Search stored knowledge; empty query lists recent memories |
+| `forget` | Archive an entity or remove one exact observation |
+| `export` | Export memories as portable JSON |
+| `import` | Import a JSON export with the required skip, append, or overwrite strategy |
+| `learn` | Record a structured lesson with error, fix, root cause, and prevention |
+| `task_state` | Read or update user-stated goal, next step, blocker, and finished work |
+| `briefing` | Assemble the current project's work topology |
+| `user_patterns` | Analyze work schedule, tool preferences, and focus areas |
+| `improvement` | Propose an evidence-linked product improvement or read its status; only a human may accept or reject it |
+| `message` | Exchange durable exact-recipient local messages; fetching does not acknowledge them |
+
 ## The Loop
 
 Four moments. Everything else in this file is detail.
@@ -61,7 +77,7 @@ Use the routing and identity fields returned by `fetch`. A reply has this shape 
 }
 ```
 
-An active compatible managed host can receive a native push, which removes polling for that live delivery. One-time provider enablement and a MeMesh-managed Codex app-server, Claude Channel, or Gemini ACP session may be required; ordinary unattached sessions are presence-only/inbound-unavailable. Adapter imports and a live router socket do not prove host registration or `host_accept`. Do not promise that a stopped, missing, or replaced session will wake up: it is not resumed or silently rerouted. Use the stable principal for logical routing, and an exact session/generation only when delivery must not move to a replacement connection. Local owns durable storage and host-native delivery; Cloud relay, A2A, SSE, discovery, or fetch is not host delivery.
+An active compatible managed host can receive a native push, which removes polling for that live delivery. One-time provider enablement and a MeMesh-managed Codex app-server or Claude Channel may be required; ordinary unattached sessions are presence-only/inbound-unavailable. The bundled Gemini ACP adapter is experimental protocol-development code, not a release-gated native-wakeup provider. Adapter imports and a live router socket do not prove host registration or `host_accept`. Do not promise that a stopped, missing, or replaced session will wake up: it is not resumed or silently rerouted. Use the stable principal for logical routing, and an exact session/generation only when delivery must not move to a replacement connection. Local owns durable storage and host-native delivery; Cloud relay, A2A, SSE, discovery, or fetch is not host delivery.
 
 Durable audit does not mean unbounded silent growth. Owners can inspect it with `memesh message storage report --cutoff <ISO timestamp>`, preview bounded terminal-payload tombstones with `memesh message storage prune --cutoff <ISO timestamp>`, and explicitly add `--apply`. Never prune unresolved/offline-pending work. `MEMESH_AGENT_MESSAGE_STORAGE_QUOTA_BYTES` is an optional owner policy; there is no default quota or automatic pruning.
 

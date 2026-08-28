@@ -95,7 +95,7 @@ export function exportOpenAITools() {
                         merge_strategy: {
                             type: 'string',
                             enum: ['skip', 'overwrite', 'append'],
-                            description: 'How to handle existing entities: skip (default), overwrite (replace), or append (merge observations).',
+                            description: 'Required. How to handle existing entities: skip, overwrite (replace), or append (merge observations).',
                         },
                     },
                     required: ['data', 'merge_strategy'],
