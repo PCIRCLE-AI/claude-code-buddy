@@ -540,6 +540,46 @@ describe.runIf(process.platform !== 'win32').sequential('AgentRouter real SQLite
     ).get(rejectedId)).toEqual({ count: 4 }));
   });
 
+  it('keeps the current in-flight owner when a same-delivery dispatch re-enters', async () => {
+    const { db, socketPath } = setup();
+    const router = new AgentRouter({ db, socket_path: socketPath, adapters: [] });
+    routers.push(router);
+    const internal = router as unknown as {
+      dispatchDelivery(deliveryId: string, project: string, hops: number): Promise<boolean>;
+      dispatchDeliveryOnce(deliveryId: string, project: string, hops: number): Promise<boolean>;
+      inFlightDeliveries: Map<string, { operation: Promise<boolean> }>;
+    };
+    let calls = 0;
+    let resolveOuter!: (value: boolean) => void;
+    let resolveNested!: (value: boolean) => void;
+    const outerOperation = new Promise<boolean>(resolve => { resolveOuter = resolve; });
+    const nestedOperation = new Promise<boolean>(resolve => { resolveNested = resolve; });
+    let nestedCaller!: Promise<boolean>;
+
+    internal.dispatchDeliveryOnce = () => {
+      calls += 1;
+      if (calls === 1) {
+        nestedCaller = internal.dispatchDelivery('delivery-1', 'project-1', 0);
+        return outerOperation;
+      }
+      if (calls === 2) return nestedOperation;
+      return Promise.resolve(true);
+    };
+
+    const outerCaller = internal.dispatchDelivery('delivery-1', 'project-1', 0);
+    expect(internal.inFlightDeliveries.get('delivery-1')?.operation).toBe(outerOperation);
+
+    resolveNested(true);
+    await nestedCaller;
+    expect(internal.inFlightDeliveries.get('delivery-1')?.operation).toBe(outerOperation);
+
+    const thirdCaller = internal.dispatchDelivery('delivery-1', 'project-1', 0);
+    expect(calls).toBe(2);
+    resolveOuter(true);
+    await expect(Promise.all([outerCaller, thirdCaller])).resolves.toEqual([true, true]);
+    expect(internal.inFlightDeliveries.has('delivery-1')).toBe(false);
+  });
+
   it('retries after an adapter crash, dedupes host acceptance, and enforces hop/frame bounds', async () => {
     const { db, socketPath, token } = setup();
     await startRouter(db, socketPath, token, {
