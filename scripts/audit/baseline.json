@@ -146,10 +146,10 @@
       "reason": "set -uo pipefail at file top preserves the left commands verdict",
       "triaged": "2026-08-04 (re-keyed: the mktemp-orphan fix shifted lines by five); re-keyed 2026-08-24 (R11 batch shifted lines; statements byte-identical, classification unchanged)"
     },
-    "C5 dashboard/src/components/SettingsTab.tsx:237": {
+    "C5 dashboard/src/components/SettingsTab.tsx:257": {
       "class": "SAFE-GUARDED",
       "reason": "absent llmFallbacks truthfully means an empty failover chain (a real state, rendered as no entries), not a masked failure; mirrors config.ts:353",
-      "triaged": "2026-08-05"
+      "triaged": "2026-08-05; re-keyed 2026-08-28 (search-index provider controls shifted the unchanged statement)"
     },
     "C1 tests/cli/recall-presentation.test.ts": {
       "class": "SAFE",
