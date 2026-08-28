@@ -96,6 +96,7 @@ describe('ProjectRoadmap — SPEC-9 v0/v1 acceptance criteria', () => {
 
         const node = container.querySelector(target.selector);
         expect(node).not.toBeNull();
+        expect(node!.getAttribute('tabindex')).toBe('0');
         activation.run(node!);
 
         await waitFor(() => {

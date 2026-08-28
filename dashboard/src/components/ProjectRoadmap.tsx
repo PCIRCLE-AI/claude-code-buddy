@@ -1476,7 +1476,7 @@ function RoadmapMindmap({ projectName, phases, entities, onNodeClick }: MindmapP
             <g
               key={`phase-${i}`}
               role={phase.anchorId !== undefined ? 'button' : undefined}
-              tabIndex={phase.anchorId !== undefined ? 0 : undefined}
+              tabindex={phase.anchorId !== undefined ? 0 : undefined}
               aria-label={phase.anchorId !== undefined ? phase.label : undefined}
               style={{ cursor: phase.anchorId !== undefined ? 'pointer' : 'default' }}
               onClick={() => phase.anchorId !== undefined && onNodeClick(phase.anchorId)}
@@ -1532,7 +1532,7 @@ function RoadmapMindmap({ projectName, phases, entities, onNodeClick }: MindmapP
                   <g
                     key={e.id}
                     role="button"
-                    tabIndex={0}
+                    tabindex={0}
                     aria-label={`${label} (${typeLabel(e.type)})`}
                     style={{ cursor: 'pointer' }}
                     onClick={() => onNodeClick(e.id)}
