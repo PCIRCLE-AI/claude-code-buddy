@@ -244,7 +244,7 @@ export class AgentRouter {
   private socketIdentity: SocketIdentity | null = null;
   private readonly sockets = new Set<net.Socket>();
   private readonly externalConnections = new Map<string, net.Socket>();
-  private readonly inFlightDeliveries = new Map<string, Promise<boolean>>();
+  private readonly inFlightDeliveries = new Map<string, { operation: Promise<boolean> }>();
   private readonly pendingExternal = new Map<string, {
     connection: ConnectionRow;
     delivery_id: string;
@@ -718,13 +718,13 @@ export class AgentRouter {
     preferred?: ConnectionRow,
   ): Promise<boolean> {
     const inFlight = this.inFlightDeliveries.get(deliveryId);
-    if (inFlight) return await inFlight;
-    const operation = this.dispatchDeliveryOnce(deliveryId, project, hops, preferred);
-    this.inFlightDeliveries.set(deliveryId, operation);
+    if (inFlight) return await inFlight.operation;
+    const entry = { operation: this.dispatchDeliveryOnce(deliveryId, project, hops, preferred) };
+    this.inFlightDeliveries.set(deliveryId, entry);
     try {
-      return await operation;
+      return await entry.operation;
     } finally {
-      if (this.inFlightDeliveries.get(deliveryId) === operation) {
+      if (this.inFlightDeliveries.get(deliveryId) === entry) {
         this.inFlightDeliveries.delete(deliveryId);
       }
     }
