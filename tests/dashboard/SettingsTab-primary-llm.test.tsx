@@ -47,6 +47,11 @@ function backgroundResponse(url: string): Response | null {
   return null;
 }
 
+function capabilityValues(container: Element): string[] {
+  return [...container.querySelectorAll('.card:first-child .stat-val')]
+    .map((node) => node.textContent?.trim() ?? '');
+}
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
@@ -154,6 +159,8 @@ describe('SettingsTab primary LLM draft, test, save, and remove semantics', () =
     expect(queryByText(t('settings.unsaved'))).toBeNull();
     expect((container.querySelector('input[name="provider"][value="openai"]') as HTMLInputElement).checked).toBe(true);
     expect((container.querySelector('input[type="password"]') as HTMLInputElement).value).toBe('');
+    expect(capabilityValues(container)).toContain('Openai');
+    expect(capabilityValues(container)).toContain('gpt-fixture');
   });
 
   it('preserves the tested draft and secret input when Save fails', async () => {
@@ -187,6 +194,8 @@ describe('SettingsTab primary LLM draft, test, save, and remove semantics', () =
     expect(container.textContent).toContain(t('settings.testPassed', { count: 1 }));
     expect((container.querySelector('input[type="password"]') as HTMLInputElement).value).toBe('fixture-key');
     expect((container.querySelector('input[name="provider"][value="openai"]') as HTMLInputElement).checked).toBe(true);
+    expect(capabilityValues(container)).toContain('Anthropic');
+    expect(capabilityValues(container)).not.toContain('gpt-fixture');
   });
 
   it('removes matching Ollama LLM and search provider together with GET readback', async () => {
