@@ -53,6 +53,28 @@ function parseNamedLocales(): string[] {
 }
 
 describe('dashboard i18n', () => {
+  it('uses the memory-organization heading consistently in every locale', () => {
+    const entries = parseTranslationEntries();
+    const expected = new Map([
+      ['en', 'Memory organization suggestions'],
+      ['zh-TW', '記憶整理建議'],
+      ['zh-CN', '记忆整理建议'],
+      ['ja', 'メモリ整理の提案'],
+      ['ko', '메모리 정리 제안'],
+      ['pt', 'Sugestões de organização da memória'],
+      ['fr', 'Suggestions d’organisation de la mémoire'],
+      ['de', 'Vorschläge zur Organisation der Erinnerungen'],
+      ['vi', 'Đề xuất sắp xếp bộ nhớ'],
+      ['es', 'Sugerencias para organizar la memoria'],
+      ['th', 'คำแนะนำในการจัดระเบียบความจำ'],
+    ]);
+
+    expect([...entries.keys()].sort()).toEqual([...expected.keys()].sort());
+    for (const [locale, title] of expected) {
+      expect(entries.get(locale)?.get('insights.title'), locale).toBe(title);
+    }
+  });
+
   it('keeps every locale in key parity with English', () => {
     const locales = parseTranslationKeys();
     const englishKeys = locales.get('en');
