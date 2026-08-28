@@ -130,10 +130,11 @@ export function OnboardingBanner({ health }: Props) {
       <div style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--text-1)' }}>
         {t('onboarding.body')}
       </div>
-      {/* #31 — set expectation up-front: nothing here requires an LLM. */}
-      <div style={{ fontSize: 11, lineHeight: 1.55, color: 'var(--text-3)', marginTop: 4 }}>
-        {t('onboarding.llmHint')}
-      </div>
+      <ul style={{ fontSize: 11, lineHeight: 1.55, color: 'var(--text-3)', margin: '6px 0 0', paddingLeft: 18 }}>
+        <li>{t('onboarding.coreHint')}</li>
+        <li>{t('onboarding.semanticHint')}</li>
+        <li>{t('onboarding.llmHint')}</li>
+      </ul>
 
       {/* Primary one-click affordance — no terminal required. */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 12, alignItems: 'center' }}>

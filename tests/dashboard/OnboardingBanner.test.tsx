@@ -10,6 +10,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, fireEvent, waitFor } from '@testing-library/preact';
 import { OnboardingBanner } from '../../dashboard/src/components/OnboardingBanner';
 import type { HealthData } from '../../dashboard/src/lib/api';
+import { getLocale, setLocale } from '../../dashboard/src/lib/i18n';
 
 const emptyHealth: HealthData = { status: 'ok', version: 'test', entity_count: 0 };
 const populatedHealth: HealthData = { status: 'ok', version: 'test', entity_count: 30 };
@@ -29,6 +30,23 @@ describe('OnboardingBanner', () => {
     const buttons = Array.from(container.querySelectorAll('button.btn-primary'));
     expect(buttons.length).toBe(1);
     expect(buttons[0]?.textContent ?? '').toMatch(/demo|示範|示范|डेमो|デモ|투어|démo|demo/i);
+  });
+
+  it('separates the LLM-free core, semantic indexing, and LLM-assisted organization', () => {
+    const previousLocale = getLocale();
+    setLocale('en');
+    try {
+      const { container } = render(<OnboardingBanner health={emptyHealth} />);
+      const capabilityItems = Array.from(container.querySelectorAll('ul li'))
+        .map((item) => item.textContent ?? '');
+      expect(capabilityItems).toHaveLength(3);
+      expect(capabilityItems[0]).toMatch(/Without an LLM.*FTS5.*hooks.*Dashboard/i);
+      expect(capabilityItems[1]).toMatch(/With an embedder.*semantic indexing.*meaning-based recall/i);
+      expect(capabilityItems[2]).toMatch(/With an LLM.*weekly digest.*pattern\/conflict.*validation.*lesson\/tag.*telemetry/i);
+      expect(capabilityItems.join(' ')).not.toMatch(/everything.*FTS5 alone|LLM.*only.*lesson/i);
+    } finally {
+      setLocale(previousLocale);
+    }
   });
 
   it('hides itself once entity_count climbs above zero', () => {
