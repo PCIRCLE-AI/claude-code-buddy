@@ -67,6 +67,7 @@ import { isPmAnalyticsRenderable } from '../../dashboard/src/components/PmAnalyt
 import { Chip } from '../../dashboard/src/components/Chip';
 import { DoctorBanner } from '../../dashboard/src/components/DoctorBanner';
 import { EmptyLibraryState } from '../../dashboard/src/components/EmptyLibraryState';
+import { TerminalHandoff } from '../../dashboard/src/components/ExternalHandoff';
 import { FeedbackWidget } from '../../dashboard/src/components/FeedbackWidget';
 import { GraphTab } from '../../dashboard/src/components/GraphTab';
 import { Header } from '../../dashboard/src/components/Header';
@@ -347,6 +348,7 @@ const CASES: Array<{ name: string; node: () => ComponentChildren }> = [
   { name: 'Chip', node: () => <Chip label="" active={false} onClick={() => {}} /> },
   { name: 'DoctorBanner', node: () => <DoctorBanner /> },
   { name: 'EmptyLibraryState', node: () => <EmptyLibraryState /> },
+  { name: 'ExternalHandoff', node: () => <TerminalHandoff id="contract" command="memesh doctor" /> },
   { name: 'FeedbackWidget', node: () => <FeedbackWidget health={null} /> },
   { name: 'GraphTab', node: () => <GraphTab /> },
   { name: 'Header', node: () => <Header health={null} error="" /> },
@@ -483,6 +485,7 @@ const MUST_RENDER: Record<string, { keys?: string[]; literals?: string[]; nothin
   // Fetches nothing on mount (the seed POST fires only on click), so it must
   // render the same guidance whatever the API stub does.
   EmptyLibraryState: { keys: ['emptyLibrary.title', 'onboarding.seedButton'] },
+  ExternalHandoff: { keys: ['handoff.terminal', 'handoff.copyCommand'] },
   FeedbackWidget: { keys: ['feedback.button'] },
   GraphTab: { keys: ['tab.graph', 'graph.entities'] },
   Header: { literals: ['MeMesh'] },

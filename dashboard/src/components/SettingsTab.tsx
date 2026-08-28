@@ -10,6 +10,7 @@ import {
 } from '../lib/api';
 import { t, setLocale, getLocales, type Locale } from '../lib/i18n';
 import { actionFailureMessage } from '../lib/failure';
+import { TerminalHandoff } from './ExternalHandoff';
 
 interface SettingsTabProps {
   locale: Locale;
@@ -1339,9 +1340,7 @@ export function SettingsTab({ locale, onLocaleChange, onDirtyChange }: SettingsT
           {updateStatus?.recommendedCommand && (
             <div style={{ display: 'grid', gap: 6, marginTop: 4 }}>
               <span style={{ color: 'var(--text-2)', fontSize: 12 }}>{t('settings.updateCommand')}</span>
-              <code style={{ color: 'var(--text-0)', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '8px 10px', fontSize: 12, fontFamily: 'var(--mono)' }}>
-                {updateStatus.recommendedCommand}
-              </code>
+              <TerminalHandoff id="settings-update" command={updateStatus.recommendedCommand} />
             </div>
           )}
         </div>

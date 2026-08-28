@@ -2,6 +2,7 @@ import { useState } from 'preact/hooks';
 import { api, type HealthData } from '../lib/api';
 import { t } from '../lib/i18n';
 import { actionFailureMessage } from '../lib/failure';
+import { TerminalHandoff } from './ExternalHandoff';
 
 const DISMISS_KEY = 'memesh.onboardingDismissed';
 
@@ -175,38 +176,14 @@ export function OnboardingBanner({ health }: Props) {
       {/* Power-user CLI reference — kept for headless / CI flows. */}
       {showOnboarding && <details style={{ marginTop: 10, fontSize: 12, color: 'var(--text-3)' }}>
         <summary style={{ cursor: 'pointer' }}>{t('onboarding.cliReference')}</summary>
+        <TerminalHandoff id="demo-cli-fallback" command="memesh demo" />
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 8 }}>
-          <code
-            style={{
-              padding: '6px 10px',
-              background: 'rgba(0, 0, 0, 0.3)',
-              border: '1px solid rgba(143, 242, 92, 0.20)',
-              borderRadius: 'var(--radius-xs)',
-              color: 'var(--life)',
-              fontFamily: 'var(--mono)',
-              fontSize: 12,
-            }}
-          >
-            memesh demo
-          </code>
           <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
             {t('onboarding.hintDemo')}
           </span>
         </div>
+        <TerminalHandoff id="demo-cli-fallback" command="memesh demo --reset --yes" />
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 8, alignItems: 'center' }}>
-          <code
-            style={{
-              padding: '6px 10px',
-              background: 'rgba(0, 0, 0, 0.3)',
-              border: '1px solid var(--border-subtle)',
-              borderRadius: 'var(--radius-xs)',
-              color: 'var(--text-2)',
-              fontFamily: 'var(--mono)',
-              fontSize: 12,
-            }}
-          >
-            memesh demo --reset --yes
-          </code>
           <button
             type="button"
             class="btn"

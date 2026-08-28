@@ -2,6 +2,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { fetchNodeEvidence, type NodeEvidenceData } from '../lib/api';
 import { displayTitle, typeLabel } from '../lib/entity-display';
 import { t } from '../lib/i18n';
+import { TerminalHandoff } from './ExternalHandoff';
 
 /**
  * The evidence drill-down: what mechanical capture supports one work node.
@@ -98,7 +99,10 @@ export function EvidencePanel({ node, nodeTitle, onClose }: Props) {
       )}
 
       {state.phase === 'loaded' && state.data.entities.length === 0 && (
-        <div style={{ color: 'var(--text-2)', fontSize: 12 }}>{t('graph.evidenceEmpty')}</div>
+        <div style={{ color: 'var(--text-2)', fontSize: 12 }}>
+          {t('graph.evidenceEmpty')}
+          <TerminalHandoff id="graph-evidence-backfill" command="memesh kg backfill" />
+        </div>
       )}
 
       {state.phase === 'loaded' && state.data.entities.length > 0 && (

@@ -96,9 +96,10 @@ function envelopeError(json: { errorCode?: unknown; error?: unknown }): Error {
   if (typeof json.errorCode === 'string' && json.errorCode) {
     const key = `httpError.${json.errorCode}`;
     const translated = t(key);
-    if (translated !== key) return new Error(translated);
+    if (translated !== key) return new Error(translated.includes('`memesh') ? `${t('handoff.terminal')}: ${translated}` : translated);
   }
-  return new Error(typeof json.error === 'string' && json.error ? json.error : t('errors.unknown'));
+  const fallback = typeof json.error === 'string' && json.error ? json.error : t('errors.unknown');
+  return new Error(fallback.includes('`memesh') ? `${t('handoff.terminal')}: ${fallback}` : fallback);
 }
 
 export async function api<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {

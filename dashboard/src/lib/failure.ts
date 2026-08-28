@@ -37,9 +37,9 @@ export function classifyLoadError(err: unknown): LoadFailure {
 
 /** The full user-facing sentence for a failure kind: what happened + what to do. */
 export function failureMessage(kind: LoadFailure): string {
-  if (kind === 'unreachable') return `${t('common.serverUnreachable')} ${t('common.serverUnreachableAction')}`;
+  if (kind === 'unreachable') return `${t('common.serverUnreachable')} ${t('handoff.terminal')}: ${t('common.serverUnreachableAction')}`;
   if (kind === 'ratelimited') return t('httpError.rate.limited');
-  return `${t('common.responseUnreadable')} ${t('common.responseUnreadableAction')}`;
+  return `${t('common.responseUnreadable')} ${t('handoff.terminal')}: ${t('common.responseUnreadableAction')}`;
 }
 
 /**
@@ -63,7 +63,7 @@ export function failureMessage(kind: LoadFailure): string {
 export function actionFailureMessage(err: unknown): string {
   if (err instanceof NetworkError) return failureMessage('unreachable');
   if (err instanceof AuthRequiredError) return t('auth.title');
-  if (err instanceof HttpError) return t('common.serverError', { status: err.status });
+  if (err instanceof HttpError) return `${t('handoff.terminal')}: ${t('common.serverError', { status: err.status })}`;
   if (err instanceof Error && err.message) return err.message;
   return t('errors.unknown');
 }

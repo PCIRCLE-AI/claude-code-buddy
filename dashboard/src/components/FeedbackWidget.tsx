@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from 'preact/hooks';
 import { t } from '../lib/i18n';
 import { api, type HealthData } from '../lib/api';
+import { openExternalWindow } from '../lib/external-handoffs';
+import { GitHubDestination } from './ExternalHandoff';
 
 const TYPES = ['bug', 'feature', 'question'] as const;
 type FeedbackType = typeof TYPES[number];
@@ -104,16 +106,11 @@ export function FeedbackWidget({ health }: { health: HealthData | null }) {
       }
       const typeLabel = t(TYPE_I18N_KEYS[fbType]);
       const url = `https://github.com/PCIRCLE-AI/memesh/issues/new?title=${encodeURIComponent(`[${typeLabel}] `)}&body=${encodeURIComponent(body)}&labels=${encodeURIComponent(labels)}`;
-      const opened = window.open(url, '_blank');
-      if (!opened) {
+      if (!openExternalWindow(url)) {
         setHandoffUrl(url);
         setHandoffError(t('feedback.popupBlocked'));
         return;
       }
-      // Sever the new tab's reference to the Dashboard without using the
-      // noopener window feature, which makes successful opens return null in
-      // some browsers and therefore indistinguishable from popup blocking.
-      try { opened.opener = null; } catch { /* cross-origin browser policy */ }
       setHandoffUrl('');
       setDesc('');
       setOpen(false);
@@ -187,6 +184,7 @@ export function FeedbackWidget({ health }: { health: HealthData | null }) {
             />
             {t('feedback.includeSys')}
           </label>
+          <GitHubDestination id="feedback-submit" />
           <button class="btn btn-primary fb-submit" onClick={submit} disabled={submitting}>
             {submitting ? t('feedback.submitting') : t('feedback.submit')}
           </button>

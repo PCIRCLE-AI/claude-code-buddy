@@ -6,6 +6,7 @@ import { Chip } from './Chip';
 import { t } from '../lib/i18n';
 import { classifyLoadError, failureMessage } from '../lib/failure';
 import { extractProject } from '../lib/entity-display';
+import { TerminalHandoff } from './ExternalHandoff';
 
 const FETCH_LIMIT = 2000;
 
@@ -145,7 +146,10 @@ export function ProjectTab({ health, dataRevision = 0 }: { health?: HealthData |
   if (projectsError && projects.length === 0) return <div class="error-box" role="alert">{projectsError}</div>;
 
   if (projects.length === 0) {
-    return <div class="empty">{t('project.empty')}</div>;
+    return <div class="empty">
+      <div>{t('project.empty')}</div>
+      <TerminalHandoff id="project-hook-setup" command="memesh install-hooks" />
+    </div>;
   }
 
   return (

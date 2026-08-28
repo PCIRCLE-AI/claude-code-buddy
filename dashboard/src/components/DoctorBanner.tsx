@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'preact/hooks';
 import { api } from '../lib/api';
 import { t } from '../lib/i18n';
+import { openExternalWindow, terminalCommands } from '../lib/external-handoffs';
+import { GitHubDestination, TerminalHandoff } from './ExternalHandoff';
 
 const DISMISS_KEY = 'memesh.doctorBanner.dismissedSig';
 
@@ -113,6 +115,8 @@ export function DoctorBanner() {
   const [dismissedSig, setDismissedSig] = useState<string>(() => {
     try { return localStorage.getItem(DISMISS_KEY) ?? ''; } catch { return ''; }
   });
+  const [helpUrl, setHelpUrl] = useState('');
+  const [helpCopied, setHelpCopied] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -174,7 +178,16 @@ export function DoctorBanner() {
     const body = `${t('doctorBanner.preambleForIssue')}\n\n${lines.join('\n')}`;
     const labels = 'feedback,from-dashboard,bug,doctor-warning';
     const url = `https://github.com/PCIRCLE-AI/memesh/issues/new?title=${encodeURIComponent('[Bug] memesh doctor reported issues')}&body=${encodeURIComponent(body)}&labels=${encodeURIComponent(labels)}`;
-    window.open(url, '_blank');
+    if (!openExternalWindow(url)) {
+      setHelpUrl(url);
+      setHelpCopied(false);
+    }
+  }
+
+  async function copyHelpLink() {
+    if (!helpUrl) return;
+    try { await navigator.clipboard.writeText(helpUrl); setHelpCopied(true); }
+    catch { setHelpCopied(false); }
   }
 
   const isFail = doctor.status === 'FAIL';
@@ -229,7 +242,12 @@ export function DoctorBanner() {
           return (
             <li key={c.id}>
               <strong>{trLabel(c)}:</strong> {trSummary(c)}
-              {fix && <> — <em style={{ color: 'var(--text-3)' }}>{fix}</em></>}
+              {fix && <>
+                {' — '}<em style={{ color: 'var(--text-3)' }}>{fix}</em>
+                {terminalCommands(fix).map(command => (
+                  <TerminalHandoff key={command} id="doctor-fix-command" command={command} />
+                ))}
+              </>}
             </li>
           );
         })}
@@ -246,9 +264,19 @@ export function DoctorBanner() {
           <button type="button" class="btn" onClick={getHelp} style={{ fontSize: 12, padding: '4px 12px' }}>
             {t('doctorBanner.getHelp')}
           </button>
+          <GitHubDestination id="doctor-help" />
           <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
             {t('doctorBanner.helpHint')}
           </span>
+        </div>
+      )}
+      {helpUrl && (
+        <div role="alert" style={{ marginTop: 8, fontSize: 12 }}>
+          <div>{t('feedback.popupBlocked')}</div>
+          <a href={helpUrl} target="_blank" rel="noopener noreferrer">{t('feedback.retry')}</a>{' '}
+          <button type="button" class="btn btn-sm" onClick={() => { void copyHelpLink(); }}>
+            {helpCopied ? t('feedback.linkCopied') : t('feedback.copyLink')}
+          </button>
         </div>
       )}
     </div>
