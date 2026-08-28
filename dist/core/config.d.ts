@@ -24,6 +24,7 @@ export interface Capabilities {
     knowledgeEvolution: true;
     embeddings: 'ollama' | 'anthropic' | 'openai' | 'tfidf';
     llm: LLMConfig | null;
+    llmSource: 'config' | 'environment' | 'none';
     llmFallbacks: LLMConfig[];
     searchLevel: 0 | 1;
 }

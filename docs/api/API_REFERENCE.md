@@ -852,13 +852,25 @@ Returns the current configuration and detected capabilities. API keys are masked
       "vectorSearch": true,
       "scoring": true,
       "knowledgeEvolution": true,
-      "embeddings": "tfidf",
-      "llm": null,
-      "searchLevel": 0
+      "embeddings": "ollama",
+      "llm": { "provider": "openai", "apiKey": "***" },
+      "llmSource": "config",
+      "searchLevel": 1
     }
   }
 }
 ```
+
+`config.llm` is the LLM setting persisted by MeMesh. `capabilities.llm` is the
+effective runtime LLM after applying provider precedence, and `llmSource`
+explains where it came from:
+
+- `config` — the saved MeMesh setting is effective (and wins over environment detection)
+- `environment` — a provider was detected from the process environment but is not saved in MeMesh
+- `none` — no effective LLM is available
+
+API keys are masked in both views. The response never exposes the environment
+variable name or value.
 
 ### GET /v1/update-status
 

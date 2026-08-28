@@ -119,6 +119,8 @@ export interface Capabilities {
   knowledgeEvolution: true;
   embeddings: 'ollama' | 'anthropic' | 'openai' | 'tfidf';
   llm: LLMConfig | null;
+  /** Where the effective LLM came from; never infer this again in a caller. */
+  llmSource: 'config' | 'environment' | 'none';
   /**
    * Ordered cross-provider fallback chain — empty unless the user has
    * configured `llmFallbacks` in their config.json. Surfaced here so
@@ -375,7 +377,9 @@ export function detectCapabilities(config?: MeMeshConfig): Capabilities {
   // doing nothing. A key with no provider configures nothing; fall through to
   // the environment, exactly as if the key had not been written.
   const configuredLlm = cfg.llm?.provider ? cfg.llm : null;
-  const llm = configuredLlm ?? detectFromEnv() ?? null;
+  const environmentLlm = configuredLlm ? null : detectFromEnv();
+  const llm = configuredLlm ?? environmentLlm;
+  const llmSource = configuredLlm ? 'config' : environmentLlm ? 'environment' : 'none';
   const embeddings = detectEmbeddingSource(cfg.llm ?? null, cfg.embedder);
 
   return {
@@ -385,6 +389,7 @@ export function detectCapabilities(config?: MeMeshConfig): Capabilities {
     knowledgeEvolution: true,
     embeddings,
     llm,
+    llmSource,
     llmFallbacks: cfg.llmFallbacks ?? [],
     searchLevel: llm ? 1 : 0,
   };

@@ -16,12 +16,15 @@ function jsonResponse(body: unknown, status = 200): Response {
 function configData(
   llm: { provider: string; model?: string; apiKey?: string } | undefined,
   embedder: { provider: 'openai' | 'ollama' } | undefined = undefined,
+  effectiveLlm: { provider: string; model?: string; apiKey?: string } | undefined = llm,
+  llmSource: 'config' | 'environment' | 'none' = llm ? 'config' : 'none',
 ) {
   return {
     config: { ...(llm ? { llm } : {}), ...(embedder ? { embedder } : {}) },
     capabilities: {
       searchLevel: llm ? 1 : 0,
-      ...(llm ? { llm } : {}),
+      ...(effectiveLlm ? { llm: effectiveLlm } : {}),
+      llmSource,
       embeddings: embedder?.provider ?? 'tfidf',
     },
   };
@@ -60,6 +63,77 @@ afterEach(() => {
 });
 
 describe('SettingsTab primary LLM draft, test, save, and remove semantics', () => {
+  it('separates an environment-detected effective LLM from the empty saved setting', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const background = backgroundResponse(url);
+      if (background) return background;
+      if (url.includes('/v1/config')) {
+        return jsonResponse({
+          success: true,
+          data: configData(
+            undefined,
+            undefined,
+            { provider: 'openai', model: 'gpt-env', apiKey: 'masked-secret-must-not-render' },
+            'environment',
+          ),
+        });
+      }
+      return jsonResponse({ success: true, data: {} });
+    });
+
+    const { container, getByText, queryByText } = render(<SettingsTab locale="en" onLocaleChange={() => {}} />);
+    await waitFor(() => expect(getByText(t('settings.llmSourceEnvironment'))).toBeTruthy());
+    expect(capabilityValues(container)).toContain('Openai');
+    expect(capabilityValues(container)).toContain('gpt-env');
+    expect(container.textContent).not.toContain('masked-secret-must-not-render');
+    expect([...container.querySelectorAll('input[name="provider"]')].some((node) => (node as HTMLInputElement).checked)).toBe(false);
+    expect(queryByText(t('settings.removeProvider'))).toBeNull();
+    expect(getByText(t('settings.savedLlmSetting'))).toBeTruthy();
+  });
+
+  it('labels saved config as authoritative when environment and config conflict', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const background = backgroundResponse(url);
+      if (background) return background;
+      if (url.includes('/v1/config')) {
+        return jsonResponse({
+          success: true,
+          data: configData(
+            { provider: 'openai', model: 'gpt-config', apiKey: '***' },
+            undefined,
+            { provider: 'openai', model: 'gpt-config', apiKey: '***' },
+            'config',
+          ),
+        });
+      }
+      return jsonResponse({ success: true, data: {} });
+    });
+
+    const { container, getByText } = render(<SettingsTab locale="en" onLocaleChange={() => {}} />);
+    await waitFor(() => expect(getByText(t('settings.llmSourceConfig'))).toBeTruthy());
+    expect(capabilityValues(container)).toContain('Openai');
+    expect(capabilityValues(container)).toContain('gpt-config');
+    expect((container.querySelector('input[name="provider"][value="openai"]') as HTMLInputElement).checked).toBe(true);
+    expect(getByText(t('settings.removeProvider'))).toBeTruthy();
+  });
+
+  it('renders an honest no-effective-LLM source when neither config nor environment resolves', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const background = backgroundResponse(url);
+      if (background) return background;
+      if (url.includes('/v1/config')) {
+        return jsonResponse({ success: true, data: configData(undefined) });
+      }
+      return jsonResponse({ success: true, data: {} });
+    });
+
+    const { getByText } = render(<SettingsTab locale="en" onLocaleChange={() => {}} />);
+    await waitFor(() => expect(getByText(t('settings.llmSourceNone'))).toBeTruthy());
+  });
+
   it('marks a radio-only change unsaved, never POSTs it, and protects browser unload', async () => {
     const requests: Array<{ method: string; url: string }> = [];
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {

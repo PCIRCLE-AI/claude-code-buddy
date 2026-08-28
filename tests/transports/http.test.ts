@@ -299,6 +299,46 @@ describe('HTTP Transport: GET /v1/config', () => {
     expect(res.body.success).toBe(true);
     expect(res.body.data.capabilities).toBeDefined();
     expect(res.body.data.capabilities.fts5).toBe(true);
+    expect(['config', 'environment', 'none']).toContain(res.body.data.capabilities.llmSource);
+  });
+
+  it('reports environment, config-wins, and none as distinct effective LLM sources', async () => {
+    const saved = {
+      ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+      OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+      OLLAMA_HOST: process.env.OLLAMA_HOST,
+      MEMESH_AUTO_DETECT_LLM: process.env.MEMESH_AUTO_DETECT_LLM,
+    };
+    try {
+      delete process.env.ANTHROPIC_API_KEY;
+      process.env.OPENAI_API_KEY = 'http-fixture-openai-key';
+      delete process.env.OLLAMA_HOST;
+      delete process.env.MEMESH_AUTO_DETECT_LLM;
+      await req('POST', '/v1/config', { llm: null });
+
+      const environment = await req('GET', '/v1/config');
+      expect(environment.body.data.config.llm).toBeUndefined();
+      expect(environment.body.data.capabilities.llmSource).toBe('environment');
+      expect(environment.body.data.capabilities.llm).toMatchObject({ provider: 'openai', apiKey: '***' });
+
+      process.env.ANTHROPIC_API_KEY = 'http-fixture-anthropic-key';
+      await req('POST', '/v1/config', { llm: { provider: 'ollama', model: 'llama3.2' } });
+      const configWins = await req('GET', '/v1/config');
+      expect(configWins.body.data.capabilities.llmSource).toBe('config');
+      expect(configWins.body.data.capabilities.llm).toMatchObject({ provider: 'ollama', model: 'llama3.2' });
+
+      await req('POST', '/v1/config', { llm: null });
+      process.env.MEMESH_AUTO_DETECT_LLM = '0';
+      const none = await req('GET', '/v1/config');
+      expect(none.body.data.capabilities.llmSource).toBe('none');
+      expect(none.body.data.capabilities.llm).toBeNull();
+    } finally {
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+      await req('POST', '/v1/config', { llm: null });
+    }
   });
 });
 

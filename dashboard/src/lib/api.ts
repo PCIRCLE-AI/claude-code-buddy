@@ -308,7 +308,13 @@ export interface ConfigData {
      */
     language?: string;
   };
-  capabilities: { searchLevel: number; llm?: LlmConfig; llmFallbacks?: LlmFallback[]; embeddings: string };
+  capabilities: {
+    searchLevel: number;
+    llm?: LlmConfig;
+    llmSource: 'config' | 'environment' | 'none';
+    llmFallbacks?: LlmFallback[];
+    embeddings: string;
+  };
 }
 
 export interface ConfigTestResult {

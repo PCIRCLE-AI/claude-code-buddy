@@ -569,6 +569,11 @@ export function SettingsTab({ locale, onLocaleChange, onDirtyChange }: SettingsT
   if (loading) return <div class="empty"><div class="loading" /></div>;
 
   const caps = config?.capabilities;
+  const llmSourceLabel = caps?.llmSource === 'config'
+    ? t('settings.llmSourceConfig')
+    : caps?.llmSource === 'environment'
+      ? t('settings.llmSourceEnvironment')
+      : t('settings.llmSourceNone');
   const searchModeLabel = caps?.searchLevel ? t('settings.smartMode') : t('settings.core');
   const isCheckingUpdates = updateLoading || (updateRefreshing && !updateStatus);
   const updateActionInProgress = updateLoading || updateRefreshing;
@@ -675,7 +680,7 @@ export function SettingsTab({ locale, onLocaleChange, onDirtyChange }: SettingsT
           </div>
           <div class="stat">
             <div class="stat-val" style={{ fontSize: 14 }}>{capitalize(caps?.llm?.provider || t('settings.none'))}</div>
-            <div class="stat-lbl">{t('settings.llmProvider')}</div>
+            <div class="stat-lbl">{t('settings.effectiveLlm')}</div>
           </div>
           {/* Which model answers is as much a capability as which provider
               does — a user comparing digest quality needs it visible without
@@ -684,6 +689,12 @@ export function SettingsTab({ locale, onLocaleChange, onDirtyChange }: SettingsT
             <div class="stat-val" style={{ fontSize: 14, fontFamily: 'var(--mono)' }}>{caps?.llm?.model || '—'}</div>
             <div class="stat-lbl">{t('settings.model')}</div>
           </div>
+        </div>
+        <div
+          data-testid="settings-effective-llm-source"
+          style={{ marginTop: 10, fontSize: 12, color: 'var(--text-2)' }}
+        >
+          {llmSourceLabel}
         </div>
       </div>
 
@@ -786,7 +797,7 @@ export function SettingsTab({ locale, onLocaleChange, onDirtyChange }: SettingsT
 
       {/* LLM Config */}
       <div class="card">
-        <div class="card-title">{t('settings.llmProvider')}</div>
+        <div class="card-title">{t('settings.savedLlmSetting')}</div>
         {/*
           #31 — explain LLM is OPTIONAL up-front. memesh's wedge is
           "strong recall with FTS5 alone, no LLM required". The Settings

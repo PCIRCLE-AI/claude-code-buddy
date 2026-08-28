@@ -77,6 +77,7 @@ describe('Config: detectCapabilities', () => {
     expect(caps.knowledgeEvolution).toBe(true);
     expect(caps.searchLevel).toBe(0);
     expect(caps.llm).toBeNull();
+    expect(caps.llmSource).toBe('none');
   });
 
   it('reports keyword-only (tfidf) embeddings when no LLM is configured', () => {
@@ -90,6 +91,7 @@ describe('Config: detectCapabilities', () => {
     });
     expect(caps.searchLevel).toBe(1);
     expect(caps.llm?.provider).toBe('anthropic');
+    expect(caps.llmSource).toBe('config');
     // Anthropic has no embedding API and there is no local embedder — keyword-only.
     expect(caps.embeddings).toBe('tfidf');
   });
@@ -120,6 +122,7 @@ describe('Config: detectCapabilities', () => {
     expect(caps.searchLevel).toBe(1);
     expect(caps.llm?.provider).toBe('anthropic');
     expect(caps.llm?.apiKey).toBe('sk-ant-env-key');
+    expect(caps.llmSource).toBe('environment');
   });
 
   // The env-detect flag is an explicit OPT-OUT (it used to be an opt-in
@@ -132,6 +135,7 @@ describe('Config: detectCapabilities', () => {
     const caps = detectCapabilities({});
     expect(caps.llm).toBeNull();
     expect(caps.searchLevel).not.toBe(1);
+    expect(caps.llmSource).toBe('none');
   });
 
   it('accepts false/no/off as opt-out spellings', () => {
@@ -204,6 +208,7 @@ describe('Config: detectCapabilities', () => {
     });
     expect(caps.llm?.provider).toBe('openai');
     expect(caps.llm?.apiKey).toBe('sk-explicit');
+    expect(caps.llmSource).toBe('config');
   });
 });
 
