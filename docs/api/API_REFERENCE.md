@@ -766,8 +766,10 @@ The limit protects the server from accidentally parsing large payloads (e.g. an 
 | GET | /v1/entities/:name | Get single entity |
 | GET | /v1/config | Get current config and detected capabilities |
 | GET | /v1/update-status | Current/latest package version, freshness state, and update guidance |
-| POST | /v1/config | Save config (partial update); resets embedding state if LLM changed |
+| POST | /v1/config | Save config (partial update), including the independent embedding provider |
 | POST | /v1/config/test | Validate provider+apiKey against the live `/v1/models` endpoint and return the available model list |
+| GET | /v1/reindex | Read semantic-index rebuild status, progress, generation, and database readback |
+| POST | /v1/reindex | Start one asynchronous full semantic-index rebuild; duplicate requests reuse the running job |
 | GET | /v1/stats | Aggregate counts: entities, observations, relations, tags; type/tag/status distributions |
 | GET | /v1/graph | Signal entities (all non-noise types) + up to 200 recent noise entities + all relations |
 | GET | /v1/graph?layer=work | The work layer only: decisions, lessons, plans — plus per-node evidence counts |
@@ -840,7 +842,11 @@ Returns the current configuration and detected capabilities. API keys are masked
 {
   "success": true,
   "data": {
-    "config": { "theme": "dark", "autoCapture": true },
+    "config": {
+      "autoCapture": true,
+      "llm": { "provider": "openai", "apiKey": "***" },
+      "embedder": { "provider": "ollama" }
+    },
     "capabilities": {
       "fts5": true,
       "vectorSearch": true,
@@ -893,13 +899,37 @@ Use `?cached=1` to read the cached state only. Without it, MeMesh prefers a fres
 
 Save a partial config update. Fields not provided are preserved.
 
-**Request body**: Any subset of `MeMeshConfig` fields (`llm`, `llmFallbacks`, `autoCapture`, `sessionLimit`, `autoUpdate`, `language`, `setupCompleted`)
+**Request body**: Any supported subset of `MeMeshConfig` fields (`llm`, `llmFallbacks`, `embedder`, `autoCapture`, `sessionLimit`, `autoUpdate`, `language`, `setupCompleted`). Unknown fields are rejected.
+
+`embedder.provider` selects the provider used to build semantic-search vectors and accepts `openai` or `ollama`. It is independent of `llm`, which selects the model used to organize or generate content. Saving a different embedder does not silently rebuild existing vectors; call `POST /v1/reindex` explicitly after reviewing the provider, privacy, and cost implications.
 
 `language` sets the output language for LLM-generated *content* — dreamer digests, emergent patterns, lessons, digest-validator reasons. It is free-form (a locale code like `zh-TW` or a language name like `繁體中文`, max 60 chars) because it becomes a prompt instruction, not a parsed locale. Unset means English. It is deliberately separate from the dashboard's own locale (stored client-side in the browser): that setting translates the UI chrome, this one decides what language generated memories are written in. Machine identifiers (entity type slugs, tags, category enums) stay English regardless. CLI equivalent: `memesh config set language zh-TW` / `memesh config unset language`.
 
 `llmFallbacks` is the ordered cross-provider failover chain, written *wholesale* — the array you send replaces the stored one, so send the entries in the priority order you want (index 0 is tried first after the primary). Stored secrets are preserved through an EXPLICIT identity, never positional guessing: because GET masks every fallback `apiKey` as `***`, a client MUST NOT echo that mask back. To keep the key already on disk for an entry, send it **with no `apiKey`** and a `keepKeyFrom: <original index>` — the index that entry occupied in the chain you loaded. The server refills the key from exactly that stored slot (guarded by a `provider` match, so a stale index can never graft one provider's key onto another), then strips `keepKeyFrom` before persisting. Carry `keepKeyFrom` with the entry across reorders and removals; omit it (or send `null`) for a new entry, one whose key you retyped, or one whose provider you changed. An entry that sends an `apiKey` sets or rotates that key and wins over `keepKeyFrom`. An entry with neither `apiKey` nor `keepKeyFrom` is stored with no key. CLI equivalent: `memesh config set llmFallbacks '[{"provider":"openai","model":"gpt-4o-mini","apiKey":"sk-..."}]'`.
 
 **Response**: `{ success: true, data: <updated config> }` (every API key — primary and fallback chain — masked if present)
+
+### GET /v1/reindex
+
+Returns the current full-index rebuild job plus authoritative database/config readback. `configuredProvider` describes the provider selected in configuration; `storedDimension` describes the live index on disk. They may intentionally disagree until a rebuild completes. The stored dimension does not prove which provider created the live vectors.
+
+When the process restarts, an in-memory job is no longer available. A pending rebuild marker or unfinished staging generation is therefore reported as `retry-needed`, never as success.
+
+**Response fields**:
+
+- `status`: `idle`, `running`, `succeeded`, `failed`, or `retry-needed`
+- `job`: job id, state, progress counts, and timestamps, or `null`
+- `configuredProvider` / `configuredDimension`: current configuration
+- `storedDimension`: width of the live index currently on disk
+- `pendingReindex`, `missingVectors`, `generation`: database readback
+- `result`: the completed core `reindex()` result, when available
+- `error`: a retryable human-readable failure reason, when available
+
+### POST /v1/reindex
+
+Starts a full semantic-index rebuild asynchronously and returns HTTP `202` with the same shape as `GET /v1/reindex`. The request has no body. If a rebuild is already running, the route returns that existing job instead of starting another provider run; this prevents duplicate paid embedding requests.
+
+The core generation safety rules still apply: the live index continues serving until the staging generation is complete and verified. A provider failure or incomplete generation is reported as `failed`; the old live index is not swapped out, and the retained staging work can be retried.
 
 ### GET /v1/stats
 

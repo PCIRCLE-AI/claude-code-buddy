@@ -233,12 +233,70 @@ export interface LlmFallback {
 }
 
 export type AutoUpdatePolicy = 'off' | 'patch' | 'minor' | 'major';
+export type EmbedderProvider = 'openai' | 'ollama';
+
+export interface EmbedderConfig {
+  provider: EmbedderProvider;
+}
+
+export interface PendingReindexData {
+  from: number;
+  to: number;
+  noticedAt: string;
+  reason: 'dimension-change' | 'vectors-missing';
+}
+
+export interface ReindexGenerationData {
+  state: 'none' | 'unreadable' | 'open';
+  detail?: string;
+  info?: {
+    dimension: number;
+    provider: string;
+    startedAt: string;
+  };
+}
+
+export interface ReindexJobData {
+  id: string;
+  state: 'running' | 'succeeded' | 'failed';
+  processed: number;
+  total: number;
+  startedAt: string;
+  finishedAt: string | null;
+}
+
+export interface ReindexResultData {
+  processed: number;
+  embedded: number;
+  skipped: number;
+  failed: number;
+  outcomes: Record<string, number>;
+  missingVectors: number;
+  missingVectorsDatabaseWide: number;
+  pendingReindexCleared: boolean;
+  generationSwapped: boolean | null;
+  abortedAfter: number | null;
+}
+
+export interface ReindexStatusData {
+  status: 'idle' | 'running' | 'succeeded' | 'failed' | 'retry-needed';
+  job: ReindexJobData | null;
+  configuredProvider: EmbedderProvider | null;
+  configuredDimension: number;
+  storedDimension: number;
+  pendingReindex: PendingReindexData | null;
+  missingVectors: number;
+  generation: ReindexGenerationData;
+  result: ReindexResultData | null;
+  error: string | null;
+}
 
 export interface ConfigData {
   config: {
     llm?: LlmConfig;
     /** Ordered cross-provider failover chain. apiKeys arrive masked as '***'. */
     llmFallbacks?: LlmFallback[];
+    embedder?: EmbedderConfig;
     setupCompleted?: boolean;
     autoCapture?: boolean;
     /** Auto-update policy. Mirrors MEMESH_AUTO_UPDATE env var with env > config precedence. */

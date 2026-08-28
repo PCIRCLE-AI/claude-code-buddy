@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { openDatabase, closeDatabase } from '../../src/db.js';
+import { openDatabase, closeDatabase, getDatabase } from '../../src/db.js';
 
 // Import the Express app (not startServer, which opens its own DB and binds a port).
 // We open our own isolated DB and start the app on a random port.
@@ -385,6 +385,40 @@ describe('HTTP Transport: POST /v1/config', () => {
     expect(check.body.data.config.sessionLimit).toBe(33);
   });
 
+  it('saves embedder.provider separately from llm and reads the same truth back', async () => {
+    const res = await req('POST', '/v1/config', {
+      llm: { provider: 'anthropic', apiKey: 'sk-ant-primary' },
+      embedder: { provider: 'openai' },
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.llm.apiKey).toBe('***');
+    expect(res.body.data.embedder).toEqual({ provider: 'openai' });
+
+    const check = await req('GET', '/v1/config');
+    expect(check.status).toBe(200);
+    expect(check.body.data.config.llm).toEqual({ provider: 'anthropic', apiKey: '***' });
+    expect(check.body.data.config.embedder).toEqual({ provider: 'openai' });
+    expect(check.body.data.capabilities.llm).toEqual({ provider: 'anthropic', apiKey: '***' });
+    expect(check.body.data.capabilities.embeddings).toBe('openai');
+
+    await req('POST', '/v1/config', { llm: null });
+  });
+
+  it('rejects an unsupported embedder provider instead of silently writing nothing', async () => {
+    const before = await req('GET', '/v1/config');
+    const res = await req('POST', '/v1/config', {
+      embedder: { provider: 'anthropic' },
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+    expect(res.body.errorCode).toBe('validation.bad-body');
+    expect(res.body.error).toMatch(/embedder/i);
+
+    const check = await req('GET', '/v1/config');
+    expect(check.body.data.config.embedder).toEqual(before.body.data.config.embedder);
+  });
+
   it('rejects a mistyped key instead of silently discarding it (M-13)', async () => {
     // ConfigBody used `.strip()`: an unrecognized key (a typo, or a field
     // the client meant for a different route) was silently dropped and the
@@ -590,6 +624,160 @@ describe('HTTP Transport: POST /v1/config', () => {
     expect(res.body.success).toBe(true);
     expect(res.body.data.valid).toBe(false); // bogus key → probe fails cleanly, not a 400
     await req('POST', '/v1/config', { llm: null, llmFallbacks: [] });
+  });
+});
+
+describe('HTTP Transport: reindex job status', () => {
+  it('returns retry-needed from database state when no in-memory job exists', async () => {
+    getDatabase()
+      .prepare("INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('pending_reindex', ?)")
+      .run(JSON.stringify({
+        from: 768,
+        to: 1536,
+        reason: 'dimension-change',
+        noticedAt: '2026-08-28T00:00:00.000Z',
+      }));
+
+    const res = await req('GET', '/v1/reindex');
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.status).toBe('retry-needed');
+    expect(res.body.data.job).toBeNull();
+    expect(res.body.data.pendingReindex).toEqual({
+      from: 768,
+      to: 1536,
+      reason: 'dimension-change',
+      noticedAt: '2026-08-28T00:00:00.000Z',
+    });
+    expect(res.body.data.result).toBeNull();
+    expect(res.body.data.error).toBeNull();
+  });
+
+  it('returns retry-needed when vectors are missing even without a pending marker', async () => {
+    getDatabase().prepare("DELETE FROM memesh_metadata WHERE key = 'pending_reindex'").run();
+    getDatabase().prepare('DELETE FROM entities_vec').run();
+
+    const res = await req('GET', '/v1/reindex');
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe('retry-needed');
+    expect(res.body.data.pendingReindex).toBeNull();
+    expect(res.body.data.missingVectors).toBeGreaterThan(0);
+  });
+
+  it('invalidates a terminal job view when a provider switch makes the stored index stale', async () => {
+    await req('POST', '/v1/config', { embedder: { provider: 'openai' } });
+    const res = await req('GET', '/v1/reindex');
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe('retry-needed');
+    expect(res.body.data.configuredProvider).toBe('openai');
+    expect(res.body.data.configuredDimension).toBe(1536);
+    expect(res.body.data.storedDimension).not.toBe(1536);
+  });
+
+  it('starts one async job, returns the same running job on duplicate POST, and settles with readback', async () => {
+    const originalFetch = globalThis.fetch;
+    let releaseEmbedding: (() => void) | null = null;
+    let embeddingCalls = 0;
+
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith('http://127.0.0.1:')) {
+        return originalFetch(input, init);
+      }
+      if (url === 'https://api.openai.com/v1/embeddings') {
+        embeddingCalls++;
+        if (embeddingCalls === 1) {
+          await new Promise<void>((resolve) => {
+            releaseEmbedding = resolve;
+          });
+        }
+        return {
+          ok: true,
+          headers: new Headers(),
+          json: async () => ({ data: [{ embedding: Array.from({ length: 1536 }, () => 0.1) }] }),
+        } as Response;
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    }) as typeof fetch;
+
+    await req('POST', '/v1/config', {
+      llm: { provider: 'openai', apiKey: 'sk-openai-test' },
+      embedder: { provider: 'openai' },
+    });
+
+    try {
+      const first = await req('POST', '/v1/reindex');
+      expect(first.status).toBe(202);
+      expect(first.body.success).toBe(true);
+      expect(first.body.data.status).toBe('running');
+      expect(first.body.data.job.id).toBeTruthy();
+      expect(first.body.data.job.processed).toBeGreaterThanOrEqual(0);
+      expect(first.body.data.job.processed).toBeLessThanOrEqual(first.body.data.job.total);
+      expect(first.body.data.job.total).toBeGreaterThanOrEqual(1);
+
+      const second = await req('POST', '/v1/reindex');
+      expect(second.status).toBe(202);
+      expect(second.body.data.job.id).toBe(first.body.data.job.id);
+      expect(second.body.data.status).toBe('running');
+
+      const providerChange = await req('POST', '/v1/config', { embedder: { provider: 'ollama' } });
+      expect(providerChange.status).toBe(400);
+      expect(providerChange.body.success).toBe(false);
+      const stillOpenAi = await req('GET', '/v1/config');
+      expect(stillOpenAi.body.data.config.embedder).toEqual({ provider: 'openai' });
+
+      if (releaseEmbedding) (releaseEmbedding as () => void)();
+
+      let settled: Awaited<ReturnType<typeof req>> | null = null;
+      for (let i = 0; i < 40; i++) {
+        settled = await req('GET', '/v1/reindex');
+        if (settled.body.data.status === 'succeeded') break;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+
+      expect(settled?.body.data.status).toBe('succeeded');
+      expect(settled?.body.data.job.state).toBe('succeeded');
+      expect(settled?.body.data.configuredProvider).toBe('openai');
+      expect(settled?.body.data.configuredDimension).toBe(1536);
+      expect(settled?.body.data.storedDimension).toBe(1536);
+      expect(settled?.body.data.missingVectors).toBe(0);
+      expect(settled?.body.data.pendingReindex).toBeNull();
+      expect(settled?.body.data.result.embedded).toBeGreaterThanOrEqual(1);
+      expect(settled?.body.data.error).toBeNull();
+    } finally {
+      if (releaseEmbedding) (releaseEmbedding as () => void)();
+      globalThis.fetch = originalFetch;
+      await req('POST', '/v1/config', { llm: null });
+    }
+  });
+
+  it('records an incomplete provider run as failed and allows retry truthfully', async () => {
+    const oldOpenAiKey = process.env.OPENAI_API_KEY;
+    try {
+      delete process.env.OPENAI_API_KEY;
+      await req('POST', '/v1/config', { llm: null, embedder: { provider: 'openai' } });
+
+      const started = await req('POST', '/v1/reindex');
+      expect(started.status).toBe(202);
+      expect(started.body.success).toBe(true);
+
+      let settled: Awaited<ReturnType<typeof req>> | null = null;
+      for (let i = 0; i < 20; i++) {
+        settled = await req('GET', '/v1/reindex');
+        if (settled.body.data.status === 'failed') break;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+
+      expect(settled?.body.data.status).toBe('failed');
+      expect(settled?.body.data.job.state).toBe('failed');
+      expect(settled?.body.data.configuredProvider).toBe('openai');
+      expect(settled?.body.data.result.failed).toBeGreaterThan(0);
+      expect(settled?.body.data.result.generationSwapped).toBe(false);
+      expect(String(settled?.body.data.error)).toContain('previous index is still active');
+    } finally {
+      if (oldOpenAiKey === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = oldOpenAiKey;
+    }
   });
 });
 

@@ -1,5 +1,13 @@
 import { useState, useEffect } from 'preact/hooks';
-import { api, type ConfigData, type ConfigTestResult, type LlmFallback, type UpdateStatusData } from '../lib/api';
+import {
+  api,
+  type ConfigData,
+  type ConfigTestResult,
+  type EmbedderProvider,
+  type LlmFallback,
+  type ReindexStatusData,
+  type UpdateStatusData,
+} from '../lib/api';
 import { t, setLocale, getLocales, type Locale } from '../lib/i18n';
 import { actionFailureMessage } from '../lib/failure';
 
@@ -177,6 +185,12 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
   const [fbTesting, setFbTesting] = useState<number | null>(null);
   const [fbSaving, setFbSaving] = useState(false);
   const [fbMsg, setFbMsg] = useState('');
+  const [indexProvider, setIndexProvider] = useState<EmbedderProvider | ''>('');
+  const [savedIndexProvider, setSavedIndexProvider] = useState<EmbedderProvider | ''>('');
+  const [indexSaving, setIndexSaving] = useState(false);
+  const [indexMsg, setIndexMsg] = useState('');
+  const [reindexStatus, setReindexStatus] = useState<ReindexStatusData | null>(null);
+  const [reindexBusy, setReindexBusy] = useState(false);
 
   async function loadUpdateStatus(forceFresh = true, keepCurrentState = false) {
     if (keepCurrentState) {
@@ -231,6 +245,12 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
         // Server masks the key as '***' when one is stored. Empty/undefined
         // means no key on disk (e.g. ollama or fresh install).
         setInitialHasApiKey(!!data.config.llm?.apiKey);
+        const embedder = data.config.embedder?.provider
+          ?? (data.capabilities.embeddings === 'openai' || data.capabilities.embeddings === 'ollama'
+            ? data.capabilities.embeddings
+            : '');
+        setIndexProvider(embedder);
+        setSavedIndexProvider(embedder);
         // Load the failover chain. Deliberately NOT loading fb.apiKey (the
         // '***' mask) into the editable field — track only whether a key
         // exists, so an untouched cloud entry saves without re-sending the mask.
@@ -258,6 +278,14 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
         void loadUpdateStatus(true, true);
       }
     })();
+
+    api<ReindexStatusData>('GET', '/v1/reindex')
+      .then((status) => {
+        if (!cancelled) setReindexStatus(status);
+      })
+      .catch((e) => {
+        console.warn('[memesh dashboard] /v1/reindex failed to load:', e);
+      });
 
     return () => {
       cancelled = true;
@@ -358,6 +386,48 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
       setMsg(t('settings.saved'));
     } catch (e) {
       setMsg(t('common.error') + ': ' + actionFailureMessage(e));
+    }
+  }
+
+  async function saveIndexProvider() {
+    if (!indexProvider) return;
+    setIndexSaving(true);
+    setIndexMsg('');
+    try {
+      await api('POST', '/v1/config', { embedder: { provider: indexProvider } });
+      const readback = await api<ConfigData>('GET', '/v1/config');
+      if (!isConfigRenderable(readback) || readback.config.embedder?.provider !== indexProvider) {
+        throw new Error(t('settings.indexProviderReadbackFailed'));
+      }
+      setConfig(readback);
+      setSavedIndexProvider(indexProvider);
+      setIndexMsg(t('settings.indexProviderSaved'));
+      const status = await api<ReindexStatusData>('GET', '/v1/reindex');
+      setReindexStatus(status);
+    } catch (e) {
+      setIndexMsg(t('common.error') + ': ' + actionFailureMessage(e));
+    } finally {
+      setIndexSaving(false);
+    }
+  }
+
+  async function startReindex() {
+    if (!indexProvider) return;
+    if (!confirm(t('settings.reindexConfirm', { provider: indexProvider === 'openai' ? 'OpenAI' : 'Ollama' }))) return;
+    setReindexBusy(true);
+    setIndexMsg('');
+    try {
+      let status = await api<ReindexStatusData>('POST', '/v1/reindex');
+      setReindexStatus(status);
+      while (status.status === 'running') {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        status = await api<ReindexStatusData>('GET', '/v1/reindex');
+        setReindexStatus(status);
+      }
+    } catch (e) {
+      setIndexMsg(t('common.error') + ': ' + actionFailureMessage(e));
+    } finally {
+      setReindexBusy(false);
     }
   }
 
@@ -577,6 +647,103 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
             <div class="stat-val" style={{ fontSize: 14, fontFamily: 'var(--mono)' }}>{caps?.llm?.model || '—'}</div>
             <div class="stat-lbl">{t('settings.model')}</div>
           </div>
+        </div>
+      </div>
+
+      <div class="card" data-testid="settings-index-provider">
+        <div class="card-title">{t('settings.indexProviderTitle')}</div>
+        <div style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.55, marginBottom: 12 }}>
+          {t('settings.indexProviderExplainer')}
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--text-1)', marginBottom: 12 }}>
+          {t('settings.indexProviderConfigured', {
+            provider: savedIndexProvider === 'openai' ? 'OpenAI' : savedIndexProvider === 'ollama' ? 'Ollama' : t('settings.none'),
+            dimension: savedIndexProvider === 'openai' ? '1536' : savedIndexProvider === 'ollama' ? '768' : '—',
+          })}
+        </div>
+        <fieldset style={{ border: 0, padding: 0, margin: '0 0 12px' }}>
+          <legend style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 8 }}>
+            {t('settings.indexProviderLabel')}
+          </legend>
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+            {(['ollama', 'openai'] as const).map((value) => (
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                <input
+                  type="radio"
+                  name="embedder-provider"
+                  value={value}
+                  checked={indexProvider === value}
+                  disabled={reindexBusy || reindexStatus?.status === 'running'}
+                  onChange={() => {
+                    setIndexProvider(value);
+                    setIndexMsg('');
+                  }}
+                />
+                {value === 'openai' ? 'OpenAI' : 'Ollama'}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+          <button
+            class="btn btn-primary btn-sm"
+            type="button"
+            disabled={!indexProvider || indexSaving || reindexBusy || reindexStatus?.status === 'running' || indexProvider === savedIndexProvider}
+            onClick={() => { void saveIndexProvider(); }}
+          >
+            {indexSaving ? t('settings.saving') : t('settings.indexProviderSave')}
+          </button>
+          {indexMsg && (
+            <span
+              role={indexMsg.startsWith(t('common.error')) ? 'alert' : 'status'}
+              style={{ fontSize: 12, color: indexMsg.startsWith(t('common.error')) ? 'var(--danger)' : 'var(--success)' }}
+            >
+              {indexMsg}
+            </span>
+          )}
+        </div>
+        <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 12 }}>
+          {reindexStatus?.status === 'running' && (
+            <div aria-live="polite" style={{ fontSize: 12, color: 'var(--info)', marginBottom: 8 }}>
+              {t('settings.reindexRunning', {
+                processed: String(reindexStatus.job?.processed ?? 0),
+                total: String(reindexStatus.job?.total ?? 0),
+              })}
+            </div>
+          )}
+          {reindexStatus?.status === 'succeeded' && (
+            <div role="status" style={{ fontSize: 12, color: 'var(--success)', marginBottom: 8 }}>
+              {t('settings.reindexSucceeded')} {reindexStatus.pendingReindex === null && reindexStatus.missingVectors === 0
+                ? t('settings.reindexUpToDate')
+                : ''}
+            </div>
+          )}
+          {reindexStatus?.status === 'idle' && reindexStatus.pendingReindex === null && reindexStatus.missingVectors === 0 && (
+            <div role="status" style={{ fontSize: 12, color: 'var(--success)', marginBottom: 8 }}>
+              {t('settings.reindexUpToDate')}
+            </div>
+          )}
+          {(reindexStatus?.status === 'failed' || reindexStatus?.status === 'retry-needed') && (
+            <div role={reindexStatus.status === 'failed' ? 'alert' : 'status'} style={{ fontSize: 12, color: 'var(--warning)', marginBottom: 8 }}>
+              {reindexStatus.status === 'failed' ? t('settings.reindexFailed') : t('settings.reindexRetryNeeded')}
+              {reindexStatus.error && reindexStatus.error !== 'The new search index is incomplete. The previous index is still active; retry the rebuild.'
+                ? ` — ${reindexStatus.error}`
+                : ''}
+            </div>
+          )}
+          <button
+            class="btn btn-sm"
+            type="button"
+            disabled={!savedIndexProvider || reindexBusy || reindexStatus?.status === 'running' || indexProvider !== savedIndexProvider}
+            title={indexProvider !== savedIndexProvider ? t('settings.reindexSaveFirst') : undefined}
+            onClick={() => { void startReindex(); }}
+          >
+            {reindexBusy || reindexStatus?.status === 'running'
+              ? t('settings.reindexWorking')
+              : reindexStatus?.status === 'failed' || reindexStatus?.status === 'retry-needed'
+                ? t('settings.reindexRetry')
+                : t('settings.reindexStart')}
+          </button>
         </div>
       </div>
 

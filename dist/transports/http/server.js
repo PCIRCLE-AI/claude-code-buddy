@@ -3,10 +3,10 @@ import express from 'express';
 import { rateLimit } from 'express-rate-limit';
 import { z } from 'zod';
 import { randomBytes, timingSafeEqual } from 'crypto';
-import { openDatabase, closeDatabase, getDatabase } from '../../db.js';
-import { remember, recallWithConflicts, forget, exportMemories, importMemories, learn } from '../../core/operations.js';
+import { openDatabase, closeDatabase, getDatabase, getStoredEmbeddingDimension, getPendingReindexInfo, readVectorGeneration, } from '../../db.js';
+import { remember, recallWithConflicts, forget, exportMemories, importMemories, learn, reindex, countMissingVectors, } from '../../core/operations.js';
 import { KnowledgeGraph } from '../../knowledge-graph.js';
-import { logCapabilities, readConfig, updateConfig, detectCapabilities } from '../../core/config.js';
+import { logCapabilities, readConfig, updateConfig, detectCapabilities, getEmbeddingDimension, } from '../../core/config.js';
 import { languageValueError } from '../../core/output-language.js';
 import { computePatterns } from '../../core/patterns.js';
 import { computeAnalytics, computePmAnalytics } from '../../core/analytics.js';
@@ -439,6 +439,9 @@ const ConfigBody = z.object({
         apiKey: z.string().optional(),
         keepKeyFrom: z.number().int().nonnegative().nullable().optional(),
     })).optional(),
+    embedder: z.object({
+        provider: z.enum(['openai', 'ollama']),
+    }).optional(),
     autoCapture: z.boolean().optional(),
     sessionLimit: z.number().int().min(1).max(100).optional(),
     autoUpdate: z.enum(['off', 'patch', 'minor', 'major']).optional(),
@@ -451,6 +454,9 @@ const ConfigBody = z.object({
 }).strict();
 app.post('/v1/config', (req, res) => handlePost(ConfigBody, req, res, (data) => {
     const before = readConfig();
+    if (data.embedder && reindexJob?.state === 'running') {
+        throw new Error('The search index is being rebuilt. Wait for it to finish before changing the embedding provider.');
+    }
     if (data.llm && data.llm.apiKey === API_KEY_MASK) {
         if (before.llm && before.llm.provider === data.llm.provider && before.llm.apiKey) {
             data.llm.apiKey = before.llm.apiKey;
@@ -463,8 +469,97 @@ app.post('/v1/config', (req, res) => handlePost(ConfigBody, req, res, (data) => 
         data.llmFallbacks = preserveFallbackApiKeys(data.llmFallbacks, before.llmFallbacks);
     }
     const updated = updateConfig(data);
+    if (data.embedder && before.embedder?.provider !== data.embedder.provider) {
+        reindexJob = null;
+    }
     return maskLlmSecrets(updated);
 }));
+let reindexJob = null;
+function safeReindexDiagnostic(message) {
+    return redactUserPaths(redactSecrets(message));
+}
+function reindexStatus() {
+    const config = readConfig();
+    const embeddings = detectCapabilities(config).embeddings;
+    const configuredProvider = embeddings === 'openai' || embeddings === 'ollama'
+        ? embeddings
+        : null;
+    const pendingReindex = getPendingReindexInfo();
+    const generationRead = readVectorGeneration();
+    const generation = generationRead.state === 'unreadable'
+        ? { ...generationRead, detail: safeReindexDiagnostic(generationRead.detail) }
+        : generationRead;
+    const configuredDimension = getEmbeddingDimension(config);
+    const storedDimension = getStoredEmbeddingDimension();
+    const missingVectors = countMissingVectors(getDatabase());
+    const retryNeeded = pendingReindex !== null
+        || generation.state !== 'none'
+        || configuredDimension !== storedDimension
+        || missingVectors > 0;
+    const status = reindexJob?.state === 'running'
+        ? 'running'
+        : reindexJob?.state === 'failed'
+            ? 'failed'
+            : retryNeeded
+                ? 'retry-needed'
+                : reindexJob?.state === 'succeeded'
+                    ? 'succeeded'
+                    : 'idle';
+    return {
+        status,
+        job: reindexJob === null ? null : {
+            id: reindexJob.id,
+            state: reindexJob.state,
+            processed: reindexJob.processed,
+            total: reindexJob.total,
+            startedAt: reindexJob.startedAt,
+            finishedAt: reindexJob.finishedAt,
+        },
+        configuredProvider,
+        configuredDimension,
+        storedDimension,
+        pendingReindex,
+        missingVectors,
+        generation,
+        result: reindexJob?.result ?? null,
+        error: reindexJob?.error ?? null,
+    };
+}
+app.get('/v1/reindex', (_req, res) => handleGet(res, reindexStatus));
+app.post('/v1/reindex', (_req, res) => {
+    if (reindexJob?.state !== 'running') {
+        reindexJob = {
+            id: randomBytes(8).toString('hex'),
+            state: 'running',
+            processed: 0,
+            total: 0,
+            startedAt: new Date().toISOString(),
+            finishedAt: null,
+            result: null,
+            error: null,
+        };
+        const job = reindexJob;
+        void reindex({
+            onProgress: ({ processed, total }) => {
+                job.processed = processed;
+                job.total = total;
+            },
+        }).then((result) => {
+            job.result = result;
+            const incomplete = result.failed > 0 || result.generationSwapped === false;
+            job.state = incomplete ? 'failed' : 'succeeded';
+            if (incomplete) {
+                job.error = 'The new search index is incomplete. The previous index is still active; retry the rebuild.';
+            }
+            job.finishedAt = new Date().toISOString();
+        }).catch((err) => {
+            job.state = 'failed';
+            job.error = safeReindexDiagnostic(err instanceof Error ? err.message : 'The rebuild failed.');
+            job.finishedAt = new Date().toISOString();
+        });
+    }
+    res.status(202).json({ success: true, data: reindexStatus() });
+});
 const ConfigTestBody = z.object({
     provider: z.enum(['anthropic', 'openai', 'ollama']),
     apiKey: z.string().max(500).optional(),
