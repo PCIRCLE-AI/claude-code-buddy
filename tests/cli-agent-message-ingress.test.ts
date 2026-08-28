@@ -19,6 +19,18 @@ function cliArgs(...args: string[]): string[] {
   return ['--input-type=module', '--eval', cliLoader, ...args];
 }
 
+function readOwnerPrivateRegularFile(filePath: string): string {
+  const descriptor = fs.openSync(filePath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  try {
+    const stat = fs.fstatSync(descriptor);
+    expect(stat.isFile()).toBe(true);
+    expect(stat.mode & 0o077).toBe(0);
+    return fs.readFileSync(descriptor, 'utf8');
+  } finally {
+    fs.closeSync(descriptor);
+  }
+}
+
 describe('CLI durable-message ingress', () => {
   it('accepts JSON from stdin through the current source CLI', () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-cli-message-'));
@@ -194,9 +206,7 @@ describe('CLI durable-message ingress', () => {
         registration_command: null,
         launch_command: expect.stringContaining('memesh-host-codex'),
       });
-      const stat = fs.statSync(result.config_path);
-      expect(stat.mode & 0o077).toBe(0);
-      const config = JSON.parse(fs.readFileSync(result.config_path, 'utf8')) as Record<string, unknown>;
+      const config = JSON.parse(readOwnerPrivateRegularFile(result.config_path)) as Record<string, unknown>;
       expect(config).toMatchObject({ project: 'test', principal_id: 'reviewer', workspace: home });
       expect(config).not.toHaveProperty('session_instance_id');
       expect(config).not.toHaveProperty('thread_id');
@@ -210,7 +220,7 @@ describe('CLI durable-message ingress', () => {
       });
       expect(repeat.status).not.toBe(0);
       expect(repeat.stderr).toContain('was not overwritten');
-      expect(JSON.parse(fs.readFileSync(result.config_path, 'utf8'))).toMatchObject({ principal_id: 'reviewer' });
+      expect(JSON.parse(readOwnerPrivateRegularFile(result.config_path))).toMatchObject({ principal_id: 'reviewer' });
     } finally {
       fs.rmSync(home, { recursive: true, force: true });
     }
@@ -237,8 +247,7 @@ describe('CLI durable-message ingress', () => {
       });
       const configPath = String(result.config_path);
       expect(configPath).toMatch(/hosts\/codex-session\.json$/);
-      expect(fs.statSync(configPath).mode & 0o077).toBe(0);
-      expect(JSON.parse(fs.readFileSync(configPath, 'utf8'))).toMatchObject({
+      expect(JSON.parse(readOwnerPrivateRegularFile(configPath))).toMatchObject({
         project: 'test', principal_id: 'reviewer', workspace: fs.realpathSync(home),
       });
       const tokenPath = path.join(home, '.memesh', 'agent-router.token');

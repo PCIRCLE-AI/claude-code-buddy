@@ -718,7 +718,7 @@ export class AgentRouter {
     preferred?: ConnectionRow,
   ): Promise<boolean> {
     const inFlight = this.inFlightDeliveries.get(deliveryId);
-    if (inFlight) return inFlight;
+    if (inFlight) return await inFlight;
     const operation = this.dispatchDeliveryOnce(deliveryId, project, hops, preferred);
     this.inFlightDeliveries.set(deliveryId, operation);
     try {

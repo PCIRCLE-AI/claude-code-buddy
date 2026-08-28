@@ -191,6 +191,33 @@ function isOnPath(tool: string): boolean {
   return false;
 }
 
+/** Write a host config once, without a check-then-create race. */
+export function createHostConfigAtomically(
+  host: string,
+  configPath: string,
+  config: Record<string, unknown>,
+): void {
+  try {
+    fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+      throw new Error(`Managed ${host} config already exists at ${configPath}; it was not overwritten.`, { cause: error });
+    }
+    throw error;
+  }
+}
+
+/** Return the direct browser opener and its single URL argument per platform. */
+export function feedbackBrowserOpenCommand(
+  platform: NodeJS.Platform,
+  url: string,
+): { command: string; args: [string] } {
+  const command = platform === 'darwin' ? 'open'
+    : platform === 'win32' ? 'explorer.exe'
+    : 'xdg-open';
+  return { command, args: [url] };
+}
+
 /**
  * Wire the session hooks for the current user and report in one line — the
  * shared body of `memesh setup`'s install-hooks action and
@@ -1059,9 +1086,6 @@ agentCmd
 
     const filename = host === 'gemini' ? 'gemini-acp.json' : `${host}.json`;
     const configPath = path.join(hostsDir, filename);
-    if (fs.existsSync(configPath)) {
-      throw new Error(`Managed ${host} config already exists at ${configPath}; it was not overwritten.`);
-    }
     const routerTokenFile = path.join(messageDir, 'agent-router.token');
     ensureRouterTokenFile(routerTokenFile);
     const common = {
@@ -1077,7 +1101,7 @@ agentCmd
         : host === 'claude'
           ? { ...common, server_name: 'memesh-channel' }
           : { ...common, workspace: path.resolve(opts.workspace), command: 'gemini', args: [] };
-    fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+    createHostConfigAtomically(host, configPath, config);
 
     const launchCommand = host === 'codex-session'
       ? null
@@ -2869,14 +2893,12 @@ program
       console.log('Re-run with --no-diagnostics to leave out the install ID and the doctor report.');
     }
 
-    // Cross-platform open. macOS `open`, Linux `xdg-open`, Windows `start`.
+    // Cross-platform open. Keep the URL as one argv value; `start` is a cmd
+    // shell builtin, while explorer.exe opens URLs directly on Windows.
     const { spawn } = await import('child_process');
-    const cmd = process.platform === 'darwin' ? 'open'
-      : process.platform === 'win32' ? 'cmd'
-      : 'xdg-open';
-    const args = process.platform === 'win32' ? ['/c', 'start', '', url] : [url];
+    const { command, args } = feedbackBrowserOpenCommand(process.platform, url);
     try {
-      const child = spawn(cmd, args, { stdio: 'ignore', detached: true });
+      const child = spawn(command, args, { stdio: 'ignore', detached: true });
       child.unref();
       console.log(`Opened browser to file ${fbType} issue.`);
       console.log('Edit the title + body before submitting.');

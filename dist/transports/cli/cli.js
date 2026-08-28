@@ -93,6 +93,23 @@ function isOnPath(tool) {
     }
     return false;
 }
+export function createHostConfigAtomically(host, configPath, config) {
+    try {
+        fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+    }
+    catch (error) {
+        if (error.code === 'EEXIST') {
+            throw new Error(`Managed ${host} config already exists at ${configPath}; it was not overwritten.`, { cause: error });
+        }
+        throw error;
+    }
+}
+export function feedbackBrowserOpenCommand(platform, url) {
+    const command = platform === 'darwin' ? 'open'
+        : platform === 'win32' ? 'explorer.exe'
+            : 'xdg-open';
+    return { command, args: [url] };
+}
 function wireUserHooks() {
     const r = installHooks({ pluginRoot: packageRoot, pluginVersion: pkg.version, scope: 'user' });
     return `hooks: added ${r.added}, skipped ${r.skipped} already-installed${r.backupPath ? ` (backup: ${r.backupPath})` : ''}`;
@@ -779,9 +796,6 @@ agentCmd
     }
     const filename = host === 'gemini' ? 'gemini-acp.json' : `${host}.json`;
     const configPath = path.join(hostsDir, filename);
-    if (fs.existsSync(configPath)) {
-        throw new Error(`Managed ${host} config already exists at ${configPath}; it was not overwritten.`);
-    }
     const routerTokenFile = path.join(messageDir, 'agent-router.token');
     ensureRouterTokenFile(routerTokenFile);
     const common = {
@@ -797,7 +811,7 @@ agentCmd
             : host === 'claude'
                 ? { ...common, server_name: 'memesh-channel' }
                 : { ...common, workspace: path.resolve(opts.workspace), command: 'gemini', args: [] };
-    fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+    createHostConfigAtomically(host, configPath, config);
     const launchCommand = host === 'codex-session'
         ? null
         : host === 'codex'
@@ -2248,12 +2262,9 @@ program
         console.log('Re-run with --no-diagnostics to leave out the install ID and the doctor report.');
     }
     const { spawn } = await import('child_process');
-    const cmd = process.platform === 'darwin' ? 'open'
-        : process.platform === 'win32' ? 'cmd'
-            : 'xdg-open';
-    const args = process.platform === 'win32' ? ['/c', 'start', '', url] : [url];
+    const { command, args } = feedbackBrowserOpenCommand(process.platform, url);
     try {
-        const child = spawn(cmd, args, { stdio: 'ignore', detached: true });
+        const child = spawn(command, args, { stdio: 'ignore', detached: true });
         child.unref();
         console.log(`Opened browser to file ${fbType} issue.`);
         console.log('Edit the title + body before submitting.');
