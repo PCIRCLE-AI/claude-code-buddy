@@ -244,18 +244,54 @@ describe('provider probes (mocked fetch)', () => {
     expect(r.error).toContain('key');
   });
 
-  it('probeProvider routes to the right probe function', async () => {
-    global.fetch = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({ data: [{ id: 'claude-haiku-4-5' }] }),
-    })) as any;
+  it('probeProvider requires a real inference response after catalog access', async () => {
+    global.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => url.includes('/v1/models')
+          ? { data: [{ id: 'claude-haiku-4-5' }] }
+          : { content: [{ text: 'OK' }] },
+      };
+    }) as any;
 
     const r = await probeProvider('anthropic', 'sk-ant-fake');
     expect(r.valid).toBe(true);
+    expect(r.catalogVerified).toBe(true);
+    expect(r.inferenceVerified).toBe(true);
+    expect(r.testedModel).toBe('claude-haiku-4-5');
 
     const bad = await probeProvider('unknown' as any, '');
     expect(bad.valid).toBe(false);
     expect(bad.error).toContain('Unknown provider');
+  });
+
+  it('does not present model-list success as readiness when the selected model fails inference', async () => {
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/v1/models')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: [{ id: 'gpt-compatible' }, { id: 'gpt-listed-only' }] }),
+        };
+      }
+      return { ok: false, status: 400, json: async () => ({}) };
+    });
+    global.fetch = fetchSpy as any;
+
+    const r = await probeProvider('openai', 'sk-fixture', undefined, 'gpt-listed-only');
+    expect(r.valid).toBe(false);
+    expect(r.catalogVerified).toBe(true);
+    expect(r.inferenceVerified).toBe(false);
+    expect(r.testedModel).toBe('gpt-listed-only');
+    expect(r.errorCode).toBe('inference_failed');
+    expect(r.error).toContain('gpt-listed-only');
+    expect(r.models?.map((entry) => entry.id)).toContain('gpt-compatible');
+
+    const inferenceCall = fetchSpy.mock.calls.find(([url]) => String(url).includes('/chat/completions'));
+    expect(inferenceCall).toBeDefined();
+    expect(JSON.parse(String(inferenceCall?.[1]?.body))).toMatchObject({ model: 'gpt-listed-only' });
   });
 });

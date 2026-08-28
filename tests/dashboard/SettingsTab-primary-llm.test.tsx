@@ -191,6 +191,51 @@ describe('SettingsTab primary LLM draft, test, save, and remove semantics', () =
     expect(posts[0].url).toContain('/v1/config/test');
   });
 
+  it('tests the selected model and keeps the catalog available after inference failure', async () => {
+    let testBody: Record<string, unknown> | undefined;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? 'GET').toUpperCase();
+      const background = backgroundResponse(url);
+      if (background) return background;
+      if (method === 'POST' && url.includes('/v1/config/test')) {
+        testBody = JSON.parse(String(init?.body));
+        return jsonResponse({
+          success: true,
+          data: {
+            valid: false,
+            errorCode: 'inference_failed',
+            error: 'Model gpt-listed-only failed the inference probe: OpenAI API error: 400',
+            catalogVerified: true,
+            inferenceVerified: false,
+            testedModel: 'gpt-listed-only',
+            suggested: 'gpt-compatible',
+            models: [{ id: 'gpt-compatible' }, { id: 'gpt-listed-only' }],
+          },
+        });
+      }
+      if (url.includes('/v1/config')) {
+        return jsonResponse({
+          success: true,
+          data: configData({ provider: 'openai', model: 'gpt-listed-only', apiKey: '***' }),
+        });
+      }
+      return jsonResponse({ success: true, data: {} });
+    });
+
+    const { container, getByText } = render(<SettingsTab locale="en" onLocaleChange={() => {}} />);
+    await waitFor(() => expect(getByText(t('settings.test'))).toBeTruthy());
+    fireEvent.click(getByText(t('settings.test')));
+
+    await waitFor(() => expect(container.textContent).toContain('OpenAI API error: 400'));
+    expect(testBody).toMatchObject({ provider: 'openai', model: 'gpt-listed-only' });
+    expect(container.querySelector('[role="alert"]')).not.toBeNull();
+    expect([...container.querySelectorAll('option')].map((entry) => entry.value))
+      .toEqual(expect.arrayContaining(['gpt-compatible', 'gpt-listed-only']));
+    fireEvent.change(container.querySelector('select') as HTMLSelectElement, { target: { value: 'gpt-compatible' } });
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
   it('promotes the draft only after POST plus authoritative GET readback', async () => {
     let persisted = false;
     const sequence: string[] = [];

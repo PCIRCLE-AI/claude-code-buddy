@@ -488,6 +488,69 @@ describe('InsightsTab action failure routing', () => {
     });
     expect(container.textContent).not.toContain('Failed to fetch');
   });
+
+  it('surfaces provider-error skips from a successful Dream envelope', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? 'GET').toUpperCase();
+      if (method === 'POST' && url.includes('/v1/dream/run')) {
+        return jsonResponse({
+          success: true,
+          data: {
+            proposalsCreated: 0,
+            llmCalls: 0,
+            skipped: [{ code: 'provider_error', reason: 'LLM call failed: OpenAI API error: 400' }],
+          },
+        });
+      }
+      if (url.includes('/v1/dream/proposals')) return jsonResponse({ success: true, data: [] });
+      return jsonResponse({ success: true, data: { capabilities: { llm: { provider: 'openai' } } } });
+    });
+
+    const { container } = render(<InsightsTab />);
+    const run = await waitFor(() => {
+      const button = [...container.querySelectorAll('button')]
+        .find((entry) => entry.textContent === t('insights.runDream')) as HTMLButtonElement | undefined;
+      if (!button) throw new Error('Dream button not rendered');
+      return button;
+    });
+    fireEvent.click(run);
+
+    await waitFor(() => {
+      const alert = container.querySelector('[role="alert"]');
+      expect(alert?.textContent).toContain('OpenAI API error: 400');
+      expect(alert?.textContent).toContain(t('insights.runProviderError', { error: '' }).split(':')[0]);
+    });
+  });
+
+  it('keeps zero proposals without provider errors as an honest no-result state', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? 'GET').toUpperCase();
+      if (method === 'POST' && url.includes('/v1/dream/run')) {
+        return jsonResponse({
+          success: true,
+          data: { proposalsCreated: 0, llmCalls: 1, skipped: [{ reason: 'LLM returned NOOP' }] },
+        });
+      }
+      if (url.includes('/v1/dream/proposals')) return jsonResponse({ success: true, data: [] });
+      return jsonResponse({ success: true, data: { capabilities: { llm: { provider: 'openai' } } } });
+    });
+
+    const { container } = render(<InsightsTab />);
+    const run = await waitFor(() => {
+      const button = [...container.querySelectorAll('button')]
+        .find((entry) => entry.textContent === t('insights.runDream')) as HTMLButtonElement | undefined;
+      if (!button) throw new Error('Dream button not rendered');
+      return button;
+    });
+    fireEvent.click(run);
+
+    await waitFor(() => {
+      expect(container.querySelector('[role="alert"]')).toBeNull();
+      expect(container.querySelector('[role="status"]')?.textContent).toContain(t('insights.runNoResult'));
+    });
+  });
 });
 
 /* ── EmptyLibraryState: its own failure surface ──────────────────────────── */

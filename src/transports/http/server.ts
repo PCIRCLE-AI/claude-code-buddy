@@ -1083,6 +1083,10 @@ const ConfigTestBody = z.object({
   provider: z.enum(['anthropic', 'openai', 'ollama']),
   apiKey: z.string().max(500).optional(),
   host: z.string().max(500).optional(),
+  // When omitted, the probe tests the catalog's suggested model. Supplying
+  // the Dashboard's current selection catches "listed but incompatible with
+  // the real inference endpoint" before Save or Dream.
+  model: z.string().min(1).max(200).optional(),
   // Dashboard "Test" on a FALLBACK entry whose key is stored (masked) and
   // untouched: the SPA sends the entry's original index here instead of the
   // key. We resolve the key from llmFallbacks[fallbackIndex] so the probe
@@ -1094,7 +1098,7 @@ const ConfigTestBody = z.object({
 
 app.post('/v1/config/test', (req, res) => handlePost(ConfigTestBody, req, res, async (data) => {
   const { probeProvider } = await import('../../core/llm-validator.js');
-  const { provider, host, fallbackIndex } = data;
+  const { provider, host, model, fallbackIndex } = data;
   let { apiKey } = data;
   // If the caller omits apiKey, fall back to the one already saved — lets the
   // dashboard offer "Test with current settings" without forcing the user to
@@ -1112,7 +1116,7 @@ app.post('/v1/config/test', (req, res) => handlePost(ConfigTestBody, req, res, a
       apiKey = existing.llm.apiKey;
     }
   }
-  return probeProvider(provider, apiKey, host);
+  return probeProvider(provider, apiKey, host, model);
   // Probe failures are server-side (network, module load), not caller errors.
 }, { errorStatus: 500, errorCode: 'server.internal' }));
 

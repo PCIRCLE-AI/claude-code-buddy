@@ -1,3 +1,5 @@
+import { callLLM } from './llm-client.js';
+import { redactSecrets } from './paths.js';
 class ProbeError extends Error {
     errorCode;
     constructor(message, errorCode) {
@@ -199,13 +201,55 @@ export async function probeOllama(host) {
         return { valid: false, error: msg, errorCode: probeErrorCode(err) };
     }
 }
-export async function probeProvider(provider, apiKey, host) {
-    if (provider === 'anthropic')
-        return probeAnthropic(apiKey ?? '');
-    if (provider === 'openai')
-        return probeOpenAI(apiKey ?? '');
-    if (provider === 'ollama')
-        return probeOllama(host);
-    return { valid: false, error: `Unknown provider: ${provider}`, errorCode: 'unknown' };
+export async function probeProvider(provider, apiKey, host, model) {
+    const catalog = provider === 'anthropic'
+        ? await probeAnthropic(apiKey ?? '')
+        : provider === 'openai'
+            ? await probeOpenAI(apiKey ?? '')
+            : provider === 'ollama'
+                ? await probeOllama(host)
+                : { valid: false, error: `Unknown provider: ${provider}`, errorCode: 'unknown' };
+    if (!catalog.valid) {
+        return { ...catalog, catalogVerified: false, inferenceVerified: false };
+    }
+    const testedModel = model || catalog.suggested || catalog.models?.[0]?.id;
+    if (!testedModel) {
+        return {
+            ...catalog,
+            valid: false,
+            catalogVerified: true,
+            inferenceVerified: false,
+            error: 'The provider catalog returned no model that could be tested.',
+            errorCode: 'no_models',
+        };
+    }
+    try {
+        const response = await callLLM('Reply with exactly: OK', {
+            provider,
+            model: testedModel,
+            ...(apiKey ? { apiKey } : {}),
+        }, { maxTokens: 8 });
+        if (!response.trim())
+            throw new Error('provider returned an empty response');
+        return {
+            ...catalog,
+            valid: true,
+            catalogVerified: true,
+            inferenceVerified: true,
+            testedModel,
+        };
+    }
+    catch (err) {
+        const detail = redactSecrets(err instanceof Error ? err.message : String(err));
+        return {
+            ...catalog,
+            valid: false,
+            catalogVerified: true,
+            inferenceVerified: false,
+            testedModel,
+            error: `Model ${testedModel} failed the inference probe: ${detail}`,
+            errorCode: 'inference_failed',
+        };
+    }
 }
 //# sourceMappingURL=llm-validator.js.map

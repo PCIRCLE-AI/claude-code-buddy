@@ -1152,7 +1152,7 @@ Returns PM-framed metrics: decision velocity, knowledge-graph connectedness, and
 
 ### POST /v1/config/test
 
-Probes the provider's `/v1/models` endpoint with the supplied `apiKey` (or local `host` for Ollama) and returns whether the credential authenticates plus the live model catalog. Used by the dashboard Settings tab to validate before persisting and to populate a model dropdown with real choices instead of stale hardcoded names. **Does not write to disk.**
+Loads the provider's model catalog, then sends a bounded inference request through the same provider transport used by Dream. `valid:true` means the selected `model` (or the catalog's `suggested` model when omitted) completed that inference request; model-list access alone is not readiness. Used by Dashboard Settings before persisting and to populate a model dropdown with live choices. **Does not write to disk.**
 
 When `apiKey` is omitted the server resolves a stored key so the dashboard can offer "Test with current settings" without re-typing: send `fallbackIndex: <index>` to test the stored key of `llmFallbacks[index]` (provider-guarded — it tests THAT entry's own credential, not the primary's); with no `fallbackIndex`, an omitted key resolves the primary `llm` key when its provider matches. This keeps a Test on a saved-but-untouched fallback from either falsely failing (probing empty) or falsely passing on the primary's key.
 
@@ -1163,6 +1163,7 @@ When `apiKey` is omitted the server resolves a stored key so the dashboard can o
   "provider": "anthropic" | "openai" | "ollama",
   "apiKey": "<optional, required for anthropic/openai unless a stored key is resolved>",
   "host": "<optional, Ollama base URL, defaults to http://localhost:11434>",
+  "model": "<optional, exact model to exercise; defaults to suggested>",
   "fallbackIndex": "<optional, test the stored key of llmFallbacks[index]>"
 }
 ```
@@ -1174,6 +1175,9 @@ When `apiKey` is omitted the server resolves a stored key so the dashboard can o
   "success": true,
   "data": {
     "valid": true,
+    "catalogVerified": true,
+    "inferenceVerified": true,
+    "testedModel": "claude-haiku-4-5",
     "models": [
       { "id": "claude-haiku-4-5", "created": "2026-04-01T00:00:00Z" },
       { "id": "claude-opus-4", "created": "2026-01-15T00:00:00Z" }
@@ -1191,6 +1195,7 @@ On failure: `{ valid: false, error: "<provider message>", errorCode: "<stable co
 | `network` | DNS failure, connection refused/reset, timeout, or abort |
 | `no_models` | Provider answered but returned zero usable models (proxy/gateway interception, or a bare Ollama with nothing pulled) |
 | `bad_host` | Caller-supplied Ollama host rejected (must be loopback; use the server-side `OLLAMA_HOST` env for remote Ollama) |
+| `inference_failed` | The catalog was readable, but the selected/suggested model failed the real inference request |
 | `http_<status>` | Any other upstream HTTP status, e.g. `http_429` for rate limiting |
 | `unknown` | Unclassified failure |
 
@@ -1892,7 +1897,7 @@ Trigger a dream pass via HTTP. Same logic as `memesh dream run`; runs `runDreame
 | `maxLlmCalls` | number | 5 | Hard cap on LLM calls (1–20) |
 | `validate` | boolean | false | Run the digest validator as a second LLM pass before staging |
 
-**Response:** `DreamerResult` shape — `{ proposalsCreated, clustersScanned, llmCalls, skipped: Array<{reason, project, clusterKey}>, durationMs, clusteringMode?, clusteringNote? }`.
+**Response:** `DreamerResult` shape — `{ proposalsCreated, clustersScanned, llmCalls, skipped: Array<{reason, project, clusterKey, code?}>, durationMs, clusteringMode?, clusteringNote? }`. A skipped entry caused by a provider request carries `code: "provider_error"`; clients must surface it as an error even though the Dream envelope itself is HTTP 200. Zero proposals without a `provider_error` remains a normal no-result outcome.
 
 `clusteringMode` is `"semantic"` when entries were grouped by embedding distance and `"calendar"` when the graph has no vectors and they fell back to ISO-week buckets — which can put unrelated work in one digest, so a client that surfaces digests should surface this too. `clusteringNote` is one sentence saying why, or naming candidates that had no embedding and were left out.
 

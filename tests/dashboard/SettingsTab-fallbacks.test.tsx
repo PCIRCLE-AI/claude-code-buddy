@@ -215,7 +215,7 @@ describe('SettingsTab fallback providers', () => {
       if (!calls.find((c) => c.url.includes('/v1/config/test'))) throw new Error('no test call yet');
     });
     const testCall = calls.find((c) => c.url.includes('/v1/config/test'))!;
-    expect(testCall.body).toEqual({ provider: 'openai', fallbackIndex: 0 });
+    expect(testCall.body).toEqual({ provider: 'openai', model: 'gpt-4o-mini', fallbackIndex: 0 });
     // No key bytes, no mask travelled.
     expect(JSON.stringify(testCall.body)).not.toContain('***');
     expect(testCall.body).not.toHaveProperty('apiKey');

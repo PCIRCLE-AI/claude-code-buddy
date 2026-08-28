@@ -10,6 +10,9 @@
 // Used by POST /v1/config/test in the HTTP server. Pure async functions,
 // no DB / no transport coupling. Never persists secrets.
 
+import { callLLM } from './llm-client.js';
+import { redactSecrets } from './paths.js';
+
 export interface ModelInfo {
   id: string;
   /** Optional creation/release timestamp from the provider, ISO-8601 if known. */
@@ -35,6 +38,12 @@ export interface ValidationResult {
   models?: ModelInfo[];
   /** Recommended default — the smallest/cheapest model suitable for short prompts. */
   suggested?: string;
+  /** The catalog endpoint answered and returned usable models. */
+  catalogVerified?: boolean;
+  /** The tested model completed the same provider request path Dream uses. */
+  inferenceVerified?: boolean;
+  /** Exact selected or suggested model used for the inference probe. */
+  testedModel?: string;
 }
 
 /**
@@ -295,9 +304,56 @@ export async function probeProvider(
   provider: 'anthropic' | 'openai' | 'ollama',
   apiKey?: string,
   host?: string,
+  model?: string,
 ): Promise<ValidationResult> {
-  if (provider === 'anthropic') return probeAnthropic(apiKey ?? '');
-  if (provider === 'openai') return probeOpenAI(apiKey ?? '');
-  if (provider === 'ollama') return probeOllama(host);
-  return { valid: false, error: `Unknown provider: ${provider}`, errorCode: 'unknown' };
+  const catalog = provider === 'anthropic'
+    ? await probeAnthropic(apiKey ?? '')
+    : provider === 'openai'
+      ? await probeOpenAI(apiKey ?? '')
+      : provider === 'ollama'
+        ? await probeOllama(host)
+        : { valid: false, error: `Unknown provider: ${provider}`, errorCode: 'unknown' };
+
+  if (!catalog.valid) {
+    return { ...catalog, catalogVerified: false, inferenceVerified: false };
+  }
+
+  const testedModel = model || catalog.suggested || catalog.models?.[0]?.id;
+  if (!testedModel) {
+    return {
+      ...catalog,
+      valid: false,
+      catalogVerified: true,
+      inferenceVerified: false,
+      error: 'The provider catalog returned no model that could be tested.',
+      errorCode: 'no_models',
+    };
+  }
+
+  try {
+    const response = await callLLM('Reply with exactly: OK', {
+      provider,
+      model: testedModel,
+      ...(apiKey ? { apiKey } : {}),
+    }, { maxTokens: 8 });
+    if (!response.trim()) throw new Error('provider returned an empty response');
+    return {
+      ...catalog,
+      valid: true,
+      catalogVerified: true,
+      inferenceVerified: true,
+      testedModel,
+    };
+  } catch (err) {
+    const detail = redactSecrets(err instanceof Error ? err.message : String(err));
+    return {
+      ...catalog,
+      valid: false,
+      catalogVerified: true,
+      inferenceVerified: false,
+      testedModel,
+      error: `Model ${testedModel} failed the inference probe: ${detail}`,
+      errorCode: 'inference_failed',
+    };
+  }
 }

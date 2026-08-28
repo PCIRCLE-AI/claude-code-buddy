@@ -965,6 +965,57 @@ describe('HTTP Transport: stable errorCode on error envelopes', () => {
     expect(res.body.data.error).toBeTruthy();
     expect(res.body.data.errorCode).toBe('auth');
   });
+
+  it('POST /v1/config/test proves the selected model on the real inference request path', async () => {
+    const realFetch = globalThis.fetch;
+    const providerBodies: Array<Record<string, unknown>> = [];
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith('http://127.0.0.1:')) return realFetch(input, init);
+      if (url.endsWith('/v1/models')) {
+        return new Response(JSON.stringify({ data: [{ id: 'gpt-compatible' }, { id: 'gpt-listed-only' }] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (url.endsWith('/v1/chat/completions')) {
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        providerBodies.push(body);
+        if (body.model === 'gpt-listed-only') {
+          return new Response('{}', { status: 400, headers: { 'content-type': 'application/json' } });
+        }
+        return new Response(JSON.stringify({ choices: [{ message: { content: 'OK' } }] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      throw new Error(`unexpected provider URL: ${url}`);
+    });
+
+    const incompatible = await req('POST', '/v1/config/test', {
+      provider: 'openai', apiKey: 'fixture-key', model: 'gpt-listed-only',
+    });
+    expect(incompatible.body.data).toMatchObject({
+      valid: false,
+      catalogVerified: true,
+      inferenceVerified: false,
+      testedModel: 'gpt-listed-only',
+      errorCode: 'inference_failed',
+    });
+    expect(incompatible.body.data.models).toHaveLength(2);
+
+    const compatible = await req('POST', '/v1/config/test', {
+      provider: 'openai', apiKey: 'fixture-key', model: 'gpt-compatible',
+    });
+    expect(compatible.body.data).toMatchObject({
+      valid: true,
+      catalogVerified: true,
+      inferenceVerified: true,
+      testedModel: 'gpt-compatible',
+    });
+    expect(providerBodies.map((body) => body.model)).toEqual(['gpt-listed-only', 'gpt-compatible']);
+    fetchSpy.mockRestore();
+  });
 });
 
 // ── Graph ─────────────────────────────────────────────────────────────────────

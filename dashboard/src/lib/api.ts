@@ -322,12 +322,15 @@ export interface ConfigTestResult {
   error?: string;
   /**
    * Stable machine code when valid=false: 'auth' | 'network' | 'no_models'
-   * | 'bad_host' | 'http_<status>' | 'unknown'. The dashboard translates
+   * | 'bad_host' | 'inference_failed' | 'http_<status>' | 'unknown'. The dashboard translates
    * known codes (settings.testError.*) and keeps `error` as the detail.
    */
   errorCode?: string;
   models?: Array<{ id: string; created?: string }>;
   suggested?: string;
+  catalogVerified?: boolean;
+  inferenceVerified?: boolean;
+  testedModel?: string;
 }
 
 export interface HealthFactor {

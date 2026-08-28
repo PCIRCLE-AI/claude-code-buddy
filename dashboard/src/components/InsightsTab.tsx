@@ -76,6 +76,12 @@ interface ProposalDetail {
   source_kind?: string;
 }
 
+interface DreamRunResult {
+  proposalsCreated: number;
+  llmCalls: number;
+  skipped: Array<{ reason: string; code?: 'provider_error' }>;
+}
+
 // Proposal timestamps arrive in SQLite's 'YYYY-MM-DD HH:MM:SS' UTC form,
 // which Date() refuses without the T/Z normalisation. The relative-time
 // wording itself is entity-display's relativeDate — the shared, localised
@@ -131,6 +137,7 @@ export function InsightsTab() {
   const [expanded, setExpanded] = useState<Map<number, ProposalDetail>>(new Map());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [runNotice, setRunNotice] = useState('');
   // Whether the user has any LLM provider configured. Without one, the
   // dreamer / pattern detector NEVER produce proposals — so the empty
   // state should point the user to Settings rather than suggesting
@@ -264,13 +271,24 @@ export function InsightsTab() {
   const runDream = useCallback(async (mode: 'plain' | 'validate') => {
     setDreamRunning(mode);
     setError('');
+    setRunNotice('');
     try {
-      await api('POST', '/v1/dream/run', {
+      const result = await api<DreamRunResult>('POST', '/v1/dream/run', {
         maxLlmCalls: 3,
         validate: mode === 'validate',
       });
       window.dispatchEvent(new Event('memesh:data-changed'));
       await refresh();
+      const providerErrors = result.skipped.filter((entry) => entry.code === 'provider_error');
+      if (providerErrors.length > 0) {
+        setError(t('insights.runProviderError', {
+          error: providerErrors.slice(0, 3).map((entry) => entry.reason).join(' · '),
+        }));
+      } else if (result.proposalsCreated === 0) {
+        setRunNotice(t('insights.runNoResult'));
+      } else {
+        setRunNotice(t('insights.runCreated', { count: result.proposalsCreated }));
+      }
     } catch (e) {
       setError(actionFailureMessage(e));
     } finally {
@@ -349,6 +367,7 @@ export function InsightsTab() {
       </div>
 
       {error && <div class="card" role="alert" style={{ padding: 12, color: 'var(--danger)' }}>{error}</div>}
+      {runNotice && <div class="card" role="status" style={{ padding: 12, color: 'var(--life)' }}>{runNotice}</div>}
       {loading && <div style={{ color: 'var(--text-3)', fontSize: 13 }}>{t('insights.loading')}</div>}
       {!loading && proposals.length === 0 && (
         <div class="card" style={{ padding: 16, textAlign: 'center', color: 'var(--text-2)' }}>

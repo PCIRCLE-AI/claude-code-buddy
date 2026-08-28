@@ -565,11 +565,12 @@ const ConfigTestBody = z.object({
     provider: z.enum(['anthropic', 'openai', 'ollama']),
     apiKey: z.string().max(500).optional(),
     host: z.string().max(500).optional(),
+    model: z.string().min(1).max(200).optional(),
     fallbackIndex: z.number().int().nonnegative().optional(),
 });
 app.post('/v1/config/test', (req, res) => handlePost(ConfigTestBody, req, res, async (data) => {
     const { probeProvider } = await import('../../core/llm-validator.js');
-    const { provider, host, fallbackIndex } = data;
+    const { provider, host, model, fallbackIndex } = data;
     let { apiKey } = data;
     if (!apiKey && (provider === 'anthropic' || provider === 'openai')) {
         const existing = readConfig();
@@ -582,7 +583,7 @@ app.post('/v1/config/test', (req, res) => handlePost(ConfigTestBody, req, res, a
             apiKey = existing.llm.apiKey;
         }
     }
-    return probeProvider(provider, apiKey, host);
+    return probeProvider(provider, apiKey, host, model);
 }, { errorStatus: 500, errorCode: 'server.internal' }));
 app.get('/v1/update-status', (req, res) => handleGet(res, async () => {
     const cached = req.query.cached === '1' || req.query.cached === 'true';

@@ -316,9 +316,10 @@ export function SettingsTab({ locale, onLocaleChange, onDirtyChange }: SettingsT
       const result = await api<ConfigTestResult>('POST', '/v1/config/test', {
         provider,
         ...(apiKey ? { apiKey } : {}),
+        ...(model ? { model } : {}),
       });
       setTestResult(result);
-      if (result.valid && !model && result.suggested) {
+      if (!model && result.suggested) {
         setModel(result.suggested);
       }
     } catch (e) {
@@ -337,6 +338,10 @@ export function SettingsTab({ locale, onLocaleChange, onDirtyChange }: SettingsT
   }
   function onApiKeyChange(v: string) {
     setApiKey(v);
+    setTestResult(null);
+  }
+  function onModelChange(v: string) {
+    setModel(v);
     setTestResult(null);
   }
 
@@ -526,6 +531,7 @@ export function SettingsTab({ locale, onLocaleChange, onDirtyChange }: SettingsT
       const typed = fb.apiKey.trim();
       const result = await api<ConfigTestResult>('POST', '/v1/config/test', {
         provider: fb.provider,
+        ...(fb.model ? { model: fb.model } : {}),
         ...(typed
           ? { apiKey: typed }
           : (fb.hasStoredKey && fb.originalIndex !== null ? { fallbackIndex: fb.originalIndex } : {})),
@@ -918,7 +924,7 @@ export function SettingsTab({ locale, onLocaleChange, onDirtyChange }: SettingsT
             </div>
           )}
 
-          {testResult?.valid && testResult.models && testResult.models.length > 0 && (
+          {testResult?.models && testResult.models.length > 0 && (
             <div style={{ marginBottom: 14 }}>
               <label style={{ fontSize: 12, color: 'var(--text-2)', display: 'block', marginBottom: 4 }}>
                 {t('settings.model')}
@@ -930,7 +936,7 @@ export function SettingsTab({ locale, onLocaleChange, onDirtyChange }: SettingsT
               </label>
               <select
                 value={model}
-                onChange={(e) => setModel((e.target as HTMLSelectElement).value)}
+                onChange={(e) => onModelChange((e.target as HTMLSelectElement).value)}
                 style={{ width: '100%' }}
               >
                 {testResult.models.map((m) => (
