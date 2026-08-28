@@ -53,6 +53,30 @@ function parseNamedLocales(): string[] {
 }
 
 describe('dashboard i18n', () => {
+  it('names the retrospective project surface as project history in every locale', () => {
+    const entries = parseTranslationEntries();
+    const expected = new Map([
+      ['en', 'Project History'],
+      ['zh-TW', '專案歷程'],
+      ['zh-CN', '项目历程'],
+      ['ja', 'プロジェクト履歴'],
+      ['ko', '프로젝트 이력'],
+      ['pt', 'Histórico do Projeto'],
+      ['fr', 'Historique du Projet'],
+      ['de', 'Projektverlauf'],
+      ['vi', 'Lịch Sử Dự Án'],
+      ['es', 'Historial del Proyecto'],
+      ['th', 'ประวัติโครงการ'],
+    ]);
+
+    expect([...entries.keys()].sort()).toEqual([...expected.keys()].sort());
+    for (const [locale, title] of expected) {
+      expect(entries.get(locale)?.get('roadmap.title'), locale).toBe(title);
+      expect(entries.get(locale)?.get('roadmap.switchToRoadmap'), locale).not.toMatch(/roadmap|路線圖|路线图|ロードマップ|로드맵/i);
+      expect(entries.get(locale)?.get('roadmap.viewToggle'), locale).not.toMatch(/roadmap|路線圖|路线图|ロードマップ|로드맵/i);
+    }
+  });
+
   it('uses the memory-organization heading consistently in every locale', () => {
     const entries = parseTranslationEntries();
     const expected = new Map([
