@@ -37,7 +37,7 @@
     "test:packaged": "node scripts/smoke-packed-artifact.mjs",
     "test:packaged:upgrade": "node scripts/smoke-packed-upgrade.mjs",
     "audit:prod": "node scripts/check-consumer-audit.mjs",
-    "verify:release": "npm run lint && npm run typecheck && node scripts/check-version-coherence.mjs && node scripts/check-generated-mirror.mjs && node scripts/check-agent-message-sync.mjs && node scripts/check-readme-tool-parity.mjs && node scripts/check-doc-claims.mjs && node scripts/audit/verification-audit.mjs && npm run audit:prod",
+    "verify:release": "npm run lint && npm run typecheck && node scripts/check-version-coherence.mjs && node scripts/check-generated-mirror.mjs && node scripts/check-agent-message-sync.mjs && node scripts/check-readme-tool-parity.mjs && node scripts/check-codemap-parity.mjs && node scripts/check-doc-claims.mjs && node scripts/audit/verification-audit.mjs && npm run audit:prod",
     "release:finish": "node scripts/finish-release.mjs",
     "prepublishOnly": "npm run build && npm run verify:release && npm run test:isolated && npm run test:packaged && npm run test:packaged:upgrade",
     "typecheck": "tsc -p tsconfig.check.json && tsc -p tsconfig.check-dashboard.json",

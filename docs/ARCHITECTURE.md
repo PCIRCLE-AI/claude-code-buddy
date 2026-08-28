@@ -206,6 +206,8 @@ Thin adapter: imports shared Zod schemas from `transports/schemas.ts`, validates
 | `task_state` | TaskStateSchema | Delegates to `core/task-state-store` (`getTaskState()` with no fields, `setTaskState()` otherwise) |
 | `briefing` | BriefingSchema | Delegates to `core/briefing.assembleBriefing()` |
 | `user_patterns` | UserPatternsSchema | Delegates to `core/patterns.computePatterns()` |
+| `improvement` | ImprovementSchema | Delegates to `core/product-improvements` for proposal staging and status reads |
+| `message` | MessageSchema | Delegates to `transports/agent-messaging.executeAgentMessageAction()` |
 
 ### transports/http/server.ts -- HTTP REST API Server
 
@@ -213,7 +215,7 @@ Express server exposed via `memesh serve` (default port 3737; the endpoint count
 
 ### transports/cli/cli.ts -- CLI
 
-Commander-based CLI exposed via the `memesh` binary. Supports `remember`, `recall`, `forget`, `serve`, and `update` subcommands.
+Commander-based CLI exposed via the `memesh` binary. It registers the 30 top-level commands catalogued in the module list above; `scripts/check-doc-claims.mjs` derives and verifies that count from `cli.ts`.
 
 ### dashboard/ -- Packaged Dashboard SPA
 
@@ -420,7 +422,7 @@ MeMesh supports three integration tiers:
 
 | Tier | Client | Integration Method |
 |------|--------|--------------------|
-| **Native plugin** | Claude Code | Plugin (`.claude-plugin/plugin.json` + 7 lifecycle hooks) |
+| **Native plugin** | Claude Code | Plugin (`.claude-plugin/plugin.json` + 8 lifecycle hooks) |
 | | Hermes Agent | Native `MemoryProvider` plugin (Python ABC, convention-based discovery) |
 | | OpenClaw | Native memory-capability plugin (TypeScript, `api.registerMemoryCapability()`) |
 | **MCP server** | Claude Managed Agents | MCP connector (beta, via session config) |

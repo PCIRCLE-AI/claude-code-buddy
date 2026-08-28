@@ -1,6 +1,6 @@
 # CODEMAP
 
-**Version**: 4.2.8
+**Version**: 4.8.1
 
 A navigation map for the codebase: *"I want to change X — which file?"* For the
 design rationale behind these modules see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md);
@@ -14,11 +14,19 @@ for the public API surface see [`docs/api/API_REFERENCE.md`](docs/api/API_REFERE
 |---|---|
 | `memesh <cmd>` (CLI) | `src/transports/cli/cli.ts` |
 | `memesh-mcp` (MCP stdio server) | `src/mcp/server.ts` → `src/transports/mcp/handlers.ts` |
+| `memesh-http` (HTTP REST server) | `src/transports/http/server.ts` |
+| `memesh-router` (private local router) | `src/host-runtime/router.ts` |
+| `memesh-host-claude` | `src/host-runtime/claude.ts` |
+| `memesh-host-codex` | `src/host-runtime/codex.ts` |
+| `memesh-host-codex-session` | `src/host-runtime/codex-session.ts` |
+| `memesh-host-acp` | `src/host-runtime/acp.ts` |
 | `memesh serve` (HTTP REST) | `src/transports/http/server.ts` |
 | `memesh` (dashboard) | `dashboard/src/App.tsx` (served from `dashboard/dist/index.html`) |
 | Claude Code hooks | `scripts/hooks/*.js` (wired in `hooks/hooks.json`) |
 
-All three transports are thin adapters over the same core: `src/core/operations.ts`.
+Memory CRUD flows share `src/core/operations.ts`. Durable local messaging uses
+`src/core/agent-messaging.ts` plus the transport dispatcher and private router
+listed below.
 
 ---
 
@@ -31,10 +39,12 @@ src/
 ├── knowledge-graph.ts  # Entity CRUD, relations, FTS5 search, access tracking
 ├── storage/         # conflicts.ts (detection) + fts-index.ts (contentless-FTS5 primitives)
 ├── transports/      # cli/ · http/ · mcp/ (+ schemas.ts = shared Zod validation)
+├── host-adapters/   # host-native wakeup adapters (Claude, Codex, ACP)
+├── host-runtime/    # managed host processes + private-router client/server
 ├── mcp/             # stdio server (NOTE: server lives here, handlers in transports/mcp/)
 └── cli/             # view.ts + view-live.ts (dashboard fallback, NOT a transport)
-scripts/hooks/       # 7 Claude Code hooks + _shared.js (mirror of paths.ts, F5 boundary)
-dashboard/src/       # Preact + Vite dashboard (5 tabs)
+scripts/hooks/       # Claude/Codex hook entrypoints + shared/generated helpers
+dashboard/src/       # Preact + Vite dashboard
 tests/               # vitest (forks pool) — mirrors src/ layout
 benchmarks/longmemeval/  # public LongMemEval-S evidence (REPRODUCE.md)
 docs/                # ARCHITECTURE.md, api/API_REFERENCE.md
@@ -84,22 +94,34 @@ docs/                # ARCHITECTURE.md, api/API_REFERENCE.md
 - `memesh doctor` health check + real probes → `src/core/doctor.ts`
 - npm version check / self-update → `src/core/version-check.ts`, `src/core/updater.ts`, `src/core/install-channel.ts`, `src/core/install-hooks.ts`
 
+### Durable local agent messaging + active-host delivery
+- Transactional message/delivery/receipt storage → `src/core/agent-messaging.ts`
+- Exact-recipient active-host routing and in-flight ownership → `src/core/agent-router.ts`
+- Shared MCP / HTTP / CLI action dispatcher → `src/transports/agent-messaging.ts`
+- Host-native adapters → `src/host-adapters/`
+- Managed router and host runtimes → `src/host-runtime/`
+- Lifecycle and operator contract → `docs/platforms/agent-messaging.md`
+
 ### Dashboard (Preact)
 - Tab routing → `dashboard/src/App.tsx`
 - Analytics / telemetry / insights panels → `dashboard/src/components/`
 - Read-only aggregation endpoints → `src/core/analytics.ts`, `stats.ts`, `graph.ts`, `projects.ts`, `patterns.ts`
-- i18n (11 locales) → `dashboard/src/lib/i18n.ts`
+- i18n registry → `dashboard/src/lib/i18n.ts`
 
-### Hooks (Claude Code integration — `scripts/hooks/`)
-| Hook | Fires on | Does |
+### Hook commands (`hooks/hooks.json`)
+| Command | Fires on | Does |
 |---|---|---|
 | `session-start.js` | SessionStart | inject top-N memories (additionalContext), banner, lesson warnings, auto-update |
 | `pre-edit-recall.js` | PreToolUse Edit/Write | inject file-relevant memories |
+| `guard-check.js` | PreToolUse Bash | enforce accepted lesson guards before risky repeats |
+| `src/host-runtime/codex-session.ts` | SessionStart | register the exact configured Codex thread for metadata-only wakeups |
 | `session-summary.js` | Stop | auto-capture, LLM failure analysis, dream auto-trigger |
 | `pre-compact.js` | PreCompact | end-of-context save |
 | `post-commit.js` | PostToolUse Bash | git commit tracking |
 | `user-prompt-intent.js` | UserPromptSubmit | detect "remember" intent |
-| `_shared.js` | — | shared helpers (NOT a hook); `importFromPluginRoot`, `getProjectName` mirror, `captureEntity` (single owner of the hook write dance incl. FTS reindex) |
+
+`scripts/hooks/_shared.js` is a helper, not a hook command. `scripts/hooks/auto-update-runner.mjs`
+is invoked by the session-start flow rather than registered directly in the manifest.
 
 ---
 
@@ -112,7 +134,7 @@ transport (cli/http/mcp) → validate (transports/schemas.ts, Zod)
       → conflict detection (storage/conflicts.ts) → result
 ```
 
-The same `operations.ts` function runs identically from all three transports.
+The same `operations.ts` memory functions run identically from all three transports.
 
 ---
 
@@ -120,4 +142,4 @@ The same `operations.ts` function runs identically from all three transports.
 
 - Tests: `tests/` mirrors `src/`. Run `npm test -- --run` (pool: forks, not threads — native modules).
   Cross-hook contract gate: `tests/hooks/hook-output-contract.test.ts` (validates every hook's stdout against the real Claude Code contract).
-- Version anchors that must agree on a bump: `package.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `CHANGELOG.md` header, `docs/ARCHITECTURE.md`, `docs/api/API_REFERENCE.md` (see the version-bump contract in the project instructions). Run `npm run build` after to regenerate `dist/skills-manifest.json`.
+- Version anchors that must agree on a bump: `package.json`, both root entries in `package-lock.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `herdr-plugin.toml`, `CHANGELOG.md`, `CODEMAP.md`, `docs/ARCHITECTURE.md`, and `docs/api/API_REFERENCE.md`. Run `npm run build` after to regenerate `dist/skills-manifest.json`.

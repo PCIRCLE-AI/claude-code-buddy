@@ -1,0 +1,13 @@
+{
+  "schema_version": "mcp-doc-contract/v1",
+  "source_sha256": "cb90e06810e032a706ca0736c019fe5aec708085919228b34ae6831359adfda3",
+  "surfaces": {
+    "README.md": "23aa50e2e5422a67a695edc8d9e999dfb50f95525cd8234cab77d2b1e120e4d0",
+    "README.zh-TW.md": "5393cfb21637bd3be0814dfca4b9074ffb82cbcdef974886a70c4e50f4829796",
+    "README.de.md": "30b3c984802ed1cf72eeb52a02e573df003c42e5dcd82cd73abd1c63405377fd",
+    "AGENTS.md": "0cac9c2ee9cb8c071c518efa2589f371460f200c43042b14cadf2ae47fec8398",
+    "skills/memesh/SKILL.md": "8a8f86e17227b494458c3bd22450a7b3f0db0868c7f8e0bb733c0bfb982c7576",
+    "docs/api/API_REFERENCE.md": "6c72c247e4c448ab7069728d005a24badc15dfc6a7128e795c221f53ff1e00e8",
+    "docs/ARCHITECTURE.md": "c27cf109128e77a12dfc2d500144abb606e0a397edcc5cec4d7d252ebbf0a6b8"
+  }
+}

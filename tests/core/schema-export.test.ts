@@ -37,6 +37,7 @@ describe('exportOpenAITools', () => {
   it('memesh_import requires data and merge_strategy', () => {
     const tool = tools.find((t: any) => t.function.name === 'memesh_import') as any;
     expect(tool.function.parameters.required).toEqual(['data', 'merge_strategy']);
+    expect(tool.function.parameters.properties.merge_strategy.description).not.toMatch(/default/i);
   });
 
   it('memesh_export has no required fields (all optional filters)', () => {
