@@ -126,7 +126,13 @@ function statusLabel(status: string): string {
   return label === key ? status : label;
 }
 
-export function InsightsTab({ dataRevision = 0 }: { dataRevision?: number }) {
+export function InsightsTab({
+  dataRevision = 0,
+  onStateChange,
+}: {
+  dataRevision?: number;
+  onStateChange?: (state: { pendingCount: number; llmConfigured: boolean | null; loading: boolean; failed: boolean }) => void;
+}) {
   // Fetch ALL proposals once and filter client-side. The hero stat
   // row needs cross-status counts, so a server-side filter would
   // require a second round-trip per render. The proposal list is
@@ -137,6 +143,8 @@ export function InsightsTab({ dataRevision = 0 }: { dataRevision?: number }) {
   const [expanded, setExpanded] = useState<Map<number, ProposalDetail>>(new Map());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [proposalLoadFailed, setProposalLoadFailed] = useState(false);
+  const [configLoadFailed, setConfigLoadFailed] = useState(false);
   const [runNotice, setRunNotice] = useState('');
   // Whether the user has any LLM provider configured. Without one, the
   // dreamer / pattern detector NEVER produce proposals — so the empty
@@ -164,6 +172,7 @@ export function InsightsTab({ dataRevision = 0 }: { dataRevision?: number }) {
     const gen = ++refreshGen.current;
     setLoading(true);
     setError('');
+    setProposalLoadFailed(false);
     try {
       // api() already unwraps to json.data, so the response IS the
       // proposal array. The earlier `Array.isArray(data) ? data : ...`
@@ -176,6 +185,7 @@ export function InsightsTab({ dataRevision = 0 }: { dataRevision?: number }) {
       if (gen !== refreshGen.current) return;
       if (!Array.isArray(data)) {
         console.warn('[memesh dashboard] /v1/dream/proposals answered, but with a shape this bundle cannot render — stale bundle or version skew, not an outage:', data);
+        setProposalLoadFailed(true);
         setError(failureMessage('unreadable'));
       } else {
         setAllProposals(data);
@@ -183,6 +193,7 @@ export function InsightsTab({ dataRevision = 0 }: { dataRevision?: number }) {
     } catch (e) {
       if (gen !== refreshGen.current) return;
       console.warn('[memesh dashboard] /v1/dream/proposals failed to load:', e);
+      setProposalLoadFailed(true);
       setError(failureMessage(classifyLoadError(e)));
     } finally {
       if (gen === refreshGen.current) setLoading(false);
@@ -195,11 +206,13 @@ export function InsightsTab({ dataRevision = 0 }: { dataRevision?: number }) {
   // 'configure your LLM' or 'run dream run'?".
   useEffect(() => {
     const gen = ++configGen.current;
+    setConfigLoadFailed(false);
     api<{ capabilities?: { llm?: { provider?: string } | null } }>('GET', '/v1/config')
       .then((d) => { if (gen === configGen.current) setLlmConfigured(!!d?.capabilities?.llm); })
       .catch((e) => {
         if (gen !== configGen.current) return;
         console.warn('[memesh dashboard] /v1/config failed to refresh:', e);
+        setConfigLoadFailed(true);
         setError(failureMessage(classifyLoadError(e)));
       });
   }, [dataRevision]);
@@ -306,8 +319,12 @@ export function InsightsTab({ dataRevision = 0 }: { dataRevision?: number }) {
   const appliedCount = allProposals.filter(p => p.status === 'applied').length;
   const rejectedCount = allProposals.filter(p => p.status === 'rejected').length;
 
+  useEffect(() => {
+    onStateChange?.({ pendingCount, llmConfigured, loading, failed: proposalLoadFailed || configLoadFailed });
+  }, [configLoadFailed, llmConfigured, loading, onStateChange, pendingCount, proposalLoadFailed]);
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div id="home-insights" tabIndex={-1} style={{ display: 'flex', flexDirection: 'column', gap: 16, scrollMarginTop: 12 }}>
       {/* Hero — what memesh did for you */}
       <div class="card" style={{ padding: 16 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>

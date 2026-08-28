@@ -216,7 +216,7 @@ export function App() {
       {/* Each panel is the tabpanel for its TabNav tab: id + role +
           aria-labelledby wire the roving-tablist relationship (see TabNav). */}
       <div class="main">
-        <div id="panel-Home" role="tabpanel" aria-labelledby="tab-Home" class={`panel ${tab === 'Home' ? 'active' : ''}`}>{tab === 'Home' && <HomeTab dataRevision={dataRevision} />}</div>
+        <div id="panel-Home" role="tabpanel" aria-labelledby="tab-Home" class={`panel ${tab === 'Home' ? 'active' : ''}`}>{tab === 'Home' && <HomeTab health={health} dataRevision={dataRevision} onNavigate={selectTab} />}</div>
         <div id="panel-Memories" role="tabpanel" aria-labelledby="tab-Memories" class={`panel ${tab === 'Memories' ? 'active' : ''}`}>{keepMounted('Memories') && <MemoriesTab health={health} dataRevision={dataRevision} />}</div>
         <div id="panel-Project" role="tabpanel" aria-labelledby="tab-Project" class={`panel ${tab === 'Project' ? 'active' : ''}`}>{keepMounted('Project') && <ProjectTab health={health} dataRevision={dataRevision} />}</div>
         <div id="panel-Graph" role="tabpanel" aria-labelledby="tab-Graph" class={`panel ${tab === 'Graph' ? 'active' : ''}`}>{tab === 'Graph' && <GraphTab dataRevision={dataRevision} />}</div>
