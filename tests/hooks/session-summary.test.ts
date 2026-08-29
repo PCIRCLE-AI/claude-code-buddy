@@ -370,6 +370,52 @@ describe('Feature: Session Summary (Stop Hook)', () => {
     db.close();
   });
 
+  it('Regression #240: a second Stop for the same session appends NO duplicate observation', () => {
+    // 20+ tool calls with NO Write/Edit: every edit went through Bash. Before
+    // the fix, filesEdited stayed empty, no -files row was created, the guard
+    // that keys on -files never tripped, and -summary was re-appended on every
+    // Stop (measured: 56 observations, 16 unique).
+    const bashOnly = Array.from({ length: 22 }, (_, i) => ({
+      type: 'assistant',
+      message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: `git log --oneline -${i + 1}` } }] },
+    }));
+    writeTranscript(bashOnly);
+    const input = { session_id: 'test-sess-240', transcript_path: transcriptPath, cwd: '/tmp/myproject', stop_reason: 'end_turn', was_in_agentic_loop: true };
+    runHook(input);
+    runHook(input);
+
+    const db = openDb();
+    const entity = db.prepare("SELECT id FROM entities WHERE name = 'session-test-sess-240-summary'").get() as any;
+    expect(entity, 'the heavy-session entity was written').toBeTruthy();
+    const obs = db.prepare('SELECT content FROM observations WHERE entity_id = ?').all(entity.id) as any[];
+    const contents = obs.map((o) => o.content);
+    expect(new Set(contents).size, `duplicated observations: ${JSON.stringify(contents)}`).toBe(contents.length);
+    db.close();
+  });
+
+  it('Regression #240: edits made through Bash are counted, not reported as 0 files edited', () => {
+    const entries = [
+      { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: "cat > src/core/paths.ts <<'EOF'\nexport const x = 1;\nEOF" } }] } },
+      { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: "sed -i '' 's/a/b/' dashboard/src/lib/i18n.ts" } }] } },
+      { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: "python3 - <<'PY'\nimport pathlib\npathlib.Path('scripts/audit/baseline.json').write_text('{}')\nPY" } }] } },
+      ...Array.from({ length: 20 }, (_, i) => ({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: `npm run typecheck # ${i}` } }] } })),
+    ];
+    writeTranscript(entries);
+    runHook({ session_id: 'test-sess-240b', transcript_path: transcriptPath, cwd: '/tmp/myproject', stop_reason: 'end_turn', was_in_agentic_loop: true });
+
+    const db = openDb();
+    const files = db.prepare("SELECT id FROM entities WHERE name = 'session-test-sess-240b-files'").get() as any;
+    expect(files, 'a -files entity for Bash-driven edits').toBeTruthy();
+    const summary = db.prepare("SELECT id FROM entities WHERE name = 'session-test-sess-240b-summary'").get() as any;
+    const obs = db.prepare('SELECT content FROM observations WHERE entity_id = ?').all(summary.id) as any[];
+    const headObs = obs.find((o) => o.content.startsWith('Significant session'));
+    expect(headObs, 'the summary observation exists').toBeTruthy();
+    const head = headObs!.content;
+    expect(head).toMatch(/3 files edited/);
+    expect(head).not.toMatch(/0 files edited/);
+    db.close();
+  });
+
   it('Scenario: Non-agentic session is skipped (explicit was_in_agentic_loop: false)', () => {
     writeTranscript([
       { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Edit', input: { file_path: '/tmp/proj/src/auth.ts' } }] } },

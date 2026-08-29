@@ -78,7 +78,25 @@ export function createExplicitLesson(
   }
 ): { name: string } {
   const errorPattern = opts?.errorPattern || inferErrorPattern(error);
-  const name = `lesson-${projectName}-${errorPattern}`;
+  // Keyed on the lesson's own content, not on the nine-value error enum.
+  //
+  // `lesson-${project}-${errorPattern}` is the right key for an LLM-derived
+  // lesson from a RECURRING runtime error: same pattern, same entity, the
+  // observations accumulate. It is the wrong key for an explicit lesson,
+  // where the categories are all code-level runtime errors and anything about
+  // test design, a security boundary, or a process falls into `other` — one
+  // bucket per project. Measured on a real graph: one `-other` entity holding
+  // 68 observations, roughly seventeen unrelated lessons fused, retrieved 61
+  // times and matched 3. Re-submitting the SAME error text still lands on the
+  // same slug, so the append/dedupe contract for a repeated lesson holds.
+  //
+  // A caller that passes an explicit `errorPattern` is the recurring-error
+  // path (dreamer / failure-analyzer), where "same pattern = same entity" is
+  // the contract and confidence-reset-on-reconfirm depends on the key being
+  // stable. Only the unkeyed explicit `learn` gets the content slug.
+  const name = opts?.errorPattern
+    ? `lesson-${projectName}-${errorPattern}`
+    : `lesson-${projectName}-${lessonSlug(error)}`;
 
   remember({
     name,
@@ -137,6 +155,25 @@ export const KNOWN_ERROR_PATTERNS = [
   'other',
 ] as const;
 
+/**
+ * Stable, human-readable slug for an explicit lesson: the first eight
+ * significant words of the error, lowercased, non-alphanumerics collapsed.
+ * Bounded so a paragraph-length error does not become a paragraph-length
+ * entity name; long enough that two different lessons do not collide on a
+ * shared opening phrase.
+ */
+function lessonSlug(error: string): string {
+  const words = error
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fff]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter((w) => w.length > 1)
+    .slice(0, 8);
+  const slug = words.join('-');
+  return slug.length > 0 ? slug.slice(0, 80) : 'unspecified';
+}
+
 function inferErrorPattern(error: string): string {
   const lower = error.toLowerCase();
   if (lower.includes('null') || lower.includes('undefined') || lower.includes('cannot read prop')) return 'null-reference';
@@ -149,4 +186,4 @@ function inferErrorPattern(error: string): string {
 }
 
 // Export for testing
-export { inferErrorPattern };
+export { inferErrorPattern, lessonSlug };

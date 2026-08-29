@@ -801,9 +801,30 @@ process.stdin.on('end', async () => {
       // Shared with the briefing surface via the leaf, so the two sides'
       // candidate windows cannot drift apart.
       const CANDIDATE_CAP = TOPOLOGY_CANDIDATE_CAP;
-      const projectEntities = db.prepare(projectQuery).all(projectTag, CANDIDATE_CAP)
-        .filter(entity => isTrustedForAutoContext(entity.metadata))
-        .slice(0, sessionLimit);
+      const projectOnly = db.prepare(projectQuery).all(projectTag, CANDIDATE_CAP)
+        .filter(entity => isTrustedForAutoContext(entity.metadata));
+
+      // The `global` namespace is the documented way to store something that
+      // is not tied to one project — and the injection selected purely by
+      // `project:` tag, so a global memory with no project tag was reachable
+      // by nobody (#242): 1814 entities, 2 global, one of them structurally
+      // uninjectable. A standing behaviour rule sat in that state for months.
+      //
+      // Global rows ride in a SEPARATE, small window so they cannot displace
+      // the project's own memories: the project keeps `sessionLimit` slots and
+      // global adds at most GLOBAL_SLOTS after them. Same trust filter, same
+      // scoring. The column is absent on pre-namespace schemas; then this
+      // branch is simply empty, which is the old behaviour.
+      const GLOBAL_SLOTS = 3;
+      let globalEntities = [];
+      if (colNames.has('namespace')) {
+        const globalQuery = buildScoringQuery('', `WHERE e.namespace = 'global' ${statusFilter}`);
+        const projectIds = new Set(projectOnly.map(e => e.id));
+        globalEntities = db.prepare(globalQuery).all(CANDIDATE_CAP)
+          .filter(entity => isTrustedForAutoContext(entity.metadata) && !projectIds.has(entity.id))
+          .slice(0, GLOBAL_SLOTS);
+      }
+      const projectEntities = [...projectOnly.slice(0, sessionLimit), ...globalEntities];
 
       // recentStatusFilter is "WHERE status = 'active'" or "" — the bare-column
       // form is fine when there's no JOIN, but we now alias the table as `e`,

@@ -14,6 +14,7 @@ export declare function createExplicitLesson(error: string, fix: string, project
     name: string;
 };
 export declare const KNOWN_ERROR_PATTERNS: readonly ["null-reference", "type-error", "import-missing", "config-error", "test-failure", "build-error", "other"];
+declare function lessonSlug(error: string): string;
 declare function inferErrorPattern(error: string): string;
-export { inferErrorPattern };
+export { inferErrorPattern, lessonSlug };
 //# sourceMappingURL=lesson-engine.d.ts.map

@@ -434,6 +434,50 @@ describe('Feature: Session Start Hook', () => {
     expect(session?.entityNames).toContain('global-item');
   });
 
+  it('Regression #242: a global-namespace memory with no project tag is injected for any project', () => {
+    const db = createTestDb();
+    const cols = new Set((db.prepare('PRAGMA table_info(entities)').all() as any[]).map((c) => c.name));
+    if (!cols.has('namespace')) db.exec("ALTER TABLE entities ADD COLUMN namespace TEXT DEFAULT 'personal'");
+    db.prepare('INSERT INTO entities (name, type) VALUES (?, ?)').run('proj-only', 'decision');
+    db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(1, 'Project decision');
+    db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(1, projTag('testproj'));
+    // The case from the issue: global namespace, NO project tag at all.
+    db.prepare("INSERT INTO entities (name, type, namespace) VALUES (?, ?, 'global')").run('always-memesh-on-failure', 'directive');
+    db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(2, 'Standing rule that applies everywhere');
+    db.close();
+
+    runHook({ cwd: '/tmp/testproj' });
+    const session = readLatestSessionFile();
+    expect(session?.entityNames).toContain('proj-only');
+    expect(session?.entityNames, 'global memory must reach a project it was never tagged with').toContain('always-memesh-on-failure');
+  });
+
+  it('Regression #242: global memories do not displace the project window', () => {
+    const db = createTestDb();
+    const cols = new Set((db.prepare('PRAGMA table_info(entities)').all() as any[]).map((c) => c.name));
+    if (!cols.has('namespace')) db.exec("ALTER TABLE entities ADD COLUMN namespace TEXT DEFAULT 'personal'");
+    const ins = db.prepare('INSERT INTO entities (name, type, namespace) VALUES (?, ?, ?)');
+    const obs = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+    const tag = db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)');
+    // Global rows are inserted FIRST so they are the OLDEST: the separate
+    // "recent" segment (newest 5, namespace-blind, pre-existing behaviour)
+    // then cannot be the path by which they arrive, and what this test
+    // measures is the project segment's own global window.
+    for (let i = 0; i < 10; i++) { const id = ins.run(`g${i}`, 'directive', 'global').lastInsertRowid as number; obs.run(id, `global ${i}`); }
+    for (let i = 0; i < 6; i++) { const id = ins.run(`p${i}`, 'decision', 'personal').lastInsertRowid as number; obs.run(id, `project ${i}`); tag.run(id, projTag('testproj')); }
+    db.close();
+
+    runHook({ cwd: '/tmp/testproj' }, { MEMESH_SESSION_LIMIT: '5' });
+    const session = readLatestSessionFile();
+    expect(session, 'session file was written').toBeTruthy();
+    const names = session!.entityNames;
+    const projectHits = names.filter((n: string) => n.startsWith('p')).length;
+    const globalHits = names.filter((n: string) => n.startsWith('g')).length;
+    expect(projectHits, 'the project keeps its full window').toBe(5);
+    expect(globalHits, 'global is bounded, not a flood').toBeGreaterThan(0);
+    expect(globalHits, 'GLOBAL_SLOTS caps the project segment\'s global window').toBeLessThanOrEqual(3);
+  });
+
   it('Scenario: Imported or untrusted memories are excluded from session auto-context', () => {
     const db = createScoringDb();
     db.prepare("INSERT INTO entities (name, type, metadata, confidence, status) VALUES (?, ?, ?, ?, 'active')")

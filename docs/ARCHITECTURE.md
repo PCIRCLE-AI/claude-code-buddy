@@ -161,7 +161,7 @@ Session-start hook ranking is a SQL-only subset (no FTS query, no impact pass) t
 
 **failure-analyzer.ts** — LLM-powered failure analysis (Level 1). `analyzeFailure()` takes session errors and files edited, sends them to the configured LLM, and returns a `StructuredLesson` with error, root cause, fix, prevention, error/fix patterns, and severity. Used by the Stop hook to automatically create lessons from session failures.
 
-**lesson-engine.ts** — Structured lesson management. `createLesson()` stores a `StructuredLesson` as a `lesson_learned` entity with upsert-safe naming (`lesson-{project}-{errorPattern}`). Same error pattern in different sessions updates the existing lesson. `createExplicitLesson()` supports the `learn` MCP tool. `findProjectLessons()` queries lessons for proactive warnings.
+**lesson-engine.ts** — Structured lesson management. `createLesson()` stores a `StructuredLesson` as a `lesson_learned` entity with upsert-safe naming (`lesson-{project}-{errorPattern}`). Same error pattern in different sessions updates the existing lesson. `createExplicitLesson()` supports the `learn` MCP tool; an explicit lesson with no caller-supplied `errorPattern` is keyed on a slug of its own error text (`lesson-{project}-{first-eight-words}`), so two unrelated lessons stay two entities while a resubmitted one still appends — the nine-value pattern enum is for recurring runtime errors, and keying explicit lessons on it fused everything outside those categories into one `-other` bucket per project. `findProjectLessons()` queries lessons for proactive warnings.
 
 **patterns.ts** — User work patterns computation (shared by MCP `user_patterns` tool and HTTP `GET /v1/patterns`). `computePatterns()` queries the database for work schedule (hour/day distribution), tool preferences, focus areas, workflow metrics, strengths, and learning areas. Accepts optional `categories` filter array.
 
@@ -515,7 +515,7 @@ For release safety, `npm run test:packaged` creates a real npm tarball, extracts
 
 ### Namespaces
 
-Entities carry a `namespace` field (`personal` | `team` | `global`, default: `personal`). Namespaces allow:
+Entities carry a `namespace` field (`personal` | `team` | `global`, default: `personal`). SessionStart injection reads `global` as cross-project: after the project's own window it adds up to three trusted, active global-namespace entities, so a memory stored in `global` reaches a project it was never tagged with. Namespaces allow:
 
 - **personal** — private to the individual user / current project
 - **team** — shared across a team; visible when `--cross-project` or namespace filter is applied
@@ -576,7 +576,7 @@ Session with errors
 
 ```
 type: "lesson_learned"
-name: "lesson-{project}-{errorPattern}" (upsert-safe)
+name: "lesson-{project}-{errorPattern}" (upsert-safe; explicit `learn` without errorPattern → "lesson-{project}-{error-slug}")
 observations:
   - "Error: <what went wrong>"
   - "Root cause: <why>"
