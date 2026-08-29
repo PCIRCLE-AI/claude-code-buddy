@@ -1,6 +1,7 @@
 import { remember } from './operations.js';
 import { getDatabase } from '../db.js';
 import { KnowledgeGraph } from '../knowledge-graph.js';
+import { lessonSlug } from './lesson-slug.js';
 export function createLesson(lesson, projectName) {
     const name = `lesson-${projectName}-${lesson.errorPattern}`;
     const isNew = new KnowledgeGraph(getDatabase()).getEntity(name) === null;
@@ -61,17 +62,6 @@ export const KNOWN_ERROR_PATTERNS = [
     'build-error',
     'other',
 ];
-function lessonSlug(error) {
-    const words = error
-        .toLowerCase()
-        .replace(/[^a-z0-9\u4e00-\u9fff]+/g, ' ')
-        .trim()
-        .split(/\s+/)
-        .filter((w) => w.length > 1)
-        .slice(0, 8);
-    const slug = words.join('-');
-    return slug.length > 0 ? slug.slice(0, 80) : 'unspecified';
-}
 function inferErrorPattern(error) {
     const lower = error.toLowerCase();
     if (lower.includes('null') || lower.includes('undefined') || lower.includes('cannot read prop'))

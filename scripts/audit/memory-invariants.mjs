@@ -24,7 +24,8 @@
 //
 // Contract:
 //   - READ-ONLY. Opened with `?mode=ro`; there is no write path in this file.
-//   - Exit 1 on any violation, 0 otherwise, 2 if the database cannot be read.
+//   - Exit 1 on any violation, 0 otherwise, 2 if the database cannot be read
+//     or an invariant's own post-filter throws (a bug here, not a finding).
 //   - Each invariant prints the offending rows, bounded, so the report is
 //     actionable without a second query.
 //   - Adding an invariant here is how a memory-layer defect stays fixed. A
@@ -49,6 +50,47 @@ import { join } from 'node:path';
 
 const MAX_ROWS = 8;
 
+/**
+ * The Bash write shapes the Stop hook's `bashEditedPaths` recognises
+ * (scripts/hooks/session-summary.js) — mirrored in src/storage/graph-repairs.ts,
+ * which repairs what this invariant reports. Keep the three in step.
+ */
+const BASH_WRITE_SHAPES = [
+  /(?:^|[^<])>\s*"?([^\s"'>|&;]+)"?\s*<<\s*['"]?\w+['"]?/,
+  /\bcat\s*>\s*"?([^\s"'>|&;]+)"?/,
+  /\btee\s+(?:-a\s+)?"?([^\s"'>|&;]+)"?/,
+  /\bsed\s+-i(?:\s+'')?\s+(?:'[^']*'|"[^"]*")\s+"?([^\s"'>|&;]+)"?/,
+  /Path\(\s*['"]([^'"]+)['"]\s*\)\s*\.write_text\(/,
+  /writeFileSync\(\s*['"]([^'"]+)['"]/,
+];
+/**
+ * The name key of an explicit lesson — mirrored from src/core/lesson-slug.ts
+ * (this script cannot import TypeScript). Keep the two in step: the
+ * #241 invariant decides "fused" with exactly the key learn() and the repair
+ * use, so a drift here would make the detector disagree with the fixer.
+ */
+function lessonSlug(error) {
+  const words = error
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fff]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter((w) => w.length > 1)
+    .slice(0, 8);
+  const slug = words.join('-');
+  return slug.length > 0 ? slug.slice(0, 80) : 'unspecified';
+}
+
+function bashWritesFiles(command) {
+  for (const re of BASH_WRITE_SHAPES) {
+    // Every match, like the hook: the first tee target may be /tmp, the second real.
+    for (const m of command.matchAll(new RegExp(re.source, 'g'))) {
+      if (m[1] && !m[1].startsWith('/dev/') && !m[1].startsWith('/tmp/')) return true;
+    }
+  }
+  return false;
+}
+
 function resolveDbPath(argv) {
   const i = argv.indexOf('--db');
   if (i !== -1 && argv[i + 1]) return argv[i + 1];
@@ -68,7 +110,7 @@ const INVARIANTS = [
       FROM entities e JOIN observations o ON o.entity_id = e.id
       WHERE e.name LIKE 'session-%-summary'
       GROUP BY e.id HAVING total > distinct_count
-      ORDER BY total - distinct_count DESC LIMIT ${MAX_ROWS}`,
+      ORDER BY total - distinct_count DESC LIMIT ${MAX_ROWS + 1}`,
     row: (r) => `${r.name}  observations=${r.total} unique=${r.distinct_count}`,
   },
   {
@@ -79,24 +121,57 @@ const INVARIANTS = [
       SELECT e.name AS name
       FROM entities e
       WHERE e.name LIKE 'session-%-summary'
-        AND EXISTS (SELECT 1 FROM observations o WHERE o.entity_id = e.id AND o.content LIKE 'Significant session:%0 files edited%')
-        AND EXISTS (SELECT 1 FROM observations o WHERE o.entity_id = e.id AND o.content LIKE 'Command:%'
-                    AND (o.content LIKE '%<<%' OR o.content LIKE '%sed -i%' OR o.content LIKE '%write_text(%' OR o.content LIKE '%writeFileSync(%' OR o.content LIKE '%tee %'))
-      LIMIT ${MAX_ROWS}`,
+        AND EXISTS (SELECT 1 FROM observations o WHERE o.entity_id = e.id AND o.content LIKE 'Significant session:%, 0 files edited%')
+        AND EXISTS (SELECT 1 FROM observations o WHERE o.entity_id = e.id AND o.content LIKE 'Command:%')`,
+    // Anchored on ", 0 files edited": "10 files edited" ends the same way and is true.
+    // The SQL only narrows; the Bash-write test is the hook's own regexes
+    // (BASH_WRITE_SHAPES above), applied in JS — a bare `<<` only feeds stdin.
+    // NO LIMIT in the SQL: it would bound candidates, not violations, and
+    // eight honest sessions sorting first would hide a real one. The cap is
+    // applied after the filter, by the caller, where it means "first 8 violations".
+    rows: (db, rows) => {
+      const commands = db.prepare("SELECT content FROM observations o JOIN entities e ON e.id = o.entity_id WHERE e.name = ? AND o.content LIKE 'Command:%'");
+      return rows.filter((r) => commands.all(r.name).some((o) => bashWritesFiles(o.content)));
+    },
     row: (r) => r.name,
   },
   {
     id: 'explicit-lessons-not-fused-into-other-bucket',
     refs: '#241',
-    says: 'no lesson entity holds more than one explicit lesson (4 fields each) under the "-other" key',
+    says: 'no "-other" lesson entity holds more than one explicit lesson (the repair leaves a lesson whose error is literally "other" in place; re-learn it with a specific error text)',
+    // The SQL narrows: name shape, explicit tag, at least two `Error:` lines
+    // (case-insensitive LIKE). A bucket holding exactly ONE lesson is
+    // deliberately not a violation even when that lesson belongs under
+    // another name — see "a single explicit lesson in -other is not a
+    // violation" in the test file; the repair still moves it. Among the
+    // rest, the verdict is the repair's own question, asked in JS below: cut
+    // the observations into lessons on `Error: ` exactly as groupLessons
+    // does, slug each error exactly as learn() does, and call the entity
+    // fused only if it holds more than one slug or a slug its name does not
+    // end with. Two different error texts that share a slug are ONE lesson
+    // under learn()'s contract, not a fused bucket. No LIMIT here: it would
+    // bound candidates, not violations.
     sql: `
       SELECT e.name AS name, COUNT(o.id) AS total
       FROM entities e JOIN observations o ON o.entity_id = e.id
-      WHERE e.type = 'lesson_learned' AND e.name LIKE '%-other'
+      WHERE e.type = 'lesson_learned' AND e.name LIKE 'lesson-%-other'
         AND EXISTS (SELECT 1 FROM tags t WHERE t.entity_id = e.id AND t.tag = 'source:explicit')
-      GROUP BY e.id HAVING total > 4
-      ORDER BY total DESC LIMIT ${MAX_ROWS}`,
-    row: (r) => `${r.name}  observations=${r.total} (${Math.floor(r.total / 4)} lessons)`,
+      GROUP BY e.id
+      HAVING SUM(CASE WHEN o.content LIKE 'Error: %' THEN 1 ELSE 0 END) > 1`,
+    rows: (db, rows) => {
+      const obs = db.prepare("SELECT o.content FROM observations o JOIN entities e ON e.id = o.entity_id WHERE e.name = ? ORDER BY o.id");
+      const out = [];
+      for (const r of rows) {
+        const slugs = new Set();
+        for (const o of obs.all(r.name)) {
+          if (o.content.startsWith('Error: ')) slugs.add(lessonSlug(o.content.slice('Error: '.length)));
+        }
+        const foreign = [...slugs].filter((slug) => !r.name.endsWith(`-${slug}`));
+        if (slugs.size > 1 || foreign.length > 0) out.push({ ...r, lessons: slugs.size });
+      }
+      return out;
+    },
+    row: (r) => `${r.name}  observations=${r.total} (${r.lessons} lessons)`,
   },
   {
     id: 'global-namespace-reachable-by-injection',
@@ -109,7 +184,7 @@ const INVARIANTS = [
       SELECT e.name AS name FROM entities e
       WHERE e.namespace = 'global'
         AND NOT EXISTS (SELECT 1 FROM tags t WHERE t.entity_id = e.id AND t.tag LIKE 'project:%')
-      LIMIT ${MAX_ROWS}`,
+      LIMIT ${MAX_ROWS + 1}`,
     row: (r) => r.name,
     reportOnly: true,
   },
@@ -140,14 +215,28 @@ function main() {
         console.log(`  skip ${inv.id} — ${err?.message ?? err}`);
         continue;
       }
+      if (inv.rows) {
+        // A failure HERE is a bug in this file, not an older schema: it must
+        // not read as a benign skip and it must not let the run exit 0.
+        try {
+          rows = inv.rows(db, rows);
+        } catch (err) {
+          console.error(`memory-invariants: ${inv.id} post-filter threw: ${err?.message ?? err}`);
+          return 2;
+        }
+      }
       if (rows.length === 0) {
         console.log(`  ok   ${inv.id}`);
         continue;
       }
+      // Queries fetch one more than the cap, so "(first N)" is printed only
+      // when an (N+1)th row really exists — not on exactly N.
+      const more = rows.length > MAX_ROWS;
+      rows = rows.slice(0, MAX_ROWS);
       const mark = inv.reportOnly ? 'note' : 'FAIL';
       console.log(`  ${mark} ${inv.id} (${inv.refs}) — ${inv.says}`);
       for (const r of rows) console.log(`         ${inv.row(r)}`);
-      if (rows.length === MAX_ROWS) console.log(`         … (first ${MAX_ROWS})`);
+      if (more) console.log(`         … (first ${MAX_ROWS})`);
       if (!inv.reportOnly) violations += 1;
     }
   } finally {

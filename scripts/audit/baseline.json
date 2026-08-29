@@ -676,15 +676,20 @@
       "reason": "models.length === 0 now returns valid:false for all three providers (PR #112) (re-keyed 273→303 on 2026-08-29; line shift only, classification unchanged) (re-keyed 303→310 on 2026-08-29; line shift only, classification unchanged)",
       "triaged": "2026-08-04"
     },
-    "C1 tests/audit/memory-invariants.test.ts": {
-      "class": "SAFE-HEURISTIC-FALSE-POSITIVE",
-      "reason": "The detector's `.toBe(0)` matches `expect(run(db).status).toBe(0)` — a process EXIT CODE assertion, not an empty-collection assertion. Every exit-0 case in the file is paired with a positive assertion on stdout (`toContain('memory invariants hold')`, `toContain('note global-namespace-…')`), and five of the seven cases assert exit 1 with the offending entity NAMED in stdout. Same shape as the cli-agent-message-ingress entry.",
-      "triaged": "2026-08-30 v4.8.2 dogfood audit"
-    },
     "C3 npm:audit:memory": {
       "class": "SAFE",
       "reason": "Deliberately not referenced from verify:release or CI: it reads the developer's REAL knowledge graph, which is per-machine state, and the release gate must reproduce on a fresh clone. Its callers are (1) the dogfood step CLAUDE.md requires before a release is declared verified, and (2) tests/audit/memory-invariants.test.ts, which spawns the same script file directly against seeded throwaway graphs — so the script cannot rot unnoticed: a change that breaks it goes red in the default suite.",
       "triaged": "2026-08-30 v4.8.2 dogfood audit"
+    },
+    "C1 tests/storage/graph-repairs.test.ts": {
+      "class": "SAFE-HEURISTIC-FALSE-POSITIVE",
+      "reason": "The detector's `.toBe(0)` matches `expect(runInvariants().status).toBe(0)` — a process EXIT CODE, not an empty collection. Every exit-0 assertion in the file follows an `expect(...status).toBe(1)` on the seeded defect BEFORE the repair (the anti-vacuity pin the detector cannot see), and the repaired state is asserted by exact content: `toEqual([...LESSON_B])`, `toEqual([nameC])`, the moved row's id (9) and created_at, the carried tag list. Same shape as the memory-invariants.test.ts entry.",
+      "triaged": "2026-08-30 v4.8.2 graph repair"
+    },
+    "C6 tests/audit/memory-invariants.test.ts": {
+      "class": "WIRING-PIN",
+      "reason": "One test reads src/core/lesson-slug.ts and scripts/audit/memory-invariants.mjs and compares the two lessonSlug bodies: the .mjs cannot import TypeScript, so the function is mirrored, and this pin is what keeps the mirror honest (a comment is not a gate). The slug BEHAVIOUR is tested separately (lesson-engine.test.ts, and the shared-slug case in this file). The .toContain calls the detector saw are stdout assertions on the audit script's report, not source text.",
+      "triaged": "2026-08-30 v4.8.2 graph repair"
     }
   }
 }

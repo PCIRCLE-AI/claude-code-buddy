@@ -977,13 +977,16 @@ export async function runDoctor(options) {
         const pendingReindex = getPendingReindexInfo();
         const vectorDb = db;
         let missingVectors;
+        let vectorsPossible = true;
         try {
-            missingVectors = hasVectorIndex(vectorDb) ? countMissingVectors(vectorDb) : 0;
+            vectorsPossible = hasVectorIndex(vectorDb);
+            missingVectors = vectorsPossible ? countMissingVectors(vectorDb) : 0;
         }
         catch {
             missingVectors = null;
         }
-        if (pendingReindex || missingVectors === null || missingVectors > 0) {
+        const payableDebt = pendingReindex && !(pendingReindex.reason === 'vectors-missing' && !vectorsPossible);
+        if (payableDebt || missingVectors === null || missingVectors > 0) {
             const owed = pendingReindex && pendingReindex.reason !== 'vectors-missing'
                 ? 'Search index needs rebuilding (embedding configuration changed)'
                 : missingVectors === null

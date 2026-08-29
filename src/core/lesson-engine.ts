@@ -3,6 +3,7 @@ import { remember } from './operations.js';
 import type { LessonSeverity } from './types.js';
 import { getDatabase } from '../db.js';
 import { KnowledgeGraph } from '../knowledge-graph.js';
+import { lessonSlug } from './lesson-slug.js';
 
 /**
  * Create or update a structured lesson entity.
@@ -154,25 +155,6 @@ export const KNOWN_ERROR_PATTERNS = [
   'build-error',
   'other',
 ] as const;
-
-/**
- * Stable, human-readable slug for an explicit lesson: the first eight
- * significant words of the error, lowercased, non-alphanumerics collapsed.
- * Bounded so a paragraph-length error does not become a paragraph-length
- * entity name; long enough that two different lessons do not collide on a
- * shared opening phrase.
- */
-function lessonSlug(error: string): string {
-  const words = error
-    .toLowerCase()
-    .replace(/[^a-z0-9\u4e00-\u9fff]+/g, ' ')
-    .trim()
-    .split(/\s+/)
-    .filter((w) => w.length > 1)
-    .slice(0, 8);
-  const slug = words.join('-');
-  return slug.length > 0 ? slug.slice(0, 80) : 'unspecified';
-}
 
 function inferErrorPattern(error: string): string {
   const lower = error.toLowerCase();

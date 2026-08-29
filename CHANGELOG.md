@@ -92,6 +92,42 @@ reported something that was not true.
   measured: one entity holding 68 observations. Explicit lessons are now
   keyed on their own text; resubmitting the same lesson still appends.
 
+- **Graphs written by 4.8.1 are repaired at the first core open after upgrade.**
+  The two fixes above stop new damage; they did nothing for the rows already
+  there, and every graph that ran 4.8.1 hooks has them. Three one-shot passes
+  now run with the other backfills (`src/storage/graph-repairs.ts`) at the
+  first open through the core `openDatabase` — CLI, MCP, HTTP, and the two
+  hook paths that import it; the hooks' own wrapper runs no migrations:
+  duplicate observations on `session-*` entities are removed (706 rows on the
+  maintainer's graph); a summary that claimed `0 files edited` beside a Bash
+  command that writes files — the shapes the Stop hook itself recognises, not
+  any `<<` — is rewritten to say the count was not recorded; and every
+  explicit lesson in a `lesson-<project>-other` bucket moves — rows, ids and
+  timestamps intact — to its own `lesson-<project>-<slug>` entity, the name
+  `learn` gives it now (35 lessons out of four buckets), reviving that entity
+  if a `forget` had archived it. The emptied bucket loses its
+  `source:explicit` tag and is archived, not deleted — the entity and its
+  relations stay; the work-layer graph view hides archived ends, the full
+  view still names it — so a later auto-learned lesson cannot re-trip the
+  invariant. A bucket that kept a stray non-lesson row keeps its tag and
+  stays active, where the invariant can still see it.
+  `severity:` is carried only when the bucket had one; with several, which
+  lesson was critical is not recorded anywhere. The FTS index is rebuilt
+  whole rather than patched row by row, because a contentless FTS5 delete for
+  a row the hook never indexed corrupts the index. Vectors are left in place
+  — sqlite-vec loads after the backfills — and a reindex is marked owed,
+  which `memesh doctor` reports and `memesh reindex` clears. Each pass prints
+  one line on stderr when it changed something.
+  `scripts/audit/memory-invariants.mjs` holds on the maintainer's graph
+  afterwards; its Bash-write test is now the hook's own regexes and its
+  `0 files edited` match is anchored so `10 files edited` is not a hit.
+
+- **`npm run build` no longer opens the developer's real graph.** The smoke
+  test's HTTP-server child inherited no database path, so it opened `~/.memesh`
+  and ran every migration in the working tree against it. Found the hard way:
+  the repair above ran on the maintainer's real memories from a build. The
+  child now gets the smoke test's own throwaway path.
+
 - **The Stop hook stops re-appending the session summary.** A session that
   edited through Bash produced no `-files` entity, the re-capture guard keyed
   on that entity never tripped, and `-summary` grew by the same observations

@@ -43,6 +43,18 @@ function insertEntity(db: DatabaseSync, name: string, type: string, extra: Recor
 }
 
 describe('memory-invariants: read-only detector over a real graph', () => {
+  it('mirrors lessonSlug from src/core/lesson-slug.ts exactly (a comment is not a gate)', () => {
+    const body = (src: string): string => {
+      const m = /function lessonSlug\([^)]*\)[^{]*\{([\s\S]*?)\n\}/.exec(src);
+      if (!m) throw new Error('lessonSlug not found');
+      return m[1].replace(/\s+/g, ' ').trim();
+    };
+    const ts = fs.readFileSync(path.resolve('src/core/lesson-slug.ts'), 'utf8');
+    const mjs = fs.readFileSync(script, 'utf8');
+    expect(body(mjs)).toBe(body(ts));
+  });
+
+
   it('exits 0 on a clean graph and 2 when the database is missing', () => {
     const { dir, dbPath } = freshGraph();
     try {
@@ -108,6 +120,50 @@ describe('memory-invariants: read-only detector over a real graph', () => {
     }
   });
 
+  it('#240 — a real violation is not hidden behind eight honest sessions that sort first', () => {
+    const { dir, dbPath } = freshGraph();
+    try {
+      withRawDb(dbPath, (db) => {
+        const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+        // Nine honest summaries with a Command line and a true "0 files edited";
+        // their names sort before the violator's.
+        for (let i = 0; i < 9; i++) {
+          const id = insertEntity(db, `session-0${i}-summary`, 'session-insight');
+          ins.run(id, 'Significant session: 5 tool calls, 0 files edited');
+          ins.run(id, 'Command: git status');
+        }
+        const bad = insertEntity(db, 'session-zz-summary', 'session-insight');
+        ins.run(bad, 'Significant session: 25 tool calls, 0 files edited');
+        ins.run(bad, "Command: cat > src/core/paths.ts <<'EOF'");
+      });
+      const r = run(dbPath);
+      expect(r.status, r.stdout).toBe(1);
+      expect(r.stdout).toContain('session-zz-summary');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('#240 — prints at most eight violations and says so', () => {
+    const { dir, dbPath } = freshGraph();
+    try {
+      withRawDb(dbPath, (db) => {
+        const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+        for (let i = 0; i < 9; i++) {
+          const id = insertEntity(db, `session-v${i}-summary`, 'session-insight');
+          ins.run(id, 'Significant session: 5 tool calls, 0 files edited');
+          ins.run(id, "Command: cat > src/x.ts <<'EOF'");
+        }
+      });
+      const r = run(dbPath);
+      expect(r.status, r.stdout).toBe(1);
+      expect((r.stdout.match(/session-v\d-summary/g) ?? []).length).toBe(8);
+      expect(r.stdout).toContain('(first 8)');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('#241 — flags an explicit "-other" lesson bucket holding more than one lesson', () => {
     const { dir, dbPath } = freshGraph();
     try {
@@ -124,6 +180,118 @@ describe('memory-invariants: read-only detector over a real graph', () => {
       expect(r.status, r.stdout).toBe(1);
       expect(r.stdout).toContain('FAIL explicit-lessons-not-fused-into-other-bucket');
       expect(r.stdout).toContain('lesson-proj-other  observations=8 (2 lessons)');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('#241 — a bucket renamed by kg rename-project (name old, tag new) is still seen', () => {
+    const { dir, dbPath } = freshGraph();
+    try {
+      withRawDb(dbPath, (db) => {
+        const id = insertEntity(db, 'lesson-old-other', 'lesson_learned');
+        db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(id, 'source:explicit');
+        db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(id, 'project:new');
+        const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+        for (const topic of ['one thing', 'another thing']) {
+          ins.run(id, `Error: ${topic}`); ins.run(id, 'Root cause: x'); ins.run(id, 'Fix: y'); ins.run(id, 'Prevention: z');
+        }
+      });
+      const r = run(dbPath);
+      expect(r.status, r.stdout).toBe(1);
+      expect(r.stdout).toContain('lesson-old-other  observations=8 (2 lessons)');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('#241 — a re-learned lesson with no project tag whose name ends in "-other" is not a bucket', () => {
+    const { dir, dbPath } = freshGraph();
+    try {
+      withRawDb(dbPath, (db) => {
+        const id = insertEntity(db, 'lesson-q-could-not-reach-the-other', 'lesson_learned');
+        db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(id, 'source:explicit');
+        const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+        for (const line of ['Error: could not reach the other', 'Root cause: x', 'Fix: y', 'Prevention: z', 'Error: could not reach the other']) ins.run(id, line);
+      });
+      expect(run(dbPath).status).toBe(0);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('#241 — two different error texts sharing one slug are ONE lesson, not a fused bucket', () => {
+    const { dir, dbPath } = freshGraph();
+    try {
+      withRawDb(dbPath, (db) => {
+        // learn() keys both on the same slug (first eight significant words),
+        // so they live on one entity by contract — and that name ends in "-other".
+        const id = insertEntity(db, 'lesson-proj-the-agent-could-not-talk-to-the-other', 'lesson_learned');
+        db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(id, 'source:explicit');
+        const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+        for (const port of [3000, 4000]) {
+          ins.run(id, `Error: the agent could not talk to the other side on port ${port}`);
+          ins.run(id, 'Root cause: x'); ins.run(id, 'Fix: y'); ins.run(id, 'Prevention: z');
+        }
+      });
+      const r = run(dbPath);
+      expect(r.status, r.stdout).toBe(0);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('#240 — nine duplicate-summary entities print eight and say so (the SQL cap)', () => {
+    const { dir, dbPath } = freshGraph();
+    try {
+      withRawDb(dbPath, (db) => {
+        const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+        for (let i = 0; i < 9; i++) {
+          const id = insertEntity(db, `session-d${i}-summary`, 'session-insight');
+          ins.run(id, 'Command: git status'); ins.run(id, 'Command: git status');
+        }
+      });
+      const r = run(dbPath);
+      expect(r.status).toBe(1);
+      expect((r.stdout.match(/session-d\d-summary/g) ?? []).length).toBe(8);
+      expect(r.stdout).toContain('(first 8)');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('#241 — a lesson whose name merely ends in "-other" is not a bucket', () => {
+    const { dir, dbPath } = freshGraph();
+    try {
+      withRawDb(dbPath, (db) => {
+        const id = insertEntity(db, 'lesson-proj-could-not-reach-the-other', 'lesson_learned');
+        db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(id, 'source:explicit');
+        db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(id, 'project:proj');
+        const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+        // Re-learned once: five observations, the shape learn() produces today.
+        for (const line of ['Error: could not reach the other', 'Root cause: x', 'Fix: y', 'Prevention: z', 'Error: could not reach the other']) ins.run(id, line);
+      });
+      expect(run(dbPath).status).toBe(0);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('#240 — exactly eight violations print without a "(first 8)" line', () => {
+    const { dir, dbPath } = freshGraph();
+    try {
+      withRawDb(dbPath, (db) => {
+        const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+        for (let i = 0; i < 8; i++) {
+          const id = insertEntity(db, `session-e${i}-summary`, 'session-insight');
+          ins.run(id, 'Significant session: 5 tool calls, 0 files edited');
+          ins.run(id, "Command: cat > src/x.ts <<'EOF'");
+        }
+      });
+      const r = run(dbPath);
+      expect(r.status).toBe(1);
+      expect((r.stdout.match(/session-e\d-summary/g) ?? []).length).toBe(8);
+      expect(r.stdout).not.toContain('(first 8)');
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
