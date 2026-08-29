@@ -23,6 +23,21 @@ reported something that was not true.
   the shared redactor learned the two shapes it was missing: a partially masked
   key, and a credential in a URL query parameter.
 
+- **A caller cannot make the server fetch an arbitrary URL.** `POST
+  /v1/config/test` validated a caller-supplied Ollama host only when
+  `OLLAMA_HOST` was unset — so configuring that variable, which is the
+  documented way to reach a remote Ollama, disabled the loopback check and
+  let the request's own host win. Found by an independent review of this
+  release and reproduced end to end. A host that arrives in a request is now
+  always validated; the operator's environment variable remains the
+  privileged, unvalidated escape hatch.
+
+- **Redaction no longer mangles ordinary text.** The widened key pattern had
+  no left-hand boundary, so it matched inside `task-runner`, `disk-usage`,
+  `risk-level` and `task_state`. That corrupted diagnostics on the way out
+  and, because the same list backs the transcript drop gate, discarded real
+  captured memories on the way in.
+
 - **Dream failures are visible.** A provider connection test could pass while
   Dream failed, and Dream's own provider errors were skipped silently.
 
