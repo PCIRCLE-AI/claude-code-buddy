@@ -36,6 +36,7 @@ import {
   writePrivateJson,
 } from './_shared.js';
 import { MemeshDatabase } from './_generated/sqlite.js';
+import { unreadDeliveryCount, unreadInboxLines } from './_generated/agent-message-inbox.js';
 
 const require = createRequire(import.meta.url);
 
@@ -954,10 +955,15 @@ process.stdin.on('end', async () => {
         const taskRow = db
           .prepare('SELECT metadata FROM entities WHERE name = ?')
           .get(taskStateName(projectName));
-        const stateLines = taskStateLines(
-          parseTaskState(parseEntityMetadata(taskRow?.metadata)),
-          projectName,
-        );
+        // Inbox line beside the stated lines — the same leaf briefing uses,
+        // so the two surfaces cannot disagree on what "unread" means.
+        const stateLines = [
+          ...taskStateLines(
+            parseTaskState(parseEntityMetadata(taskRow?.metadata)),
+            projectName,
+          ),
+          ...unreadInboxLines(unreadDeliveryCount(db, projectName), projectName),
+        ];
 
         // The pools overlap by construction (a lesson tagged to this project
         // is in lessonEntities AND projectEntities); the shared assembler

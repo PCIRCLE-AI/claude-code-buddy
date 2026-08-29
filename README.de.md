@@ -565,7 +565,7 @@ Wechselst du zu einer anderen Dimension (z. B. 768 → 1536), wird **nichts gel�
 | `briefing` | Die zusammengesetzte Arbeits-Topologie — derselbe Block, den Claude Code beim Session-Start erhält, für jeden MCP-Client |
 | `user_patterns` | Arbeitsmuster analysieren — Zeitplan, Tools, Stärken, Lernbereiche |
 | `improvement` | Evidenzverknüpfte Produktverbesserung zur menschlichen Prüfung vorschlagen oder ihren Status lesen; Agenten können sie nicht selbst annehmen oder ablehnen |
-| `message` | Dauerhafte Nachrichten an einen bestimmten Empfänger in derselben lokalen MeMesh-Instanz senden, pollen, abrufen und getrennt quittieren |
+| `message` | Einen anderen lokalen Agenten erreichen (Arbeit übergeben, Ergebnis anfragen, Rückmeldung geben) — zuerst hier senden; der dauerhafte Posteingang ist der Beleg, Host-Push nur die Zustellung. Pollen, Abrufen und Quittieren sind getrennte Fakten |
 
 ---
 

@@ -434,6 +434,60 @@ describe('Feature: Session Start Hook', () => {
     expect(session?.entityNames).toContain('global-item');
   });
 
+  it('Regression: an unread delivery is injected as a fetch instruction; a fetched one is not', async () => {
+    // A REAL schema and a REAL send. A hand-rolled deliveries row cannot be
+    // inserted at all — the schema enforces the FK to agent_messages — so a
+    // fixture that fakes the tables proves nothing about this path.
+    const { openDatabase, closeDatabase, getDatabase } = await import('../../src/db.js');
+    const { executeAgentMessageAction } = await import('../../src/transports/agent-messaging.js');
+    const { getProjectName } = await import('../../src/core/paths.js');
+    // The same derivation the hook uses, not a scrape of its banner.
+    const project = getProjectName('/tmp/testproj');
+
+    openDatabase(dbPath);
+    const prevSocket = process.env.MEMESH_ROUTER_SOCKET;
+    process.env.MEMESH_ROUTER_SOCKET = path.join(testDir, 'no-router.sock');
+    try {
+      const sent = await executeAgentMessageAction(getDatabase(), {
+        action: 'send', project, sender: 'codex-reviewer', recipient: 'claude-implementer',
+        idempotency_key: 'hook-unread-1', payload: { text: 'review done' }, content_type: 'application/json',
+      }, { transport: 'mcp', sourceHost: 'test-host' }) as { message_id: string };
+      closeDatabase();
+
+      const unread = runHook({ cwd: '/tmp/testproj' });
+      const ctx1 = String((unread.hookSpecificOutput as { additionalContext?: string } | undefined)?.additionalContext ?? '');
+      expect(ctx1).toContain(`1 message waiting for "${project}"`);
+      expect(ctx1).toContain('fetch them with the message tool');
+
+      openDatabase(dbPath);
+      await executeAgentMessageAction(getDatabase(), {
+        action: 'intake', project, recipient: 'claude-implementer', message_id: sent.message_id,
+        intake_state: 'fetched', idempotency_key: 'hook-intake-1',
+      }, { transport: 'mcp', sourceHost: 'test-host' });
+      closeDatabase();
+
+      const fetched = runHook({ cwd: '/tmp/testproj' });
+      expect(String((fetched.hookSpecificOutput as { additionalContext?: string } | undefined)?.additionalContext ?? '')).not.toContain('message waiting');
+    } finally {
+      try { closeDatabase(); } catch { /* already closed */ }
+      if (prevSocket === undefined) delete process.env.MEMESH_ROUTER_SOCKET; else process.env.MEMESH_ROUTER_SOCKET = prevSocket;
+    }
+  });
+
+  it('Regression: a graph without message tables injects nothing about messages', () => {
+    const db = createTestDb();
+    db.prepare('INSERT INTO entities (name, type) VALUES (?, ?)').run('proj-only', 'decision');
+    db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(1, 'x');
+    db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(1, projTag('testproj'));
+    db.close();
+    const out = runHook({ cwd: '/tmp/testproj' });
+    const ctx = String((out as { hookSpecificOutput?: { additionalContext?: string } }).hookSpecificOutput?.additionalContext ?? '');
+    expect(ctx).not.toContain('message waiting');
+    // The memory itself still injects (the entity has no title, so its
+    // observation is what renders); the absent tables cost nothing.
+    expect(ctx).toContain('[decision] x');
+  });
+
   it('Regression #242: a global-namespace memory with no project tag is injected for any project', () => {
     const db = createTestDb();
     const cols = new Set((db.prepare('PRAGMA table_info(entities)').all() as any[]).map((c) => c.name));
