@@ -11,10 +11,11 @@
 // red on every existing install forever, and leaves recall matching the fused
 // buckets (retrieved 61 times, matched 3) instead of the lessons in them.
 //
-// So the data is repaired here, once, at the first CORE open after upgrade
-// (CLI, MCP, HTTP — the hooks open through their own wrapper and do not run
-// migrations) — the same place and the same shape as every other backfill in
-// db.ts: a `runOnceMigration` keyed in `memesh_metadata`, transactional,
+// So the data is repaired here, once, at the first open through the core
+// `openDatabase` after upgrade — CLI, MCP, HTTP, and the two hook paths that
+// import dist/db.js (the hooks' own wrapper in scripts/hooks/_shared.js runs
+// no migrations) — the same place and the same shape as every other backfill
+// in db.ts: a `runOnceMigration` keyed in `memesh_metadata`, transactional,
 // non-fatal, one line on stderr when it changed something.
 //
 // Three passes, each owning exactly one invariant from memory-invariants.mjs:
@@ -32,7 +33,11 @@
 //     leaves the bucket — keeping the first would leave one lesson whose
 //     re-learned copy lands beside its history instead of on it, the exact
 //     state the split exists to end. The emptied bucket is archived, not
-//     deleted: relations that point at it still resolve.
+//     deleted: the entity row and its relations stay (the work-layer graph
+//     view filters archived ends out; the full view still names it). Its
+//     `source:explicit` tag is dropped ONLY when it emptied — a bucket that
+//     kept a stray row must stay visible to the invariant, not be hidden
+//     from it by losing the tag.
 //   - Vectors are left where they are. sqlite-vec is loaded AFTER the
 //     backfills run, so this code cannot touch `entities_vec` and does not
 //     pretend to; it records that a rebuild is owed (`pending_reindex`, the
@@ -52,6 +57,7 @@
 import type { MemeshDatabase } from './sqlite.js';
 import { rebuildFtsIndex, runOnceMigration } from './schema.js';
 import { lessonSlug } from '../core/lesson-slug.js';
+import { computeSignalScore } from '../core/signal-scorer.js';
 
 export const SESSION_DEDUPE_KEY = 'session_observation_dedupe';
 export const ZERO_EDIT_RETRACT_KEY = 'session_zero_edit_retract';
@@ -129,8 +135,12 @@ const BASH_WRITE_SHAPES: RegExp[] = [
 
 export function bashWritesFiles(command: string): boolean {
   for (const re of BASH_WRITE_SHAPES) {
-    const m = re.exec(command);
-    if (m?.[1] && !m[1].startsWith('/dev/') && !m[1].startsWith('/tmp/')) return true;
+    // Every match, like the hook: `… | tee /tmp/t.log && … | tee CHANGELOG.md`
+    // writes a file even though its FIRST tee target is excluded. A fresh
+    // global regex per call so no `lastIndex` survives an early return.
+    for (const m of command.matchAll(new RegExp(re.source, 'g'))) {
+      if (m[1] && !m[1].startsWith('/dev/') && !m[1].startsWith('/tmp/')) return true;
+    }
   }
   return false;
 }
@@ -240,12 +250,12 @@ export function splitFusedLessons(
     migrate: (conn) => {
       const buckets = conn
         .prepare(
-          `SELECT e.id, e.name, e.type, e.namespace, e.confidence
+          `SELECT e.id, e.name, e.type, e.namespace, e.confidence, e.metadata
            FROM entities e
            WHERE e.type = 'lesson_learned' AND e.name LIKE 'lesson-%-other'
              AND EXISTS (SELECT 1 FROM tags t WHERE t.entity_id = e.id AND t.tag = 'source:explicit')`,
         )
-        .all() as unknown as Array<{ id: number; name: string; type: string; namespace: string | null; confidence: number | null }>;
+        .all() as unknown as Array<{ id: number; name: string; type: string; namespace: string | null; confidence: number | null; metadata: string | null }>;
       const tagsOf = conn.prepare('SELECT tag FROM tags WHERE entity_id = ?');
       const obsOf = conn.prepare('SELECT id, content, created_at FROM observations WHERE entity_id = ? ORDER BY id');
       const findTarget = conn.prepare('SELECT id, status FROM entities WHERE name = ?');
@@ -256,8 +266,11 @@ export function splitFusedLessons(
       );
       const insertTag = conn.prepare('INSERT OR IGNORE INTO tags (entity_id, tag) VALUES (?, ?)');
       const moveRow = conn.prepare('UPDATE observations SET entity_id = ? WHERE id = ?');
-      const dropExplicit = conn.prepare("DELETE FROM tags WHERE entity_id = ? AND tag = 'source:explicit'");
-      const archive = conn.prepare("UPDATE entities SET status = 'archived' WHERE id = ? AND NOT EXISTS (SELECT 1 FROM observations WHERE entity_id = ?)");
+      // Both only when the bucket emptied: a bucket that kept a stray row is
+      // still the invariant's business and must keep the tag it keys on.
+      const emptied = 'NOT EXISTS (SELECT 1 FROM observations WHERE entity_id = ?)';
+      const dropExplicit = conn.prepare(`DELETE FROM tags WHERE entity_id = ? AND tag = 'source:explicit' AND ${emptied}`);
+      const archive = conn.prepare(`UPDATE entities SET status = 'archived' WHERE id = ? AND ${emptied}`);
       moved = 0;
       let bucketsTouched = 0;
 
@@ -270,6 +283,15 @@ export function splitFusedLessons(
         const project =
           tags.find((t) => t.startsWith('project:'))?.slice('project:'.length) ??
           bucket.name.slice('lesson-'.length, -'-other'.length);
+
+        // The bucket's metadata (trust, provenance, …) describes every lesson
+        // in it equally, so each split-out lesson starts from a copy; only
+        // the fields that are per-entity are replaced below.
+        let inherited: Record<string, unknown> = {};
+        try {
+          const parsed: unknown = bucket.metadata ? JSON.parse(bucket.metadata) : {};
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) inherited = parsed as Record<string, unknown>;
+        } catch { /* unreadable metadata: carry nothing rather than guess */ }
 
         const severities = tags.filter((t) => t.startsWith('severity:'));
         const carried = tags.filter((t) => !t.startsWith('severity:') && !t.startsWith('source:'));
@@ -284,11 +306,19 @@ export function splitFusedLessons(
           } else {
             const contents = group.rows.map((o) => o.content);
             const title = deps.deriveTitle(bucket.type, contents);
+            const metadata: Record<string, unknown> = {
+              ...inherited,
+              split_from: bucket.name,
+              // The signal-score backfill already ran this open; score here so
+              // the split-out lesson is not the one entity without a score.
+              signal_score: computeSignalScore({ type: bucket.type, name, observations: contents, tags: carried }),
+            };
+            if (title) metadata.title_source = 'heuristic'; else delete metadata.title_source;
             const inserted = insertEntity.run(
               name,
               bucket.type,
               group.rows[0].created_at,
-              JSON.stringify(title ? { title_source: 'heuristic', split_from: bucket.name } : { split_from: bucket.name }),
+              JSON.stringify(metadata),
               bucket.confidence,
               bucket.namespace,
               title,
@@ -299,7 +329,7 @@ export function splitFusedLessons(
           for (const row of group.rows) moveRow.run(target.id, row.id);
           moved += 1;
         }
-        dropExplicit.run(bucket.id);
+        dropExplicit.run(bucket.id, bucket.id);
         archive.run(bucket.id, bucket.id);
         bucketsTouched += 1;
       }

@@ -64,8 +64,10 @@ const BASH_WRITE_SHAPES = [
 ];
 function bashWritesFiles(command) {
   for (const re of BASH_WRITE_SHAPES) {
-    const m = re.exec(command);
-    if (m?.[1] && !m[1].startsWith('/dev/') && !m[1].startsWith('/tmp/')) return true;
+    // Every match, like the hook: the first tee target may be /tmp, the second real.
+    for (const m of command.matchAll(new RegExp(re.source, 'g'))) {
+      if (m[1] && !m[1].startsWith('/dev/') && !m[1].startsWith('/tmp/')) return true;
+    }
   }
   return false;
 }
@@ -101,13 +103,15 @@ const INVARIANTS = [
       FROM entities e
       WHERE e.name LIKE 'session-%-summary'
         AND EXISTS (SELECT 1 FROM observations o WHERE o.entity_id = e.id AND o.content LIKE 'Significant session:%, 0 files edited%')
-        AND EXISTS (SELECT 1 FROM observations o WHERE o.entity_id = e.id AND o.content LIKE 'Command:%')
-      LIMIT ${MAX_ROWS}`,
+        AND EXISTS (SELECT 1 FROM observations o WHERE o.entity_id = e.id AND o.content LIKE 'Command:%')`,
     // Anchored on ", 0 files edited": "10 files edited" ends the same way and is true.
-    // The SQL narrows; the Bash-write test itself is the hook's own regexes
-    // (BASH_WRITE_SHAPES below), applied in JS — a bare `<<` only feeds stdin.
+    // The SQL only narrows; the Bash-write test is the hook's own regexes
+    // (BASH_WRITE_SHAPES above), applied in JS — a bare `<<` only feeds stdin.
+    // NO LIMIT in the SQL: it would bound candidates, not violations, and
+    // eight honest sessions sorting first would hide a real one. The cap is
+    // applied after the filter, where it means "first 8 violations".
     rows: (db, rows) => rows.filter((r) => db.prepare("SELECT content FROM observations o JOIN entities e ON e.id = o.entity_id WHERE e.name = ? AND o.content LIKE 'Command:%'")
-      .all(r.name).some((o) => bashWritesFiles(o.content))),
+      .all(r.name).some((o) => bashWritesFiles(o.content))).slice(0, MAX_ROWS),
     row: (r) => r.name,
   },
   {
@@ -159,12 +163,21 @@ function main() {
       let rows;
       try {
         rows = db.prepare(inv.sql).all();
-        if (inv.rows) rows = inv.rows(db, rows);
       } catch (err) {
         // A schema older than the column an invariant needs is not a
         // violation of that invariant; say so and move on.
         console.log(`  skip ${inv.id} — ${err?.message ?? err}`);
         continue;
+      }
+      if (inv.rows) {
+        // A failure HERE is a bug in this file, not an older schema: it must
+        // not read as a benign skip and it must not let the run exit 0.
+        try {
+          rows = inv.rows(db, rows);
+        } catch (err) {
+          console.error(`memory-invariants: ${inv.id} post-filter threw: ${err?.message ?? err}`);
+          return 2;
+        }
       }
       if (rows.length === 0) {
         console.log(`  ok   ${inv.id}`);

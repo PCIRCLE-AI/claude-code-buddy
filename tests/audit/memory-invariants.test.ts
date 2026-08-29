@@ -108,6 +108,30 @@ describe('memory-invariants: read-only detector over a real graph', () => {
     }
   });
 
+  it('#240 — a real violation is not hidden behind eight honest sessions that sort first', () => {
+    const { dir, dbPath } = freshGraph();
+    try {
+      withRawDb(dbPath, (db) => {
+        const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+        // Nine honest summaries with a Command line and a true "0 files edited";
+        // their names sort before the violator's.
+        for (let i = 0; i < 9; i++) {
+          const id = insertEntity(db, `session-0${i}-summary`, 'session-insight');
+          ins.run(id, 'Significant session: 5 tool calls, 0 files edited');
+          ins.run(id, 'Command: git status');
+        }
+        const bad = insertEntity(db, 'session-zz-summary', 'session-insight');
+        ins.run(bad, 'Significant session: 25 tool calls, 0 files edited');
+        ins.run(bad, "Command: cat > src/core/paths.ts <<'EOF'");
+      });
+      const r = run(dbPath);
+      expect(r.status, r.stdout).toBe(1);
+      expect(r.stdout).toContain('session-zz-summary');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('#241 — flags an explicit "-other" lesson bucket holding more than one lesson', () => {
     const { dir, dbPath } = freshGraph();
     try {

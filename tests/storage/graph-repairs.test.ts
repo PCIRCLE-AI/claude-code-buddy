@@ -178,6 +178,10 @@ describe('#240 — a false "0 files edited" beside a Bash write is retracted', (
 
   it('recognises the write shapes the hook recognises, and nothing looser', () => {
     for (const cmd of [
+      // The FIRST target is excluded (/tmp, /dev); the second is a real write.
+      'Command: npm test 2>&1 | tee /tmp/t.log && echo done | tee CHANGELOG.md',
+      "Command: cat > /dev/null <<EOF && cat > src/real.ts <<EOF",
+      "Command: sed -i '' 's/a/b/' /tmp/x && sed -i '' 's/c/d/' src/real.ts",
       "Command: cat > src/a.ts <<'EOF'",
       "Command: sed -i 's/a/b/' src/a.ts",
       'Command: echo x | tee CHANGELOG.md',
@@ -229,7 +233,9 @@ describe('#241 — lessons fused into one -other bucket are split apart', () => 
     // The split-out entity records where it came from and is titled like any other.
     const row = db.prepare('SELECT metadata, title, created_at FROM entities WHERE name = ?').get(nameC) as
       { metadata: string; title: string | null; created_at: string };
-    expect(JSON.parse(row.metadata).split_from).toBe('lesson-proj-other');
+    const meta = JSON.parse(row.metadata);
+    expect(meta.split_from).toBe('lesson-proj-other');
+    expect(typeof meta.signal_score, 'scored at insert — the backfill already ran this open').toBe('number');
     expect(row.title).toBe('zebra-token watcher grep exit is not a verdict');
     expect(row.created_at).toBe('2026-08-03 10:00:00');
 
@@ -287,6 +293,40 @@ describe('#241 — lessons fused into one -other bucket are split apart', () => 
     expect(statusOf(db, 'lesson-my-app-other')).toBe('archived');
     closeDatabase();
     expect(runInvariants().status).toBe(0);
+  });
+
+  it('keeps the tag and stays active when a stray row keeps the bucket non-empty', () => {
+    seed((db) => {
+      const id = insertEntity(db, 'lesson-proj-other', 'lesson_learned',
+        ['project:proj', 'error-pattern:other', 'source:explicit']);
+      db.prepare("UPDATE entities SET metadata = ? WHERE id = ?").run(JSON.stringify({ trust: 'untrusted' }), id);
+      const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+      ins.run(id, 'Note: this bucket picked up a stray line');
+      for (const line of [...LESSON_A, ...LESSON_B]) ins.run(id, line);
+    });
+    const db = repaired();
+    expect(observations(db, 'lesson-proj-other')).toEqual(['Note: this bucket picked up a stray line']);
+    expect(statusOf(db, 'lesson-proj-other')).toBe('active');
+    expect(tagsOf(db, 'lesson-proj-other')).toContain('source:explicit');
+    // The bucket's metadata travels with the lessons it described.
+    expect(JSON.parse((db.prepare('SELECT metadata FROM entities WHERE name = ?').get(nameA) as { metadata: string }).metadata).trust).toBe('untrusted');
+    closeDatabase();
+  });
+
+  it('still splits a bucket whose metadata is unreadable, carrying nothing from it', () => {
+    seed((db) => {
+      const id = insertEntity(db, 'lesson-proj-other', 'lesson_learned', ['project:proj', 'source:explicit']);
+      db.prepare('UPDATE entities SET metadata = ? WHERE id = ?').run('{not json', id);
+      const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+      for (const line of [...LESSON_A, ...LESSON_B]) ins.run(id, line);
+    });
+    const db = repaired();
+    // A parse failure must not abort the migration (runOnceMigration would
+    // swallow it and leave the bucket fused for 24h, silently).
+    expect(observations(db, nameA)).toEqual(LESSON_A);
+    const meta = JSON.parse((db.prepare('SELECT metadata FROM entities WHERE name = ?').get(nameA) as { metadata: string }).metadata);
+    expect(Object.keys(meta).sort()).toEqual(['signal_score', 'split_from', 'title_source']);
+    closeDatabase();
   });
 
   it('does not carry source:explicit when the bucket also holds auto-learned lessons', () => {

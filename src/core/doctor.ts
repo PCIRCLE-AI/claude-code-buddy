@@ -2527,12 +2527,19 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
     // not measure" are different reports, and only one of them means the
     // graph is fine.
     let missingVectors: number | null;
+    let vectorsPossible = true;
     try {
-      missingVectors = hasVectorIndex(vectorDb) ? countMissingVectors(vectorDb) : 0;
+      vectorsPossible = hasVectorIndex(vectorDb);
+      missingVectors = vectorsPossible ? countMissingVectors(vectorDb) : 0;
     } catch {
       missingVectors = null;
     }
-    if (pendingReindex || missingVectors === null || missingVectors > 0) {
+    // A `vectors-missing` debt on a machine where sqlite-vec does not load is
+    // one `reindex` cannot pay ("sqlite-vec is not loaded"), and the row would
+    // read "0 memories have no search vector — run reindex" forever. Semantic
+    // recall is off on that machine for a different reason, reported elsewhere.
+    const payableDebt = pendingReindex && !(pendingReindex.reason === 'vectors-missing' && !vectorsPossible);
+    if (payableDebt || missingVectors === null || missingVectors > 0) {
       const owed = pendingReindex && pendingReindex.reason !== 'vectors-missing'
         ? 'Search index needs rebuilding (embedding configuration changed)'
         : missingVectors === null

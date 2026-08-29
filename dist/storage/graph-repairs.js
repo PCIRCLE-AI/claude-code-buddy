@@ -1,5 +1,6 @@
 import { rebuildFtsIndex, runOnceMigration } from './schema.js';
 import { lessonSlug } from '../core/lesson-slug.js';
+import { computeSignalScore } from '../core/signal-scorer.js';
 export const SESSION_DEDUPE_KEY = 'session_observation_dedupe';
 export const ZERO_EDIT_RETRACT_KEY = 'session_zero_edit_retract';
 export const FUSED_LESSON_SPLIT_KEY = 'fused_lesson_split';
@@ -43,9 +44,10 @@ const BASH_WRITE_SHAPES = [
 ];
 export function bashWritesFiles(command) {
     for (const re of BASH_WRITE_SHAPES) {
-        const m = re.exec(command);
-        if (m?.[1] && !m[1].startsWith('/dev/') && !m[1].startsWith('/tmp/'))
-            return true;
+        for (const m of command.matchAll(new RegExp(re.source, 'g'))) {
+            if (m[1] && !m[1].startsWith('/dev/') && !m[1].startsWith('/tmp/'))
+                return true;
+        }
     }
     return false;
 }
@@ -99,7 +101,7 @@ export function splitFusedLessons(db, deps) {
         describe: 'fused lesson split',
         migrate: (conn) => {
             const buckets = conn
-                .prepare(`SELECT e.id, e.name, e.type, e.namespace, e.confidence
+                .prepare(`SELECT e.id, e.name, e.type, e.namespace, e.confidence, e.metadata
            FROM entities e
            WHERE e.type = 'lesson_learned' AND e.name LIKE 'lesson-%-other'
              AND EXISTS (SELECT 1 FROM tags t WHERE t.entity_id = e.id AND t.tag = 'source:explicit')`)
@@ -112,8 +114,9 @@ export function splitFusedLessons(db, deps) {
          VALUES (?, ?, ?, ?, 'active', ?, ?, ?)`);
             const insertTag = conn.prepare('INSERT OR IGNORE INTO tags (entity_id, tag) VALUES (?, ?)');
             const moveRow = conn.prepare('UPDATE observations SET entity_id = ? WHERE id = ?');
-            const dropExplicit = conn.prepare("DELETE FROM tags WHERE entity_id = ? AND tag = 'source:explicit'");
-            const archive = conn.prepare("UPDATE entities SET status = 'archived' WHERE id = ? AND NOT EXISTS (SELECT 1 FROM observations WHERE entity_id = ?)");
+            const emptied = 'NOT EXISTS (SELECT 1 FROM observations WHERE entity_id = ?)';
+            const dropExplicit = conn.prepare(`DELETE FROM tags WHERE entity_id = ? AND tag = 'source:explicit' AND ${emptied}`);
+            const archive = conn.prepare(`UPDATE entities SET status = 'archived' WHERE id = ? AND ${emptied}`);
             moved = 0;
             let bucketsTouched = 0;
             for (const bucket of buckets) {
@@ -123,6 +126,13 @@ export function splitFusedLessons(db, deps) {
                 const tags = tagsOf.all(bucket.id).map((t) => t.tag);
                 const project = tags.find((t) => t.startsWith('project:'))?.slice('project:'.length) ??
                     bucket.name.slice('lesson-'.length, -'-other'.length);
+                let inherited = {};
+                try {
+                    const parsed = bucket.metadata ? JSON.parse(bucket.metadata) : {};
+                    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed))
+                        inherited = parsed;
+                }
+                catch { }
                 const severities = tags.filter((t) => t.startsWith('severity:'));
                 const carried = tags.filter((t) => !t.startsWith('severity:') && !t.startsWith('source:'));
                 if (severities.length === 1)
@@ -139,7 +149,16 @@ export function splitFusedLessons(db, deps) {
                     else {
                         const contents = group.rows.map((o) => o.content);
                         const title = deps.deriveTitle(bucket.type, contents);
-                        const inserted = insertEntity.run(name, bucket.type, group.rows[0].created_at, JSON.stringify(title ? { title_source: 'heuristic', split_from: bucket.name } : { split_from: bucket.name }), bucket.confidence, bucket.namespace, title);
+                        const metadata = {
+                            ...inherited,
+                            split_from: bucket.name,
+                            signal_score: computeSignalScore({ type: bucket.type, name, observations: contents, tags: carried }),
+                        };
+                        if (title)
+                            metadata.title_source = 'heuristic';
+                        else
+                            delete metadata.title_source;
+                        const inserted = insertEntity.run(name, bucket.type, group.rows[0].created_at, JSON.stringify(metadata), bucket.confidence, bucket.namespace, title);
                         target = { id: Number(inserted.lastInsertRowid), status: 'active' };
                         for (const tag of carried)
                             insertTag.run(target.id, tag);
@@ -148,7 +167,7 @@ export function splitFusedLessons(db, deps) {
                         moveRow.run(target.id, row.id);
                     moved += 1;
                 }
-                dropExplicit.run(bucket.id);
+                dropExplicit.run(bucket.id, bucket.id);
                 archive.run(bucket.id, bucket.id);
                 bucketsTouched += 1;
             }

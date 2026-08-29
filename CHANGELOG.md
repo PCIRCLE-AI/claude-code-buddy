@@ -95,8 +95,9 @@ reported something that was not true.
 - **Graphs written by 4.8.1 are repaired at the first core open after upgrade.**
   The two fixes above stop new damage; they did nothing for the rows already
   there, and every graph that ran 4.8.1 hooks has them. Three one-shot passes
-  now run with the other backfills (`src/storage/graph-repairs.ts`) when the
-  CLI, MCP or HTTP server opens the graph (hooks do not run migrations):
+  now run with the other backfills (`src/storage/graph-repairs.ts`) at the
+  first open through the core `openDatabase` — CLI, MCP, HTTP, and the two
+  hook paths that import it; the hooks' own wrapper runs no migrations:
   duplicate observations on `session-*` entities are removed (706 rows on the
   maintainer's graph); a summary that claimed `0 files edited` beside a Bash
   command that writes files — the shapes the Stop hook itself recognises, not
@@ -105,8 +106,11 @@ reported something that was not true.
   timestamps intact — to its own `lesson-<project>-<slug>` entity, the name
   `learn` gives it now (35 lessons out of four buckets), reviving that entity
   if a `forget` had archived it. The emptied bucket loses its
-  `source:explicit` tag and is archived, not deleted, so relations still
-  resolve and a later auto-learned lesson cannot re-trip the invariant.
+  `source:explicit` tag and is archived, not deleted — the entity and its
+  relations stay; the work-layer graph view hides archived ends, the full
+  view still names it — so a later auto-learned lesson cannot re-trip the
+  invariant. A bucket that kept a stray non-lesson row keeps its tag and
+  stays active, where the invariant can still see it.
   `severity:` is carried only when the bucket had one; with several, which
   lesson was critical is not recorded anywhere. The FTS index is rebuilt
   whole rather than patched row by row, because a contentless FTS5 delete for
