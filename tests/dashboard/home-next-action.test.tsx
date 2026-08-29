@@ -109,4 +109,46 @@ describe('issue #234 — one truthful next-best action', () => {
     await waitFor(() => expect(second.getAllByRole('heading', { level: 2 })[0].textContent).toBe('No action needed right now'));
     expect(second.queryByRole('button', { name: /Open|Review/ })).toBeNull();
   });
+
+  // The two states the first version of this file never touched. They are
+  // adjacent branches with opposite meanings — `reindex === null` is "the
+  // status fetch FAILED", `reindex === undefined` is "the status fetch has
+  // not answered yet" — and the tests above exercised neither, so the guard
+  // that keeps them apart could be deleted or loosened to `== null` with the
+  // whole suite green. Loosened, every ordinary page load would flash
+  // "reload the page"; deleted, a dead /v1/reindex would spin as "loading"
+  // forever with no error.
+  it('reports unavailable when a status check failed, and loading while one is pending', () => {
+    const ready = { pendingCount: 0, llmConfigured: true, loading: false, failed: false };
+    expect(chooseNextAction(4, null, ready)).toBe('unavailable');
+    expect(chooseNextAction(4, healthyIndex, { ...ready, failed: true })).toBe('unavailable');
+    expect(chooseNextAction(4, undefined, ready)).toBe('loading');
+    expect(chooseNextAction(4, healthyIndex, { ...ready, loading: true })).toBe('loading');
+    expect(chooseNextAction(null, healthyIndex, ready)).toBe('loading');
+    // A failed check outranks a pending one: nothing is coming that would
+    // change the answer, so do not keep the user waiting.
+    expect(chooseNextAction(4, null, { ...ready, loading: true })).toBe('unavailable');
+  });
+
+  it('renders the unavailable state with a retry when /v1/reindex fails, not a recommendation', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/v1/reindex') return new Response('<html>Bad Gateway</html>', { status: 502 });
+      if (url.startsWith('/v1/dream/proposals')) return response([]);
+      if (url === '/v1/config') return response({ capabilities: { llm: { provider: 'openai' } } });
+      if (url.startsWith('/v1/stats')) return response({ totalEntities: 4, totalObservations: 4, totalRelations: 0, totalTags: 0, typeDistribution: [], tagDistribution: [], statusDistribution: [] });
+      if (url.startsWith('/v1/citations')) return response({ total: 0, verified: 0, rate: null });
+      return response({});
+    });
+    const reload = vi.fn();
+    vi.stubGlobal('location', { ...window.location, reload });
+
+    const view = render(<HomeTab health={{ status: 'ok', version: '4.8.1', entity_count: 4 }} />);
+    await waitFor(() => expect(view.getAllByRole('heading', { level: 2 })[0].textContent).toBe('Current recommendation is unavailable'));
+    expect(view.container.textContent).not.toContain('No action needed right now');
+    fireEvent.click(view.getByRole('button', { name: 'Retry status checks' }));
+    expect(reload).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
+  });
 });
+
