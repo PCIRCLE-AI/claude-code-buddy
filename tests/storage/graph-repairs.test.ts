@@ -369,8 +369,8 @@ describe('#241 — lessons fused into one -other bucket are split apart', () => 
     });
     const notes: string[] = [];
     const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => { notes.push(String(chunk)); return true; });
-    const db = repaired();
-    spy.mockRestore();
+    let db: Db;
+    try { db = repaired(); } finally { spy.mockRestore(); }
     expect(notes.join('')).toContain('moved 1 lesson(s) out of 1 "-other" bucket(s)');
     expect(db.prepare('SELECT id FROM entities WHERE name = ?').get('lesson-new-other')).toBeUndefined();
     expect(observations(db, 'lesson-old-other')).toEqual(['Error: other', 'Root cause: ?', 'Fix: ?', 'Prevention: ?']);

@@ -208,6 +208,27 @@ describe('memory-invariants: read-only detector over a real graph', () => {
     }
   });
 
+  it('#241 — two different error texts sharing one slug are ONE lesson, not a fused bucket', () => {
+    const { dir, dbPath } = freshGraph();
+    try {
+      withRawDb(dbPath, (db) => {
+        // learn() keys both on the same slug (first eight significant words),
+        // so they live on one entity by contract — and that name ends in "-other".
+        const id = insertEntity(db, 'lesson-proj-the-agent-could-not-talk-to-the-other', 'lesson_learned');
+        db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(id, 'source:explicit');
+        const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+        for (const port of [3000, 4000]) {
+          ins.run(id, `Error: the agent could not talk to the other side on port ${port}`);
+          ins.run(id, 'Root cause: x'); ins.run(id, 'Fix: y'); ins.run(id, 'Prevention: z');
+        }
+      });
+      const r = run(dbPath);
+      expect(r.status, r.stdout).toBe(0);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('#240 — nine duplicate-summary entities print eight and say so (the SQL cap)', () => {
     const { dir, dbPath } = freshGraph();
     try {

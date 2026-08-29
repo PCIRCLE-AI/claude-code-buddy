@@ -63,6 +63,24 @@ const BASH_WRITE_SHAPES = [
   /Path\(\s*['"]([^'"]+)['"]\s*\)\s*\.write_text\(/,
   /writeFileSync\(\s*['"]([^'"]+)['"]/,
 ];
+/**
+ * The name key of an explicit lesson — mirrored from src/core/lesson-slug.ts
+ * (this script cannot import TypeScript). Keep the two in step: the
+ * #241 invariant decides "fused" with exactly the key learn() and the repair
+ * use, so a drift here would make the detector disagree with the fixer.
+ */
+function lessonSlug(error) {
+  const words = error
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fff]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter((w) => w.length > 1)
+    .slice(0, 8);
+  const slug = words.join('-');
+  return slug.length > 0 ? slug.slice(0, 80) : 'unspecified';
+}
+
 function bashWritesFiles(command) {
   for (const re of BASH_WRITE_SHAPES) {
     // Every match, like the hook: the first tee target may be /tmp, the second real.
@@ -120,21 +138,35 @@ const INVARIANTS = [
   {
     id: 'explicit-lessons-not-fused-into-other-bucket',
     refs: '#241',
-    says: 'no lesson entity holds more than one explicit lesson (4 fields each) under the "-other" key',
-    // "More than one lesson" is asked directly: `learn()` starts every lesson
-    // with an `Error: ` line, and the repair's groupLessons cuts on the same
-    // line, so detector and fixer agree by construction. Counting rows (>4)
-    // and guessing from the name shape did not: a bucket renamed by
-    // `kg rename-project` (name lesson-old-other, tag project:new) went
-    // unseen, and a re-learned lesson named `…-the-other` was flagged.
+    says: 'no "-other" lesson entity holds explicit lessons that belong under other names (the repair leaves a lesson whose error is literally "other" in place; re-learn it with a specific error text)',
+    // The SQL only narrows (name shape, explicit tag, at least two `Error:`
+    // lines by a case-insensitive LIKE). The verdict is the repair's own
+    // question, asked in JS below: cut the observations into lessons on
+    // `Error: ` exactly as groupLessons does, slug each error exactly as
+    // learn() does, and call the entity fused only if some lesson's slug is
+    // not the one the entity's name ends with. Two different error texts
+    // that share a slug are ONE lesson under learn()'s contract, not a
+    // fused bucket. No LIMIT here: it would bound candidates, not violations.
     sql: `
-      SELECT e.name AS name, COUNT(o.id) AS total,
-             COUNT(DISTINCT CASE WHEN o.content LIKE 'Error: %' THEN o.content END) AS lessons
+      SELECT e.name AS name, COUNT(o.id) AS total
       FROM entities e JOIN observations o ON o.entity_id = e.id
       WHERE e.type = 'lesson_learned' AND e.name LIKE 'lesson-%-other'
         AND EXISTS (SELECT 1 FROM tags t WHERE t.entity_id = e.id AND t.tag = 'source:explicit')
-      GROUP BY e.id HAVING lessons > 1
-      ORDER BY lessons DESC LIMIT ${MAX_ROWS + 1}`,
+      GROUP BY e.id
+      HAVING SUM(CASE WHEN o.content LIKE 'Error: %' THEN 1 ELSE 0 END) > 1`,
+    rows: (db, rows) => {
+      const obs = db.prepare("SELECT o.content FROM observations o JOIN entities e ON e.id = o.entity_id WHERE e.name = ? ORDER BY o.id");
+      const out = [];
+      for (const r of rows) {
+        const slugs = new Set();
+        for (const o of obs.all(r.name)) {
+          if (o.content.startsWith('Error: ')) slugs.add(lessonSlug(o.content.slice('Error: '.length)));
+        }
+        const foreign = [...slugs].filter((slug) => !r.name.endsWith(`-${slug}`));
+        if (slugs.size > 1 || foreign.length > 0) out.push({ ...r, lessons: slugs.size });
+      }
+      return out;
+    },
     row: (r) => `${r.name}  observations=${r.total} (${r.lessons} lessons)`,
   },
   {

@@ -145,6 +145,8 @@ export function splitFusedLessons(db, deps) {
                     if (slug === 'other')
                         continue;
                     const name = `lesson-${project}-${slug}`;
+                    if (name === bucket.name)
+                        continue;
                     let target = findTarget.get(name);
                     if (target) {
                         if (target.status !== 'active')

@@ -309,6 +309,9 @@ export function splitFusedLessons(
           // and must split out like any other.
           if (slug === 'other') continue;
           const name = `lesson-${project}-${slug}`;
+          // A target equal to the bucket itself is a self-move: nothing changes,
+          // and counting it would print a move and owe a reindex for nothing.
+          if (name === bucket.name) continue;
           let target = findTarget.get(name) as { id: number; status: string } | undefined;
           if (target) {
             if (target.status !== 'active') revive.run(target.id);
