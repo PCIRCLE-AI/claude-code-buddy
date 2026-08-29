@@ -311,7 +311,7 @@ export const SECRET_PATTERN_SOURCES: readonly string[] = [
  *  `lastIndex` around the call, so reusing them across calls is safe. The
  *  Stop hook calls this per bash block and per errored tool result — hundreds
  *  of times per session, inside a 10-second budget — and it was recompiling
- *  all eighteen patterns each time. */
+ *  every pattern each time. */
 const SECRET_PATTERNS = SECRET_PATTERN_SOURCES.map((s) => new RegExp(s, 'gi'));
 
 export function redactSecrets(input: string): string {
