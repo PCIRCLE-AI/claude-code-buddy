@@ -154,8 +154,10 @@ if (!changelogMatch) {
   }
 }
 
-// ARCHITECTURE / API_REFERENCE version stamps
-for (const docPath of ['docs/ARCHITECTURE.md', 'docs/api/API_REFERENCE.md']) {
+// Living architecture/navigation documents are release anchors too. CODEMAP
+// stayed at 4.2.8 through the 4.8.1 release because it was absent from this
+// list while its entry points and hook map kept changing.
+for (const docPath of ['CODEMAP.md', 'docs/ARCHITECTURE.md', 'docs/api/API_REFERENCE.md']) {
   const content = read(docPath);
   const m = content.match(/\*\*Version\*\*:\s*([0-9]+\.[0-9]+\.[0-9]+)/);
   if (!m) {

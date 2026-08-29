@@ -33,6 +33,23 @@ This repository is the standalone local package. Hosted workspace and enterprise
                      SQLite (FTS5 + sqlite-vec)
 ```
 
+## Package Entry Points
+
+| Executable | Source entry point |
+|---|---|
+| `memesh` | `src/transports/cli/cli.ts` |
+| `memesh-mcp` | `src/mcp/server.ts` |
+| `memesh-http` | `src/transports/http/server.ts` |
+| `memesh-router` | `src/host-runtime/router.ts` |
+| `memesh-host-claude` | `src/host-runtime/claude.ts` |
+| `memesh-host-codex` | `src/host-runtime/codex.ts` |
+| `memesh-host-codex-session` | `src/host-runtime/codex-session.ts` |
+| `memesh-host-acp` | `src/host-runtime/acp.ts` |
+
+`memesh-host-acp` is experimental protocol-development code, not a release-gated native-wakeup provider.
+
+---
+
 ## Core/Transport Architecture
 
 MeMesh separates concerns into two layers:
@@ -106,7 +123,7 @@ src/
 ├── index.ts               # Package exports
 ├── cli/
 │   └── view-live.ts       # Legacy HTML dashboard generator
-├── host-adapters/         # Supported host-specific metadata-only wakeup adapters
+├── host-adapters/         # Native Claude/Codex adapters; ACP remains experimental and not release-gated
 ├── host-runtime/          # Private-router connection and managed host runtime
 ├── mcp/
 │   ├── server.ts          # MCP stdio server (logs capabilities on startup)
@@ -206,6 +223,8 @@ Thin adapter: imports shared Zod schemas from `transports/schemas.ts`, validates
 | `task_state` | TaskStateSchema | Delegates to `core/task-state-store` (`getTaskState()` with no fields, `setTaskState()` otherwise) |
 | `briefing` | BriefingSchema | Delegates to `core/briefing.assembleBriefing()` |
 | `user_patterns` | UserPatternsSchema | Delegates to `core/patterns.computePatterns()` |
+| `improvement` | ImprovementSchema | Delegates to `core/product-improvements` for proposal staging and status reads |
+| `message` | MessageSchema | Delegates to `transports/agent-messaging.executeAgentMessageAction()` |
 
 ### transports/http/server.ts -- HTTP REST API Server
 
@@ -213,7 +232,7 @@ Express server exposed via `memesh serve` (default port 3737; the endpoint count
 
 ### transports/cli/cli.ts -- CLI
 
-Commander-based CLI exposed via the `memesh` binary. Supports `remember`, `recall`, `forget`, `serve`, and `update` subcommands.
+Commander-based CLI exposed via the `memesh` binary. It registers the 30 top-level commands catalogued in the module list above; `scripts/check-doc-claims.mjs` derives and verifies that count from `cli.ts`.
 
 ### dashboard/ -- Packaged Dashboard SPA
 
@@ -266,6 +285,10 @@ message send (MCP / HTTP / CLI)
   -> routing-metadata marker only
   -> recipient explicitly fetches the durable payload with message fetch
 ```
+
+Implementation anchors: `src/core/agent-messaging.ts`, `src/core/agent-router.ts`,
+`src/transports/agent-messaging.ts`, `src/host-adapters/`, `src/host-runtime/`, and
+`docs/platforms/agent-messaging.md`.
 
 This branch is optional and local-only: unavailable, stopped, disconnected, or unsupported sessions are not resumed or replaced. A host queue acceptance is a host receipt, not recipient acknowledgement or workflow disposition. See the [`message` API contract](api/API_REFERENCE.md#message) and the [Local Agent Messaging Guide](platforms/agent-messaging.md) for the lifecycle and supported-host limits.
 
@@ -420,7 +443,7 @@ MeMesh supports three integration tiers:
 
 | Tier | Client | Integration Method |
 |------|--------|--------------------|
-| **Native plugin** | Claude Code | Plugin (`.claude-plugin/plugin.json` + 7 lifecycle hooks) |
+| **Native plugin** | Claude Code | Plugin (`.claude-plugin/plugin.json` + 8 lifecycle hooks) |
 | | Hermes Agent | Native `MemoryProvider` plugin (Python ABC, convention-based discovery) |
 | | OpenClaw | Native memory-capability plugin (TypeScript, `api.registerMemoryCapability()`) |
 | **MCP server** | Claude Managed Agents | MCP connector (beta, via session config) |

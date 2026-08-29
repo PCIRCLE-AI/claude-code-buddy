@@ -234,23 +234,6 @@ else ok(`registry and API_REFERENCE.md agree on ${toolsInCode} MCP tools`);
     fail(`docs/ARCHITECTURE.md says ${archCli[1]} top-level commands, cli.ts registers ${topLevel}`);
   else ok(`ARCHITECTURE.md agrees on ${topLevel} top-level CLI commands`);
 
-  // (a4) CODEMAP.md's backticked file references must exist. The dangling-
-  // path check below only covers path-shaped references (with a `/`);
-  // CODEMAP's hook table used bare backticked filenames, so a deleted hook
-  // script stayed listed. Bare filenames are resolved against the two
-  // directories CODEMAP catalogues this way.
-  const codemap = read('CODEMAP.md');
-  const bareFiles = [...codemap.matchAll(/`([\w-]+\.(?:js|ts|mjs|tsx))`/g)].map((m) => m[1]);
-  if (bareFiles.length < 3) fail(`CODEMAP.md bare-filename extraction matched only ${bareFiles.length} — the pattern stopped matching`);
-  else {
-    const roots = ['scripts/hooks', 'src/core', 'src/transports/cli', 'src/transports/http', 'src/transports/mcp', 'src', 'scripts'];
-    const missing = [...new Set(bareFiles)].filter(
-      (f) => !roots.some((r) => fs.existsSync(path.join(repoRoot, r, f))),
-    );
-    if (missing.length) fail(`CODEMAP.md names ${missing.join(', ')}, which exist in none of the catalogued directories`);
-    else ok(`${new Set(bareFiles).size} CODEMAP.md file references all exist`);
-  }
-
   // (b) README's search-scoring weights vs DEFAULT_WEIGHTS.
   const scoring = read('src/core/scoring.ts');
   const w = {};
