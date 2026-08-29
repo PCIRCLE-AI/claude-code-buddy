@@ -448,6 +448,34 @@ describe('issue #221 — the save/readback loop is closed, not merely sequenced'
     expect(capabilityValues(container)).toContain('gpt-fixture');
   });
 
+  it('refuses to report removal when the server still holds the provider', async () => {
+    // Same defect as the save path: the remove-readback guard could be
+    // deleted and all 477 dashboard/HTTP tests stayed green, because the
+    // fake decided what to return from `removed`, a flag it set itself,
+    // rather than from what the request actually did.
+    vi.stubGlobal('confirm', vi.fn(() => true));
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? 'GET').toUpperCase();
+      const background = backgroundResponse(url);
+      if (background) return background;
+      // The POST is accepted and the server keeps the provider anyway — a
+      // write that reports success and changes nothing.
+      if (method === 'POST' && url.endsWith('/v1/config')) return jsonResponse({ success: true, data: {} });
+      if (url.includes('/v1/config')) {
+        return jsonResponse({ success: true, data: configData({ provider: 'ollama', model: 'llama3.2' }, { provider: 'ollama' }) });
+      }
+      return jsonResponse({ success: true, data: {} });
+    });
+
+    const { container, getByText } = render(<SettingsTab locale="en" onLocaleChange={() => {}} />);
+    await waitFor(() => expect(container.textContent).toContain(t('settings.removeMatchingProviders')));
+    fireEvent.click(getByText(t('settings.removeMatchingProviders')));
+
+    await waitFor(() => expect(container.textContent).toContain(t('settings.configReadbackFailed')));
+    expect(container.textContent).not.toContain(t('settings.providerRemoved'));
+  });
+
   it('refuses to report success when the readback disagrees with what was chosen', async () => {
     // The server accepts the POST but answers the readback with a different
     // model. Deleting the reconciliation in save() makes this pass silently,
