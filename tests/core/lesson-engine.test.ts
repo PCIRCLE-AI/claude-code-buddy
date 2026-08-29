@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { createLesson, createExplicitLesson, inferErrorPattern } from '../../src/core/lesson-engine.js';
+import { createLesson, createExplicitLesson, inferErrorPattern, lessonSlug } from '../../src/core/lesson-engine.js';
+import { getDatabase } from '../../src/db.js';
 import { recall } from '../../src/core/operations.js';
 import type { StructuredLesson } from '../../src/core/failure-analyzer.js';
 import { useTestDatabase } from '../helpers/db-fixture.js';
@@ -76,6 +77,35 @@ describe('createExplicitLesson', () => {
     createExplicitLesson('TypeError: null is not an object', 'Added null check', 'myapp');
     const entities = recall({ tag: 'error-pattern:null-reference' });
     expect(entities.length).toBe(1);
+  });
+});
+
+describe('Regression #241: explicit lessons are keyed on content, not on the error enum', () => {
+  it('two unrelated lessons in one project become two entities', () => {
+    const a = createExplicitLesson('A test fake answered from a flag it set itself instead of from the written body', 'Make the fake a store', 'proj');
+    const b = createExplicitLesson('The shared secret pattern list has three consumers and one of them drops content', 'Enumerate consumers before editing the list', 'proj');
+    expect(a.name).not.toBe(b.name);
+    expect(a.name).toMatch(/^lesson-proj-/);
+    expect(b.name).toMatch(/^lesson-proj-/);
+    // Neither collapsed into the shared bucket.
+    expect(a.name).not.toBe('lesson-proj-other');
+    expect(b.name).not.toBe('lesson-proj-other');
+  });
+
+  it('resubmitting the same lesson still lands on the same entity and appends', () => {
+    const first = createExplicitLesson('Widened the credential regex without a left boundary', 'Add \\b', 'proj');
+    const again = createExplicitLesson('Widened the credential regex without a left boundary', 'Add \\b and a negative corpus', 'proj');
+    expect(again.name).toBe(first.name);
+    const db = getDatabase();
+    const row = db.prepare('SELECT id FROM entities WHERE name = ?').get(first.name) as { id: number };
+    const n = (db.prepare('SELECT COUNT(*) AS n FROM observations WHERE entity_id = ?').get(row.id) as { n: number }).n;
+    expect(n).toBe(8); // two submissions x four fields
+  });
+
+  it('lessonSlug is bounded and stable', () => {
+    expect(lessonSlug('Null pointer in the auth path')).toBe('null-pointer-in-the-auth-path');
+    expect(lessonSlug('x'.repeat(500)).length).toBeLessThanOrEqual(80);
+    expect(lessonSlug('!!!')).toBe('unspecified');
   });
 });
 

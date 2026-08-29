@@ -97,6 +97,25 @@ reported something that was not true.
 - **Onboarding says which features depend on an LLM**, rather than implying the
   whole product does.
 
+- **A memory stored in the `global` namespace is injected everywhere.**
+  SessionStart selected purely by `project:` tag, so a global memory with no
+  project tag was reachable by nobody — a standing rule stored that way was
+  never injected into any session for months. Global entities now ride in a
+  small separate window after the project's own memories.
+
+- **Two unrelated lessons no longer fuse into one entity.** `learn` keyed
+  every explicit lesson on a nine-value runtime-error enum, and anything
+  outside those categories landed in one `-other` bucket per project —
+  measured: one entity holding 68 observations. Explicit lessons are now
+  keyed on their own text; resubmitting the same lesson still appends.
+
+- **The Stop hook stops re-appending the session summary.** A session that
+  edited through Bash produced no `-files` entity, the re-capture guard keyed
+  on that entity never tripped, and `-summary` grew by the same observations
+  on every Stop — 56 rows, 16 unique. The guard now keys on all three session
+  entities, and Bash-driven edits are counted instead of reported as `0 files
+  edited`.
+
 ### Changed
 
 - The memory timeline is named **Project History**, not Roadmap, in all eleven

@@ -87,6 +87,30 @@ async function runAutoUpdateAtStop() {
 // Handles the current Claude Code transcript format where tool_use/tool_result
 // are nested inside assistant/user message entries, not top-level entries.
 // Defensive: never throws — malformed lines are silently skipped.
+/**
+ * File paths a shell command writes in place. Recognises the shapes an
+ * agent actually uses to edit without Write/Edit: heredoc redirection
+ * (`> path <<'EOF'`, `cat > path`), `sed -i`, `tee`, and `pathlib.Path('x')
+ * .write_text(` / `fs.writeFileSync('x'` inside an inline script. Returns
+ * basenames' sources; the caller keeps basename() as the stored form.
+ */
+function bashEditedPaths(cmd) {
+  if (typeof cmd !== 'string') return [];
+  const found = new Set();
+  const add = (m) => { if (m && m[1] && !m[1].startsWith('/dev/') && !m[1].startsWith('/tmp/')) found.add(m[1]); };
+  for (const re of [
+    /(?:^|[^<])>\s*"?([^\s"'>|&;]+)"?\s*<<\s*['"]?\w+['"]?/g,   // > file <<'EOF'
+    /\bcat\s*>\s*"?([^\s"'>|&;]+)"?/g,                            // cat > file
+    /\btee\s+(?:-a\s+)?"?([^\s"'>|&;]+)"?/g,                      // tee file
+    /\bsed\s+-i(?:\s+'')?\s+(?:'[^']*'|"[^"]*")\s+"?([^\s"'>|&;]+)"?/g, // sed -i '...' file
+    /Path\(\s*['"]([^'"]+)['"]\s*\)\s*\.write_text\(/g,           // pathlib write_text
+    /writeFileSync\(\s*['"]([^'"]+)['"]/g,                        // fs.writeFileSync
+  ]) {
+    let m; while ((m = re.exec(cmd)) !== null) add(m);
+  }
+  return [...found];
+}
+
 function parseTranscript(transcriptPath) {
   const filesEdited = new Set();
   const bashCommands = [];
@@ -118,6 +142,15 @@ function parseTranscript(transcriptPath) {
             }
             if (block.name === 'Bash') {
               const cmd = block.input?.command ?? '';
+              // A session that edits through Bash — heredocs, sed -i, a
+              // short python script — never produces a Write/Edit block, so
+              // `filesEdited` stayed empty and the summary asserted "0 files
+              // edited" for a session that edited a dozen. The count also
+              // drives the re-capture guard below, so the same gap made the
+              // -summary entity re-append on every Stop (#240). Recognise the
+              // common in-place write shapes; anything not matched is simply
+              // uncounted, which is honest — it is not asserted as zero.
+              for (const fp of bashEditedPaths(cmd)) filesEdited.add(basename(fp));
               if (typeof cmd === 'string' && cmd.length > 10 && !cmd.startsWith('ls') && !cmd.startsWith('cd')) {
                 // Redact BEFORE truncating. A bash command line is the single
                 // most likely place a credential appears in a transcript
@@ -347,7 +380,13 @@ process.stdin.on('end', async () => {
       // A dedup bail is a SUCCESSFUL run — the loop executed and correctly
       // decided there was nothing to do — so it stamps the heartbeat like
       // the capture path below does. Only a throw leaves no stamp.
-      const alreadyCaptured = db.prepare("SELECT id FROM entities WHERE name = ?").get(`session-${sessionId}-files`);
+      // Guard on ANY of this session's three entities, not only `-files`.
+      // A Bash-only session created no `-files` row, so the guard never
+      // tripped and `-summary` was re-appended on every Stop — measured: 56
+      // observations, 16 unique, three commands stored fourteen times each.
+      const alreadyCaptured = db.prepare(
+        "SELECT id FROM entities WHERE name IN (?, ?, ?) LIMIT 1",
+      ).get(`session-${sessionId}-files`, `session-${sessionId}-fixes`, `session-${sessionId}-summary`);
       if (alreadyCaptured) {
         recordHookRun(db, 'session-summary');
         return exit0();

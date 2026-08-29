@@ -108,13 +108,13 @@
     },
     {
       "path": "scripts/hooks/session-start.js",
-      "sha256": "3122cda86c950030c97ece08e80ba052b19af8bfd2ebbc4af0411756f771af77",
-      "bytes": 58743
+      "sha256": "9dd8010551deb8a4016d2963f83a1699313f40302bd714b082b5ec82aa71c467",
+      "bytes": 60042
     },
     {
       "path": "scripts/hooks/session-summary.js",
-      "sha256": "50d2d9ee1a65e19f43d296891ffcb8222eb7b02d162c0f99f4d883d7cb9872d1",
-      "bytes": 47381
+      "sha256": "71c9a38f7b1c0b3f84ec8f51d5b5c79e9cca5bb6ae84b72d2b6bccc77f0fd38d",
+      "bytes": 49691
     },
     {
       "path": "scripts/hooks/user-prompt-intent.js",
