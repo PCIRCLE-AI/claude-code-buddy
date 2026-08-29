@@ -685,6 +685,11 @@
       "class": "SAFE",
       "reason": "Deliberately not referenced from verify:release or CI: it reads the developer's REAL knowledge graph, which is per-machine state, and the release gate must reproduce on a fresh clone. Its callers are (1) the dogfood step CLAUDE.md requires before a release is declared verified, and (2) tests/audit/memory-invariants.test.ts, which spawns the same script file directly against seeded throwaway graphs — so the script cannot rot unnoticed: a change that breaks it goes red in the default suite.",
       "triaged": "2026-08-30 v4.8.2 dogfood audit"
+    },
+    "C1 tests/storage/graph-repairs.test.ts": {
+      "class": "SAFE-HEURISTIC-FALSE-POSITIVE",
+      "reason": "The detector's `.toBe(0)` matches `expect(runInvariants().status).toBe(0)` — a process EXIT CODE, not an empty collection. Every exit-0 assertion in the file follows an `expect(...status).toBe(1)` on the seeded defect BEFORE the repair (the anti-vacuity pin the detector cannot see), and the repaired state is asserted by exact content: `toEqual([...LESSON_B])`, `toEqual([nameC])`, the moved row's id (9) and created_at, the carried tag list. Same shape as the memory-invariants.test.ts entry.",
+      "triaged": "2026-08-30 v4.8.2 graph repair"
     }
   }
 }

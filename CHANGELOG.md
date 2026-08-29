@@ -92,6 +92,30 @@ reported something that was not true.
   measured: one entity holding 68 observations. Explicit lessons are now
   keyed on their own text; resubmitting the same lesson still appends.
 
+- **Graphs written by 4.8.1 are repaired at the first open after upgrade.**
+  The two fixes above stop new damage; they did nothing for the rows already
+  there, and every graph that ran 4.8.1 hooks has them. Three one-shot passes
+  now run with the other backfills (`src/storage/graph-repairs.ts`): duplicate
+  observations on `session-*` entities are removed (706 rows on the
+  maintainer's graph); a summary that claimed `0 files edited` beside a Bash
+  command that writes files is rewritten to say the count was not recorded;
+  and every explicit lesson after the first in a `lesson-<project>-other`
+  bucket moves — rows, ids and timestamps intact — to its own
+  `lesson-<project>-<slug>` entity, the name `learn` gives it now (35 lessons
+  out of four buckets). `severity:` is carried only when the bucket had one;
+  with several, which lesson was critical is not recorded anywhere. The FTS
+  index is rebuilt whole rather than patched row by row, because a contentless
+  FTS5 delete for a row the hook never indexed corrupts the index; vectors for
+  the moved text are dropped and a reindex is marked owed, which `memesh
+  doctor` reports and `memesh reindex` clears. `scripts/audit/memory-invariants.mjs`
+  holds on the maintainer's graph afterwards.
+
+- **`npm run build` no longer opens the developer's real graph.** The smoke
+  test's HTTP-server child inherited no database path, so it opened `~/.memesh`
+  and ran every migration in the working tree against it. Found the hard way:
+  the repair above ran on the maintainer's real memories from a build. The
+  child now gets the smoke test's own throwaway path.
+
 - **The Stop hook stops re-appending the session summary.** A session that
   edited through Bash produced no `-files` entity, the re-capture guard keyed
   on that entity never tripped, and `-summary` grew by the same observations

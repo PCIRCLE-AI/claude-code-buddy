@@ -7,6 +7,7 @@ import { resolveEmbeddingDimension } from './core/config.js';
 import { computeSignalScore } from './core/signal-scorer.js';
 import { getDbPath } from './core/paths.js';
 import { insertFtsRow, joinIndexedObservations, removeFromFts } from './storage/fts-index.js';
+import { dedupeSessionObservations, retractZeroEditClaims, splitFusedLessons } from './storage/graph-repairs.js';
 import {
   SCHEMA_SQL,
   FTS_SQL,
@@ -173,6 +174,24 @@ function migrateToCurrentSchema(db: MemeshDatabase, resolvedPath: string): void 
   // A1: release the auto-injection block on memories a human already
   // accepted via `dream accept`. Same marker + fill-only discipline.
   backfillAcceptedProposalTrust(db);
+
+  // Repair what 4.8.1 hooks wrote wrongly (#240 duplicate session
+  // observations, #241 lessons fused into one `-other` bucket). The fixes in
+  // 4.8.2 stop new damage; these passes clean the rows already there, once.
+  // After the title backfill so a bucket already has its title when its FTS
+  // row is re-derived, and a split-out lesson gets one the same way.
+  dedupeSessionObservations(db);
+  retractZeroEditClaims(db);
+  splitFusedLessons(db, {
+    deriveTitle: deriveHeuristicTitle,
+    markReindexOwed: (conn) => {
+      const stored = conn.prepare(
+        "SELECT value FROM memesh_metadata WHERE key = 'embedding_dimension'"
+      ).get() as { value: string } | undefined;
+      const dim = stored ? parseInt(stored.value, 10) : 0;
+      if (dim > 0) markReindexOwed(dim, dim, 'vectors-missing', conn);
+    },
+  });
 
   // Phase-2 of #39 (LLM cluster compactor): proposed digests live in
   // a staging table, written by the dreamer and reviewed by the user

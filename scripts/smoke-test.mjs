@@ -144,11 +144,21 @@ test('HTTP server starts', () => {
     console.log('OK');
   `.replace(/\n/g, ' ');
 
+  // `startServer` opens the database and runs every migration in it. Without
+  // a path of its own this child opened the DEVELOPER'S real ~/.memesh graph —
+  // so `npm run build` silently applied whatever data migration was in the
+  // working tree to the maintainer's memories. Measured 2026-08-30: a one-shot
+  // repair under development ran on the real graph from a build, not a test.
+  const httpDbPath = join(projectRoot, '.smoke-test-http.db');
   const output = execFileSync('node', ['-e', script], {
     cwd: projectRoot,
     encoding: 'utf-8',
     stdio: 'pipe',
+    env: { ...process.env, MEMESH_DB_PATH: httpDbPath },
   });
+  for (const suffix of ['', '-wal', '-shm']) {
+    if (fs.existsSync(`${httpDbPath}${suffix}`)) fs.unlinkSync(`${httpDbPath}${suffix}`);
+  }
 
   if (!output.includes('OK')) throw new Error('Server did not start');
 });

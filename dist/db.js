@@ -7,6 +7,7 @@ import { resolveEmbeddingDimension } from './core/config.js';
 import { computeSignalScore } from './core/signal-scorer.js';
 import { getDbPath } from './core/paths.js';
 import { insertFtsRow, joinIndexedObservations, removeFromFts } from './storage/fts-index.js';
+import { dedupeSessionObservations, retractZeroEditClaims, splitFusedLessons } from './storage/graph-repairs.js';
 import { SCHEMA_SQL, FTS_SQL, safeAlter, migrateEntitiesSchema, ensureTagsUniqueIndex, ensureHookRunsSince, ensureFtsSegmentation, rebuildFtsIndex, runOnceMigration, FTS_SEGMENTATION_VERSION, } from './storage/schema.js';
 export { runOnceMigration, FTS_SEGMENTATION_VERSION };
 import { truncateTitle, isBoilerplateObservation } from './core/title.js';
@@ -77,6 +78,17 @@ function migrateToCurrentSchema(db, resolvedPath) {
     backfillSignalScores(db);
     backfillTitles(db);
     backfillAcceptedProposalTrust(db);
+    dedupeSessionObservations(db);
+    retractZeroEditClaims(db);
+    splitFusedLessons(db, {
+        deriveTitle: deriveHeuristicTitle,
+        markReindexOwed: (conn) => {
+            const stored = conn.prepare("SELECT value FROM memesh_metadata WHERE key = 'embedding_dimension'").get();
+            const dim = stored ? parseInt(stored.value, 10) : 0;
+            if (dim > 0)
+                markReindexOwed(dim, dim, 'vectors-missing', conn);
+        },
+    });
     ensureDreamProposalsTable(db);
     ensureConflictJudgedPairsTable(db);
     ensureLlmTelemetryTable(db);
