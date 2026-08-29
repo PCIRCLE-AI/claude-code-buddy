@@ -98,6 +98,46 @@ When you fix a bug, **revert the fix and confirm the test goes red.** A green
 suite is not evidence that a fix is protected: three tests in this repository
 have passed while the thing they guarded was removed.
 
+### The graph is the product — check the data, not only the diff
+
+v4.8.2 was reviewed seven times before release (two whole-diff reviews, a
+security review, a replay review, a contract review, a loop-closure pass and
+a guard sweep). Dogfooding then found three memory-layer defects that every
+one of them had missed — #240, #241, #242 — because all seven reviewed the
+DIFF, and the defects sat in code the release never touched. A diff review
+cannot find a defect in code the diff does not contain, at any coverage.
+
+Each of those defects is a one-line SQL question against the knowledge graph.
+
+```bash
+npm run audit:memory                       # your ~/.memesh, read-only
+node scripts/audit/memory-invariants.mjs --db <path>
+```
+
+Exit 1 on a violation, with the offending entities named. It is deliberately
+NOT in `verify:release` (a real graph is per-machine state; the release gate
+must reproduce on a fresh clone). Run it before declaring any release
+verified, and whenever a memory-layer fix lands — a fix without an invariant
+here can regress silently, because this file is the only place that watches
+the data itself. `tests/audit/memory-invariants.test.ts` seeds each defect
+into a throwaway graph and requires exit 1, so a detector that stops
+detecting goes red.
+
+Two more rules from the same night, both measured:
+
+- **Every independent reviewer gets the same whole diff and Bash.** Of the
+  seven, five were scoped by the orchestrator — one excluded a directory,
+  one replayed commands without reading code, one read four files, one
+  probed one pair, one was void because its probe hit the real database. A
+  specialist angle narrows the QUESTIONS asked, never the FILES given.
+- **Any probe that runs vitest goes through `scripts/run-tests-isolated.mjs`
+  and `--maxWorkers=1`.** An `eg prove --all` sweep of 47 guards ran for 53
+  minutes and produced zero valid verdicts: the bare `npx vitest` probe hit
+  the real graph (1536-dim embeddings vs 384-dim fixtures) and was red on
+  the unmodified tree. Whole-tree `eg prove` is also not a release gate:
+  781 guards × ~113 s per isolated run is a day. Probe the guards in the
+  files a change touched, with the test file that covers each.
+
 ### Working policy
 
 How much process a change deserves is decided by its blast radius, not by

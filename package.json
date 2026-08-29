@@ -46,6 +46,7 @@
     "test:surface-parity": "vitest run tests/readme-tool-parity.test.ts tests/codemap-parity.test.ts tests/core/schema-export.test.ts && node scripts/check-version-coherence.mjs && node scripts/check-generated-mirror.mjs && npm run test:packaged",
     "check:surface-parity": "node scripts/check-readme-tool-parity.mjs && node scripts/check-codemap-parity.mjs",
     "audit:prod": "node scripts/check-consumer-audit.mjs",
+    "audit:memory": "node scripts/audit/memory-invariants.mjs",
     "verify:release": "npm run lint && npm run typecheck && node scripts/check-version-coherence.mjs && node scripts/check-generated-mirror.mjs && node scripts/check-agent-message-sync.mjs && npm run check:surface-parity && node scripts/check-doc-claims.mjs && node scripts/audit/verification-audit.mjs && npm run audit:prod",
     "release:finish": "node scripts/finish-release.mjs",
     "prepublishOnly": "npm run build && npm run verify:release && npm run test:isolated && npm run test:packaged && npm run test:packaged:upgrade",
