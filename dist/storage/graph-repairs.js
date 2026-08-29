@@ -1,13 +1,12 @@
 import { rebuildFtsIndex, runOnceMigration } from './schema.js';
-import { hasVectorIndex } from './vector-index.js';
 import { lessonSlug } from '../core/lesson-slug.js';
 export const SESSION_DEDUPE_KEY = 'session_observation_dedupe';
 export const ZERO_EDIT_RETRACT_KEY = 'session_zero_edit_retract';
 export const FUSED_LESSON_SPLIT_KEY = 'fused_lesson_split';
-function observationsOf(db, entityId) {
-    return db
-        .prepare('SELECT id, content, created_at FROM observations WHERE entity_id = ? ORDER BY id')
-        .all(entityId);
+const ZERO_EDITS = ', 0 files edited';
+const ZERO_EDITS_RETRACTED = ', files edited through Bash (count not recorded before 4.8.2)';
+function note(line) {
+    process.stderr.write(`MeMesh: ${line}\n`);
 }
 export function dedupeSessionObservations(db) {
     let removed = -1;
@@ -22,20 +21,34 @@ export function dedupeSessionObservations(db) {
            GROUP BY e.id, o.content HAVING COUNT(o.id) > 1`)
                 .all();
             removed = 0;
-            for (const row of affected) {
-                const r = conn
-                    .prepare(`DELETE FROM observations WHERE entity_id = ? AND id NOT IN (
-               SELECT MIN(id) FROM observations WHERE entity_id = ? GROUP BY content)`)
-                    .run(row.id, row.id);
-                removed += Number(r.changes);
-            }
-            if (removed > 0)
+            const del = conn.prepare(`DELETE FROM observations WHERE entity_id = ? AND id NOT IN (
+           SELECT MIN(id) FROM observations WHERE entity_id = ? GROUP BY content)`);
+            for (const row of affected)
+                removed += Number(del.run(row.id, row.id).changes);
+            if (removed > 0) {
                 rebuildFtsIndex(conn);
+                note(`removed ${removed} duplicate observation(s) from ${affected.length} session entit${affected.length === 1 ? 'y' : 'ies'} (written by 4.8.1 hooks).`);
+            }
         },
     });
     return removed;
 }
-const BASH_WRITE_MARKS = ['<<', 'sed -i', 'write_text(', 'writeFileSync(', 'tee '];
+const BASH_WRITE_SHAPES = [
+    /(?:^|[^<])>\s*"?([^\s"'>|&;]+)"?\s*<<\s*['"]?\w+['"]?/,
+    /\bcat\s*>\s*"?([^\s"'>|&;]+)"?/,
+    /\btee\s+(?:-a\s+)?"?([^\s"'>|&;]+)"?/,
+    /\bsed\s+-i(?:\s+'')?\s+(?:'[^']*'|"[^"]*")\s+"?([^\s"'>|&;]+)"?/,
+    /Path\(\s*['"]([^'"]+)['"]\s*\)\s*\.write_text\(/,
+    /writeFileSync\(\s*['"]([^'"]+)['"]/,
+];
+export function bashWritesFiles(command) {
+    for (const re of BASH_WRITE_SHAPES) {
+        const m = re.exec(command);
+        if (m?.[1] && !m[1].startsWith('/dev/') && !m[1].startsWith('/tmp/'))
+            return true;
+    }
+    return false;
+}
 export function retractZeroEditClaims(db) {
     let rewritten = -1;
     runOnceMigration(db, {
@@ -43,20 +56,25 @@ export function retractZeroEditClaims(db) {
         version: 1,
         describe: 'session zero-edit retraction',
         migrate: (conn) => {
-            const marks = BASH_WRITE_MARKS.map(() => "o2.content LIKE 'Command:%' AND o2.content LIKE ?").join(' OR ');
-            const rows = conn
-                .prepare(`SELECT o.id, o.content FROM observations o JOIN entities e ON e.id = o.entity_id
+            const candidates = conn
+                .prepare(`SELECT o.id, o.content, o.entity_id FROM observations o JOIN entities e ON e.id = o.entity_id
            WHERE e.name LIKE 'session-%-summary'
-             AND o.content LIKE 'Significant session:%0 files edited%'
-             AND EXISTS (SELECT 1 FROM observations o2 WHERE o2.entity_id = e.id AND (${marks}))`)
-                .all(...BASH_WRITE_MARKS.map((m) => `%${m}%`));
+             AND o.content LIKE 'Significant session:%${ZERO_EDITS}%'`)
+                .all();
+            const commands = conn.prepare("SELECT content FROM observations WHERE entity_id = ? AND content LIKE 'Command:%'");
             const update = conn.prepare('UPDATE observations SET content = ? WHERE id = ?');
-            for (const row of rows) {
-                update.run(row.content.replace('0 files edited', 'files edited through Bash (count not recorded before 4.8.2)'), row.id);
+            rewritten = 0;
+            for (const row of candidates) {
+                const cmds = commands.all(row.entity_id);
+                if (!cmds.some((c) => bashWritesFiles(c.content)))
+                    continue;
+                update.run(row.content.replace(ZERO_EDITS, ZERO_EDITS_RETRACTED), row.id);
+                rewritten += 1;
             }
-            rewritten = rows.length;
-            if (rewritten > 0)
+            if (rewritten > 0) {
                 rebuildFtsIndex(conn);
+                note(`retracted "0 files edited" on ${rewritten} session summar${rewritten === 1 ? 'y' : 'ies'} that recorded a Bash write.`);
+            }
         },
     });
     return rewritten;
@@ -84,53 +102,60 @@ export function splitFusedLessons(db, deps) {
                 .prepare(`SELECT e.id, e.name, e.type, e.namespace, e.confidence
            FROM entities e
            WHERE e.type = 'lesson_learned' AND e.name LIKE 'lesson-%-other'
-             AND EXISTS (SELECT 1 FROM tags t WHERE t.entity_id = e.id AND t.tag = 'source:explicit')
-             AND (SELECT COUNT(*) FROM observations o WHERE o.entity_id = e.id) > 4`)
+             AND EXISTS (SELECT 1 FROM tags t WHERE t.entity_id = e.id AND t.tag = 'source:explicit')`)
                 .all();
+            const tagsOf = conn.prepare('SELECT tag FROM tags WHERE entity_id = ?');
+            const obsOf = conn.prepare('SELECT id, content, created_at FROM observations WHERE entity_id = ? ORDER BY id');
+            const findTarget = conn.prepare('SELECT id, status FROM entities WHERE name = ?');
+            const revive = conn.prepare("UPDATE entities SET status = 'active' WHERE id = ?");
+            const insertEntity = conn.prepare(`INSERT INTO entities (name, type, created_at, metadata, status, confidence, namespace, title)
+         VALUES (?, ?, ?, ?, 'active', ?, ?, ?)`);
+            const insertTag = conn.prepare('INSERT OR IGNORE INTO tags (entity_id, tag) VALUES (?, ?)');
+            const moveRow = conn.prepare('UPDATE observations SET entity_id = ? WHERE id = ?');
+            const dropExplicit = conn.prepare("DELETE FROM tags WHERE entity_id = ? AND tag = 'source:explicit'");
+            const archive = conn.prepare("UPDATE entities SET status = 'archived' WHERE id = ? AND NOT EXISTS (SELECT 1 FROM observations WHERE entity_id = ?)");
             moved = 0;
-            const vec = hasVectorIndex(conn);
+            let bucketsTouched = 0;
             for (const bucket of buckets) {
-                const tags = conn.prepare('SELECT tag FROM tags WHERE entity_id = ?').all(bucket.id)
-                    .map((t) => t.tag);
-                const project = tags.find((t) => t.startsWith('project:'))?.slice('project:'.length);
-                if (!project)
+                const groups = groupLessons(obsOf.all(bucket.id));
+                if (groups.length === 0)
                     continue;
-                const rows = observationsOf(conn, bucket.id);
-                const groups = groupLessons(rows);
-                if (groups.length < 2)
-                    continue;
+                const tags = tagsOf.all(bucket.id).map((t) => t.tag);
+                const project = tags.find((t) => t.startsWith('project:'))?.slice('project:'.length) ??
+                    bucket.name.slice('lesson-'.length, -'-other'.length);
                 const severities = tags.filter((t) => t.startsWith('severity:'));
-                const carried = tags.filter((t) => !t.startsWith('severity:'));
+                const carried = tags.filter((t) => !t.startsWith('severity:') && !t.startsWith('source:'));
                 if (severities.length === 1)
                     carried.push(severities[0]);
-                for (const group of groups.slice(1)) {
+                if (!tags.includes('source:auto-learned'))
+                    carried.push('source:explicit');
+                for (const group of groups) {
                     const name = `lesson-${project}-${lessonSlug(group.error)}`;
-                    let target = conn.prepare('SELECT id FROM entities WHERE name = ?').get(name);
-                    if (!target) {
+                    let target = findTarget.get(name);
+                    if (target) {
+                        if (target.status !== 'active')
+                            revive.run(target.id);
+                    }
+                    else {
                         const contents = group.rows.map((o) => o.content);
                         const title = deps.deriveTitle(bucket.type, contents);
-                        const inserted = conn
-                            .prepare(`INSERT INTO entities (name, type, created_at, metadata, status, confidence, namespace, title)
-                 VALUES (?, ?, ?, ?, 'active', ?, ?, ?)`)
-                            .run(name, bucket.type, group.rows[0].created_at, JSON.stringify(title ? { title_source: 'heuristic', split_from: bucket.name } : { split_from: bucket.name }), bucket.confidence, bucket.namespace, title);
-                        target = { id: Number(inserted.lastInsertRowid) };
-                        const tagStmt = conn.prepare('INSERT OR IGNORE INTO tags (entity_id, tag) VALUES (?, ?)');
+                        const inserted = insertEntity.run(name, bucket.type, group.rows[0].created_at, JSON.stringify(title ? { title_source: 'heuristic', split_from: bucket.name } : { split_from: bucket.name }), bucket.confidence, bucket.namespace, title);
+                        target = { id: Number(inserted.lastInsertRowid), status: 'active' };
                         for (const tag of carried)
-                            tagStmt.run(target.id, tag);
+                            insertTag.run(target.id, tag);
                     }
-                    const moveStmt = conn.prepare('UPDATE observations SET entity_id = ? WHERE id = ?');
                     for (const row of group.rows)
-                        moveStmt.run(target.id, row.id);
-                    if (vec)
-                        conn.prepare('DELETE FROM entities_vec WHERE rowid = ?').run(BigInt(target.id));
+                        moveRow.run(target.id, row.id);
                     moved += 1;
                 }
-                if (vec)
-                    conn.prepare('DELETE FROM entities_vec WHERE rowid = ?').run(BigInt(bucket.id));
+                dropExplicit.run(bucket.id);
+                archive.run(bucket.id, bucket.id);
+                bucketsTouched += 1;
             }
             if (moved > 0) {
                 rebuildFtsIndex(conn);
                 deps.markReindexOwed(conn);
+                note(`moved ${moved} lesson(s) out of ${bucketsTouched} "-other" bucket(s) into their own entities; run 'memesh reindex' to refresh their vectors.`);
             }
         },
     });

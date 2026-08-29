@@ -49,6 +49,27 @@ import { join } from 'node:path';
 
 const MAX_ROWS = 8;
 
+/**
+ * The Bash write shapes the Stop hook's `bashEditedPaths` recognises
+ * (scripts/hooks/session-summary.js) — mirrored in src/storage/graph-repairs.ts,
+ * which repairs what this invariant reports. Keep the three in step.
+ */
+const BASH_WRITE_SHAPES = [
+  /(?:^|[^<])>\s*"?([^\s"'>|&;]+)"?\s*<<\s*['"]?\w+['"]?/,
+  /\bcat\s*>\s*"?([^\s"'>|&;]+)"?/,
+  /\btee\s+(?:-a\s+)?"?([^\s"'>|&;]+)"?/,
+  /\bsed\s+-i(?:\s+'')?\s+(?:'[^']*'|"[^"]*")\s+"?([^\s"'>|&;]+)"?/,
+  /Path\(\s*['"]([^'"]+)['"]\s*\)\s*\.write_text\(/,
+  /writeFileSync\(\s*['"]([^'"]+)['"]/,
+];
+function bashWritesFiles(command) {
+  for (const re of BASH_WRITE_SHAPES) {
+    const m = re.exec(command);
+    if (m?.[1] && !m[1].startsWith('/dev/') && !m[1].startsWith('/tmp/')) return true;
+  }
+  return false;
+}
+
 function resolveDbPath(argv) {
   const i = argv.indexOf('--db');
   if (i !== -1 && argv[i + 1]) return argv[i + 1];
@@ -79,10 +100,14 @@ const INVARIANTS = [
       SELECT e.name AS name
       FROM entities e
       WHERE e.name LIKE 'session-%-summary'
-        AND EXISTS (SELECT 1 FROM observations o WHERE o.entity_id = e.id AND o.content LIKE 'Significant session:%0 files edited%')
-        AND EXISTS (SELECT 1 FROM observations o WHERE o.entity_id = e.id AND o.content LIKE 'Command:%'
-                    AND (o.content LIKE '%<<%' OR o.content LIKE '%sed -i%' OR o.content LIKE '%write_text(%' OR o.content LIKE '%writeFileSync(%' OR o.content LIKE '%tee %'))
+        AND EXISTS (SELECT 1 FROM observations o WHERE o.entity_id = e.id AND o.content LIKE 'Significant session:%, 0 files edited%')
+        AND EXISTS (SELECT 1 FROM observations o WHERE o.entity_id = e.id AND o.content LIKE 'Command:%')
       LIMIT ${MAX_ROWS}`,
+    // Anchored on ", 0 files edited": "10 files edited" ends the same way and is true.
+    // The SQL narrows; the Bash-write test itself is the hook's own regexes
+    // (BASH_WRITE_SHAPES below), applied in JS — a bare `<<` only feeds stdin.
+    rows: (db, rows) => rows.filter((r) => db.prepare("SELECT content FROM observations o JOIN entities e ON e.id = o.entity_id WHERE e.name = ? AND o.content LIKE 'Command:%'")
+      .all(r.name).some((o) => bashWritesFiles(o.content))),
     row: (r) => r.name,
   },
   {
@@ -134,6 +159,7 @@ function main() {
       let rows;
       try {
         rows = db.prepare(inv.sql).all();
+        if (inv.rows) rows = inv.rows(db, rows);
       } catch (err) {
         // A schema older than the column an invariant needs is not a
         // violation of that invariant; say so and move on.

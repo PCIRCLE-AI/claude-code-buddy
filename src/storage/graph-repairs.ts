@@ -11,9 +11,11 @@
 // red on every existing install forever, and leaves recall matching the fused
 // buckets (retrieved 61 times, matched 3) instead of the lessons in them.
 //
-// So the data is repaired here, once, at the first open after upgrade — the
-// same place and the same shape as every other backfill in db.ts: a
-// `runOnceMigration` keyed in `memesh_metadata`, transactional, non-fatal.
+// So the data is repaired here, once, at the first CORE open after upgrade
+// (CLI, MCP, HTTP — the hooks open through their own wrapper and do not run
+// migrations) — the same place and the same shape as every other backfill in
+// db.ts: a `runOnceMigration` keyed in `memesh_metadata`, transactional,
+// non-fatal, one line on stderr when it changed something.
 //
 // Three passes, each owning exactly one invariant from memory-invariants.mjs:
 //
@@ -26,12 +28,16 @@
 //     the entity's vector alone: the set of sentences is unchanged, so the
 //     embedding of "name + observations" is the same text minus repeats.
 //   - The split moves observation ROWS rather than copying them, so ids and
-//     created_at survive and nothing is re-authored. The bucket keeps its
-//     first lesson and every column that cannot be attributed to one lesson
-//     (access counts, confidence, recall stats). Its vector is dropped, the
-//     new entities get none, and `pending_reindex` is marked — the same flag
-//     `memesh reindex` already clears — because a vector for the wrong text
-//     is worse than none.
+//     created_at survive and nothing is re-authored. EVERY explicit lesson
+//     leaves the bucket — keeping the first would leave one lesson whose
+//     re-learned copy lands beside its history instead of on it, the exact
+//     state the split exists to end. The emptied bucket is archived, not
+//     deleted: relations that point at it still resolve.
+//   - Vectors are left where they are. sqlite-vec is loaded AFTER the
+//     backfills run, so this code cannot touch `entities_vec` and does not
+//     pretend to; it records that a rebuild is owed (`pending_reindex`, the
+//     flag `memesh doctor` reports and `memesh reindex` clears). Until then
+//     the bucket's old vector still describes text it no longer holds.
 //   - FTS is rebuilt whole (`rebuildFtsIndex`, the same call the segmentation
 //     migration makes) rather than patched row by row. `entities_fts` is
 //     contentless: a delete must repeat the exact text that was indexed, and a
@@ -39,24 +45,21 @@
 //     index ("database disk image is malformed"). A rebuild has no such input.
 //   - `severity:*` is copied to a split-out lesson only when the bucket has
 //     exactly one such tag. With several, which lesson was `critical` is not
-//     recorded anywhere, and guessing would write a fact nobody stated.
+//     recorded anywhere, and guessing would write a fact nobody stated. The
+//     same rule for `source:explicit`: it is carried only when the bucket has
+//     no `source:auto-learned` tag beside it.
 
 import type { MemeshDatabase } from './sqlite.js';
 import { rebuildFtsIndex, runOnceMigration } from './schema.js';
-import { hasVectorIndex } from './vector-index.js';
 import { lessonSlug } from '../core/lesson-slug.js';
 
 export const SESSION_DEDUPE_KEY = 'session_observation_dedupe';
 export const ZERO_EDIT_RETRACT_KEY = 'session_zero_edit_retract';
 export const FUSED_LESSON_SPLIT_KEY = 'fused_lesson_split';
 
-interface BucketRow {
-  id: number;
-  name: string;
-  type: string;
-  namespace: string | null;
-  confidence: number | null;
-}
+/** The summary suffix the Stop hook wrote when it could not see Bash edits. */
+const ZERO_EDITS = ', 0 files edited';
+const ZERO_EDITS_RETRACTED = ', files edited through Bash (count not recorded before 4.8.2)';
 
 interface ObsRow {
   id: number;
@@ -64,10 +67,8 @@ interface ObsRow {
   created_at: string;
 }
 
-function observationsOf(db: MemeshDatabase, entityId: number): ObsRow[] {
-  return db
-    .prepare('SELECT id, content, created_at FROM observations WHERE entity_id = ? ORDER BY id')
-    .all(entityId) as unknown as ObsRow[];
+function note(line: string): void {
+  process.stderr.write(`MeMesh: ${line}\n`);
 }
 
 /**
@@ -75,8 +76,7 @@ function observationsOf(db: MemeshDatabase, entityId: number): ObsRow[] {
  *
  * The Stop hook re-appended the same summary on every Stop when a session's
  * edits went through Bash. Deletes every observation whose exact content
- * already appears on the same `session-*` entity with a lower id, then
- * re-derives FTS for each entity it touched.
+ * already appears on the same `session-*` entity with a lower id.
  *
  * @returns number of duplicate rows removed, or -1 if the pass did not run
  */
@@ -95,23 +95,45 @@ export function dedupeSessionObservations(db: MemeshDatabase): number {
         )
         .all() as unknown as Array<{ id: number }>;
       removed = 0;
-      for (const row of affected) {
-        const r = conn
-          .prepare(
-            `DELETE FROM observations WHERE entity_id = ? AND id NOT IN (
-               SELECT MIN(id) FROM observations WHERE entity_id = ? GROUP BY content)`,
-          )
-          .run(row.id, row.id);
-        removed += Number(r.changes);
+      const del = conn.prepare(
+        `DELETE FROM observations WHERE entity_id = ? AND id NOT IN (
+           SELECT MIN(id) FROM observations WHERE entity_id = ? GROUP BY content)`,
+      );
+      for (const row of affected) removed += Number(del.run(row.id, row.id).changes);
+      if (removed > 0) {
+        rebuildFtsIndex(conn);
+        note(`removed ${removed} duplicate observation(s) from ${affected.length} session entit${affected.length === 1 ? 'y' : 'ies'} (written by 4.8.1 hooks).`);
       }
-      if (removed > 0) rebuildFtsIndex(conn);
     },
   });
   return removed;
 }
 
-/** The Bash write shapes the Stop hook could not see before 4.8.2 (#240). */
-const BASH_WRITE_MARKS = ['<<', 'sed -i', 'write_text(', 'writeFileSync(', 'tee '];
+/**
+ * Does this stored `Command:` line write a file in place? The same shapes
+ * the Stop hook's `bashEditedPaths` recognises (scripts/hooks/session-summary.js)
+ * — heredoc redirection, `cat >`, `tee`, `sed -i`, `write_text(`,
+ * `writeFileSync(` — and the same exclusions: `/dev/*` and `/tmp/*` targets
+ * are not edits. A bare `<<` is NOT a write (`psql <<EOF`, `python3 - <<'PY'`
+ * only feed stdin), and neither is `| tee` with no path, so substring
+ * matching would have turned a true "0 files edited" into a false claim.
+ */
+const BASH_WRITE_SHAPES: RegExp[] = [
+  /(?:^|[^<])>\s*"?([^\s"'>|&;]+)"?\s*<<\s*['"]?\w+['"]?/,
+  /\bcat\s*>\s*"?([^\s"'>|&;]+)"?/,
+  /\btee\s+(?:-a\s+)?"?([^\s"'>|&;]+)"?/,
+  /\bsed\s+-i(?:\s+'')?\s+(?:'[^']*'|"[^"]*")\s+"?([^\s"'>|&;]+)"?/,
+  /Path\(\s*['"]([^'"]+)['"]\s*\)\s*\.write_text\(/,
+  /writeFileSync\(\s*['"]([^'"]+)['"]/,
+];
+
+export function bashWritesFiles(command: string): boolean {
+  for (const re of BASH_WRITE_SHAPES) {
+    const m = re.exec(command);
+    if (m?.[1] && !m[1].startsWith('/dev/') && !m[1].startsWith('/tmp/')) return true;
+  }
+  return false;
+}
 
 /**
  * #240 — a summary does not claim "0 files edited" when it also recorded a
@@ -122,7 +144,8 @@ const BASH_WRITE_MARKS = ['<<', 'sed -i', 'write_text(', 'writeFileSync(', 'tee 
  * as memory. The count cannot be recovered now (the transcript is gone), so
  * the claim is replaced by what IS known: the session edited files through
  * Bash and the number was not recorded. The tool-call count on the same line
- * is kept.
+ * is kept. Anchored on `, 0 files edited` — `10 files edited` ends in the
+ * same characters and is a true sentence.
  *
  * @returns number of observations rewritten, or -1 if the pass did not run
  */
@@ -133,21 +156,28 @@ export function retractZeroEditClaims(db: MemeshDatabase): number {
     version: 1,
     describe: 'session zero-edit retraction',
     migrate: (conn) => {
-      const marks = BASH_WRITE_MARKS.map(() => "o2.content LIKE 'Command:%' AND o2.content LIKE ?").join(' OR ');
-      const rows = conn
+      const candidates = conn
         .prepare(
-          `SELECT o.id, o.content FROM observations o JOIN entities e ON e.id = o.entity_id
+          `SELECT o.id, o.content, o.entity_id FROM observations o JOIN entities e ON e.id = o.entity_id
            WHERE e.name LIKE 'session-%-summary'
-             AND o.content LIKE 'Significant session:%0 files edited%'
-             AND EXISTS (SELECT 1 FROM observations o2 WHERE o2.entity_id = e.id AND (${marks}))`,
+             AND o.content LIKE 'Significant session:%${ZERO_EDITS}%'`,
         )
-        .all(...BASH_WRITE_MARKS.map((m) => `%${m}%`)) as unknown as Array<{ id: number; content: string }>;
+        .all() as unknown as Array<{ id: number; content: string; entity_id: number }>;
+      const commands = conn.prepare(
+        "SELECT content FROM observations WHERE entity_id = ? AND content LIKE 'Command:%'",
+      );
       const update = conn.prepare('UPDATE observations SET content = ? WHERE id = ?');
-      for (const row of rows) {
-        update.run(row.content.replace('0 files edited', 'files edited through Bash (count not recorded before 4.8.2)'), row.id);
+      rewritten = 0;
+      for (const row of candidates) {
+        const cmds = commands.all(row.entity_id) as unknown as Array<{ content: string }>;
+        if (!cmds.some((c) => bashWritesFiles(c.content))) continue;
+        update.run(row.content.replace(ZERO_EDITS, ZERO_EDITS_RETRACTED), row.id);
+        rewritten += 1;
       }
-      rewritten = rows.length;
-      if (rewritten > 0) rebuildFtsIndex(conn);
+      if (rewritten > 0) {
+        rebuildFtsIndex(conn);
+        note(`retracted "0 files edited" on ${rewritten} session summar${rewritten === 1 ? 'y' : 'ies'} that recorded a Bash write.`);
+      }
     },
   });
   return rewritten;
@@ -185,11 +215,13 @@ function groupLessons(rows: ObsRow[]): LessonGroup[] {
  * lessons already fused the same names, so a lesson re-learned after the
  * upgrade lands on its own history rather than beside it.
  *
- * The bucket keeps its first lesson. Each later lesson moves — rows, ids and
- * timestamps intact — to `lesson-<project>-<slug>`, created if absent with
- * the bucket's tags (severity only when unambiguous), namespace and
- * confidence, and a heuristic title from `deriveTitle`. FTS follows; vectors
- * are dropped and a reindex is marked owed via `markReindexOwed`.
+ * Each lesson moves — rows, ids and timestamps intact — to
+ * `lesson-<project>-<slug>`: created if absent (with the bucket's tags under
+ * the rules in the header, its namespace and confidence, and a heuristic
+ * title from `deriveTitle`), revived if it exists archived (a `forget` of the
+ * re-learned copy must not swallow the older one), appended to if active.
+ * The bucket loses its `source:explicit` tag and, once empty, is archived.
+ * FTS follows; a reindex is marked owed via `markReindexOwed`.
  *
  * @returns number of lessons moved out of buckets, or -1 if the pass did not run
  */
@@ -211,65 +243,71 @@ export function splitFusedLessons(
           `SELECT e.id, e.name, e.type, e.namespace, e.confidence
            FROM entities e
            WHERE e.type = 'lesson_learned' AND e.name LIKE 'lesson-%-other'
-             AND EXISTS (SELECT 1 FROM tags t WHERE t.entity_id = e.id AND t.tag = 'source:explicit')
-             AND (SELECT COUNT(*) FROM observations o WHERE o.entity_id = e.id) > 4`,
+             AND EXISTS (SELECT 1 FROM tags t WHERE t.entity_id = e.id AND t.tag = 'source:explicit')`,
         )
-        .all() as unknown as BucketRow[];
+        .all() as unknown as Array<{ id: number; name: string; type: string; namespace: string | null; confidence: number | null }>;
+      const tagsOf = conn.prepare('SELECT tag FROM tags WHERE entity_id = ?');
+      const obsOf = conn.prepare('SELECT id, content, created_at FROM observations WHERE entity_id = ? ORDER BY id');
+      const findTarget = conn.prepare('SELECT id, status FROM entities WHERE name = ?');
+      const revive = conn.prepare("UPDATE entities SET status = 'active' WHERE id = ?");
+      const insertEntity = conn.prepare(
+        `INSERT INTO entities (name, type, created_at, metadata, status, confidence, namespace, title)
+         VALUES (?, ?, ?, ?, 'active', ?, ?, ?)`,
+      );
+      const insertTag = conn.prepare('INSERT OR IGNORE INTO tags (entity_id, tag) VALUES (?, ?)');
+      const moveRow = conn.prepare('UPDATE observations SET entity_id = ? WHERE id = ?');
+      const dropExplicit = conn.prepare("DELETE FROM tags WHERE entity_id = ? AND tag = 'source:explicit'");
+      const archive = conn.prepare("UPDATE entities SET status = 'archived' WHERE id = ? AND NOT EXISTS (SELECT 1 FROM observations WHERE entity_id = ?)");
       moved = 0;
-      const vec = hasVectorIndex(conn);
+      let bucketsTouched = 0;
 
       for (const bucket of buckets) {
-        const tags = (conn.prepare('SELECT tag FROM tags WHERE entity_id = ?').all(bucket.id) as Array<{ tag: string }>)
-          .map((t) => t.tag);
-        const project = tags.find((t) => t.startsWith('project:'))?.slice('project:'.length);
-        if (!project) continue; // cannot name the split-out lessons; leave the bucket as it is
+        const groups = groupLessons(obsOf.all(bucket.id) as unknown as ObsRow[]);
+        if (groups.length === 0) continue;
 
-        const rows = observationsOf(conn, bucket.id);
-        const groups = groupLessons(rows);
-        if (groups.length < 2) continue;
+        const tags = (tagsOf.all(bucket.id) as unknown as Array<{ tag: string }>).map((t) => t.tag);
+        // `lesson-<project>-other` — the tag is the record, the name the fallback.
+        const project =
+          tags.find((t) => t.startsWith('project:'))?.slice('project:'.length) ??
+          bucket.name.slice('lesson-'.length, -'-other'.length);
 
         const severities = tags.filter((t) => t.startsWith('severity:'));
-        const carried = tags.filter((t) => !t.startsWith('severity:'));
+        const carried = tags.filter((t) => !t.startsWith('severity:') && !t.startsWith('source:'));
         if (severities.length === 1) carried.push(severities[0]);
+        if (!tags.includes('source:auto-learned')) carried.push('source:explicit');
 
-        for (const group of groups.slice(1)) {
+        for (const group of groups) {
           const name = `lesson-${project}-${lessonSlug(group.error)}`;
-          let target = conn.prepare('SELECT id FROM entities WHERE name = ?').get(name) as { id: number } | undefined;
-          if (!target) {
+          let target = findTarget.get(name) as { id: number; status: string } | undefined;
+          if (target) {
+            if (target.status !== 'active') revive.run(target.id);
+          } else {
             const contents = group.rows.map((o) => o.content);
             const title = deps.deriveTitle(bucket.type, contents);
-            const inserted = conn
-              .prepare(
-                `INSERT INTO entities (name, type, created_at, metadata, status, confidence, namespace, title)
-                 VALUES (?, ?, ?, ?, 'active', ?, ?, ?)`,
-              )
-              .run(
-                name,
-                bucket.type,
-                group.rows[0].created_at,
-                JSON.stringify(title ? { title_source: 'heuristic', split_from: bucket.name } : { split_from: bucket.name }),
-                bucket.confidence,
-                bucket.namespace,
-                title,
-              );
-            target = { id: Number(inserted.lastInsertRowid) };
-            const tagStmt = conn.prepare('INSERT OR IGNORE INTO tags (entity_id, tag) VALUES (?, ?)');
-            for (const tag of carried) tagStmt.run(target.id, tag);
+            const inserted = insertEntity.run(
+              name,
+              bucket.type,
+              group.rows[0].created_at,
+              JSON.stringify(title ? { title_source: 'heuristic', split_from: bucket.name } : { split_from: bucket.name }),
+              bucket.confidence,
+              bucket.namespace,
+              title,
+            );
+            target = { id: Number(inserted.lastInsertRowid), status: 'active' };
+            for (const tag of carried) insertTag.run(target.id, tag);
           }
-          const moveStmt = conn.prepare('UPDATE observations SET entity_id = ? WHERE id = ?');
-          for (const row of group.rows) moveStmt.run(target.id, row.id);
-          if (vec) conn.prepare('DELETE FROM entities_vec WHERE rowid = ?').run(BigInt(target.id));
+          for (const row of group.rows) moveRow.run(target.id, row.id);
           moved += 1;
         }
-
-        if (vec) conn.prepare('DELETE FROM entities_vec WHERE rowid = ?').run(BigInt(bucket.id));
+        dropExplicit.run(bucket.id);
+        archive.run(bucket.id, bucket.id);
+        bucketsTouched += 1;
       }
 
       if (moved > 0) {
         rebuildFtsIndex(conn);
-        // Owed whether or not sqlite-vec loaded in THIS process: the vectors on
-        // disk describe text that is no longer on those entities either way.
         deps.markReindexOwed(conn);
+        note(`moved ${moved} lesson(s) out of ${bucketsTouched} "-other" bucket(s) into their own entities; run 'memesh reindex' to refresh their vectors.`);
       }
     },
   });

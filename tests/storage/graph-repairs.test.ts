@@ -1,11 +1,14 @@
 /**
- * The two one-shot repairs for data 4.8.1 wrote wrongly (#240, #241).
+ * The three one-shot repairs for data 4.8.1 wrote wrongly (#240, #241).
  *
  * Every case seeds the exact rows the defect produced — not a caricature —
  * into a real graph, reopens it so `migrateToCurrentSchema` runs, and then
  * asks three questions the diff cannot answer: does the invariant detector
  * go green, does search still find the text where it now lives, and does a
- * second open leave everything alone.
+ * second open leave everything alone. The negative cases are the ones an
+ * adversarial review found missing: a two-digit file count that ends in 0, a
+ * heredoc that only feeds stdin, an archived target, a bucket with no
+ * project tag.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { spawnSync } from 'node:child_process';
@@ -15,7 +18,12 @@ import path from 'node:path';
 import { openDatabase, closeDatabase } from '../../src/db.js';
 import { removeTempDir } from '../helpers/temp-dir.js';
 import { KnowledgeGraph } from '../../src/knowledge-graph.js';
-import { FUSED_LESSON_SPLIT_KEY, SESSION_DEDUPE_KEY, ZERO_EDIT_RETRACT_KEY } from '../../src/storage/graph-repairs.js';
+import {
+  FUSED_LESSON_SPLIT_KEY,
+  SESSION_DEDUPE_KEY,
+  ZERO_EDIT_RETRACT_KEY,
+  bashWritesFiles,
+} from '../../src/storage/graph-repairs.js';
 import { lessonSlug } from '../../src/core/lesson-slug.js';
 
 const invariants = path.resolve('scripts/audit/memory-invariants.mjs');
@@ -32,30 +40,41 @@ afterEach(() => {
   removeTempDir(dir);
 });
 
+type Db = ReturnType<typeof openDatabase>;
+
 /** Open, seed through `fn`, clear the repair markers, close — the pre-upgrade state. */
-function seed(fn: (db: ReturnType<typeof openDatabase>) => void): void {
+function seed(fn: (db: Db) => void): void {
   const db = openDatabase(dbPath);
   fn(db);
-  db.prepare("DELETE FROM memesh_metadata WHERE key LIKE ? OR key LIKE ? OR key LIKE ?")
+  db.prepare('DELETE FROM memesh_metadata WHERE key LIKE ? OR key LIKE ? OR key LIKE ?')
     .run(`${SESSION_DEDUPE_KEY}%`, `${ZERO_EDIT_RETRACT_KEY}%`, `${FUSED_LESSON_SPLIT_KEY}%`);
   closeDatabase();
 }
 
-function entityId(db: ReturnType<typeof openDatabase>, name: string): number {
+function entityId(db: Db, name: string): number {
   return Number((db.prepare('SELECT id FROM entities WHERE name = ?').get(name) as { id: number }).id);
 }
 
-function insertEntity(db: ReturnType<typeof openDatabase>, name: string, type: string, tags: string[] = []): number {
-  db.prepare("INSERT INTO entities (name, type, status) VALUES (?, ?, 'active')").run(name, type);
+function insertEntity(db: Db, name: string, type: string, tags: string[] = [], status = 'active'): number {
+  db.prepare('INSERT INTO entities (name, type, status) VALUES (?, ?, ?)').run(name, type, status);
   const id = entityId(db, name);
   for (const t of tags) db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(id, t);
   return id;
 }
 
-function observations(db: ReturnType<typeof openDatabase>, name: string): string[] {
+function observations(db: Db, name: string): string[] {
   return (db.prepare(
     'SELECT o.content FROM observations o JOIN entities e ON e.id = o.entity_id WHERE e.name = ? ORDER BY o.id',
   ).all(name) as Array<{ content: string }>).map((r) => r.content);
+}
+
+function tagsOf(db: Db, name: string): string[] {
+  return (db.prepare('SELECT tag FROM tags WHERE entity_id = ? ORDER BY tag').all(entityId(db, name)) as Array<{ tag: string }>)
+    .map((t) => t.tag);
+}
+
+function statusOf(db: Db, name: string): string {
+  return (db.prepare('SELECT status FROM entities WHERE name = ?').get(name) as { status: string }).status;
 }
 
 function runInvariants(): { status: number | null; stdout: string } {
@@ -63,9 +82,17 @@ function runInvariants(): { status: number | null; stdout: string } {
   return { status: r.status, stdout: r.stdout + r.stderr };
 }
 
+/** Open once (the repair runs), return the handle; caller closes. */
+function repaired(): Db {
+  return openDatabase(dbPath);
+}
+
 const LESSON_A = ['Error: fake did not echo the write', 'Root cause: a', 'Fix: b', 'Prevention: c'];
 const LESSON_B = ['Error: shared pattern list has three consumers', 'Root cause: d', 'Fix: e', 'Prevention: f'];
 const LESSON_C = ['Error: zebra-token watcher grep exit is not a verdict', 'Root cause: g', 'Fix: h', 'Prevention: i'];
+const nameA = `lesson-proj-${lessonSlug('fake did not echo the write')}`;
+const nameB = `lesson-proj-${lessonSlug('shared pattern list has three consumers')}`;
+const nameC = `lesson-proj-${lessonSlug('zebra-token watcher grep exit is not a verdict')}`;
 
 describe('#240 — duplicate session observations are removed once', () => {
   it('keeps one of each and the invariant detector goes green', () => {
@@ -83,7 +110,7 @@ describe('#240 — duplicate session observations are removed once', () => {
     });
     expect(runInvariants().status, 'fixture must reproduce the defect before repair').toBe(1);
 
-    const db = openDatabase(dbPath); // the repair runs here
+    const db = repaired();
     expect(observations(db, 'session-abc-summary')).toEqual([
       'Significant session: 40 tool calls, 3 files edited',
       'Command: git status --short',
@@ -91,7 +118,6 @@ describe('#240 — duplicate session observations are removed once', () => {
     ]);
     expect(observations(db, 'plain-note')).toEqual(['same', 'same']);
     expect(db.prepare('SELECT value FROM memesh_metadata WHERE key = ?').get(SESSION_DEDUPE_KEY)).toEqual({ value: '1' });
-    // FTS was re-derived: the entity is still findable, exactly once.
     const kg = new KnowledgeGraph(db);
     expect(kg.search('Significant').map((e) => e.name)).toEqual(['session-abc-summary']);
     closeDatabase();
@@ -106,7 +132,7 @@ describe('#240 — duplicate session observations are removed once', () => {
       ins.run(id, 'x'); ins.run(id, 'x');
     });
     const count = (): number => {
-      const n = (openDatabase(dbPath).prepare('SELECT COUNT(*) AS n FROM observations').get() as { n: number }).n;
+      const n = (repaired().prepare('SELECT COUNT(*) AS n FROM observations').get() as { n: number }).n;
       closeDatabase();
       return n;
     };
@@ -116,21 +142,31 @@ describe('#240 — duplicate session observations are removed once', () => {
 });
 
 describe('#240 — a false "0 files edited" beside a Bash write is retracted', () => {
-  it('rewrites the claim to what is known and leaves honest summaries alone', () => {
+  it('rewrites the claim to what is known and leaves true summaries alone', () => {
     seed((db) => {
-      const bash = insertEntity(db, 'session-bash-summary', 'session-insight');
       const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+      const bash = insertEntity(db, 'session-bash-summary', 'session-insight');
       ins.run(bash, 'Significant session: 25 tool calls, 0 files edited');
       ins.run(bash, "Command: cat > src/core/paths.ts <<'EOF'");
+      // True sentences that share the suffix or the marks: none may change.
+      const tenFiles = insertEntity(db, 'session-ten-summary', 'session-insight');
+      ins.run(tenFiles, 'Significant session: 45 tool calls, 10 files edited');
+      ins.run(tenFiles, "Command: cat > notes.md <<'EOF'");
+      const stdinOnly = insertEntity(db, 'session-stdin-summary', 'session-insight');
+      ins.run(stdinOnly, 'Significant session: 12 tool calls, 0 files edited');
+      ins.run(stdinOnly, "Command: python3 - <<'PY'");
+      ins.run(stdinOnly, 'Command: npm test 2>&1 | tee /tmp/t.log');
       const honest = insertEntity(db, 'session-honest-summary', 'session-insight');
       ins.run(honest, 'Significant session: 9 tool calls, 0 files edited');
       ins.run(honest, 'Command: git status --short');
     });
     expect(runInvariants().status, 'fixture must reproduce the defect before repair').toBe(1);
 
-    const db = openDatabase(dbPath);
+    const db = repaired();
     expect(observations(db, 'session-bash-summary')[0])
       .toBe('Significant session: 25 tool calls, files edited through Bash (count not recorded before 4.8.2)');
+    expect(observations(db, 'session-ten-summary')[0]).toBe('Significant session: 45 tool calls, 10 files edited');
+    expect(observations(db, 'session-stdin-summary')[0]).toBe('Significant session: 12 tool calls, 0 files edited');
     expect(observations(db, 'session-honest-summary')[0]).toBe('Significant session: 9 tool calls, 0 files edited');
     expect(db.prepare('SELECT value FROM memesh_metadata WHERE key = ?').get(ZERO_EDIT_RETRACT_KEY)).toEqual({ value: '1' });
     const kg = new KnowledgeGraph(db);
@@ -139,10 +175,28 @@ describe('#240 — a false "0 files edited" beside a Bash write is retracted', (
 
     expect(runInvariants().status).toBe(0);
   });
+
+  it('recognises the write shapes the hook recognises, and nothing looser', () => {
+    for (const cmd of [
+      "Command: cat > src/a.ts <<'EOF'",
+      "Command: sed -i 's/a/b/' src/a.ts",
+      'Command: echo x | tee CHANGELOG.md',
+      "Command: python3 -c \"from pathlib import Path; Path('x.py').write_text('y')\"",
+      "Command: node -e \"require('fs').writeFileSync('x.json', '{}')\"",
+    ]) expect(bashWritesFiles(cmd), cmd).toBe(true);
+    for (const cmd of [
+      "Command: python3 - <<'PY'",
+      'Command: psql <<EOF',
+      'Command: npm test 2>&1 | tee /tmp/t.log',
+      'Command: cat > /dev/null',
+      'Command: git diff | tee',
+      'Command: echo "a << b"',
+    ]) expect(bashWritesFiles(cmd), cmd).toBe(false);
+  });
 });
 
 describe('#241 — lessons fused into one -other bucket are split apart', () => {
-  it('moves every lesson after the first to its own slug-named entity, rows intact', () => {
+  it('moves every lesson to its own slug-named entity, rows intact, and archives the empty bucket', () => {
     seed((db) => {
       const id = insertEntity(db, 'lesson-proj-other', 'lesson_learned',
         ['project:proj', 'error-pattern:other', 'severity:critical', 'severity:minor', 'source:explicit']);
@@ -153,11 +207,11 @@ describe('#241 — lessons fused into one -other bucket are split apart', () => 
     });
     expect(runInvariants().status, 'fixture must reproduce the defect before repair').toBe(1);
 
-    const db = openDatabase(dbPath);
-    const nameB = `lesson-proj-${lessonSlug('shared pattern list has three consumers')}`;
-    const nameC = `lesson-proj-${lessonSlug('zebra-token watcher grep exit is not a verdict')}`;
-
-    expect(observations(db, 'lesson-proj-other')).toEqual(LESSON_A);
+    const db = repaired();
+    expect(observations(db, 'lesson-proj-other')).toEqual([]);
+    expect(statusOf(db, 'lesson-proj-other')).toBe('archived');
+    expect(tagsOf(db, 'lesson-proj-other')).not.toContain('source:explicit');
+    expect(observations(db, nameA)).toEqual(LESSON_A);
     expect(observations(db, nameB)).toEqual(LESSON_B);
     expect(observations(db, nameC)).toEqual(LESSON_C);
 
@@ -170,9 +224,7 @@ describe('#241 — lessons fused into one -other bucket are split apart', () => 
 
     // Tags: project / pattern / source carried; severity NOT, because the
     // bucket had two and which lesson was critical is not recorded anywhere.
-    const tags = (db.prepare('SELECT tag FROM tags WHERE entity_id = ? ORDER BY tag').all(entityId(db, nameC)) as Array<{ tag: string }>)
-      .map((t) => t.tag);
-    expect(tags).toEqual(['error-pattern:other', 'project:proj', 'source:explicit']);
+    expect(tagsOf(db, nameC)).toEqual(['error-pattern:other', 'project:proj', 'source:explicit']);
 
     // The split-out entity records where it came from and is titled like any other.
     const row = db.prepare('SELECT metadata, title, created_at FROM entities WHERE name = ?').get(nameC) as
@@ -185,9 +237,8 @@ describe('#241 — lessons fused into one -other bucket are split apart', () => 
     const kg = new KnowledgeGraph(db);
     expect(kg.search('zebra').map((e) => e.name)).toEqual([nameC]);
     expect(db.prepare('SELECT value FROM memesh_metadata WHERE key = ?').get(FUSED_LESSON_SPLIT_KEY)).toEqual({ value: '1' });
-    // Vectors for the moved text are stale wherever they exist, so a rebuild is
-    // owed whether or not sqlite-vec loaded in this process — but only when the
-    // graph records a dimension at all (a keyword-only graph owes nothing).
+    // A rebuild is owed whenever anything moved and the graph records a
+    // dimension at all (a keyword-only graph owes nothing).
     const dim = db.prepare("SELECT value FROM memesh_metadata WHERE key = 'embedding_dimension'").get() as { value: string } | undefined;
     const owed = db.prepare("SELECT value FROM memesh_metadata WHERE key = 'pending_reindex'").get();
     expect(Boolean(owed)).toBe(Boolean(dim && parseInt(dim.value, 10) > 0));
@@ -196,49 +247,61 @@ describe('#241 — lessons fused into one -other bucket are split apart', () => 
     expect(runInvariants().status).toBe(0);
   });
 
-  it('appends onto a slug entity that already exists instead of creating a twin', () => {
+  it('appends onto an active slug entity, and revives an archived one instead of hiding the lesson in it', () => {
     seed((db) => {
       const id = insertEntity(db, 'lesson-proj-other', 'lesson_learned',
         ['project:proj', 'error-pattern:other', 'severity:major', 'source:explicit']);
       const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
       for (const line of [...LESSON_A, ...LESSON_B]) ins.run(id, line);
-      // The same lesson B was re-learned AFTER the upgrade, so its slug entity already exists.
-      const nameB = `lesson-proj-${lessonSlug('shared pattern list has three consumers')}`;
-      const existing = insertEntity(db, nameB, 'lesson_learned', ['project:proj', 'source:explicit']);
-      ins.run(existing, 'Error: shared pattern list has three consumers');
+      // A was re-learned after the upgrade and then forgotten (archived); B was re-learned and is active.
+      const a = insertEntity(db, nameA, 'lesson_learned', ['project:proj', 'source:explicit'], 'archived');
+      ins.run(a, 'Error: fake did not echo the write');
+      const b = insertEntity(db, nameB, 'lesson_learned', ['project:proj', 'source:explicit']);
+      ins.run(b, 'Error: shared pattern list has three consumers');
     });
-    const db = openDatabase(dbPath);
-    const nameB = `lesson-proj-${lessonSlug('shared pattern list has three consumers')}`;
+    const db = repaired();
     // Rows keep their ids, so the moved (older) lesson sorts before the re-learned line.
+    expect(observations(db, nameA)).toEqual([...LESSON_A, 'Error: fake did not echo the write']);
+    expect(statusOf(db, nameA)).toBe('active');
     expect(observations(db, nameB)).toEqual([...LESSON_B, 'Error: shared pattern list has three consumers']);
-    expect(db.prepare('SELECT COUNT(*) AS n FROM entities WHERE name = ?').get(nameB)).toEqual({ n: 1 });
+    expect((db.prepare('SELECT COUNT(*) AS n FROM entities WHERE name IN (?, ?)').get(nameA, nameB) as { n: number }).n).toBe(2);
+    const kg = new KnowledgeGraph(db);
+    expect(kg.search('echo').map((e) => e.name)).toEqual([nameA]);
+    closeDatabase();
+    expect(runInvariants().status).toBe(0);
   });
 
-  it('carries a single severity tag onto a created entity', () => {
+  it('carries a single severity tag, and takes the project from the name when the tag is missing', () => {
     seed((db) => {
       const id = insertEntity(db, 'lesson-proj-other', 'lesson_learned',
         ['project:proj', 'error-pattern:other', 'severity:major', 'source:explicit']);
       const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
-      for (const line of [...LESSON_A, ...LESSON_C]) ins.run(id, line);
+      for (const line of LESSON_C) ins.run(id, line);
+      const untagged = insertEntity(db, 'lesson-my-app-other', 'lesson_learned', ['source:explicit']);
+      for (const line of [...LESSON_A, ...LESSON_B]) ins.run(untagged, line);
     });
-    const db = openDatabase(dbPath);
-    const nameC = `lesson-proj-${lessonSlug('zebra-token watcher grep exit is not a verdict')}`;
-    const tags = (db.prepare('SELECT tag FROM tags WHERE entity_id = ? ORDER BY tag').all(entityId(db, nameC)) as Array<{ tag: string }>)
-      .map((t) => t.tag);
-    expect(tags).toEqual(['error-pattern:other', 'project:proj', 'severity:major', 'source:explicit']);
+    expect(runInvariants().status, 'fixture must reproduce the defect before repair').toBe(1);
+    const db = repaired();
+    expect(tagsOf(db, nameC)).toEqual(['error-pattern:other', 'project:proj', 'severity:major', 'source:explicit']);
+    expect(observations(db, `lesson-my-app-${lessonSlug('shared pattern list has three consumers')}`)).toEqual(LESSON_B);
+    expect(statusOf(db, 'lesson-my-app-other')).toBe('archived');
+    closeDatabase();
+    expect(runInvariants().status).toBe(0);
   });
 
-  it('leaves a bucket holding a single lesson, and one without a project tag, alone', () => {
+  it('does not carry source:explicit when the bucket also holds auto-learned lessons', () => {
     seed((db) => {
-      const one = insertEntity(db, 'lesson-proj-other', 'lesson_learned', ['project:proj', 'source:explicit']);
+      const id = insertEntity(db, 'lesson-proj-other', 'lesson_learned',
+        ['project:proj', 'error-pattern:other', 'source:explicit', 'source:auto-learned']);
       const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
-      for (const line of LESSON_A) ins.run(one, line);
-      const orphan = insertEntity(db, 'lesson-x-other', 'lesson_learned', ['source:explicit']);
-      for (const line of [...LESSON_A, ...LESSON_B]) ins.run(orphan, line);
+      for (const line of [...LESSON_A, ...LESSON_B]) ins.run(id, line);
     });
-    const db = openDatabase(dbPath);
-    expect(observations(db, 'lesson-proj-other')).toEqual(LESSON_A);
-    expect(observations(db, 'lesson-x-other')).toEqual([...LESSON_A, ...LESSON_B]);
-    expect((db.prepare('SELECT COUNT(*) AS n FROM entities').get() as { n: number }).n).toBe(2);
+    const db = repaired();
+    expect(tagsOf(db, nameA)).toEqual(['error-pattern:other', 'project:proj']);
+    // The bucket keeps its auto-learned identity so the Stop hook's next
+    // unclassified lesson lands in a bucket the explicit-lesson invariant ignores.
+    expect(tagsOf(db, 'lesson-proj-other')).toEqual(['error-pattern:other', 'project:proj', 'source:auto-learned']);
+    closeDatabase();
+    expect(runInvariants().status).toBe(0);
   });
 });
