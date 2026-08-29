@@ -676,11 +676,6 @@
       "reason": "models.length === 0 now returns valid:false for all three providers (PR #112) (re-keyed 273→303 on 2026-08-29; line shift only, classification unchanged) (re-keyed 303→310 on 2026-08-29; line shift only, classification unchanged)",
       "triaged": "2026-08-04"
     },
-    "C1 tests/audit/memory-invariants.test.ts": {
-      "class": "SAFE-HEURISTIC-FALSE-POSITIVE",
-      "reason": "The detector's `.toBe(0)` matches `expect(run(db).status).toBe(0)` — a process EXIT CODE assertion, not an empty-collection assertion. Every exit-0 case in the file is paired with a positive assertion on stdout (`toContain('memory invariants hold')`, `toContain('note global-namespace-…')`), and five of the seven cases assert exit 1 with the offending entity NAMED in stdout. Same shape as the cli-agent-message-ingress entry.",
-      "triaged": "2026-08-30 v4.8.2 dogfood audit"
-    },
     "C3 npm:audit:memory": {
       "class": "SAFE",
       "reason": "Deliberately not referenced from verify:release or CI: it reads the developer's REAL knowledge graph, which is per-machine state, and the release gate must reproduce on a fresh clone. Its callers are (1) the dogfood step CLAUDE.md requires before a release is declared verified, and (2) tests/audit/memory-invariants.test.ts, which spawns the same script file directly against seeded throwaway graphs — so the script cannot rot unnoticed: a change that breaks it goes red in the default suite.",

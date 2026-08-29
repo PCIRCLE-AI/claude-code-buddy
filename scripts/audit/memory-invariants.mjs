@@ -24,7 +24,8 @@
 //
 // Contract:
 //   - READ-ONLY. Opened with `?mode=ro`; there is no write path in this file.
-//   - Exit 1 on any violation, 0 otherwise, 2 if the database cannot be read.
+//   - Exit 1 on any violation, 0 otherwise, 2 if the database cannot be read
+//     or an invariant's own post-filter throws (a bug here, not a finding).
 //   - Each invariant prints the offending rows, bounded, so the report is
 //     actionable without a second query.
 //   - Adding an invariant here is how a memory-layer defect stays fixed. A
@@ -110,8 +111,10 @@ const INVARIANTS = [
     // NO LIMIT in the SQL: it would bound candidates, not violations, and
     // eight honest sessions sorting first would hide a real one. The cap is
     // applied after the filter, where it means "first 8 violations".
-    rows: (db, rows) => rows.filter((r) => db.prepare("SELECT content FROM observations o JOIN entities e ON e.id = o.entity_id WHERE e.name = ? AND o.content LIKE 'Command:%'")
-      .all(r.name).some((o) => bashWritesFiles(o.content))).slice(0, MAX_ROWS),
+    rows: (db, rows) => {
+      const commands = db.prepare("SELECT content FROM observations o JOIN entities e ON e.id = o.entity_id WHERE e.name = ? AND o.content LIKE 'Command:%'");
+      return rows.filter((r) => commands.all(r.name).some((o) => bashWritesFiles(o.content))).slice(0, MAX_ROWS);
+    },
     row: (r) => r.name,
   },
   {

@@ -132,6 +132,26 @@ describe('memory-invariants: read-only detector over a real graph', () => {
     }
   });
 
+  it('#240 — prints at most eight violations and says so', () => {
+    const { dir, dbPath } = freshGraph();
+    try {
+      withRawDb(dbPath, (db) => {
+        const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+        for (let i = 0; i < 9; i++) {
+          const id = insertEntity(db, `session-v${i}-summary`, 'session-insight');
+          ins.run(id, 'Significant session: 5 tool calls, 0 files edited');
+          ins.run(id, "Command: cat > src/x.ts <<'EOF'");
+        }
+      });
+      const r = run(dbPath);
+      expect(r.status, r.stdout).toBe(1);
+      expect((r.stdout.match(/session-v\d-summary/g) ?? []).length).toBe(8);
+      expect(r.stdout).toContain('(first 8)');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('#241 — flags an explicit "-other" lesson bucket holding more than one lesson', () => {
     const { dir, dbPath } = freshGraph();
     try {

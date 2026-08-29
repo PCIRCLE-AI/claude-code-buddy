@@ -299,7 +299,12 @@ describe('#241 — lessons fused into one -other bucket are split apart', () => 
     seed((db) => {
       const id = insertEntity(db, 'lesson-proj-other', 'lesson_learned',
         ['project:proj', 'error-pattern:other', 'source:explicit']);
-      db.prepare("UPDATE entities SET metadata = ? WHERE id = ?").run(JSON.stringify({ trust: 'untrusted' }), id);
+      db.prepare("UPDATE entities SET metadata = ? WHERE id = ?").run(JSON.stringify({
+        trust: 'untrusted',
+        guard: { tool: 'Bash', pattern: 'rm -rf', enabled: true, proposal_id: 7, fires: 3 },
+        evidence_for: [42],
+        previous_namespace: 'team',
+      }), id);
       const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
       ins.run(id, 'Note: this bucket picked up a stray line');
       for (const line of [...LESSON_A, ...LESSON_B]) ins.run(id, line);
@@ -308,8 +313,14 @@ describe('#241 — lessons fused into one -other bucket are split apart', () => 
     expect(observations(db, 'lesson-proj-other')).toEqual(['Note: this bucket picked up a stray line']);
     expect(statusOf(db, 'lesson-proj-other')).toBe('active');
     expect(tagsOf(db, 'lesson-proj-other')).toContain('source:explicit');
-    // The bucket's metadata travels with the lessons it described.
-    expect(JSON.parse((db.prepare('SELECT metadata FROM entities WHERE name = ?').get(nameA) as { metadata: string }).metadata).trust).toBe('untrusted');
+    // The bucket's metadata travels with the lessons it described — except the
+    // facts that are one-per-entity: ONE accepted guard must not become two
+    // guards firing twice, and back-pointers to relations the new row lacks.
+    const meta = JSON.parse((db.prepare('SELECT metadata FROM entities WHERE name = ?').get(nameA) as { metadata: string }).metadata);
+    expect(meta.trust).toBe('untrusted');
+    expect(meta.guard, 'a guard is one acceptance, on one entity').toBeUndefined();
+    expect(meta.evidence_for).toBeUndefined();
+    expect(meta.previous_namespace).toBeUndefined();
     closeDatabase();
   });
 
@@ -326,6 +337,20 @@ describe('#241 — lessons fused into one -other bucket are split apart', () => 
     expect(observations(db, nameA)).toEqual(LESSON_A);
     const meta = JSON.parse((db.prepare('SELECT metadata FROM entities WHERE name = ?').get(nameA) as { metadata: string }).metadata);
     expect(Object.keys(meta).sort()).toEqual(['signal_score', 'split_from', 'title_source']);
+    closeDatabase();
+  });
+
+  it('leaves a lesson whose slug is "other" in place instead of moving it into a bucket', () => {
+    seed((db) => {
+      const id = insertEntity(db, 'lesson-proj-other', 'lesson_learned', ['project:proj', 'source:explicit']);
+      const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+      for (const line of ['Error: other', 'Root cause: ?', 'Fix: ?', 'Prevention: ?', ...LESSON_A]) ins.run(id, line);
+    });
+    const db = repaired();
+    expect(observations(db, 'lesson-proj-other')).toEqual(['Error: other', 'Root cause: ?', 'Fix: ?', 'Prevention: ?']);
+    expect(statusOf(db, 'lesson-proj-other')).toBe('active');
+    expect(tagsOf(db, 'lesson-proj-other')).toContain('source:explicit');
+    expect(observations(db, nameA)).toEqual(LESSON_A);
     closeDatabase();
   });
 

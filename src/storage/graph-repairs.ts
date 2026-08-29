@@ -300,6 +300,11 @@ export function splitFusedLessons(
 
         for (const group of groups) {
           const name = `lesson-${project}-${lessonSlug(group.error)}`;
+          // An error whose slug is "other" would target a bucket — this one or,
+          // after a project rename, another one. Moving rows INTO a bucket is
+          // the state this pass exists to end; leave that group where it is
+          // (the invariant keeps seeing it) rather than count a non-move.
+          if (name.endsWith('-other')) continue;
           let target = findTarget.get(name) as { id: number; status: string } | undefined;
           if (target) {
             if (target.status !== 'active') revive.run(target.id);
@@ -314,6 +319,14 @@ export function splitFusedLessons(
               signal_score: computeSignalScore({ type: bucket.type, name, observations: contents, tags: carried }),
             };
             if (title) metadata.title_source = 'heuristic'; else delete metadata.title_source;
+            // Per-entity facts that must not be multiplied: one `dream accept`
+            // put ONE guard on the bucket (copying it would fire N identical
+            // warnings and count N acceptances); `evidence_for` pairs with a
+            // relation row the new entity does not have; `previous_namespace`
+            // records a move that never happened to it.
+            delete metadata.guard;
+            delete metadata.evidence_for;
+            delete metadata.previous_namespace;
             const inserted = insertEntity.run(
               name,
               bucket.type,

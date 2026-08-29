@@ -141,6 +141,8 @@ export function splitFusedLessons(db, deps) {
                     carried.push('source:explicit');
                 for (const group of groups) {
                     const name = `lesson-${project}-${lessonSlug(group.error)}`;
+                    if (name.endsWith('-other'))
+                        continue;
                     let target = findTarget.get(name);
                     if (target) {
                         if (target.status !== 'active')
@@ -158,6 +160,9 @@ export function splitFusedLessons(db, deps) {
                             metadata.title_source = 'heuristic';
                         else
                             delete metadata.title_source;
+                        delete metadata.guard;
+                        delete metadata.evidence_for;
+                        delete metadata.previous_namespace;
                         const inserted = insertEntity.run(name, bucket.type, group.rows[0].created_at, JSON.stringify(metadata), bucket.confidence, bucket.namespace, title);
                         target = { id: Number(inserted.lastInsertRowid), status: 'active' };
                         for (const tag of carried)
