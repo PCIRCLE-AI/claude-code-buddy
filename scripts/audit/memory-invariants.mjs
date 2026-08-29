@@ -92,7 +92,7 @@ const INVARIANTS = [
       FROM entities e JOIN observations o ON o.entity_id = e.id
       WHERE e.name LIKE 'session-%-summary'
       GROUP BY e.id HAVING total > distinct_count
-      ORDER BY total - distinct_count DESC LIMIT ${MAX_ROWS}`,
+      ORDER BY total - distinct_count DESC LIMIT ${MAX_ROWS + 1}`,
     row: (r) => `${r.name}  observations=${r.total} unique=${r.distinct_count}`,
   },
   {
@@ -110,10 +110,10 @@ const INVARIANTS = [
     // (BASH_WRITE_SHAPES above), applied in JS — a bare `<<` only feeds stdin.
     // NO LIMIT in the SQL: it would bound candidates, not violations, and
     // eight honest sessions sorting first would hide a real one. The cap is
-    // applied after the filter, where it means "first 8 violations".
+    // applied after the filter, by the caller, where it means "first 8 violations".
     rows: (db, rows) => {
       const commands = db.prepare("SELECT content FROM observations o JOIN entities e ON e.id = o.entity_id WHERE e.name = ? AND o.content LIKE 'Command:%'");
-      return rows.filter((r) => commands.all(r.name).some((o) => bashWritesFiles(o.content))).slice(0, MAX_ROWS);
+      return rows.filter((r) => commands.all(r.name).some((o) => bashWritesFiles(o.content)));
     },
     row: (r) => r.name,
   },
@@ -124,10 +124,17 @@ const INVARIANTS = [
     sql: `
       SELECT e.name AS name, COUNT(o.id) AS total
       FROM entities e JOIN observations o ON o.entity_id = e.id
-      WHERE e.type = 'lesson_learned' AND e.name LIKE '%-other'
+      WHERE e.type = 'lesson_learned' AND e.name LIKE 'lesson-%-other'
         AND EXISTS (SELECT 1 FROM tags t WHERE t.entity_id = e.id AND t.tag = 'source:explicit')
+        -- A bucket is lesson-<project>-other EXACTLY. A lesson whose slug merely
+        -- ends in "other" (lesson-proj-could-not-reach-the-other) is not one:
+        -- when the entity carries a project tag, the name must be that project
+        -- plus "-other" and nothing in between.
+        AND (NOT EXISTS (SELECT 1 FROM tags t WHERE t.entity_id = e.id AND t.tag LIKE 'project:%')
+             OR EXISTS (SELECT 1 FROM tags t WHERE t.entity_id = e.id
+                        AND t.tag = 'project:' || substr(e.name, 8, length(e.name) - 13)))
       GROUP BY e.id HAVING total > 4
-      ORDER BY total DESC LIMIT ${MAX_ROWS}`,
+      ORDER BY total DESC LIMIT ${MAX_ROWS + 1}`,
     row: (r) => `${r.name}  observations=${r.total} (${Math.floor(r.total / 4)} lessons)`,
   },
   {
@@ -141,7 +148,7 @@ const INVARIANTS = [
       SELECT e.name AS name FROM entities e
       WHERE e.namespace = 'global'
         AND NOT EXISTS (SELECT 1 FROM tags t WHERE t.entity_id = e.id AND t.tag LIKE 'project:%')
-      LIMIT ${MAX_ROWS}`,
+      LIMIT ${MAX_ROWS + 1}`,
     row: (r) => r.name,
     reportOnly: true,
   },
@@ -186,10 +193,14 @@ function main() {
         console.log(`  ok   ${inv.id}`);
         continue;
       }
+      // Queries fetch one more than the cap, so "(first N)" is printed only
+      // when an (N+1)th row really exists — not on exactly N.
+      const more = rows.length > MAX_ROWS;
+      rows = rows.slice(0, MAX_ROWS);
       const mark = inv.reportOnly ? 'note' : 'FAIL';
       console.log(`  ${mark} ${inv.id} (${inv.refs}) — ${inv.says}`);
       for (const r of rows) console.log(`         ${inv.row(r)}`);
-      if (rows.length === MAX_ROWS) console.log(`         … (first ${MAX_ROWS})`);
+      if (more) console.log(`         … (first ${MAX_ROWS})`);
       if (!inv.reportOnly) violations += 1;
     }
   } finally {

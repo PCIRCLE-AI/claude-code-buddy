@@ -139,10 +139,12 @@ export function splitFusedLessons(db, deps) {
                     carried.push(severities[0]);
                 if (!tags.includes('source:auto-learned'))
                     carried.push('source:explicit');
+                let movedFromBucket = 0;
                 for (const group of groups) {
-                    const name = `lesson-${project}-${lessonSlug(group.error)}`;
-                    if (name.endsWith('-other'))
+                    const slug = lessonSlug(group.error);
+                    if (slug === 'other')
                         continue;
+                    const name = `lesson-${project}-${slug}`;
                     let target = findTarget.get(name);
                     if (target) {
                         if (target.status !== 'active')
@@ -171,10 +173,12 @@ export function splitFusedLessons(db, deps) {
                     for (const row of group.rows)
                         moveRow.run(target.id, row.id);
                     moved += 1;
+                    movedFromBucket += 1;
                 }
                 dropExplicit.run(bucket.id, bucket.id);
                 archive.run(bucket.id, bucket.id);
-                bucketsTouched += 1;
+                if (movedFromBucket > 0)
+                    bucketsTouched += 1;
             }
             if (moved > 0) {
                 rebuildFtsIndex(conn);

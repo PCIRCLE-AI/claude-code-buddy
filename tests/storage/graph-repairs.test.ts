@@ -340,17 +340,34 @@ describe('#241 — lessons fused into one -other bucket are split apart', () => 
     closeDatabase();
   });
 
-  it('leaves a lesson whose slug is "other" in place instead of moving it into a bucket', () => {
+  it('a lesson whose error merely ENDS with the word "other" still splits out', () => {
     seed((db) => {
       const id = insertEntity(db, 'lesson-proj-other', 'lesson_learned', ['project:proj', 'source:explicit']);
+      const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+      for (const line of ['Error: could not reach the other', 'Root cause: a', 'Fix: b', 'Prevention: c', ...LESSON_A]) ins.run(id, line);
+    });
+    const db = repaired();
+    expect(observations(db, `lesson-proj-${lessonSlug('could not reach the other')}`))
+      .toEqual(['Error: could not reach the other', 'Root cause: a', 'Fix: b', 'Prevention: c']);
+    expect(observations(db, nameA)).toEqual(LESSON_A);
+    expect(statusOf(db, 'lesson-proj-other')).toBe('archived');
+    closeDatabase();
+    expect(runInvariants().status).toBe(0);
+  });
+
+  it('after a project rename, a slug of exactly "other" must not mint a new bucket', () => {
+    seed((db) => {
+      // renameProjectTag rewrites tags, never names: the bucket is still
+      // lesson-old-other but carries project:new.
+      const id = insertEntity(db, 'lesson-old-other', 'lesson_learned', ['project:new', 'source:explicit']);
       const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
       for (const line of ['Error: other', 'Root cause: ?', 'Fix: ?', 'Prevention: ?', ...LESSON_A]) ins.run(id, line);
     });
     const db = repaired();
-    expect(observations(db, 'lesson-proj-other')).toEqual(['Error: other', 'Root cause: ?', 'Fix: ?', 'Prevention: ?']);
-    expect(statusOf(db, 'lesson-proj-other')).toBe('active');
-    expect(tagsOf(db, 'lesson-proj-other')).toContain('source:explicit');
-    expect(observations(db, nameA)).toEqual(LESSON_A);
+    expect(db.prepare('SELECT id FROM entities WHERE name = ?').get('lesson-new-other')).toBeUndefined();
+    expect(observations(db, 'lesson-old-other')).toEqual(['Error: other', 'Root cause: ?', 'Fix: ?', 'Prevention: ?']);
+    expect(statusOf(db, 'lesson-old-other')).toBe('active');
+    expect(observations(db, `lesson-new-${lessonSlug('fake did not echo the write')}`)).toEqual(LESSON_A);
     closeDatabase();
   });
 

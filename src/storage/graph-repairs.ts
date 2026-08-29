@@ -298,13 +298,17 @@ export function splitFusedLessons(
         if (severities.length === 1) carried.push(severities[0]);
         if (!tags.includes('source:auto-learned')) carried.push('source:explicit');
 
+        let movedFromBucket = 0;
         for (const group of groups) {
-          const name = `lesson-${project}-${lessonSlug(group.error)}`;
-          // An error whose slug is "other" would target a bucket — this one or,
-          // after a project rename, another one. Moving rows INTO a bucket is
-          // the state this pass exists to end; leave that group where it is
-          // (the invariant keeps seeing it) rather than count a non-move.
-          if (name.endsWith('-other')) continue;
+          const slug = lessonSlug(group.error);
+          // An error whose slug is exactly "other" would target a bucket — this
+          // one or, after a project rename, another one. Moving rows INTO a
+          // bucket is the state this pass exists to end; leave that group where
+          // it is rather than count a non-move. Exactly "other": a lesson whose
+          // error merely ENDS in the word (`…reach the other`) is a real lesson
+          // and must split out like any other.
+          if (slug === 'other') continue;
+          const name = `lesson-${project}-${slug}`;
           let target = findTarget.get(name) as { id: number; status: string } | undefined;
           if (target) {
             if (target.status !== 'active') revive.run(target.id);
@@ -341,10 +345,11 @@ export function splitFusedLessons(
           }
           for (const row of group.rows) moveRow.run(target.id, row.id);
           moved += 1;
+          movedFromBucket += 1;
         }
         dropExplicit.run(bucket.id, bucket.id);
         archive.run(bucket.id, bucket.id);
-        bucketsTouched += 1;
+        if (movedFromBucket > 0) bucketsTouched += 1;
       }
 
       if (moved > 0) {

@@ -173,6 +173,43 @@ describe('memory-invariants: read-only detector over a real graph', () => {
     }
   });
 
+  it('#241 — a lesson whose name merely ends in "-other" is not a bucket', () => {
+    const { dir, dbPath } = freshGraph();
+    try {
+      withRawDb(dbPath, (db) => {
+        const id = insertEntity(db, 'lesson-proj-could-not-reach-the-other', 'lesson_learned');
+        db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(id, 'source:explicit');
+        db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(id, 'project:proj');
+        const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+        // Re-learned once: five observations, the shape learn() produces today.
+        for (const line of ['Error: could not reach the other', 'Root cause: x', 'Fix: y', 'Prevention: z', 'Error: could not reach the other']) ins.run(id, line);
+      });
+      expect(run(dbPath).status).toBe(0);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('#240 — exactly eight violations print without a "(first 8)" line', () => {
+    const { dir, dbPath } = freshGraph();
+    try {
+      withRawDb(dbPath, (db) => {
+        const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+        for (let i = 0; i < 8; i++) {
+          const id = insertEntity(db, `session-e${i}-summary`, 'session-insight');
+          ins.run(id, 'Significant session: 5 tool calls, 0 files edited');
+          ins.run(id, "Command: cat > src/x.ts <<'EOF'");
+        }
+      });
+      const r = run(dbPath);
+      expect(r.status).toBe(1);
+      expect((r.stdout.match(/session-e\d-summary/g) ?? []).length).toBe(8);
+      expect(r.stdout).not.toContain('(first 8)');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('#241 — a single explicit lesson in "-other" is not a violation', () => {
     const { dir, dbPath } = freshGraph();
     try {
