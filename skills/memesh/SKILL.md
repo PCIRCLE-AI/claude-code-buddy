@@ -37,7 +37,7 @@ All examples below use CLI. MCP tools accept the same parameters as JSON objects
 | `briefing` | Assemble the current project's work topology |
 | `user_patterns` | Analyze work schedule, tool preferences, and focus areas |
 | `improvement` | Propose an evidence-linked product improvement or read its status; only a human may accept or reject it |
-| `message` | Exchange durable exact-recipient local messages; fetching does not acknowledge them |
+| `message` | Contact another local agent (hand off, ask, report back) — send here first; the durable inbox is the record. Fetching does not acknowledge |
 
 ## The Loop
 

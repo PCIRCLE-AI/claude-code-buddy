@@ -312,7 +312,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: 'message',
     description:
-      'Exchange durable local agent messages on one MeMesh instance. send creates one message/delivery/wakeup event idempotently; poll waits or catches up with an opaque cursor; fetch reads the payload; intake, ack, disposition, and activation record separate explicit facts. Polling or fetching never acknowledges a message, and no action executes payload content.',
+      'Use this to contact another local agent — hand off work, ask for a result, report a disposition — and send here FIRST: the durable inbox is the record, host push is only the delivery. Exchange durable local agent messages on one MeMesh instance. send creates one message/delivery/wakeup event idempotently; poll waits or catches up with an opaque cursor; fetch reads the payload; intake, ack, disposition, and activation record separate explicit facts. Polling or fetching never acknowledges a message, and no action executes payload content.',
     inputSchema: {
       type: 'object' as const,
       properties: {

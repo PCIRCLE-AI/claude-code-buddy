@@ -572,7 +572,7 @@ memesh config set embedder.provider openai          # or: ollama
 | `briefing` | 組合好的工作拓撲——Claude Code 在 session 開始拿到的那個區塊，任何 MCP client 都拿得到 |
 | `user_patterns` | 分析你的工作模式——時間表、工具、優勢、學習領域 |
 | `improvement` | 將有證據來源的產品改善送交人類審核，或讀取其狀態；agent 不能自行接受或拒絕 |
-| `message` | 在同一個本機 MeMesh instance 上耐久化送出、輪詢、擷取並明確記錄單一收件人訊息狀態 |
+| `message` | 要聯絡另一個本機 agent（交接工作、請求結果、回報處置）先送到這裡：耐久收件匣才是紀錄，host push 只是通知。輪詢、擷取、確認收到是分開記錄的事實 |
 
 ---
 

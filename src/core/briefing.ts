@@ -30,6 +30,7 @@ import { getProjectName } from './paths.js';
 import { readRepoState, repoStateLines } from './repo-state.js';
 import { rankEntities } from './scoring.js';
 import { getTaskState } from './task-state-store.js';
+import { unreadDeliveryCount, unreadInboxLines } from './agent-message-inbox.js';
 import { taskStateLines } from './task-state.js';
 import {
   SNIPPET_FETCH_CHARS,
@@ -161,7 +162,13 @@ export function assembleBriefing(project?: string): BriefingResult {
   // The one stated line, before anything ranked — same reasoning as the
   // hook: ranking cannot know what you meant to do next.
   const { state } = getTaskState(projectName);
-  const stateLines = taskStateLines(state, projectName);
+  // The inbox line rides WITH the stated lines, not among the ranked
+  // memories: like goal / next / blocked it is a fact the agent must act
+  // on, not a memory that scored well. See agent-message-inbox.ts.
+  const stateLines = [
+    ...taskStateLines(state, projectName),
+    ...unreadInboxLines(unreadDeliveryCount(db, projectName), projectName),
+  ];
 
   const projectRows = db.prepare(
     `SELECT DISTINCT ${CANDIDATE_COLUMNS}

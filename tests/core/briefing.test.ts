@@ -18,6 +18,7 @@ import { handleTool } from '../../src/mcp/tools.js';
 import { assembleBriefing } from '../../src/core/briefing.js';
 import { setTaskState } from '../../src/core/task-state-store.js';
 import { remember } from '../../src/core/operations.js';
+import { executeAgentMessageAction } from '../../src/transports/agent-messaging.js';
 import { KnowledgeGraph } from '../../src/knowledge-graph.js';
 import { TOPOLOGY_CANDIDATE_CAP } from '../../src/core/work-topology.js';
 import { getProjectName } from '../../src/core/paths.js';
@@ -85,6 +86,40 @@ describe('assembleBriefing', () => {
     // framing on every injection path.
     expect(t.startsWith('MeMesh reference memory.')).toBe(true);
     expect(t.trimEnd().endsWith('```')).toBe(true);
+  });
+
+  it('names an unread delivery beside the stated lines, with the fetch instruction', async () => {
+    seed();
+    setTaskState({ project: PROJECT, patch: { goal: 'Ship A1c' } });
+    // A real send: one message, one delivery, no intake receipt yet.
+    await executeAgentMessageAction(getDatabase(), {
+      action: 'send', project: PROJECT, sender: 'codex-reviewer', recipient: 'claude-implementer',
+      idempotency_key: 'briefing-unread-1', payload: { text: 'review is done' }, content_type: 'application/json',
+    }, { transport: 'mcp', sourceHost: 'test-host' });
+
+    const t = assembleBriefing(PROJECT).text;
+    expect(t).toContain(`1 message waiting for "${PROJECT}"`);
+    expect(t).toContain('fetch them with the message tool');
+    // Beside the stated line, before the ranked sections.
+    expect(t.indexOf('message waiting')).toBeGreaterThan(t.indexOf('Stated about'));
+    expect(t.indexOf('message waiting')).toBeLessThan(t.indexOf('Decisions and direction'));
+  });
+
+  it('says nothing about messages once the delivery has an intake receipt, or when there are none', async () => {
+    seed();
+    const sent = await executeAgentMessageAction(getDatabase(), {
+      action: 'send', project: PROJECT, sender: 'codex-reviewer', recipient: 'claude-implementer',
+      idempotency_key: 'briefing-unread-2', payload: { text: 'x' }, content_type: 'application/json',
+    }, { transport: 'mcp', sourceHost: 'test-host' }) as { message_id: string };
+    expect(assembleBriefing(PROJECT).text).toContain('1 message waiting');
+
+    await executeAgentMessageAction(getDatabase(), {
+      action: 'intake', project: PROJECT, recipient: 'claude-implementer', message_id: sent.message_id,
+      intake_state: 'fetched', idempotency_key: 'briefing-intake-2',
+    }, { transport: 'mcp', sourceHost: 'test-host' });
+    expect(assembleBriefing(PROJECT).text).not.toContain('message waiting');
+
+    expect(assembleBriefing('project-with-no-inbox').text).not.toContain('message waiting');
   });
 
   it('returns empty text, not an empty fence, when there is nothing to say', () => {

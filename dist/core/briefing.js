@@ -3,6 +3,7 @@ import { getProjectName } from './paths.js';
 import { readRepoState, repoStateLines } from './repo-state.js';
 import { rankEntities } from './scoring.js';
 import { getTaskState } from './task-state-store.js';
+import { unreadDeliveryCount, unreadInboxLines } from './agent-message-inbox.js';
 import { taskStateLines } from './task-state.js';
 import { SNIPPET_FETCH_CHARS, TOPOLOGY_CANDIDATE_CAP, assembleTopologyBlock, buildReferenceContext, isAutoInjectable, } from './work-topology.js';
 const PROJECT_LIMIT = 30;
@@ -54,7 +55,10 @@ export function assembleBriefing(project) {
         ? repoStateLines(readRepoState())
         : [];
     const { state } = getTaskState(projectName);
-    const stateLines = taskStateLines(state, projectName);
+    const stateLines = [
+        ...taskStateLines(state, projectName),
+        ...unreadInboxLines(unreadDeliveryCount(db, projectName), projectName),
+    ];
     const projectRows = db.prepare(`SELECT DISTINCT ${CANDIDATE_COLUMNS}
      FROM entities e JOIN tags t ON t.entity_id = e.id
      WHERE t.tag = ? AND e.status = 'active'

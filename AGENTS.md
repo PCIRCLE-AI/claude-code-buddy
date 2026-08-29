@@ -23,6 +23,12 @@ host is recallable from all of them. Not installed yet? Follow
      field out if it was not said.
 3. **"What do you remember?"** — call `briefing` and relay its content. Do
    not answer from your own conversation context.
+4. **When you need another agent** — to hand off, to ask, to report back —
+   send a `message` before anything else. The host's own push tool (Claude
+   Code's `SendMessage`, a Codex queue) delivers a wakeup; it is not the
+   record, and it cannot reach an agent on a different host or one that is
+   not running. `briefing` and SessionStart tell you when something is
+   waiting for you: `N messages waiting for "<project>" — fetch them`.
 
 ## All 11 MCP tools
 
@@ -38,7 +44,7 @@ host is recallable from all of them. Not installed yet? Follow
 | `briefing` | The assembled work topology for a project — call once at session start |
 | `user_patterns` | Analyze work schedule, tool preferences, and focus areas from memory |
 | `improvement` | Propose an evidence-linked product improvement or read its status; only a human may accept/reject it |
-| `message` | Exchange durable exact-recipient local messages; polling/fetching never implies acknowledgement |
+| `message` | **Contact another local agent** — hand off work, ask for a result, report a disposition. Send here first: the durable inbox is the record, host push is only delivery. Polling/fetching never implies acknowledgement |
 
 ## Memory hygiene
 

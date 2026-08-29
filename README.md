@@ -581,7 +581,7 @@ If you switch to an embedder with a different dimension (e.g. 768 → 1536), **n
 | `briefing` | The assembled work topology — the same block Claude Code gets at session start, for any MCP client |
 | `user_patterns` | Analyze your work patterns — schedule, tools, strengths, learning areas |
 | `improvement` | Stage an evidence-linked product improvement for human review, or read its status; agents cannot accept or reject it |
-| `message` | Send, poll, fetch, and explicitly receipt durable exact-recipient messages on one local MeMesh instance |
+| `message` | Contact another local agent — hand off work, ask for a result, report back — by sending here first; the durable inbox is the record, host push is only delivery. Poll, fetch, and receipt are separate facts |
 
 ---
 

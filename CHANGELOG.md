@@ -2,6 +2,25 @@
 
 All notable changes to MeMesh are documented here.
 
+## [Unreleased]
+
+### Changed
+
+- **`message` says when to use it, and a waiting message is announced.**
+  An agent working next to two other local agents for a whole session never
+  reached for `message` — the host's own push tool named itself in the output
+  the agent was reading, and nothing said "there is a durable inbox, and
+  something in it is for you." Three changes, one per place the agent looks:
+  the tool description now names the trigger (contact another local agent —
+  hand off, ask, report back — and send here first; the inbox is the record,
+  host push is only delivery); `briefing` and the SessionStart hook add
+  `N messages waiting for "<project>" — fetch them with the message tool`
+  beside the stated goal/next/blocked lines when a delivery has no intake
+  receipt, on any graph including one with no memories yet; and AGENTS.md's
+  loop gains the step. "Waiting" means no intake receipt — fetching and
+  acknowledging remain separate facts.
+
+
 ## [4.8.2] — 2026-08-29
 
 A Dashboard usability sweep. Every item below was found by walking the v4.8.1
