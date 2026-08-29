@@ -2,6 +2,78 @@
 
 All notable changes to MeMesh are documented here.
 
+## [4.8.2] — 2026-08-29
+
+A Dashboard usability sweep. Every item below was found by walking the v4.8.1
+Dashboard as a non-engineer would, and each one is a place where the interface
+reported something that was not true.
+
+### Fixed
+
+- **Saving an LLM provider now updates what the page shows.** Draft, tested and
+  saved were one indistinguishable state, the capability cards kept the previous
+  provider after a successful save, and the environment's auto-detected provider
+  was presented as if it were the configuration on disk. The search-index
+  provider had no Dashboard control at all.
+
+- **A provider that rejects your key no longer echoes it back at you.** Upstream
+  rejections quote the submitted credential ("Incorrect API key provided:
+  sk-…"), and that sentence was rendered verbatim in the Dashboard. Every
+  failing provider probe is now credential-redacted at the module boundary, and
+  the shared redactor learned the two shapes it was missing: a partially masked
+  key, and a credential in a URL query parameter.
+
+- **Dream failures are visible.** A provider connection test could pass while
+  Dream failed, and Dream's own provider errors were skipped silently.
+
+- **Output-language changes report their own failure.** A save that failed was
+  swallowed while the interface switched anyway, so the next session reverted
+  with no explanation.
+
+- **A keyless Ollama provider can be removed.** The saved-provider card kept an
+  entry that could not be deleted from the Dashboard.
+
+- **Seeding demo data refreshes the tabs already open.** Memories and Graph kept
+  their pre-seed contents until a manual reload, and expanded analytics did not
+  reconcile.
+
+- **The mindmap's nodes do something when activated.** Phase and entity
+  activation was a visible no-op, and the nodes were not keyboard reachable.
+
+- **The feedback form survives a blocked popup.** When the browser blocked the
+  GitHub window, the form cleared and closed, losing what had been typed.
+
+- **Demo cleanup stays reachable after the library fills up.** The reset control
+  was hidden exactly when it was most likely to be wanted.
+
+- **Memory titles read as language, not as internal slugs.** Raw entity types
+  and identifiers were the primary label; they are now secondary detail.
+
+- **The global Signal/All filter says what it filters.** Its name and its
+  cross-page effect were both unexplained.
+
+- **Home presents one next-best action** derived from current state, instead of
+  leaving the reader to work out where to start.
+
+- **Terminal and GitHub handoffs are labelled before you act**, and the label
+  follows the message's primary action — a message whose fix is "reload the
+  page" is no longer announced as requiring a terminal.
+
+- **Onboarding says which features depend on an LLM**, rather than implying the
+  whole product does.
+
+### Changed
+
+- The memory timeline is named **Project History**, not Roadmap, in all eleven
+  locales. It derives its phases from when memories were captured, which
+  describes capture activity — not a plan, and not proof of project progress.
+  The name now says so.
+
+### Internal
+
+- Provider environment no longer leaks into the isolated test run, and the
+  config read/write tests no longer touch the owner's real configuration.
+
 ## [4.8.1] — 2026-08-28
 
 ### Fixed
