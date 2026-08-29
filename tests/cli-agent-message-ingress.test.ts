@@ -226,6 +226,64 @@ describe('CLI durable-message ingress', () => {
     }
   });
 
+  // eg prove reported src/transports/cli/cli.ts's owner-private-directory
+  // throw as UNPROTECTED: removing it broke nothing any test checked. The
+  // guard is a security boundary — a symlinked or group-readable hosts/
+  // directory would let the managed config (which names the router socket
+  // and token file) be written somewhere another principal controls. Three
+  // ways the directory can be wrong, each must refuse and write nothing.
+  describe.skipIf(process.platform === 'win32')('refuses to write managed host config into a directory that is not owner-private', () => {
+    function attempt(home: string) {
+      return spawnSync(process.execPath, cliArgs(
+        'agent', 'setup', 'codex', '--project', 'test', '--principal', 'reviewer', '--workspace', home, '--json',
+      ), { encoding: 'utf8', env: { ...process.env, HOME: home, MEMESH_AUTO_CAPTURE: 'false' } });
+    }
+    function hostsDirOf(home: string) { return path.join(home, '.memesh', 'hosts'); }
+
+    it('when hosts/ is a symlink to elsewhere', () => {
+      const home = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-cli-hosts-symlink-'));
+      const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-cli-elsewhere-'));
+      try {
+        fs.mkdirSync(path.join(home, '.memesh'), { recursive: true, mode: 0o700 });
+        fs.symlinkSync(elsewhere, hostsDirOf(home));
+        const r = attempt(home);
+        expect(r.status, r.stdout).not.toBe(0);
+        expect(r.stderr).toContain('owner-private');
+        expect(fs.readdirSync(elsewhere), 'nothing may be written through the symlink').toEqual([]);
+      } finally {
+        fs.rmSync(home, { recursive: true, force: true });
+        fs.rmSync(elsewhere, { recursive: true, force: true });
+      }
+    });
+
+    it('when hosts/ is a regular file, not a directory', () => {
+      const home = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-cli-hosts-file-'));
+      try {
+        fs.mkdirSync(path.join(home, '.memesh'), { recursive: true, mode: 0o700 });
+        fs.writeFileSync(hostsDirOf(home), 'not a directory');
+        const r = attempt(home);
+        expect(r.status, r.stdout).not.toBe(0);
+        expect(fs.readFileSync(hostsDirOf(home), 'utf8'), 'the file is untouched').toBe('not a directory');
+      } finally {
+        fs.rmSync(home, { recursive: true, force: true });
+      }
+    });
+
+    it('when hosts/ is readable by group or others', () => {
+      const home = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-cli-hosts-mode-'));
+      try {
+        fs.mkdirSync(hostsDirOf(home), { recursive: true, mode: 0o755 });
+        fs.chmodSync(hostsDirOf(home), 0o755); // mkdir honours umask; force it
+        const r = attempt(home);
+        expect(r.status, r.stdout).not.toBe(0);
+        expect(r.stderr).toContain('owner-private');
+        expect(fs.readdirSync(hostsDirOf(home)), 'no config written into a shared directory').toEqual([]);
+      } finally {
+        fs.rmSync(home, { recursive: true, force: true });
+      }
+    });
+  });
+
   it.skipIf(process.platform === 'win32')('requires explicit owner-private opt-in before attaching an ordinary Codex workspace', () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-cli-agent-'));
     try {
