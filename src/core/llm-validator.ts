@@ -80,18 +80,42 @@ const MAX_BODY_BYTES = 8192;
 /** Cap the error string we surface to the dashboard. */
 const MAX_ERROR_CHARS = 300;
 
-/** Sanitize a string before surfacing it in our own API: cap length, strip
- *  control chars (DEL + C0 except whitespace) so that a malformed/hostile
- *  upstream can't smuggle escape sequences into client logs or copy-paste. */
+/** Sanitize a string before surfacing it in our own API:
+ *
+ *   1. redact credential shapes — an upstream rejection quotes the key it
+ *      rejected ("Incorrect API key provided: sk-proj-…"), and that prose is
+ *      rendered in the dashboard and copied into QA screenshots and evidence
+ *      artifacts. The submitted credential must not survive the boundary.
+ *   2. strip control chars (DEL + C0 except whitespace) so that a
+ *      malformed/hostile upstream can't smuggle escape sequences into client
+ *      logs or copy-paste.
+ *   3. cap length.
+ *
+ * Order matters: redact BEFORE the length cap, or a key straddling the cap
+ * is truncated into a fragment no pattern matches and then published.
+ */
 function safeErrorString(s: string): string {
   // Intentional control-character class: stripping C0 control chars and
   // DEL is the whole point of this sanitiser, so the no-control-regex
   // warning is exactly what the rule was meant to flag — and exactly
   // what we don't want to silence project-wide.
-  return s
+  return redactSecrets(s)
     // eslint-disable-next-line no-control-regex
     .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
     .slice(0, MAX_ERROR_CHARS);
+}
+
+/**
+ * The ONLY way this module produces a failing ValidationResult.
+ *
+ * Every `error` string here is either upstream prose or contains a
+ * caller-supplied value, and four separate paths used to build one by hand:
+ * the three catalog probes returned `err.message` raw, and only the inference
+ * probe redacted. A funnel that a call site can skip is not a boundary, so
+ * failures are constructed, not assembled — there is no unredacted spelling.
+ */
+function fail(errorCode: string, message: string, extra?: Partial<ValidationResult>): ValidationResult {
+  return { ...extra, valid: false, error: safeErrorString(message), errorCode };
 }
 
 /** Try to extract a human-readable message from an Anthropic/OpenAI error body. */
@@ -181,7 +205,7 @@ export function pickSuggestedModel(models: ModelInfo[]): string | undefined {
 }
 
 export async function probeAnthropic(apiKey: string): Promise<ValidationResult> {
-  if (!apiKey) return { valid: false, error: 'API key is empty', errorCode: 'auth' };
+  if (!apiKey) return fail('auth', 'API key is empty');
   try {
     const data = await fetchJson<{ data: Array<{ id: string; created_at?: string }> }>(
       'https://api.anthropic.com/v1/models?limit=200',
@@ -204,16 +228,16 @@ export async function probeAnthropic(apiKey: string): Promise<ValidationResult> 
     // "answered with nothing" indistinguishable from "verified working" in
     // both `memesh doctor --probe` and the dashboard connection test.
     if (models.length === 0) {
-      return { valid: false, error: 'Anthropic answered, but returned no models — a proxy or gateway may be intercepting the request. Check the endpoint and API key.', errorCode: 'no_models' };
+      return fail('no_models', 'Anthropic answered, but returned no models — a proxy or gateway may be intercepting the request. Check the endpoint and API key.');
     }
     return { valid: true, models, suggested: pickSuggestedModel(models) };
   } catch (err) {
-    return { valid: false, error: err instanceof Error ? err.message : String(err), errorCode: probeErrorCode(err) };
+    return fail(probeErrorCode(err), err instanceof Error ? err.message : String(err));
   }
 }
 
 export async function probeOpenAI(apiKey: string): Promise<ValidationResult> {
-  if (!apiKey) return { valid: false, error: 'API key is empty', errorCode: 'auth' };
+  if (!apiKey) return fail('auth', 'API key is empty');
   try {
     const data = await fetchJson<{ data: Array<{ id: string; created?: number }> }>(
       'https://api.openai.com/v1/models',
@@ -235,11 +259,11 @@ export async function probeOpenAI(apiKey: string): Promise<ValidationResult> {
     // Same rule as the Anthropic and Ollama probes: zero models back is not a
     // verified provider, whatever the status code said.
     if (models.length === 0) {
-      return { valid: false, error: 'OpenAI answered, but returned no chat-capable models — a proxy or gateway may be intercepting the request. Check the endpoint and API key.', errorCode: 'no_models' };
+      return fail('no_models', 'OpenAI answered, but returned no chat-capable models — a proxy or gateway may be intercepting the request. Check the endpoint and API key.');
     }
     return { valid: true, models, suggested: pickSuggestedModel(models) };
   } catch (err) {
-    return { valid: false, error: err instanceof Error ? err.message : String(err), errorCode: probeErrorCode(err) };
+    return fail(probeErrorCode(err), err instanceof Error ? err.message : String(err));
   }
 }
 
@@ -268,11 +292,7 @@ export async function probeOllama(host?: string): Promise<ValidationResult> {
   const envBase = process.env.OLLAMA_HOST;
   const requestedBase = host || envBase || 'http://localhost:11434';
   if (!envBase && host && !isSafeOllamaHost(host)) {
-    return {
-      valid: false,
-      error: `Ollama host must be loopback (localhost / 127.0.0.1). For non-local Ollama, set the OLLAMA_HOST environment variable on the server.`,
-      errorCode: 'bad_host',
-    };
+    return fail('bad_host', 'Ollama host must be loopback (localhost / 127.0.0.1). For non-local Ollama, set the OLLAMA_HOST environment variable on the server.');
   }
   const base = requestedBase;
   try {
@@ -285,19 +305,15 @@ export async function probeOllama(host?: string): Promise<ValidationResult> {
       created: m.modified_at,
     }));
     if (models.length === 0) {
-      return {
-        valid: false,
-        error: `Ollama is reachable at ${base} but has no models installed. Run \`ollama pull <model>\` first.`,
-        errorCode: 'no_models',
-      };
+      return fail('no_models', `Ollama is reachable at ${base} but has no models installed. Run \`ollama pull <model>\` first.`);
     }
     return { valid: true, models, suggested: pickSuggestedModel(models) };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes('ECONNREFUSED') || msg.includes('fetch failed')) {
-      return { valid: false, error: `Ollama not reachable at ${base}. Is it installed and running?`, errorCode: 'network' };
+      return fail('network', `Ollama not reachable at ${base}. Is it installed and running?`);
     }
-    return { valid: false, error: msg, errorCode: probeErrorCode(err) };
+    return fail(probeErrorCode(err), msg);
   }
 }
 
@@ -313,7 +329,7 @@ export async function probeProvider(
       ? await probeOpenAI(apiKey ?? '')
       : provider === 'ollama'
         ? await probeOllama(host)
-        : { valid: false, error: `Unknown provider: ${provider}`, errorCode: 'unknown' };
+        : fail('unknown', `Unknown provider: ${provider}`);
 
   if (!catalog.valid) {
     return { ...catalog, catalogVerified: false, inferenceVerified: false };
@@ -321,14 +337,9 @@ export async function probeProvider(
 
   const testedModel = model || catalog.suggested || catalog.models?.[0]?.id;
   if (!testedModel) {
-    return {
-      ...catalog,
-      valid: false,
-      catalogVerified: true,
-      inferenceVerified: false,
-      error: 'The provider catalog returned no model that could be tested.',
-      errorCode: 'no_models',
-    };
+    return fail('no_models', 'The provider catalog returned no model that could be tested.', {
+      ...catalog, catalogVerified: true, inferenceVerified: false,
+    });
   }
 
   try {
@@ -347,15 +358,9 @@ export async function probeProvider(
       testedModel,
     };
   } catch (err) {
-    const detail = redactSecrets(err instanceof Error ? err.message : String(err));
-    return {
-      ...catalog,
-      valid: false,
-      catalogVerified: true,
-      inferenceVerified: false,
-      testedModel,
-      error: `Model ${testedModel} failed the inference probe: ${detail}`,
-      errorCode: 'inference_failed',
-    };
+    const detail = err instanceof Error ? err.message : String(err);
+    return fail('inference_failed', `Model ${testedModel} failed the inference probe: ${detail}`, {
+      ...catalog, catalogVerified: true, inferenceVerified: false, testedModel,
+    });
   }
 }

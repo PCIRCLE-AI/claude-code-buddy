@@ -323,3 +323,86 @@ describe('provider probes (mocked fetch)', () => {
     ]);
   });
 });
+
+/* ── issue #238 — a rejected credential never survives the boundary ──────── */
+
+describe('issue #238 — provider errors are redacted at the module boundary', () => {
+  // The exact prose OpenAI returns for a rejected key: it quotes the key back.
+  const KEY = 'sk-proj-AbCdEf0123456789GhIjKlMnOpQrStUvWxYz012345';
+  const UPSTREAM_PROSE = `Incorrect API key provided: ${KEY}. You can find your API key at https://platform.openai.com/account/api-keys.`;
+
+  let originalFetch: typeof fetch;
+  beforeEach(() => { originalFetch = global.fetch; });
+  afterEach(() => { global.fetch = originalFetch; vi.restoreAllMocks(); });
+
+  /** A 401 whose JSON body carries the submitted key — the real leak shape. */
+  function rejectingUpstream(): void {
+    global.fetch = vi.fn(async () => ({
+      ok: false,
+      status: 401,
+      body: null,
+      text: async () => JSON.stringify({ error: { message: UPSTREAM_PROSE, type: 'invalid_request_error' } }),
+    })) as never;
+  }
+
+  /** A transport-level throw whose message carries the submitted key. */
+  function throwingUpstream(): void {
+    global.fetch = vi.fn(async () => { throw new Error(`connect failed while sending Authorization: Bearer ${KEY}`); }) as never;
+  }
+
+  // Four independent entry points. Asserting only one of them is how three
+  // paths kept returning `err.message` raw while the fourth redacted.
+  const bodyPaths: Array<[string, () => Promise<{ error?: string }>]> = [
+    ['probeAnthropic', () => probeAnthropic(KEY)],
+    ['probeOpenAI', () => probeOpenAI(KEY)],
+    ['probeProvider(openai)', () => probeProvider('openai', KEY)],
+  ];
+
+  for (const [name, run] of bodyPaths) {
+    it(`${name} strips the key out of an upstream rejection body`, async () => {
+      rejectingUpstream();
+      const r = await run();
+      expect(r.error).toBeTruthy();
+      expect(r.error).not.toContain(KEY);
+      expect(r.error).not.toContain('sk-proj-');
+      expect(r.error).toContain('***REDACTED***');
+    });
+
+    it(`${name} strips the key out of a thrown transport error`, async () => {
+      throwingUpstream();
+      const r = await run();
+      expect(r.error).toBeTruthy();
+      expect(r.error).not.toContain(KEY);
+    });
+  }
+
+  it('probeOllama strips a credential out of a thrown transport error', async () => {
+    global.fetch = vi.fn(async () => { throw new Error(`TLS handshake failed for Bearer ${KEY}`); }) as never;
+    const r = await probeOllama('http://localhost:11434');
+    expect(r.error).toBeTruthy();
+    expect(r.error).not.toContain(KEY);
+  });
+
+  it('redacts before the length cap, so a key straddling it cannot survive', async () => {
+    // Push the key past the 300-char cap: truncating first would leave a
+    // fragment no pattern matches, and the fragment is what gets published.
+    const padded = `${'x'.repeat(290)} ${KEY}`;
+    global.fetch = vi.fn(async () => ({
+      ok: false, status: 401, body: null,
+      text: async () => JSON.stringify({ error: { message: padded } }),
+    })) as never;
+    const r = await probeOpenAI(KEY);
+    expect(r.error).not.toContain('sk-proj-');
+  });
+
+  it('keeps the non-sensitive diagnostic that makes the error actionable', async () => {
+    global.fetch = vi.fn(async () => ({
+      ok: false, status: 429, body: null,
+      text: async () => JSON.stringify({ error: { message: 'Rate limit reached for gpt-4o-mini in organization org-abc on tokens per min.' } }),
+    })) as never;
+    const r = await probeOpenAI(KEY);
+    expect(r.errorCode).toBe('http_429');
+    expect(r.error).toContain('Rate limit reached');
+    expect(r.error).toContain('gpt-4o-mini');
+  });
+});

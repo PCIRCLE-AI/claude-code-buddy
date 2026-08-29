@@ -1187,7 +1187,7 @@ When `apiKey` is omitted the server resolves a stored key so the dashboard can o
 }
 ```
 
-On failure: `{ valid: false, error: "<provider message>", errorCode: "<stable code>" }`. The endpoint always returns HTTP 200 with `success:true` even when `valid:false` — the boolean is the contract, not the HTTP status. `error` is the human message (English, may be reworded); `errorCode` is the stable machine code:
+On failure: `{ valid: false, error: "<provider message>", errorCode: "<stable code>" }`. The endpoint always returns HTTP 200 with `success:true` even when `valid:false` — the boolean is the contract, not the HTTP status. `error` is the human message (English, may be reworded); `errorCode` is the stable machine code. The message is **credential-redacted before it leaves the server**: a provider that quotes the submitted key back in its rejection ("Incorrect API key provided: sk-…") has that fragment replaced with `***REDACTED***`, so the response, the rendered Dashboard alert, and anything copied out of either are safe to paste into a bug report. Non-sensitive diagnostics — model name, organisation-level rate-limit prose, HTTP status — are preserved.
 
 | `errorCode` | Meaning |
 |---|---|
