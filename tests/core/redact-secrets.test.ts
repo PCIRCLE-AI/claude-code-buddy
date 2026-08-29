@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import os from 'os';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { redactSecrets, redactUserPaths, SECRET_PATTERN_SOURCES } from '../../src/core/paths.js';
 
 /**
@@ -33,6 +36,15 @@ describe('redactSecrets (public-egress credential masking)', () => {
     ['jwt', 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpM'],
     ['bearer token', 'Bearer abcdefghijklmnopqrstuvwxyz012345'],
     ['postgres url creds', 'postgres://memesh_user:hunter2secret@db.internal:5432/prod'],
+    // #238 — what a provider ACTUALLY returns for a rejected key: the value
+    // quoted back, partially masked. The old `sk-[A-Za-z0-9_-]{16,}` stopped
+    // at the first mask glyph and published the prefix and the tail.
+    ['masked openai key (asterisks)', 'sk-proj-**********************************ZfQ9'],
+    ['masked openai key (bullets)', 'sk-proj-••••••••••••••••ZfQ9'],
+    ['truncated openai key', 'sk-proj-...ZfQ9'],
+    // #238 — a credential in a query string. No pattern covered this shape.
+    ['url query api key', 'api_key=A1b2C3d4E5f6G7h8I9j0'],
+    ['url query access token', 'access_token=A1b2C3d4E5f6G7h8I9j0'],
   ];
 
   it.each(SECRETS)('masks a %s', (_label, secret) => {
@@ -87,6 +99,59 @@ describe('redactSecrets (public-egress credential masking)', () => {
     // Guard-the-guard: if a pattern is added to SECRET_PATTERN_SOURCES
     // without a sample here, this count goes stale and forces the author
     // to add one. Update BOTH when the list grows.
-    expect(SECRET_PATTERN_SOURCES.length).toBe(18);
+    expect(SECRET_PATTERN_SOURCES.length).toBe(17);
+  });
+});
+
+/**
+ * The other half of the contract. redactSecrets runs over
+ * `JSON.stringify(doctorResult)` for the WHOLE doctor payload, which is full
+ * of credential-shaped strings that are not credentials: commit SHAs,
+ * `sha256:` digests, installation ids, hook marker hashes, model names.
+ *
+ * Over-redaction here is not a cosmetic problem. A pattern of `.` once
+ * compiled from a relative DB path and replaced every literal dot in the
+ * payload — `4.5.0` was published as `4~5~0` — and nothing in the output
+ * said redaction had done it. A corrupted diagnostic is worse than a verbose
+ * one, because the reader cannot tell it is corrupt.
+ *
+ * The corpus is real `runDoctor` output captured against a throwaway
+ * MEMESH_DIR, plus the diagnostic shapes this project's own evidence
+ * artifacts carry. Any new pattern must leave every byte of it alone.
+ */
+describe('redactSecrets does not corrupt diagnostics', () => {
+  const corpus = JSON.parse(
+    fs.readFileSync(
+      path.join(path.dirname(fileURLToPath(import.meta.url)), '../fixtures/redaction-negative-corpus.json'),
+      'utf8',
+    ),
+  ) as { doctorOutput: string; mustSurvive: string[] };
+
+  it('leaves a real doctor payload byte-identical', () => {
+    expect(corpus.doctorOutput.length).toBeGreaterThan(1000);
+    expect(redactSecrets(corpus.doctorOutput)).toBe(corpus.doctorOutput);
+  });
+
+  it.each(corpus.mustSurvive.map((line) => [line.slice(0, 48), line]))(
+    'leaves %s… untouched',
+    (_label, line) => {
+      expect(redactSecrets(line)).toBe(line);
+    },
+  );
+
+  it('keeps the parameter name when the value is a credential', () => {
+    // `?limit=200` must survive: the pattern matches the NAME, so an
+    // ordinary query parameter is not collateral.
+    const url = 'GET https://api.openai.com/v1/models?limit=200&api_key=A1b2C3d4E5f6G7h8I9j0';
+    const out = redactSecrets(url);
+    expect(out).toContain('limit=200');
+    expect(out).not.toContain('A1b2C3d4E5f6G7h8I9j0');
+  });
+
+  it('ends a masked-key match on an alphanumeric, leaving sentence punctuation', () => {
+    // `sk[-_]\S{4,}[A-Za-z0-9]` must not swallow the full stop, or the
+    // redacted sentence loses its boundary and reads as one run-on.
+    const out = redactSecrets('Incorrect API key provided: sk-proj-****ZfQ9. Find it at platform.openai.com.');
+    expect(out).toContain('***REDACTED***. Find it at');
   });
 });

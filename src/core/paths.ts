@@ -242,10 +242,24 @@ export const SECRET_PATTERN_SOURCES: readonly string[] = [
   '[srp]k_(?:live|test)_[A-Za-z0-9]{16,}',
   // npm automation token.
   'npm_[A-Za-z0-9]{36}',
-  // Anthropic / OpenAI-style keys — hyphen OR underscore delimited.
-  'sk-ant-[A-Za-z0-9_-]{16,}',
-  'sk-[A-Za-z0-9_-]{16,}',
-  'sk_[A-Za-z0-9]{16,}',
+  // Anthropic / OpenAI-style keys. ONE pattern, anchored on the `sk-`/`sk_`
+  // prefix and then any run of non-whitespace, rather than three that
+  // enumerated the character class of an unmasked key.
+  //
+  // The narrow form missed what providers actually return. A rejected key
+  // comes back quoted and PARTIALLY MASKED — `sk-proj-**********ZfQ9` — and
+  // `[A-Za-z0-9_-]{16,}` stops dead at the first `*`, so the prefix and the
+  // trailing characters were published. Which glyph a provider masks with
+  // (`*`, `•`, `…`, or a bare truncation) is not knowable in advance, so the
+  // class is "not whitespace" and the match ends on an alphanumeric — that
+  // leaves the sentence's own punctuation outside the redaction.
+  'sk[-_]\\S{4,}[A-Za-z0-9]',
+  // Credential passed as a URL query parameter or a `name=value` assignment.
+  // No pattern covered this: an upstream error that echoes the request URL
+  // (`GET /v1/models?api_key=…`) carried the key through every egress. The
+  // parameter NAME is what is matched, so `?limit=200` and prose containing
+  // the word "token" are untouched.
+  '(?:api[-_]?key|access[-_]?token|auth[-_]?token|refresh[-_]?token|session[-_]?token|token|secret|password|passwd|pwd|signature)=[^&\\s"\'<>]+',
   'ghp_[A-Za-z0-9]{30,}',              // GitHub PAT (classic)
   'gho_[A-Za-z0-9]{30,}',              // GitHub OAuth
   'gh[sur]_[A-Za-z0-9]{30,}',          // GitHub app/server/refresh tokens
