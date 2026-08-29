@@ -287,14 +287,21 @@ function isSafeOllamaHost(url: string): boolean {
 }
 
 export async function probeOllama(host?: string): Promise<ValidationResult> {
-  // Operator-set env wins; otherwise fall back to caller-supplied host (vetted)
-  // or the default loopback URL. Caller-supplied non-loopback URLs are rejected.
+  // A caller-supplied host is ALWAYS validated. The guard used to read
+  // `!envBase && host && !isSafeOllamaHost(host)`, so setting `OLLAMA_HOST`
+  // — an ordinary operator configuration — disabled it entirely, and
+  // `host || envBase` then made the caller's value win. The comment said the
+  // operator's env wins and non-loopback callers are rejected; the code did
+  // neither, and `POST /v1/config/test` would fetch any URL the request named.
+  //
+  // Env stays the privileged escape hatch for a genuinely remote Ollama, and
+  // it is never validated because it is set server-side by the operator, not
+  // by whoever is talking to the HTTP surface.
   const envBase = process.env.OLLAMA_HOST;
-  const requestedBase = host || envBase || 'http://localhost:11434';
-  if (!envBase && host && !isSafeOllamaHost(host)) {
+  if (host && !isSafeOllamaHost(host)) {
     return fail('bad_host', 'Ollama host must be loopback (localhost / 127.0.0.1). For non-local Ollama, set the OLLAMA_HOST environment variable on the server.');
   }
-  const base = requestedBase;
+  const base = host || envBase || 'http://localhost:11434';
   try {
     const data = await fetchJson<{ models: Array<{ name: string; modified_at?: string }> }>(
       `${base.replace(/\/$/, '')}/api/tags`,

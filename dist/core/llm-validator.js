@@ -173,11 +173,10 @@ function isSafeOllamaHost(url) {
 }
 export async function probeOllama(host) {
     const envBase = process.env.OLLAMA_HOST;
-    const requestedBase = host || envBase || 'http://localhost:11434';
-    if (!envBase && host && !isSafeOllamaHost(host)) {
+    if (host && !isSafeOllamaHost(host)) {
         return fail('bad_host', 'Ollama host must be loopback (localhost / 127.0.0.1). For non-local Ollama, set the OLLAMA_HOST environment variable on the server.');
     }
-    const base = requestedBase;
+    const base = host || envBase || 'http://localhost:11434';
     try {
         const data = await fetchJson(`${base.replace(/\/$/, '')}/api/tags`, { method: 'GET' });
         const models = (data.models ?? []).map((m) => ({

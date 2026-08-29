@@ -406,3 +406,47 @@ describe('issue #238 — provider errors are redacted at the module boundary', (
     expect(r.error).toContain('gpt-4o-mini');
   });
 });
+
+/* ── the Ollama host guard cannot be disabled by operator config ─────────── */
+
+describe('probeOllama rejects a caller-supplied non-loopback host in every configuration', () => {
+  const ORIGINAL = process.env.OLLAMA_HOST;
+  let originalFetch: typeof fetch;
+  beforeEach(() => { originalFetch = global.fetch; });
+  afterEach(() => {
+    global.fetch = originalFetch;
+    if (ORIGINAL === undefined) delete process.env.OLLAMA_HOST; else process.env.OLLAMA_HOST = ORIGINAL;
+    vi.restoreAllMocks();
+  });
+
+  // The guard read `!envBase && host && !isSafeOllamaHost(host)`, so an
+  // operator setting OLLAMA_HOST — normal configuration for a remote Ollama —
+  // turned it off, and `host || envBase` then let the caller's value win.
+  // `POST /v1/config/test` would fetch whatever URL the request named.
+  for (const env of [undefined, 'http://localhost:11434'] as const) {
+    it(`rejects 127.0.0.2 with OLLAMA_HOST ${env ?? 'unset'} and never issues the request`, async () => {
+      if (env === undefined) delete process.env.OLLAMA_HOST; else process.env.OLLAMA_HOST = env;
+      const spy = vi.fn(async () => { throw new Error('the guard let a request through'); });
+      global.fetch = spy as never;
+
+      const r = await probeOllama('http://127.0.0.2:11434');
+      expect(r.valid).toBe(false);
+      expect(r.errorCode).toBe('bad_host');
+      expect(spy).not.toHaveBeenCalled();
+    });
+  }
+
+  it('still allows a loopback host, and still honours the operator env when no host is given', async () => {
+    process.env.OLLAMA_HOST = 'http://operator-host.invalid:11434';
+    const seen: string[] = [];
+    global.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      seen.push(String(input));
+      return { ok: true, status: 200, json: async () => ({ models: [{ name: 'llama3.2' }] }) };
+    }) as never;
+
+    expect((await probeOllama('http://localhost:11434')).valid).toBe(true);
+    expect((await probeOllama()).valid).toBe(true);
+    expect(seen[0]).toContain('localhost:11434');
+    expect(seen[1]).toContain('operator-host.invalid');
+  });
+});
