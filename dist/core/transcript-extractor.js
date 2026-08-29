@@ -20,14 +20,14 @@ const SECRET_SOURCES = SECRET_PATTERN_SOURCES;
 export function containsSecret(text) {
     if (typeof text !== 'string')
         return false;
-    return SECRET_SOURCES.some((s) => new RegExp(s).test(text));
+    return SECRET_SOURCES.some((s) => new RegExp(s, 'i').test(text));
 }
 export function scrubSecrets(text) {
     if (typeof text !== 'string')
         return '';
     let out = text;
     for (const s of SECRET_SOURCES)
-        out = out.replace(new RegExp(s, 'g'), '[REDACTED-SECRET]');
+        out = out.replace(new RegExp(s, 'gi'), '[REDACTED-SECRET]');
     return out;
 }
 const META_USER_PREFIX = /^<(local-command|command-name|command-message|command-args|bash-input|bash-stdout|bash-stderr|user-memory-input|system-reminder)/;

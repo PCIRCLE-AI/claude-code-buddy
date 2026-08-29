@@ -260,18 +260,27 @@ export const SECRET_PATTERN_SOURCES: readonly string[] = [
   // `containsSecret()` in transcript-extractor, which DROPS a memory rather
   // than staging it, so a false positive silently discards real content.
   //
-  // The run is deliberately UNBOUNDED. Capping it at, say, 200 was suggested
-  // to limit how much one match can swallow, but with the boundary in place
-  // over-matching is no longer the failure mode — and a cap creates the
-  // opposite one: `sk-` plus a 400-character token redacts the first 204
-  // characters and publishes the remaining 200. Measured, not assumed.
-  '\\bsk[-_]\\S{4,}[A-Za-z0-9]',
+  // The run is unbounded in LENGTH but bounded in CHARACTER SET: `[^\s"\\]`,
+  // not `\S`. This function runs over `JSON.stringify(doctorResult)` (see
+  // server.ts /v1/doctor), where there is no whitespace between fields, so
+  // `\S{4,}` anchored on a repo named `sk-widgets` ran through the closing
+  // quote, the comma, the next key, and stopped at the first space inside a
+  // LATER string — deleting the sibling `fix` field from the public issue
+  // body. A real key never contains `"` or `\`, so excluding them costs no
+  // coverage and makes a quote a hard stop. A length cap was tried instead
+  // and rejected: `sk-` + 400 chars redacted the first 204 and published the
+  // remaining 200. Measured, not assumed.
+  '\\bsk[-_][^\\s"\\\\]{4,}[A-Za-z0-9]',
   // Credential passed as a URL query parameter or a `name=value` assignment.
   // No pattern covered this: an upstream error that echoes the request URL
   // (`GET /v1/models?api_key=…`) carried the key through every egress. The
   // parameter NAME is what is matched, so `?limit=200` and prose containing
-  // the word "token" are untouched.
-  '(?:api[-_]?key|access[-_]?token|auth[-_]?token|refresh[-_]?token|session[-_]?token|token|secret|password|passwd|pwd|signature)=[^&\\s"\'<>]+',
+  // the word "token" are untouched. No letter or digit may precede the name
+  // (so `mytoken=` is not a hit) but `_` and `-` may: `DB_PASSWORD=…` and
+  // `OPENAI_API_KEY=…` are the dominant credential shape in a shell
+  // transcript and must match. The value must be 8+ characters so
+  // `token=bucket` and `signature=valid` — prose, not credentials — survive.
+  '(?<![A-Za-z0-9])(?:api[-_]?key|access[-_]?token|auth[-_]?token|refresh[-_]?token|session[-_]?token|token|secret|password|passwd|pwd|signature)=[^&\\s"\'<>]{8,}',
   'ghp_[A-Za-z0-9]{30,}',              // GitHub PAT (classic)
   'gho_[A-Za-z0-9]{30,}',              // GitHub OAuth
   'gh[sur]_[A-Za-z0-9]{30,}',          // GitHub app/server/refresh tokens

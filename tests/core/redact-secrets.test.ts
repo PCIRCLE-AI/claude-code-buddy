@@ -181,6 +181,16 @@ describe('the pattern list is safe for the transcript drop gate too', () => {
     },
   );
 
+  it('is case-insensitive, like the egress redactor', () => {
+    // The drop gate compiled the shared list case-SENSITIVELY while the egress
+    // used 'gi'. `DB_PASSWORD=…` therefore passed the gate and reached the LLM
+    // prompt while the same bytes were masked on the way out.
+    for (const s of ['DB_PASSWORD=hunter2secret', 'export OPENAI_API_KEY=abcdef0123456789', 'SK-ANT-API03-abcdefghij', 'BEARER abcdefghijklmnopqrstuvwxyz0123']) {
+      expect(containsSecret(s), s).toBe(true);
+      expect(scrubSecrets(s), s).not.toBe(s);
+    }
+  });
+
   it('still drops and scrubs a real credential', () => {
     const secret = 'sk-ant-' + 'a1B2'.repeat(6);
     expect(containsSecret(`context ${secret} context`)).toBe(true);
@@ -196,6 +206,39 @@ describe('the pattern list is safe for the transcript drop gate too', () => {
     const out = redactSecrets(`before ${long} after`);
     expect(out).toBe('before ***REDACTED*** after');
     expect(out).not.toContain('aaaa');
+  });
+
+  it('stops at a JSON string terminator, so a hit cannot swallow sibling fields', () => {
+    // redactSecrets runs over JSON.stringify(doctorResult), which has no
+    // whitespace between fields. With `\S{4,}` a repo named `sk-widgets` ran
+    // through the closing quote, the comma and the next key, and deleted the
+    // sibling `fix` field from the public issue body. The character class now
+    // excludes `"` and `\`, which no real key contains.
+    const doc = JSON.stringify({ checks: [
+      { id: 'database', summary: 'Database opened at /home/me/Projects/sk-widgets/knowledge-graph.db', fix: 'Run: memesh doctor' },
+      { id: 'config', summary: 'ok' },
+    ] });
+    const parsed = JSON.parse(redactSecrets(doc)) as { checks: Array<Record<string, string>> };
+    expect(parsed.checks).toHaveLength(2);
+    expect(parsed.checks[0].fix).toBe('Run: memesh doctor');
+    expect(parsed.checks[0].summary).toContain('/home/me/Projects/');
+
+    // And with a REAL credential in a JSON field, the neighbour row survives.
+    const leak = JSON.stringify({ a: { summary: 'Incorrect API key provided: sk-proj-abcdef123456' }, b: { id: 'next', label: 'Hook activity' } });
+    const p2 = JSON.parse(redactSecrets(leak)) as { a: { summary: string }; b: { label: string } };
+    expect(p2.a.summary).not.toContain('sk-proj');
+    expect(p2.b.label).toBe('Hook activity');
+  });
+
+  it('matches a name=value credential only as a whole name with a real value', () => {
+    // Compound env names are the dominant shape in a shell transcript and
+    // must match; prose that merely contains the word must not.
+    for (const s of ['DB_PASSWORD=hunter2secret', 'export OPENAI_API_KEY=abcdef0123456789', 'MY-API-KEY=abcdef0123456789']) {
+      expect(redactSecrets(s), s).not.toBe(s);
+    }
+    for (const s of ['is_secret=false', 'signature=valid', 'token=bucket', 'mytoken=abcdef0123456789', 'memesh serve --token=<value>']) {
+      expect(redactSecrets(s), s).toBe(s);
+    }
   });
 
   it('requires a word boundary before the key prefix', () => {
