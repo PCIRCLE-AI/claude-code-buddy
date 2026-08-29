@@ -636,11 +636,6 @@
       "reason": "models.length === 0 now returns valid:false for all three providers (PR #112) (re-keyed 219→253 on 2026-08-29; line shift only, classification unchanged)",
       "triaged": "2026-08-04"
     },
-    "C5 src/core/llm-validator.ts:303": {
-      "class": "SAFE-GUARDED",
-      "reason": "models.length === 0 now returns valid:false for all three providers (PR #112) (re-keyed 273→303 on 2026-08-29; line shift only, classification unchanged)",
-      "triaged": "2026-08-04"
-    },
     "C3 npm:test:issue-224": {
       "class": "SAFE",
       "reason": "Per-issue focused runner for the completion-gate review contract, which only accepts an exact declared `npm run test:*` argv. Nothing in CI references it by design: every test file it names is already inside the default `tests/` run, so the script adds a bounded replay entry point, not coverage. All 9 referenced files were confirmed present on 2026-08-29.",
@@ -675,6 +670,11 @@
       "class": "SAFE",
       "reason": "Per-issue focused runner for the completion-gate review contract, which only accepts an exact declared `npm run test:*` argv. Nothing in CI references it by design: every test file it names is already inside the default `tests/` run, so the script adds a bounded replay entry point, not coverage. All 9 referenced files were confirmed present on 2026-08-29.",
       "triaged": "2026-08-29 v4.8.2 dashboard issue sweep"
+    },
+    "C5 src/core/llm-validator.ts:310": {
+      "class": "SAFE-GUARDED",
+      "reason": "models.length === 0 now returns valid:false for all three providers (PR #112) (re-keyed 273→303 on 2026-08-29; line shift only, classification unchanged) (re-keyed 303→310 on 2026-08-29; line shift only, classification unchanged)",
+      "triaged": "2026-08-04"
     }
   }
 }
