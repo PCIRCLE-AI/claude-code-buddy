@@ -121,21 +121,21 @@ const INVARIANTS = [
     id: 'explicit-lessons-not-fused-into-other-bucket',
     refs: '#241',
     says: 'no lesson entity holds more than one explicit lesson (4 fields each) under the "-other" key',
+    // "More than one lesson" is asked directly: `learn()` starts every lesson
+    // with an `Error: ` line, and the repair's groupLessons cuts on the same
+    // line, so detector and fixer agree by construction. Counting rows (>4)
+    // and guessing from the name shape did not: a bucket renamed by
+    // `kg rename-project` (name lesson-old-other, tag project:new) went
+    // unseen, and a re-learned lesson named `…-the-other` was flagged.
     sql: `
-      SELECT e.name AS name, COUNT(o.id) AS total
+      SELECT e.name AS name, COUNT(o.id) AS total,
+             COUNT(DISTINCT CASE WHEN o.content LIKE 'Error: %' THEN o.content END) AS lessons
       FROM entities e JOIN observations o ON o.entity_id = e.id
       WHERE e.type = 'lesson_learned' AND e.name LIKE 'lesson-%-other'
         AND EXISTS (SELECT 1 FROM tags t WHERE t.entity_id = e.id AND t.tag = 'source:explicit')
-        -- A bucket is lesson-<project>-other EXACTLY. A lesson whose slug merely
-        -- ends in "other" (lesson-proj-could-not-reach-the-other) is not one:
-        -- when the entity carries a project tag, the name must be that project
-        -- plus "-other" and nothing in between.
-        AND (NOT EXISTS (SELECT 1 FROM tags t WHERE t.entity_id = e.id AND t.tag LIKE 'project:%')
-             OR EXISTS (SELECT 1 FROM tags t WHERE t.entity_id = e.id
-                        AND t.tag = 'project:' || substr(e.name, 8, length(e.name) - 13)))
-      GROUP BY e.id HAVING total > 4
-      ORDER BY total DESC LIMIT ${MAX_ROWS + 1}`,
-    row: (r) => `${r.name}  observations=${r.total} (${Math.floor(r.total / 4)} lessons)`,
+      GROUP BY e.id HAVING lessons > 1
+      ORDER BY lessons DESC LIMIT ${MAX_ROWS + 1}`,
+    row: (r) => `${r.name}  observations=${r.total} (${r.lessons} lessons)`,
   },
   {
     id: 'global-namespace-reachable-by-injection',

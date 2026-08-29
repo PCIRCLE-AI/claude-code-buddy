@@ -10,7 +10,7 @@
  * heredoc that only feeds stdin, an archived target, a bucket with no
  * project tag.
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -362,8 +362,16 @@ describe('#241 — lessons fused into one -other bucket are split apart', () => 
       const id = insertEntity(db, 'lesson-old-other', 'lesson_learned', ['project:new', 'source:explicit']);
       const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
       for (const line of ['Error: other', 'Root cause: ?', 'Fix: ?', 'Prevention: ?', ...LESSON_A]) ins.run(id, line);
+      // A second bucket whose only group is skipped moves nothing and must
+      // not be counted in the note.
+      const idle = insertEntity(db, 'lesson-z-other', 'lesson_learned', ['project:z', 'source:explicit']);
+      for (const line of ['Error: other', 'Root cause: ?', 'Fix: ?', 'Prevention: ?']) ins.run(idle, line);
     });
+    const notes: string[] = [];
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => { notes.push(String(chunk)); return true; });
     const db = repaired();
+    spy.mockRestore();
+    expect(notes.join('')).toContain('moved 1 lesson(s) out of 1 "-other" bucket(s)');
     expect(db.prepare('SELECT id FROM entities WHERE name = ?').get('lesson-new-other')).toBeUndefined();
     expect(observations(db, 'lesson-old-other')).toEqual(['Error: other', 'Root cause: ?', 'Fix: ?', 'Prevention: ?']);
     expect(statusOf(db, 'lesson-old-other')).toBe('active');

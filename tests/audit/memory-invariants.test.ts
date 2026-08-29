@@ -173,6 +173,60 @@ describe('memory-invariants: read-only detector over a real graph', () => {
     }
   });
 
+  it('#241 — a bucket renamed by kg rename-project (name old, tag new) is still seen', () => {
+    const { dir, dbPath } = freshGraph();
+    try {
+      withRawDb(dbPath, (db) => {
+        const id = insertEntity(db, 'lesson-old-other', 'lesson_learned');
+        db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(id, 'source:explicit');
+        db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(id, 'project:new');
+        const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+        for (const topic of ['one thing', 'another thing']) {
+          ins.run(id, `Error: ${topic}`); ins.run(id, 'Root cause: x'); ins.run(id, 'Fix: y'); ins.run(id, 'Prevention: z');
+        }
+      });
+      const r = run(dbPath);
+      expect(r.status, r.stdout).toBe(1);
+      expect(r.stdout).toContain('lesson-old-other  observations=8 (2 lessons)');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('#241 — a re-learned lesson with no project tag whose name ends in "-other" is not a bucket', () => {
+    const { dir, dbPath } = freshGraph();
+    try {
+      withRawDb(dbPath, (db) => {
+        const id = insertEntity(db, 'lesson-q-could-not-reach-the-other', 'lesson_learned');
+        db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(id, 'source:explicit');
+        const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+        for (const line of ['Error: could not reach the other', 'Root cause: x', 'Fix: y', 'Prevention: z', 'Error: could not reach the other']) ins.run(id, line);
+      });
+      expect(run(dbPath).status).toBe(0);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('#240 — nine duplicate-summary entities print eight and say so (the SQL cap)', () => {
+    const { dir, dbPath } = freshGraph();
+    try {
+      withRawDb(dbPath, (db) => {
+        const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+        for (let i = 0; i < 9; i++) {
+          const id = insertEntity(db, `session-d${i}-summary`, 'session-insight');
+          ins.run(id, 'Command: git status'); ins.run(id, 'Command: git status');
+        }
+      });
+      const r = run(dbPath);
+      expect(r.status).toBe(1);
+      expect((r.stdout.match(/session-d\d-summary/g) ?? []).length).toBe(8);
+      expect(r.stdout).toContain('(first 8)');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('#241 — a lesson whose name merely ends in "-other" is not a bucket', () => {
     const { dir, dbPath } = freshGraph();
     try {
