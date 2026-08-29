@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { redactSecrets, redactUserPaths, SECRET_PATTERN_SOURCES } from '../../src/core/paths.js';
+import { containsSecret, scrubSecrets } from '../../src/core/transcript-extractor.js';
 
 /**
  * redactSecrets guards two PUBLIC egresses — the dashboard's /v1/doctor and
@@ -153,5 +154,44 @@ describe('redactSecrets does not corrupt diagnostics', () => {
     // redacted sentence loses its boundary and reads as one run-on.
     const out = redactSecrets('Incorrect API key provided: sk-proj-****ZfQ9. Find it at platform.openai.com.');
     expect(out).toContain('***REDACTED***. Find it at');
+  });
+});
+
+/**
+ * The pattern list has a THIRD consumer that the egress tests never exercised:
+ * `containsSecret()` in transcript-extractor, which is a DROP gate — a mined
+ * memory that trips it is discarded rather than staged. A pattern that is
+ * merely noisy at the egress silently destroys content there.
+ *
+ * That is not hypothetical. `sk[-_]\S{4,}` without a word boundary matched
+ * inside `task-runner`, `disk-usage`, `risk-level` and `ask-first`: six
+ * ordinary English phrases, every one of them redacted at the egress and
+ * dropped on the way in. The corpus above only asserted `redactSecrets`, so
+ * it could not see the drop.
+ */
+describe('the pattern list is safe for the transcript drop gate too', () => {
+  const corpusPath = path.join(path.dirname(fileURLToPath(import.meta.url)), '../fixtures/redaction-negative-corpus.json');
+  const negatives = (JSON.parse(fs.readFileSync(corpusPath, 'utf8')) as { mustSurvive: string[] }).mustSurvive;
+
+  it.each(negatives.map((line) => [line.slice(0, 44), line]))(
+    'does not drop %s…',
+    (_label, line) => {
+      expect(containsSecret(line)).toBe(false);
+      expect(scrubSecrets(line)).toBe(line);
+    },
+  );
+
+  it('still drops and scrubs a real credential', () => {
+    const secret = 'sk-ant-' + 'a1B2'.repeat(6);
+    expect(containsSecret(`context ${secret} context`)).toBe(true);
+    expect(scrubSecrets(`context ${secret} context`)).not.toContain(secret);
+  });
+
+  it('requires a word boundary before the key prefix', () => {
+    // Removing the leading \b makes every one of these true.
+    for (const word of ['task-runner-v2', 'disk-usage-report', 'risk-level-high']) {
+      expect(containsSecret(word)).toBe(false);
+    }
+    expect(containsSecret('sk-proj-**********ZfQ9')).toBe(true);
   });
 });

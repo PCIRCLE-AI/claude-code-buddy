@@ -253,7 +253,13 @@ export const SECRET_PATTERN_SOURCES: readonly string[] = [
   // (`*`, `•`, `…`, or a bare truncation) is not knowable in advance, so the
   // class is "not whitespace" and the match ends on an alphanumeric — that
   // leaves the sentence's own punctuation outside the redaction.
-  'sk[-_]\\S{4,}[A-Za-z0-9]',
+  //
+  // The leading \\b is load-bearing. Without it the pattern fires inside
+  // ordinary words that happen to contain `sk-`: `task-runner`, `disk-usage`,
+  // `risk-level`, `ask-first`. That is not merely noisy — this same list backs
+  // `containsSecret()` in transcript-extractor, which DROPS a memory rather
+  // than staging it, so a false positive silently discards real content.
+  '\\bsk[-_]\\S{4,}[A-Za-z0-9]',
   // Credential passed as a URL query parameter or a `name=value` assignment.
   // No pattern covered this: an upstream error that echoes the request URL
   // (`GET /v1/models?api_key=…`) carried the key through every egress. The
