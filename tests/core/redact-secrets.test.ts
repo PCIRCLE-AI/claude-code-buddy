@@ -187,6 +187,17 @@ describe('the pattern list is safe for the transcript drop gate too', () => {
     expect(scrubSecrets(`context ${secret} context`)).not.toContain(secret);
   });
 
+  it('redacts an unusually long credential completely, with no tail left over', () => {
+    // Bounding the run (e.g. \S{4,200}) was proposed to cap how much one match
+    // can swallow. With the word boundary in place over-matching is no longer
+    // the failure mode, and a cap creates the opposite one: this input would
+    // redact its first 204 characters and publish the remaining 200.
+    const long = 'sk-' + 'a'.repeat(400) + 'Z';
+    const out = redactSecrets(`before ${long} after`);
+    expect(out).toBe('before ***REDACTED*** after');
+    expect(out).not.toContain('aaaa');
+  });
+
   it('requires a word boundary before the key prefix', () => {
     // Removing the leading \b makes every one of these true.
     for (const word of ['task-runner-v2', 'disk-usage-report', 'risk-level-high']) {

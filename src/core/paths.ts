@@ -259,6 +259,12 @@ export const SECRET_PATTERN_SOURCES: readonly string[] = [
   // `risk-level`, `ask-first`. That is not merely noisy — this same list backs
   // `containsSecret()` in transcript-extractor, which DROPS a memory rather
   // than staging it, so a false positive silently discards real content.
+  //
+  // The run is deliberately UNBOUNDED. Capping it at, say, 200 was suggested
+  // to limit how much one match can swallow, but with the boundary in place
+  // over-matching is no longer the failure mode — and a cap creates the
+  // opposite one: `sk-` plus a 400-character token redacts the first 204
+  // characters and publishes the remaining 200. Measured, not assumed.
   '\\bsk[-_]\\S{4,}[A-Za-z0-9]',
   // Credential passed as a URL query parameter or a `name=value` assignment.
   // No pattern covered this: an upstream error that echoes the request URL
