@@ -9,6 +9,8 @@ import { DoctorBanner } from '../../dashboard/src/components/DoctorBanner';
 import { TerminalHandoff } from '../../dashboard/src/components/ExternalHandoff';
 import { DASHBOARD_EXTERNAL_HANDOFFS, openExternalWindow } from '../../dashboard/src/lib/external-handoffs';
 import { setLocale, t } from '../../dashboard/src/lib/i18n';
+import { HttpError } from '../../dashboard/src/lib/api';
+import { actionFailureMessage, failureMessage } from '../../dashboard/src/lib/failure';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -85,5 +87,39 @@ describe('issue #235 — explicit external handoffs', () => {
     vi.spyOn(window, 'open').mockReturnValue(opened);
     expect(openExternalWindow('https://github.com/PCIRCLE-AI/memesh/issues/new')).toBe(true);
     expect(opened.opener).toBeNull();
+  });
+});
+
+describe('issue #235 — the Terminal label follows the primary action', () => {
+  // The first cut of #235 labelled any message that merely MENTIONED a
+  // `memesh …` command. Two of those messages tell the user to reload or
+  // retry in the browser and only escalate to a command if that fails, so
+  // the label announced a prerequisite that does not exist.
+  const label = () => `${t('handoff.terminal')}:`;
+
+  it('labels the unreachable load, whose only action is in a terminal', () => {
+    expect(failureMessage('unreachable')).toContain(label());
+    expect(failureMessage('unreachable')).toContain(t('common.serverUnreachableAction'));
+  });
+
+  it('does not label the unreadable load, whose action is reloading the page', () => {
+    expect(failureMessage('unreadable')).not.toContain(label());
+    expect(failureMessage('unreadable')).toContain(t('common.responseUnreadableAction'));
+  });
+
+  it('does not label an envelope-less HttpError, whose action is retrying', () => {
+    expect(actionFailureMessage(new HttpError(502))).not.toContain(label());
+    expect(actionFailureMessage(new HttpError(502))).toBe(t('common.serverError', { status: 502 }));
+  });
+
+  it('holds in a non-English locale, where the label is a different string', () => {
+    setLocale('zh-TW');
+    try {
+      expect(failureMessage('unreachable')).toContain(label());
+      expect(failureMessage('unreadable')).not.toContain(label());
+      expect(actionFailureMessage(new HttpError(502))).not.toContain(label());
+    } finally {
+      setLocale('en');
+    }
   });
 });

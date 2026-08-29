@@ -35,11 +35,24 @@ export function classifyLoadError(err: unknown): LoadFailure {
   return err instanceof NetworkError ? 'unreachable' : 'unreadable';
 }
 
-/** The full user-facing sentence for a failure kind: what happened + what to do. */
+/**
+ * The full user-facing sentence for a failure kind: what happened + what to do.
+ *
+ * Only `unreachable` carries the Terminal handoff label, and the rule is the
+ * message's PRIMARY action, not whether a `memesh …` command appears in it:
+ *
+ *   - unreachable → "Check that `memesh serve` is still running, then reload."
+ *     There is nothing to do in the browser first. Terminal, correctly.
+ *   - unreadable  → "Reload the page. If this keeps happening, run `memesh
+ *     doctor`." The fix is a reload; the command is an escalation. Labelling
+ *     this "Requires Terminal" tells the user something false.
+ *
+ * Triggering on the command mention labels every escalation as a prerequisite.
+ */
 export function failureMessage(kind: LoadFailure): string {
   if (kind === 'unreachable') return `${t('common.serverUnreachable')} ${t('handoff.terminal')}: ${t('common.serverUnreachableAction')}`;
   if (kind === 'ratelimited') return t('httpError.rate.limited');
-  return `${t('common.responseUnreadable')} ${t('handoff.terminal')}: ${t('common.responseUnreadableAction')}`;
+  return `${t('common.responseUnreadable')} ${t('common.responseUnreadableAction')}`;
 }
 
 /**
@@ -63,7 +76,7 @@ export function failureMessage(kind: LoadFailure): string {
 export function actionFailureMessage(err: unknown): string {
   if (err instanceof NetworkError) return failureMessage('unreachable');
   if (err instanceof AuthRequiredError) return t('auth.title');
-  if (err instanceof HttpError) return `${t('handoff.terminal')}: ${t('common.serverError', { status: err.status })}`;
+  if (err instanceof HttpError) return t('common.serverError', { status: err.status });
   if (err instanceof Error && err.message) return err.message;
   return t('errors.unknown');
 }
