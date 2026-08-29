@@ -378,3 +378,86 @@ describe('App protects an unsaved Settings draft', () => {
     expect(container.textContent).toContain(t('settings.unsaved'));
   });
 });
+
+/* ── loop closure: the readback must actually be read ────────────────────── */
+
+describe('issue #221 — the save/readback loop is closed, not merely sequenced', () => {
+  // The first version of these tests asserted the ORDER of calls and a
+  // hardcoded readback body. Three mutations survived all 475 dashboard and
+  // HTTP tests: posting a wrong model, posting no model at all, and deleting
+  // the readback reconciliation in save() outright. A fake whose answer does
+  // not depend on what was written cannot see any of them — it proves the
+  // component made a request, not that the request carried the user's choice
+  // or that the answer was checked.
+  //
+  // So the fake below is a store: it keeps the posted `llm` and serves it
+  // back. That closes the loop on the write side. The second test breaks the
+  // loop deliberately — the server answers with something the user did not
+  // choose — and requires the UI to refuse, which is what pins the guard.
+
+  function storeBackedFetch(opts: { readbackOverride?: unknown } = {}) {
+    let stored: { provider: string; model?: string; apiKey?: string } | undefined;
+    const posted: Array<Record<string, unknown>> = [];
+    const impl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? 'GET').toUpperCase();
+      const background = backgroundResponse(url);
+      if (background) return background;
+      if (method === 'POST' && url.includes('/v1/config/test')) {
+        return jsonResponse({ success: true, data: { valid: true, models: [{ id: 'gpt-fixture' }, { id: 'gpt-other' }], suggested: 'gpt-fixture' } });
+      }
+      if (method === 'POST' && url.endsWith('/v1/config')) {
+        const body = JSON.parse(String(init?.body ?? '{}')) as { llm?: typeof stored };
+        posted.push(body as Record<string, unknown>);
+        stored = body.llm ?? undefined;           // the store echoes the write
+        return jsonResponse({ success: true, data: { llm: stored } });
+      }
+      if (url.includes('/v1/config')) {
+        if (stored && opts.readbackOverride !== undefined) {
+          return jsonResponse({ success: true, data: configData(opts.readbackOverride as never) });
+        }
+        return jsonResponse({ success: true, data: configData(stored ?? { provider: 'anthropic', apiKey: '***' }) });
+      }
+      return jsonResponse({ success: true, data: {} });
+    });
+    vi.spyOn(globalThis, 'fetch').mockImplementation(impl as never);
+    return { posted, get stored() { return stored; } };
+  }
+
+  async function selectTestAndSave(container: Element, getByText: (s: string) => HTMLElement) {
+    await waitFor(() => expect(container.querySelector('input[name="provider"][value="openai"]')).not.toBeNull());
+    fireEvent.click(container.querySelector('input[name="provider"][value="openai"]') as HTMLInputElement);
+    fireEvent.input(container.querySelector('input[type="password"]') as HTMLInputElement, { target: { value: 'fixture-key' } });
+    fireEvent.click(getByText(t('settings.test')));
+    await waitFor(() => expect(container.textContent).toContain(t('settings.testPassed', { count: 2 })));
+    fireEvent.click(getByText(t('settings.save')));
+  }
+
+  it('sends the chosen model and shows back exactly what the server stored', async () => {
+    const store = storeBackedFetch();
+    const { container, getByText } = render(<SettingsTab locale="en" onLocaleChange={() => {}} />);
+    await selectTestAndSave(container, getByText);
+    await waitFor(() => expect(container.textContent).toContain(t('settings.saved')));
+
+    // The write carried the user's selection — not an empty body, not a
+    // mangled one. This is what M1 and M2 escaped.
+    expect(store.posted).toHaveLength(1);
+    expect(store.posted[0].llm).toMatchObject({ provider: 'openai', model: 'gpt-fixture' });
+    // And the card shows what the STORE holds, which is the same value.
+    expect(store.stored).toMatchObject({ provider: 'openai', model: 'gpt-fixture' });
+    expect(capabilityValues(container)).toContain('gpt-fixture');
+  });
+
+  it('refuses to report success when the readback disagrees with what was chosen', async () => {
+    // The server accepts the POST but answers the readback with a different
+    // model. Deleting the reconciliation in save() makes this pass silently,
+    // which is exactly the mutation that survived before.
+    const store = storeBackedFetch({ readbackOverride: { provider: 'openai', model: 'gpt-something-else', apiKey: '***' } });
+    const { container, getByText } = render(<SettingsTab locale="en" onLocaleChange={() => {}} />);
+    await selectTestAndSave(container, getByText);
+
+    await waitFor(() => expect(container.textContent).toContain(t('settings.configReadbackFailed')));
+    expect(container.textContent).not.toContain(t('settings.saved'));
+    expect(store.posted[0].llm).toMatchObject({ model: 'gpt-fixture' });
+  });
+});
