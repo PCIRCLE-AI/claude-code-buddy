@@ -61,7 +61,7 @@ function fmtLatency(ms: number | null): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
-export function LlmTelemetryPanel() {
+export function LlmTelemetryPanel({ dataRevision = 0 }: { dataRevision?: number }) {
   const [data, setData] = useState<TelemetryResponse | null>(null);
   const [failure, setFailure] = useState<LoadFailure | null>(null);
   const [loading, setLoading] = useState(true);
@@ -74,6 +74,7 @@ export function LlmTelemetryPanel() {
     // could blank out fresh good data.
     let stale = false;
     setLoading(true);
+    setFailure(null);
     api<TelemetryResponse>('GET', `/v1/telemetry?window=${window}`)
       // Without `summaries` there is nothing to render, and `data.summaries.length`
       // throws. A payload the guard rejects is a DIFFERENT failure from a
@@ -85,7 +86,6 @@ export function LlmTelemetryPanel() {
         if (!Array.isArray(d?.summaries)) {
           console.warn('[memesh dashboard] /v1/telemetry answered, but with a shape this bundle cannot render — stale bundle or version skew, not an outage:', d);
           setFailure('unreadable');
-          setData(null);
           return;
         }
         setFailure(null);
@@ -98,7 +98,7 @@ export function LlmTelemetryPanel() {
       })
       .finally(() => { if (!stale) setLoading(false); });
     return () => { stale = true; };
-  }, [window]);
+  }, [window, dataRevision]);
 
   return (
     <div class="card" style={{ padding: 16 }}>
@@ -124,18 +124,18 @@ export function LlmTelemetryPanel() {
         </div>
       </div>
 
-      {loading && <div style={{ color: 'var(--text-3)', fontSize: 13 }}>{t('telemetry.loading')}</div>}
-      {!loading && failure && (
+      {loading && <div role="status" style={{ color: 'var(--text-3)', fontSize: 13 }}>{t('telemetry.loading')}</div>}
+      {failure && (
         <div class="error-box" role="alert" style={{ fontSize: 13 }}>{failureMessage(failure)}</div>
       )}
 
-      {!loading && !failure && data && data.summaries.length === 0 && (
+      {!loading && data && data.summaries.length === 0 && (
         <div style={{ color: 'var(--text-2)', fontSize: 13, padding: 8 }}>
           {t('telemetry.empty')}
         </div>
       )}
 
-      {!loading && !failure && data && data.summaries.length > 0 && (
+      {data && data.summaries.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {data.summaries.map(s => {
             const successRate = s.total_attempts > 0 ? s.successes / s.total_attempts : 0;

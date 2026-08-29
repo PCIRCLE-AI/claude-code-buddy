@@ -2,6 +2,7 @@ export interface LLMConfig {
     provider: 'anthropic' | 'openai' | 'ollama';
     model?: string;
     apiKey?: string;
+    host?: string;
 }
 export interface EmbedderConfig {
     provider: 'openai' | 'ollama';
@@ -24,6 +25,7 @@ export interface Capabilities {
     knowledgeEvolution: true;
     embeddings: 'ollama' | 'anthropic' | 'openai' | 'tfidf';
     llm: LLMConfig | null;
+    llmSource: 'config' | 'environment' | 'none';
     llmFallbacks: LLMConfig[];
     searchLevel: 0 | 1;
 }
@@ -38,8 +40,9 @@ export declare function writeConfig(config: MeMeshConfig): void;
 export declare class ConfigUnreadableError extends Error {
     constructor(p: string);
 }
-export declare function updateConfig(partial: Omit<Partial<MeMeshConfig>, 'llm'> & {
+export declare function updateConfig(partial: Omit<Partial<MeMeshConfig>, 'llm' | 'embedder'> & {
     llm?: LLMConfig | null;
+    embedder?: EmbedderConfig | null;
 }): MeMeshConfig;
 export declare function maskApiKey(key: string): string;
 export declare function detectCapabilities(config?: MeMeshConfig): Capabilities;

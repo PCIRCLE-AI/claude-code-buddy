@@ -37,8 +37,14 @@ export interface ReindexResult {
     generationSwapped: boolean | null;
     abortedAfter: number | null;
 }
-export declare function countMissingVectors(db: ReturnType<typeof getDatabase>, namespace?: string): number;
-export declare function reindex(opts?: {
+export interface ReindexProgress {
+    processed: number;
+    total: number;
+}
+export interface ReindexOptions {
     namespace?: string;
-}): Promise<ReindexResult>;
+    onProgress?: (progress: ReindexProgress) => void;
+}
+export declare function countMissingVectors(db: ReturnType<typeof getDatabase>, namespace?: string): number;
+export declare function reindex(opts?: ReindexOptions): Promise<ReindexResult>;
 //# sourceMappingURL=operations.d.ts.map

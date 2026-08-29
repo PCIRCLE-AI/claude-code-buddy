@@ -71,6 +71,23 @@ describe('dreamer', () => {
     expect(result.skipped.some(s => s.reason.includes('smaller than'))).toBe(true);
   });
 
+  it('classifies provider failures structurally for transports and the Dashboard', async () => {
+    const { runDreamer } = await import('../../src/core/dreamer.js');
+    seedCommits(5);
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('fixture provider unavailable'));
+
+    const result = await runDreamer(
+      db,
+      { provider: 'openai', model: 'fixture-model', apiKey: 'fixture-key' },
+      { dryRun: true, maxLlmCalls: 1 },
+    );
+
+    expect(result.proposalsCreated).toBe(0);
+    expect(result.skipped).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'provider_error' }),
+    ]));
+  });
+
   it('NEVER includes lesson_learned, decision, architecture, etc. (semantic types are protected)', async () => {
     const { runDreamer } = await import('../../src/core/dreamer.js');
     seedLessons(20); // many lessons — would form a cluster IF they were compactable

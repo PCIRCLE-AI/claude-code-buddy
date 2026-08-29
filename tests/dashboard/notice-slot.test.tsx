@@ -19,6 +19,7 @@ import { render, waitFor } from '@testing-library/preact';
 import { readFileSync } from 'fs';
 import { t } from '../../dashboard/src/lib/i18n';
 import { App } from '../../dashboard/src/App';
+import type { HealthData } from '../../dashboard/src/lib/api';
 
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -30,7 +31,7 @@ function jsonResponse(body: unknown): Response {
 /** Every banner eligible at once: doctor FAILs, the library is empty, and
  *  two dream proposals wait. (Insights additionally needs the active tab
  *  to not be Home — pinned via the stored tab below.) */
-function stubAllBannersEligible() {
+function stubAllBannersEligible(health: HealthData = { status: 'ok', version: 't', entity_count: 0 }) {
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
     const url = String(input);
     if (url.includes('/v1/doctor')) {
@@ -46,7 +47,7 @@ function stubAllBannersEligible() {
       return jsonResponse({ success: true, data: [{ id: 1, status: 'pending' }, { id: 2, status: 'pending' }] });
     }
     if (url.includes('/v1/health')) {
-      return jsonResponse({ success: true, data: { status: 'ok', version: 't', entity_count: 0 } });
+      return jsonResponse({ success: true, data: health });
     }
     if (url.includes('/v1/config')) {
       return jsonResponse({ success: true, data: {} });
@@ -105,6 +106,24 @@ describe('the notice slot shows one banner at a time, by priority', () => {
       expect(slot.children.length).toBe(2);
     });
     expect(slot.children[0].textContent).toContain(t('onboarding.title'));
+  });
+
+  it('keeps populated demo cleanup outside the competing notice slot', async () => {
+    stubAllBannersEligible({
+      status: 'ok',
+      version: 't',
+      entity_count: 30,
+      demo_entity_count: 30,
+    });
+    const { container, getByRole } = render(<App />);
+
+    const cleanup = await waitFor(() => getByRole('region', {
+      name: /Demo data|示範資料|示范数据|デモデータ|데모 데이터/i,
+    }));
+    const slot = container.querySelector('.notice-slot')!;
+    expect(slot.contains(cleanup)).toBe(false);
+    expect(cleanup.textContent).toContain('30');
+    expect(slot.textContent).toContain('db unreadable');
   });
 
   it('the stylesheet hides every slot child after the first', () => {

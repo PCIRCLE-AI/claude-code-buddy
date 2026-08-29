@@ -1,6 +1,6 @@
 # MeMesh Plugin Architecture
 
-**Version**: 4.8.1
+**Version**: 4.8.2
 
 > Looking for "which file do I change for X?" — see [CODEMAP.md](../CODEMAP.md).
 
@@ -78,7 +78,7 @@ MeMesh separates concerns into two layers:
 
 **Transports** (`src/transports/`) — thin adapters that expose core operations:
 - `cli/cli.ts` — Commander CLI (`memesh` command, 30 top-level commands; `message`, `agent`, `config`, `kg`, and `dream` have subcommands)
-- `http/server.ts` — Express REST API server (`memesh serve`, default port 3737, 35 endpoints, bearer-auth gate when bound non-loopback)
+- `http/server.ts` — Express REST API server (`memesh serve`, default port 3737, 37 endpoints, bearer-auth gate when bound non-loopback)
 - `agent-messaging.ts` — shared MCP/HTTP/CLI dispatcher that binds provenance at the transport boundary and never turns a read into a receipt
 - `src/mcp/server.ts` + `src/transports/mcp/handlers.ts` — stdio MCP server (`memesh-mcp`, 11 tools); `src/mcp/tools.ts` is a re-export shim
 
@@ -451,7 +451,7 @@ MeMesh supports three integration tiers:
 | | Codex CLI / Gemini CLI | MCP server (`memesh-mcp` in client config) |
 | | Cursor | MCP server (`memesh-mcp` in client config) |
 | | Custom apps | Direct stdio MCP connection |
-| **HTTP API** | Custom apps/scripts | HTTP REST API (`memesh serve`, 35 endpoints) |
+| **HTTP API** | Custom apps/scripts | HTTP REST API (`memesh serve`, 37 endpoints) |
 
 See [docs/platforms/](../platforms/) for platform-specific integration guides.
 

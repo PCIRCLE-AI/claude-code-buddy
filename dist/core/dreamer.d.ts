@@ -19,6 +19,7 @@ export interface DreamerResult {
         reason: string;
         project?: string;
         clusterKey?: string;
+        code?: 'provider_error';
     }>;
     durationMs: number;
     clusteringMode?: 'semantic' | 'calendar';
@@ -47,6 +48,7 @@ export interface PatternDetectorResult {
     skipped: Array<{
         reason: string;
         project?: string;
+        code?: 'provider_error';
     }>;
     durationMs: number;
 }

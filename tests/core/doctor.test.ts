@@ -307,6 +307,7 @@ function caps(overrides: Partial<Capabilities> = {}): Capabilities {
     knowledgeEvolution: true,
     embeddings: 'ollama',
     llm: null,
+    llmSource: 'none',
     llmFallbacks: [],
     searchLevel: 0,
     ...overrides,

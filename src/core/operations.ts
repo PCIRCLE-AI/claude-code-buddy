@@ -616,6 +616,16 @@ export interface ReindexResult {
   abortedAfter: number | null;
 }
 
+export interface ReindexProgress {
+  processed: number;
+  total: number;
+}
+
+export interface ReindexOptions {
+  namespace?: string;
+  onProgress?: (progress: ReindexProgress) => void;
+}
+
 /**
  * Count active entities that ought to have a vector and do not.
  *
@@ -658,7 +668,7 @@ export function countMissingVectors(
  * vectors reported every entity as embedded, cleared the flag, and printed a
  * tick. See {@link EmbedOutcome}.
  */
-export async function reindex(opts?: { namespace?: string }): Promise<ReindexResult> {
+export async function reindex(opts?: ReindexOptions): Promise<ReindexResult> {
   if (!isEmbeddingAvailable()) {
     throw new Error('No embedding provider configured, so there are no vectors to build. Run Ollama (or set an OpenAI API key) and set embedder.provider, then retry. Without an embedder, recall runs on FTS5 keyword search alone.');
   }
@@ -726,6 +736,7 @@ export async function reindex(opts?: { namespace?: string }): Promise<ReindexRes
     no_vector_index: 0,
   };
   let processed = 0;
+  opts?.onProgress?.({ processed, total: entities.length });
 
   /**
    * Consecutive non-`stored` outcomes that end a run. Five, not one: a single
@@ -748,20 +759,20 @@ export async function reindex(opts?: { namespace?: string }): Promise<ReindexRes
 
   for (const entity of entities) {
     processed++;
-
-    const observations = (obsStmt.all(entity.id) as Array<{ content: string }>)
-      .map((o) => o.content);
+    try {
+      const observations = (obsStmt.all(entity.id) as Array<{ content: string }>)
+        .map((o) => o.content);
 
     // Zero observations is ambiguous between "no observations" and "entity
     // deleted since the list query" — disambiguate with an existence probe
     // only on that rare path, keeping the hot path at one query per entity.
-    if (observations.length === 0) {
-      const stillThere = db.prepare('SELECT 1 FROM entities WHERE id = ?').get(entity.id);
-      if (!stillThere) {
-        outcomes.entity_missing++;
-        continue;
+      if (observations.length === 0) {
+        const stillThere = db.prepare('SELECT 1 FROM entities WHERE id = ?').get(entity.id);
+        if (!stillThere) {
+          outcomes.entity_missing++;
+          continue;
+        }
       }
-    }
 
     // An entity with nothing but whitespace can never produce a vector, and
     // `countMissingVectors` already excludes it from what the database is owed.
@@ -774,19 +785,18 @@ export async function reindex(opts?: { namespace?: string }): Promise<ReindexRes
     // embedded below now carries the name too, and a name is never blank — so
     // testing the embedded text would answer "yes, embeddable" for every
     // entity, quietly re-owing exactly the rows `countMissingVectors` excludes.
-    if (observations.join('').trim() === '') {
-      outcomes.nothing_to_embed++;
-      continue;
-    }
+      if (observations.join('').trim() === '') {
+        outcomes.nothing_to_embed++;
+        continue;
+      }
 
     // Same text every other writer embeds — see entityEmbedText. This used to
     // be observations-only, which made an entity's vector depend on whether
     // remember() or reindex() wrote it last.
-    const text = entityEmbedText(entity.name, observations);
+      const text = entityEmbedText(entity.name, observations);
 
-    const textHash = createHash('sha256').update(text).digest('hex').slice(0, 32);
+      const textHash = createHash('sha256').update(text).digest('hex').slice(0, 32);
 
-    try {
       // Already bought in a previous, unfinished run of this same generation —
       // but only reusable while the row still matches the entity's CURRENT text.
       // Skipping on presence alone promoted a vector built from text that had
@@ -830,6 +840,8 @@ export async function reindex(opts?: { namespace?: string }): Promise<ReindexRes
     } catch (err) {
       outcomes.write_failed++;
       process.stderr.write(`MeMesh: Failed to embed entity ${entity.name}: ${err}\n`);
+    } finally {
+      opts?.onProgress?.({ processed, total: entities.length });
     }
   }
 

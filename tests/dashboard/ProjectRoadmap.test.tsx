@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi } from 'vitest';
-import { render, fireEvent } from '@testing-library/preact';
+import { render, fireEvent, waitFor } from '@testing-library/preact';
 import { ProjectRoadmap } from '../../dashboard/src/components/ProjectRoadmap';
 import { t } from '../../dashboard/src/lib/i18n';
 import type { Entity } from '../../dashboard/src/lib/api';
@@ -15,6 +15,14 @@ function makeEntity(overrides: Partial<Entity>): Entity {
     tags: [],
     ...overrides,
   };
+}
+
+function makeMindmapEntities(): Entity[] {
+  return [
+    makeEntity({ id: 101, name: 'entity-one', title: 'Entity One', type: 'decision', created_at: '2026-04-17T08:00:00.000Z' }),
+    makeEntity({ id: 102, name: 'pattern-two', title: 'Pattern Two', type: 'pattern', created_at: '2026-04-17T10:00:00.000Z' }),
+    makeEntity({ id: 103, name: 'phase-one-release', title: 'Phase One Release', type: 'release', created_at: '2026-04-18T09:00:00.000Z' }),
+  ];
 }
 
 describe('ProjectRoadmap — SPEC-9 v0/v1 acceptance criteria', () => {
@@ -51,18 +59,57 @@ describe('ProjectRoadmap — SPEC-9 v0/v1 acceptance criteria', () => {
     expect(container.textContent).not.toContain('lone');
   });
 
-  it('shows "Switch to List view" button only when handler is provided (v0 AC2)', () => {
-    const onSwitch = vi.fn();
-    const e = makeEntity({});
-    const withButton = render(
-      <ProjectRoadmap projectName="x" entities={[e]} onSwitchToList={onSwitch} />
+  it('does not expose the unreachable switch-to-list control', () => {
+    const { container } = render(
+      <ProjectRoadmap projectName="x" entities={[makeEntity({})]} />
     );
-    const buttons = Array.from(withButton.container.querySelectorAll('button'));
-    const listBtn = buttons.find((b) => /清單檢視|List view/.test(b.textContent ?? ''));
-    expect(listBtn).toBeDefined();
-    fireEvent.click(listBtn!);
-    expect(onSwitch).toHaveBeenCalledTimes(1);
+    expect(container.textContent).not.toMatch(/清單檢視|List view/i);
   });
+
+  for (const target of [
+    { name: 'phase', selector: 'svg [role="button"][aria-label="Phase One Release"]', id: 103 },
+    { name: 'entity', selector: 'svg [role="button"][aria-label^="Entity One "]', id: 101 },
+  ]) {
+    for (const activation of [
+      { name: 'click', run: (node: Element) => fireEvent.click(node) },
+      { name: 'Enter', run: (node: Element) => fireEvent.keyDown(node, { key: 'Enter' }) },
+      { name: 'Space', run: (node: Element) => fireEvent.keyDown(node, { key: ' ' }) },
+    ]) {
+      it(`switches to Tree and focuses the exact ${target.name} entry on ${activation.name}`, async () => {
+        const scrollIntoView = vi.fn();
+        Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+          configurable: true,
+          value: scrollIntoView,
+        });
+        Object.defineProperty(window, 'requestAnimationFrame', {
+          configurable: true,
+          value: (callback: FrameRequestCallback) => window.setTimeout(() => callback(0), 0),
+        });
+
+        const { container } = render(
+          <ProjectRoadmap projectName="x" entities={makeMindmapEntities()} />
+        );
+        const viewTabs = Array.from(container.querySelectorAll<HTMLElement>('[role="tab"]'));
+        const mindmapTab = viewTabs.find((tab) => /Mindmap|心智圖/i.test(tab.textContent ?? ''));
+        expect(mindmapTab).toBeDefined();
+        fireEvent.click(mindmapTab!);
+
+        const node = container.querySelector(target.selector);
+        expect(node).not.toBeNull();
+        expect(node!.getAttribute('tabindex')).toBe('0');
+        activation.run(node!);
+
+        await waitFor(() => {
+          const entry = container.querySelector(`[data-roadmap-entry-id="${target.id}"]`);
+          expect(document.activeElement).toBe(entry);
+          expect((entry as HTMLElement).style.background).toBe('var(--life-soft)');
+        });
+        const treeTab = viewTabs.find((tab) => /Tree|樹狀/i.test(tab.textContent ?? ''));
+        expect(treeTab?.getAttribute('aria-selected')).toBe('true');
+        expect(scrollIntoView).toHaveBeenCalledTimes(1);
+      });
+    }
+  }
 
   it('puts release type FIRST within a date group (v0 AC4 — type priority sort)', () => {
     const entities = [

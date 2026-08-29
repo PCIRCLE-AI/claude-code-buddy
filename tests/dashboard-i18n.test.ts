@@ -53,6 +53,52 @@ function parseNamedLocales(): string[] {
 }
 
 describe('dashboard i18n', () => {
+  it('names the retrospective project surface as project history in every locale', () => {
+    const entries = parseTranslationEntries();
+    const expected = new Map([
+      ['en', 'Project History'],
+      ['zh-TW', '專案歷程'],
+      ['zh-CN', '项目历程'],
+      ['ja', 'プロジェクト履歴'],
+      ['ko', '프로젝트 이력'],
+      ['pt', 'Histórico do Projeto'],
+      ['fr', 'Historique du Projet'],
+      ['de', 'Projektverlauf'],
+      ['vi', 'Lịch Sử Dự Án'],
+      ['es', 'Historial del Proyecto'],
+      ['th', 'ประวัติโครงการ'],
+    ]);
+
+    expect([...entries.keys()].sort()).toEqual([...expected.keys()].sort());
+    for (const [locale, title] of expected) {
+      expect(entries.get(locale)?.get('roadmap.title'), locale).toBe(title);
+      expect(entries.get(locale)?.get('roadmap.switchToRoadmap'), locale).not.toMatch(/roadmap|路線圖|路线图|ロードマップ|로드맵/i);
+      expect(entries.get(locale)?.get('roadmap.viewToggle'), locale).not.toMatch(/roadmap|路線圖|路线图|ロードマップ|로드맵/i);
+    }
+  });
+
+  it('uses the memory-organization heading consistently in every locale', () => {
+    const entries = parseTranslationEntries();
+    const expected = new Map([
+      ['en', 'Memory organization suggestions'],
+      ['zh-TW', '記憶整理建議'],
+      ['zh-CN', '记忆整理建议'],
+      ['ja', 'メモリ整理の提案'],
+      ['ko', '메모리 정리 제안'],
+      ['pt', 'Sugestões de organização da memória'],
+      ['fr', 'Suggestions d’organisation de la mémoire'],
+      ['de', 'Vorschläge zur Organisation der Erinnerungen'],
+      ['vi', 'Đề xuất sắp xếp bộ nhớ'],
+      ['es', 'Sugerencias para organizar la memoria'],
+      ['th', 'คำแนะนำในการจัดระเบียบความจำ'],
+    ]);
+
+    expect([...entries.keys()].sort()).toEqual([...expected.keys()].sort());
+    for (const [locale, title] of expected) {
+      expect(entries.get(locale)?.get('insights.title'), locale).toBe(title);
+    }
+  });
+
   it('keeps every locale in key parity with English', () => {
     const locales = parseTranslationKeys();
     const englishKeys = locales.get('en');

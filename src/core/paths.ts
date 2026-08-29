@@ -242,10 +242,45 @@ export const SECRET_PATTERN_SOURCES: readonly string[] = [
   '[srp]k_(?:live|test)_[A-Za-z0-9]{16,}',
   // npm automation token.
   'npm_[A-Za-z0-9]{36}',
-  // Anthropic / OpenAI-style keys — hyphen OR underscore delimited.
-  'sk-ant-[A-Za-z0-9_-]{16,}',
-  'sk-[A-Za-z0-9_-]{16,}',
-  'sk_[A-Za-z0-9]{16,}',
+  // Anthropic / OpenAI-style keys. ONE pattern, anchored on the `sk-`/`sk_`
+  // prefix and then any run of non-whitespace, rather than three that
+  // enumerated the character class of an unmasked key.
+  //
+  // The narrow form missed what providers actually return. A rejected key
+  // comes back quoted and PARTIALLY MASKED — `sk-proj-**********ZfQ9` — and
+  // `[A-Za-z0-9_-]{16,}` stops dead at the first `*`, so the prefix and the
+  // trailing characters were published. Which glyph a provider masks with
+  // (`*`, `•`, `…`, or a bare truncation) is not knowable in advance, so the
+  // class is "not whitespace" and the match ends on an alphanumeric — that
+  // leaves the sentence's own punctuation outside the redaction.
+  //
+  // The leading \\b is load-bearing. Without it the pattern fires inside
+  // ordinary words that happen to contain `sk-`: `task-runner`, `disk-usage`,
+  // `risk-level`, `ask-first`. That is not merely noisy — this same list backs
+  // `containsSecret()` in transcript-extractor, which DROPS a memory rather
+  // than staging it, so a false positive silently discards real content.
+  //
+  // The run is unbounded in LENGTH but bounded in CHARACTER SET: `[^\s"\\]`,
+  // not `\S`. This function runs over `JSON.stringify(doctorResult)` (see
+  // server.ts /v1/doctor), where there is no whitespace between fields, so
+  // `\S{4,}` anchored on a repo named `sk-widgets` ran through the closing
+  // quote, the comma, the next key, and stopped at the first space inside a
+  // LATER string — deleting the sibling `fix` field from the public issue
+  // body. A real key never contains `"` or `\`, so excluding them costs no
+  // coverage and makes a quote a hard stop. A length cap was tried instead
+  // and rejected: `sk-` + 400 chars redacted the first 204 and published the
+  // remaining 200. Measured, not assumed.
+  '\\bsk[-_][^\\s"\\\\]{4,}[A-Za-z0-9]',
+  // Credential passed as a URL query parameter or a `name=value` assignment.
+  // No pattern covered this: an upstream error that echoes the request URL
+  // (`GET /v1/models?api_key=…`) carried the key through every egress. The
+  // parameter NAME is what is matched, so `?limit=200` and prose containing
+  // the word "token" are untouched. No letter or digit may precede the name
+  // (so `mytoken=` is not a hit) but `_` and `-` may: `DB_PASSWORD=…` and
+  // `OPENAI_API_KEY=…` are the dominant credential shape in a shell
+  // transcript and must match. The value must be 8+ characters so
+  // `token=bucket` and `signature=valid` — prose, not credentials — survive.
+  '(?<![A-Za-z0-9])(?:api[-_]?key|access[-_]?token|auth[-_]?token|refresh[-_]?token|session[-_]?token|token|secret|password|passwd|pwd|signature)=[^&\\s"\'<>]{8,}',
   'ghp_[A-Za-z0-9]{30,}',              // GitHub PAT (classic)
   'gho_[A-Za-z0-9]{30,}',              // GitHub OAuth
   'gh[sur]_[A-Za-z0-9]{30,}',          // GitHub app/server/refresh tokens
@@ -276,7 +311,7 @@ export const SECRET_PATTERN_SOURCES: readonly string[] = [
  *  `lastIndex` around the call, so reusing them across calls is safe. The
  *  Stop hook calls this per bash block and per errored tool result — hundreds
  *  of times per session, inside a 10-second budget — and it was recompiling
- *  all eighteen patterns each time. */
+ *  every pattern each time. */
 const SECRET_PATTERNS = SECRET_PATTERN_SOURCES.map((s) => new RegExp(s, 'gi'));
 
 export function redactSecrets(input: string): string {

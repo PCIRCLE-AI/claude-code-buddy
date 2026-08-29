@@ -162,7 +162,13 @@ export interface DreamerResult {
   proposalsCreated: number;
   clustersScanned: number;
   llmCalls: number;
-  skipped: Array<{ reason: string; project?: string; clusterKey?: string }>;
+  skipped: Array<{
+    reason: string;
+    project?: string;
+    clusterKey?: string;
+    /** Stable classification for transports; never re-parse reason prose. */
+    code?: 'provider_error';
+  }>;
   durationMs: number;
   /**
    * How the entries were grouped. `semantic` compares stored embeddings;
@@ -322,6 +328,7 @@ export async function runDreamer(
         reason: `LLM call failed: ${err instanceof Error ? err.message : String(err)}`,
         project: cluster.project,
         clusterKey: cluster.key,
+        code: 'provider_error',
       });
       continue;
     }
@@ -1015,7 +1022,7 @@ export interface PatternDetectorResult {
   proposalsCreated: number;
   entitiesScanned: number;
   llmCalls: number;
-  skipped: Array<{ reason: string; project?: string }>;
+  skipped: Array<{ reason: string; project?: string; code?: 'provider_error' }>;
   durationMs: number;
 }
 
@@ -1072,6 +1079,7 @@ export async function runPatternDetector(
       result.skipped.push({
         reason: `LLM call failed: ${err instanceof Error ? err.message : String(err)}`,
         project,
+        code: 'provider_error',
       });
       continue;
     }
@@ -2278,7 +2286,11 @@ async function proposeGuards(
       });
       result.llmCalls++;
     } catch (err) {
-      result.skipped.push({ reason: `guard LLM call failed: ${err instanceof Error ? err.message : String(err)}`, project: lesson.project });
+      result.skipped.push({
+        reason: `guard LLM call failed: ${err instanceof Error ? err.message : String(err)}`,
+        project: lesson.project,
+        code: 'provider_error',
+      });
       continue;
     }
 

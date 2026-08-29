@@ -33,6 +33,13 @@ try {
   };
   delete env.MEMESH_DIR;
   delete env.MEMESH_DB_PATH;
+  // Provider settings from the invoking shell are owner-controlled runtime
+  // state, not test inputs. Inheriting them makes the suite select a different
+  // LLM or embedding width depending on who runs it. Individual tests that
+  // exercise provider discovery set their own fixtures after Vitest starts.
+  delete env.ANTHROPIC_API_KEY;
+  delete env.OPENAI_API_KEY;
+  delete env.OLLAMA_HOST;
 
   npxSync(['vitest', 'run', ...process.argv.slice(2)], {
     stdio: 'inherit',

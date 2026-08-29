@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'preact/hooks';
+import { useState, useEffect, useCallback, useRef } from 'preact/hooks';
 import { api, type StatsData, type AnalyticsData, type PatternsData } from '../lib/api';
 import { HealthScore } from './HealthScore';
 import { MemoryLoopCard } from './MemoryLoopCard';
@@ -85,15 +85,18 @@ export function isPatternsRenderable(p: PatternsData | null): p is PatternsData 
   );
 }
 
-export function AnalyticsTab() {
+export function AnalyticsTab({ dataRevision = 0 }: { dataRevision?: number }) {
   const [stats, setStats] = useState<StatsData | null>(null);
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
   const [patterns, setPatterns] = useState<PatternsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [failure, setFailure] = useState<LoadFailure | null>(null);
+  const loadGen = useRef(0);
 
   const loadData = useCallback(() => {
+    const gen = ++loadGen.current;
     setLoading(true);
+    setFailure(null);
     // Each endpoint degrades independently, and the KIND of each failure is
     // recorded, because the two kinds carry different next steps: a request
     // that failed means "check the server", a payload the guards rejected
@@ -115,6 +118,7 @@ export function AnalyticsTab() {
       api<AnalyticsData>('GET', '/v1/analytics').catch(guard('/v1/analytics')),
       api<PatternsData>('GET', '/v1/patterns').catch(guard('/v1/patterns')),
     ]).then(([s, a, p]) => {
+      if (gen !== loadGen.current) return;
       // Every render below reads a required field off these —
       // `stats.totalEntities.toLocaleString(getLocale())` and friends — so a payload
       // without them has to read as "did not load", not as "loaded".
@@ -132,16 +136,16 @@ export function AnalyticsTab() {
       if ((s !== null && !statsOk) || (a !== null && !analyticsOk) || (p !== null && !patternsOk)) {
         sawUnreadable = true;
       }
-      setStats(statsOk ? s : null);
-      setAnalytics(analyticsOk ? a : null);
-      setPatterns(patternsOk ? p : null);
+      if (statsOk) setStats(s);
+      if (analyticsOk) setAnalytics(a);
+      if (patternsOk) setPatterns(p);
       setFailure(sawUnreachable ? 'unreachable' : sawUnreadable ? 'unreadable' : null);
-    }).finally(() => setLoading(false));
+    }).finally(() => { if (gen === loadGen.current) setLoading(false); });
   }, []);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { loadData(); }, [loadData, dataRevision]);
 
-  if (loading) return <div class="empty"><div class="loading" /></div>;
+  if (loading && !stats && !analytics) return <div class="empty"><div class="loading" /></div>;
   // role="alert" per DESIGN.md: an error box that replaces content must
   // announce itself to a screen reader, not just repaint silently.
   if (!stats && !analytics) {
@@ -154,6 +158,8 @@ export function AnalyticsTab() {
 
   return (
     <div>
+      {loading && <div class="loading" role="status" />}
+      {failure && <div class="error-box" role="alert">{failureMessage(failure)}</div>}
       {/* Row 1: Stats overview */}
       {stats && (
         <div class="stats-row">
@@ -212,11 +218,11 @@ export function AnalyticsTab() {
           across the 5 Smart-Mode flows. Renders even when other
           analytics fail; sourced from a separate endpoint. */}
       <div style={{ marginTop: 8 }}>
-        <LlmTelemetryPanel />
+        <LlmTelemetryPanel dataRevision={dataRevision} />
       </div>
 
       {/* Row 5c: PM metrics — velocity, open decisions, KG orphan rate. */}
-      <PmAnalyticsPanel />
+      <PmAnalyticsPanel dataRevision={dataRevision} />
 
       {/* Row 6: Topics cloud */}
       {stats && (() => {

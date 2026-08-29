@@ -83,33 +83,13 @@
     },
     "C4 .github/workflows/deprecate-npm.yml:64": {
       "class": "SAFE",
-      "reason": "|| true inside an exact-match retry loop \u2014 absence retries then fails, never passes",
-      "triaged": "2026-08-04"
-    },
-    "C5 src/core/llm-validator.ts:186": {
-      "class": "SAFE-GUARDED",
-      "reason": "models.length === 0 now returns valid:false for all three providers (PR #112)",
-      "triaged": "2026-08-04"
-    },
-    "C5 src/core/llm-validator.ts:219": {
-      "class": "SAFE-GUARDED",
-      "reason": "models.length === 0 now returns valid:false for all three providers (PR #112)",
-      "triaged": "2026-08-04"
-    },
-    "C5 src/core/llm-validator.ts:273": {
-      "class": "SAFE-GUARDED",
-      "reason": "models.length === 0 now returns valid:false for all three providers (PR #112)",
+      "reason": "|| true inside an exact-match retry loop — absence retries then fails, never passes",
       "triaged": "2026-08-04"
     },
     "C5 src/storage/fts-index.ts:208": {
       "class": "SAFE-GUARDED",
       "reason": "empty tokens yield null match expression and hasSearchableTerms false",
       "triaged": "2026-08-04"
-    },
-    "C5 dashboard/src/components/AnalyticsTab.tsx:198": {
-      "class": "STALE-OR-SAFE",
-      "reason": "comment line or Array.isArray-coerced optional extras",
-      "triaged": "2026-08-04; re-keyed 2026-08-24 (dead toolPreferences/avgSessionMinutes fields removed; export gained countAsAccess \u2014 statements byte-identical, classification unchanged)"
     },
     "C5 dashboard/src/components/InsightsBanner.tsx:65": {
       "class": "SAFE-DISPLAY",
@@ -151,11 +131,6 @@
       "reason": "set -uo pipefail at file top preserves the left commands verdict",
       "triaged": "2026-08-04 (re-keyed: the mktemp-orphan fix shifted lines by five); re-keyed 2026-08-24 (R11 batch shifted lines; statements byte-identical, classification unchanged)"
     },
-    "C5 dashboard/src/components/SettingsTab.tsx:237": {
-      "class": "SAFE-GUARDED",
-      "reason": "absent llmFallbacks truthfully means an empty failover chain (a real state, rendered as no entries), not a masked failure; mirrors config.ts:353",
-      "triaged": "2026-08-05"
-    },
     "C1 tests/cli/recall-presentation.test.ts": {
       "class": "SAFE",
       "reason": "the .toBe(0)/exit-code assertions are paired with positive stdout content checks in the same tests (needle text, headers)",
@@ -164,16 +139,16 @@
     "C4 .github/workflows/ci.yml:239": {
       "class": "SAFE",
       "reason": "secondary greps run after the exit-code gate has already read DOCTOR_EXIT",
-      "triaged": "2026-08-09 (re-keyed: review fixes \u2014 busy_timeout, vector-index guards and the .mcp.json entry check \u2014 shifted these lines; same statements, same classification); re-keyed 2026-08-14 228->239 (the timeout-minutes evidence comment above shifted +11; same statement \u2014 verified)"
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-14 228->239 (the timeout-minutes evidence comment above shifted +11; same statement — verified)"
     },
     "C4 .github/workflows/ci.yml:233": {
       "class": "SAFE",
       "reason": "secondary greps run after the exit-code gate has already read DOCTOR_EXIT",
-      "triaged": "2026-08-09 (re-keyed: review fixes \u2014 busy_timeout, vector-index guards and the .mcp.json entry check \u2014 shifted these lines; same statements, same classification); re-keyed 2026-08-14 222->233 (the timeout-minutes evidence comment above shifted +11; same statement \u2014 verified)"
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-14 222->233 (the timeout-minutes evidence comment above shifted +11; same statement — verified)"
     },
     "C6 tests/hooks/session-summary.test.ts": {
       "class": "DEPENDENCY-PIN",
-      "reason": "asserts the hook does not require sqlite-vec \u2014 an extension it never used, whose load took the whole Stop capture down on platforms without the prebuilt binary. The behaviour cannot be tested without hiding a package from node_modules, which is global state in a serial suite; what regressed is the dependency returning, and that is what this matches. Comments are stripped first so the explanatory block is not what it reads.",
+      "reason": "asserts the hook does not require sqlite-vec — an extension it never used, whose load took the whole Stop capture down on platforms without the prebuilt binary. The behaviour cannot be tested without hiding a package from node_modules, which is global state in a serial suite; what regressed is the dependency returning, and that is what this matches. Comments are stripped first so the explanatory block is not what it reads.",
       "triaged": "2026-08-10"
     },
     "C5 src/core/extractor.ts:119": {
@@ -203,7 +178,7 @@
     },
     "C6 tests/relation-types-documented.test.ts": {
       "class": "WIRING-PIN",
-      "reason": "reads cli.ts to assert each behavioural relation type has a flag whose help carries the consequence \u2014 the flags' behaviour is tested against a real database in tests/cli/remember-relations.test.ts",
+      "reason": "reads cli.ts to assert each behavioural relation type has a flag whose help carries the consequence — the flags' behaviour is tested against a real database in tests/cli/remember-relations.test.ts",
       "triaged": "2026-08-10 (P7 batch 2)"
     },
     "C5 src/core/kg-backfill.ts:437": {
@@ -249,17 +224,17 @@
     "C5 src/knowledge-graph.ts:338": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "write-time signal-score inputs; empty means the caller passed no observations/tags, which is the correct identity for scoring",
-      "triaged": "2026-08-09 (re-keyed: review fixes \u2014 busy_timeout, vector-index guards and the .mcp.json entry check \u2014 shifted these lines; same statements, same classification); re-keyed 2026-08-14 (UX-1 title column added lines above; same statement \u2014 verified against the line content); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged)"
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-14 (UX-1 title column added lines above; same statement — verified against the line content); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged)"
     },
     "C5 src/knowledge-graph.ts:339": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "write-time signal-score inputs; empty means the caller passed no observations/tags, which is the correct identity for scoring",
-      "triaged": "2026-08-09 (re-keyed: review fixes \u2014 busy_timeout, vector-index guards and the .mcp.json entry check \u2014 shifted these lines; same statements, same classification); re-keyed 2026-08-14 (UX-1 title column added lines above; same statement \u2014 verified against the line content); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged)"
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-14 (UX-1 title column added lines above; same statement — verified against the line content); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged)"
     },
     "C5 src/knowledge-graph.ts:456": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "batch-hydrate lookups; confidence bump fails closed",
-      "triaged": "2026-08-09 (re-keyed: review fixes \u2014 busy_timeout, vector-index guards and the .mcp.json entry check \u2014 shifted these lines; same statements, same classification); re-keyed 2026-08-10 (review pass 2: redactUserPaths moved to core/paths, namespace breadcrumb, dreamer retirement); re-keyed 2026-08-14 (UX-1 title column added lines above; same statement \u2014 verified against the line content); re-keyed 2026-08-15 411\u2192429 (merge main shifted lines +18; same statement \u2014 verified); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged)"
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (review pass 2: redactUserPaths moved to core/paths, namespace breadcrumb, dreamer retirement); re-keyed 2026-08-14 (UX-1 title column added lines above; same statement — verified against the line content); re-keyed 2026-08-15 411→429 (merge main shifted lines +18; same statement — verified); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged)"
     },
     "C3 scripts/audit/measure-injection-tokens.mjs": {
       "class": "NOT-A-GATE",
@@ -289,7 +264,7 @@
     "C5 dashboard/src/components/GraphTab.tsx:372": {
       "class": "SAFE-GUARDED",
       "reason": "computeGraph always returns noiseTypes; same-origin fetch",
-      "triaged": "2026-08-04 (re-keyed: the Batch-D token-resolver + palette refactor shifted 208\u2192233; same code verified before re-keying); re-keyed 2026-08-13 233->276 (graph visual-hierarchy helpers added above; same statement, classification unchanged \u2014 verified); re-keyed 2026-08-14 276->285 (review-fix comments above shifted it; same statement \u2014 verified); re-keyed 2026-08-15 285\u2192286 (merge main shifted lines +1; same statement \u2014 verified) (re-keyed: UX-4 inserted Rule 5 above it; statement unchanged)"
+      "triaged": "2026-08-04 (re-keyed: the Batch-D token-resolver + palette refactor shifted 208→233; same code verified before re-keying); re-keyed 2026-08-13 233->276 (graph visual-hierarchy helpers added above; same statement, classification unchanged — verified); re-keyed 2026-08-14 276->285 (review-fix comments above shifted it; same statement — verified); re-keyed 2026-08-15 285→286 (merge main shifted lines +1; same statement — verified) (re-keyed: UX-4 inserted Rule 5 above it; statement unchanged)"
     },
     "C5 dashboard/src/components/LessonCards.tsx:59": {
       "class": "SAFE-DISPLAY",
@@ -314,67 +289,22 @@
     "C5 src/core/work-topology.ts:417": {
       "class": "SAFE-BY-CONSTRUCTION",
       "reason": "`line.match(/`+/g) ?? []` in buildReferenceContext, moved verbatim from scripts/hooks/_shared.js (which the C5 scan does not cover) so the MCP briefing surface shares the hook's fence. match() returns null when a line contains no backtick run; the empty list truthfully means 'no backticks', and the fence floor Math.max(3, longestRun + 1) still applies. Pinned by tests/hooks/reference-context-fence.test.ts, which feeds lines WITH backtick runs and asserts the fence outruns them.",
-      "triaged": "2026-08-16 (A1c briefing); re-keyed 2026-08-16 (assembleTopologyBlock + budget consts added above; same match statement \u2014 verified); re-keyed 2026-08-16 (citation-handle additions above shifted the line 386->416; same statement verified)"
-    },
-    "C5 src/core/dreamer.ts:1228": {
-      "class": "SAFE-GUARDED",
-      "reason": "upstream filter requires non-empty arrays before these run (the (p.evidence ?? []) statement; re-keyed +1 from :672 when the B3 embedder import shifted the line; classification unchanged)",
-      "triaged": "2026-08-05; re-keyed 2026-08-10 (review pass 4); re-keyed 2026-08-12 +14 from :1175 (NothingToClaimError and the missing-source counter shifted the line); re-keyed 2026-08-14 +3 from :1189 (PROTECTED_TYPES export comment shifted the file; statement verified); re-keyed 2026-08-14 +4 from :1192 (kind != 'relation' guards on the two pending-proposal scans; statement verified); re-keyed 2026-08-16 (G1 guard additions shifted lines; same content verified); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged)"
-    },
-    "C5 src/core/dreamer.ts:1225": {
-      "class": "SAFE-GUARDED",
-      "reason": "upstream filter requires non-empty arrays before these run (the (p.observations ?? []) statement; re-keyed +1 from :669 when the B3 embedder import shifted the line; classification unchanged)",
-      "triaged": "2026-08-05; re-keyed 2026-08-10 (review pass 4); re-keyed 2026-08-12 +14 from :1172 (NothingToClaimError and the missing-source counter shifted the line); re-keyed 2026-08-14 +3 from :1186 (PROTECTED_TYPES export comment shifted the file; statement verified \u2014 the observations line, NOT the evidence sibling that previously sat at this key); re-keyed 2026-08-14 +4 from :1189 (kind != 'relation' guards on the two pending-proposal scans; statement verified); re-keyed 2026-08-15 1193\u21921199 (merge main shifted lines +6; same statement \u2014 verified); re-keyed 2026-08-16 (G1 guard additions shifted lines; same content verified); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged)"
+      "triaged": "2026-08-16 (A1c briefing); re-keyed 2026-08-16 (assembleTopologyBlock + budget consts added above; same match statement — verified); re-keyed 2026-08-16 (citation-handle additions above shifted the line 386->416; same statement verified)"
     },
     "C1 tests/hooks/guard-check.test.ts": {
       "class": "SAFE",
-      "reason": "emptiness (silent-pass) assertions paired with positive fire assertions in the same file \u2014 the silence IS the contract under test (guard failure must degrade to no output)",
+      "reason": "emptiness (silent-pass) assertions paired with positive fire assertions in the same file — the silence IS the contract under test (guard failure must degrade to no output)",
       "triaged": "2026-08-16"
     },
     "C5 dashboard/src/lib/entity-display.ts:194": {
       "class": "SAFE-DISPLAY",
       "reason": "classification falls through to the freeform bucket",
-      "triaged": "2026-08-04; re-keyed 2026-08-14 (displayTitle helper added above; same statement \u2014 verified); re-keyed 2026-08-16 (UX-3: CLUSTER_DOT block added above; same statement \u2014 verified)"
+      "triaged": "2026-08-04; re-keyed 2026-08-14 (displayTitle helper added above; same statement — verified); re-keyed 2026-08-16 (UX-3: CLUSTER_DOT block added above; same statement — verified)"
     },
     "C5 dashboard/src/lib/entity-display.ts:196": {
       "class": "SAFE-DISPLAY",
       "reason": "classification falls through to the freeform bucket",
-      "triaged": "2026-08-04; re-keyed 2026-08-14 (displayTitle helper added above; same statement \u2014 verified); re-keyed 2026-08-16 (UX-3: CLUSTER_DOT block added above; same statement \u2014 verified)"
-    },
-    "C5 dashboard/src/components/MemoriesTab.tsx:244": {
-      "class": "SAFE-DISPLAY",
-      "reason": "client-side search haystack only (absorbs the retired BrowseTab:169 and LessonsTab:298 hay statements)",
-      "triaged": "2026-08-16 (tab consolidation: statement moved verbatim from the retired LessonsTab/BrowseTab; original triage 2026-08-04); re-keyed 2026-08-16 (UX-3: local CLUSTER_DOT block removed above, statement unchanged \u2014 verified)"
-    },
-    "C5 dashboard/src/components/ProjectRoadmap.tsx:342": {
-      "class": "SAFE-DISPLAY",
-      "reason": "`e.relations ?? []` while collecting lineage edges \u2014 relations are optional on the wire; absence draws no arc and the visible legend counts only DRAWN arcs, so missing input yields visible emptiness, not claimed success.",
-      "triaged": "2026-08-16 (UX-3 lineage overlay)"
-    },
-    "C5 dashboard/src/components/ProjectRoadmap.tsx:1065": {
-      "class": "SAFE-DISPLAY",
-      "reason": "`e.relations ?? []` building the reverse supersession index in DecisionsView \u2014 no relations means no chain lines render; status falls back to active only when NO supersedes edge points at the entity anywhere in the set.",
-      "triaged": "2026-08-16 (UX-3 ADR view)"
-    },
-    "C5 dashboard/src/components/ProjectRoadmap.tsx:1067": {
-      "class": "SAFE-DISPLAY",
-      "reason": "`m.get(r.to) ?? []` \u2014 standard multimap-append idiom inside the reverse index build; the default is the empty bucket being created, not a masked failure.",
-      "triaged": "2026-08-16 (UX-3 ADR view)"
-    },
-    "C5 dashboard/src/components/ProjectRoadmap.tsx:1098": {
-      "class": "SAFE-DISPLAY",
-      "reason": "`supersededBy.get(e.name) ?? []` \u2014 a decision nothing points at is genuinely unreplaced; the empty default is the honest answer and renders as status \"active\", which is the documented two-state contract.",
-      "triaged": "2026-08-16 (UX-3 ADR view)"
-    },
-    "C5 dashboard/src/components/ProjectRoadmap.tsx:1102": {
-      "class": "SAFE-DISPLAY",
-      "reason": "`(e.relations ?? []).filter` listing outgoing supersedes chain lines \u2014 absence renders no chain section at all rather than an empty claim.",
-      "triaged": "2026-08-16 (UX-3 ADR view)"
-    },
-    "C5 dashboard/src/components/ProjectTab.tsx:43": {
-      "class": "SAFE-DISPLAY",
-      "reason": "`e.relations ?? []` in selectProjectEntities \u2014 an entity without relations simply readmits nothing; the readmission rule is pinned by tests/dashboard/ProjectTab.select.test.ts including the no-relations path.",
-      "triaged": "2026-08-16 (UX-3 readmission rule)"
+      "triaged": "2026-08-04; re-keyed 2026-08-14 (displayTitle helper added above; same statement — verified); re-keyed 2026-08-16 (UX-3: CLUSTER_DOT block added above; same statement — verified)"
     },
     "C1 tests/dashboard/ProjectTab.select.test.ts": {
       "class": "SAFE",
@@ -383,7 +313,7 @@
     },
     "C5 src/core/kg-backfill.ts:748": {
       "class": "SAFE-ACCUMULATOR",
-      "reason": "session tag index; empty means the entity carries no session tag, which is a real state \u2014 it falls through to the temporal project match",
+      "reason": "session tag index; empty means the entity carries no session tag, which is a real state — it falls through to the temporal project match",
       "triaged": "2026-08-17 (UX-4 Rule 5); re-keyed 2026-08-24 (R14 timestamp-format batch shifted lines; statements byte-identical, classification unchanged)"
     },
     "C5 src/core/kg-backfill.ts:762": {
@@ -444,162 +374,157 @@
     "C5 src/core/serializer.ts:134": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "`relations` is optional on Entity; empty means the entity has none, which is what the export should record. Newly visible after the C5 `||` regex fix.",
-      "triaged": "2026-08-17 (surfaced by the C5 || regex fix); re-keyed 2026-08-24 (dead toolPreferences/avgSessionMinutes fields removed; export gained countAsAccess \u2014 statements byte-identical, classification unchanged); re-keyed 2026-08-24 (R3 export/import batch shifted lines; statements byte-identical, classification unchanged); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged)"
+      "triaged": "2026-08-17 (surfaced by the C5 || regex fix); re-keyed 2026-08-24 (dead toolPreferences/avgSessionMinutes fields removed; export gained countAsAccess — statements byte-identical, classification unchanged); re-keyed 2026-08-24 (R3 export/import batch shifted lines; statements byte-identical, classification unchanged); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged)"
     },
     "C6 tests/cli-reindex-vectors-guard.test.ts": {
       "class": "SAFE-DATA-EXTRACTION",
-      "reason": "the added scan extracts the set of registered .option() flags from cli.ts and asserts that no user-facing advice string names a flag outside it. The text is the DATA (which flags exist), not the behaviour under test \u2014 and it caught two real defects on its first run: the two 'reindex --vectors' messages this commit fixes, plus the older 'memesh doctor --verbose', a flag that never existed. The existing cli-hints detector could not see either, because it reads only cli.ts and only .command() registrations.",
+      "reason": "the added scan extracts the set of registered .option() flags from cli.ts and asserts that no user-facing advice string names a flag outside it. The text is the DATA (which flags exist), not the behaviour under test — and it caught two real defects on its first run: the two 'reindex --vectors' messages this commit fixes, plus the older 'memesh doctor --verbose', a flag that never existed. The existing cli-hints detector could not see either, because it reads only cli.ts and only .command() registrations.",
       "triaged": "2026-08-18"
-    },
-    "C5 src/core/config.ts:378": {
-      "class": "SAFE-GUARDED",
-      "reason": "absent key truthfully means no failover; corrupt config caught by doctor inspectConfigParse",
-      "triaged": "2026-08-04 (re-keyed 353->359->369: the transcriptMining field + isTranscriptMiningEnabled additions shifted the line down 10; same llmFallbacks ?? [] code verified before re-keying); re-keyed 2026-08-10 (the AUTO_CAPTURE_TAG-driven detectCapabilities guard shifted it +7; same statement, classification unchanged); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-14 266->268 (causal-convention sentences in the relation-type description; same statement \u2014 verified) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position)"
     },
     "C5 src/core/operations.ts:57": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "metadata spread identity; trust is set unconditionally after",
-      "triaged": "2026-08-09 (re-keyed: review fixes \u2014 busy_timeout, vector-index guards and the .mcp.json entry check \u2014 shifted these lines; same statements, same classification) re-keyed 2026-08-18 (+2, review fixes added two imports to operations.ts; same statements \u2014 verified line by line against HEAD~1) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position)"
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification) re-keyed 2026-08-18 (+2, review fixes added two imports to operations.ts; same statements — verified line by line against HEAD~1) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position)"
     },
     "C5 src/core/operations.ts:60": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "metadata spread identity; trust is set unconditionally after",
-      "triaged": "2026-08-09 (re-keyed: review fixes \u2014 busy_timeout, vector-index guards and the .mcp.json entry check \u2014 shifted these lines; same statements, same classification) re-keyed 2026-08-18 (+2, review fixes added two imports to operations.ts; same statements \u2014 verified line by line against HEAD~1) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position)"
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification) re-keyed 2026-08-18 (+2, review fixes added two imports to operations.ts; same statements — verified line by line against HEAD~1) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position)"
     },
     "C5 src/core/operations.ts:63": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "metadata spread identity; trust is set unconditionally after",
-      "triaged": "2026-08-09 (re-keyed: review fixes \u2014 busy_timeout, vector-index guards and the .mcp.json entry check \u2014 shifted these lines; same statements, same classification) re-keyed 2026-08-18 (+2, review fixes added two imports to operations.ts; same statements \u2014 verified line by line against HEAD~1) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position)"
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification) re-keyed 2026-08-18 (+2, review fixes added two imports to operations.ts; same statements — verified line by line against HEAD~1) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position)"
     },
     "C5 src/core/operations.ts:138": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "provenance spread identity: absent provenanceOverride means the caller supplied none, and spreading {} correctly leaves the source_host stamped on the line above; a spread of undefined would even be legal JS, so this cannot convert a failure into a default",
-      "triaged": "2026-08-12 (Phase 02 provenance); re-keyed 2026-08-13 (shifted +6 by the first-writer-wins comment added above, statement unchanged); re-keyed 2026-08-14 119->120 (UX-1 title passed into createEntity above; same provenance spread statement \u2014 verified) re-keyed 2026-08-18 (+2, review fixes added two imports to operations.ts; same statements \u2014 verified line by line against HEAD~1) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position)"
+      "triaged": "2026-08-12 (Phase 02 provenance); re-keyed 2026-08-13 (shifted +6 by the first-writer-wins comment added above, statement unchanged); re-keyed 2026-08-14 119->120 (UX-1 title passed into createEntity above; same provenance spread statement — verified) re-keyed 2026-08-18 (+2, review fixes added two imports to operations.ts; same statements — verified line by line against HEAD~1) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position)"
     },
     "C3 scripts/wait-for-checks.mjs": {
       "class": "NOT-A-GATE",
-      "reason": "CI-wait helper a human (or an agent acting for one) runs interactively after pushing; its caller is the person waiting. It is not a gate because nothing it decides is enforced \u2014 its only product is an exit code and a RESULT line for whoever invoked it. Added because every prior way of waiting for checks failed: `gh pr checks --watch` returned 0 with checks pending, `| grep -cv pass` returned grep's status, hand-rolled loops stalled.",
+      "reason": "CI-wait helper a human (or an agent acting for one) runs interactively after pushing; its caller is the person waiting. It is not a gate because nothing it decides is enforced — its only product is an exit code and a RESULT line for whoever invoked it. Added because every prior way of waiting for checks failed: `gh pr checks --watch` returned 0 with checks pending, `| grep -cv pass` returned grep's status, hand-rolled loops stalled.",
       "triaged": "2026-08-23"
     },
     "C6 tests/vector-index-safety.test.ts": {
       "class": "SAFE-DATA-EXTRACTION",
-      "reason": "One test reads src/db.ts and asserts that markReindexOwed() is NOT inside the once-only notice brace. That is a structural pin chosen ON PURPOSE: the behavioural scenario (a fresh open while the notice flag is already set) is unreachable in one process \u2014 openDatabase returns the existing singleton, and the only reopen path (closeDatabase) resets the flag. Two behavioural tests were written first and both passed for the wrong reason; the review's brace-move mutant survived them. The text IS the property here.",
+      "reason": "One test reads src/db.ts and asserts that markReindexOwed() is NOT inside the once-only notice brace. That is a structural pin chosen ON PURPOSE: the behavioural scenario (a fresh open while the notice flag is already set) is unreachable in one process — openDatabase returns the existing singleton, and the only reopen path (closeDatabase) resets the flag. Two behavioural tests were written first and both passed for the wrong reason; the review's brace-move mutant survived them. The text IS the property here.",
       "triaged": "2026-08-23"
     },
     "C3 scripts/audit/measure-work-topology-baseline.mjs": {
       "class": "NOT-A-GATE",
-      "reason": "Read-only measurement tool a human runs once to size three work-topology decisions (work-layer share, recall-hit false negatives, opening-exploration cost). Opens the DB with readOnly and writes no file; it decides nothing and enforces nothing, so having no automated caller is correct. Surfaced 2026-08-23 when C3 stopped counting a filename written in a comment as a caller \u2014 measure-injection-tokens.mjs's header names this file, and that single prose mention had been enough to hide it and to get its entry pruned as stale.",
+      "reason": "Read-only measurement tool a human runs once to size three work-topology decisions (work-layer share, recall-hit false negatives, opening-exploration cost). Opens the DB with readOnly and writes no file; it decides nothing and enforces nothing, so having no automated caller is correct. Surfaced 2026-08-23 when C3 stopped counting a filename written in a comment as a caller — measure-injection-tokens.mjs's header names this file, and that single prose mention had been enough to hide it and to get its entry pruned as stale.",
       "triaged": "2026-08-23"
     },
     "C6 tests/release-preconditions.test.ts": {
       "class": "WIRING-PIN",
-      "reason": "The decision itself is behavioural: checkReleasePreconditions is a pure function and 21 tests in the same file drive both directions through it. What is read as text is scripts/finish-release.mjs, and only to pin five wiring properties whose happy path cannot be run \u2014 cutting the release creates a public GitHub Release and publishes to npm. The regression guarded is someone splitting the single `gh release create --target` back into `git tag` + `git push` + `gh release create`, whose middle leaves a pushed tag with no release: nothing publishes, and the coherence gate now sees the tag and reports ok. Break-tested 2026-08-23: 7/7 mutants killed, including both directions of this pin.",
+      "reason": "The decision itself is behavioural: checkReleasePreconditions is a pure function and 21 tests in the same file drive both directions through it. What is read as text is scripts/finish-release.mjs, and only to pin five wiring properties whose happy path cannot be run — cutting the release creates a public GitHub Release and publishes to npm. The regression guarded is someone splitting the single `gh release create --target` back into `git tag` + `git push` + `gh release create`, whose middle leaves a pushed tag with no release: nothing publishes, and the coherence gate now sees the tag and reports ok. Break-tested 2026-08-23: 7/7 mutants killed, including both directions of this pin.",
       "triaged": "2026-08-23"
     },
     "C7 README.md:374": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
-      "triaged": "2026-08-04; re-keyed 2026-08-15 21\u2192271 (merge main shifted lines +250; same statement \u2014 verified); re-keyed 2026-08-16 (+48: Install first-screen section and See-what-it-remembered/Your-data subsections added above; statements byte-identical \u2014 verified against HEAD); re-keyed 2026-08-16 (+2: agent-install pointer added in the Install section; statements byte-identical \u2014 verified against HEAD); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main \u2014 NOTE C7 339 slid onto a colliding key, whole set re-verified)"
+      "triaged": "2026-08-04; re-keyed 2026-08-15 21→271 (merge main shifted lines +250; same statement — verified); re-keyed 2026-08-16 (+48: Install first-screen section and See-what-it-remembered/Your-data subsections added above; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (+2: agent-install pointer added in the Install section; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main — NOTE C7 339 slid onto a colliding key, whole set re-verified)"
     },
     "C7 README.md:380": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
-      "triaged": "2026-08-04; re-keyed 2026-08-15 27\u2192277 (merge main shifted lines +250; same statement \u2014 verified); re-keyed 2026-08-16 (+48: Install first-screen section and See-what-it-remembered/Your-data subsections added above; statements byte-identical \u2014 verified against HEAD); re-keyed 2026-08-16 (+2: agent-install pointer added in the Install section; statements byte-identical \u2014 verified against HEAD); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main \u2014 NOTE C7 339 slid onto a colliding key, whole set re-verified)"
+      "triaged": "2026-08-04; re-keyed 2026-08-15 27→277 (merge main shifted lines +250; same statement — verified); re-keyed 2026-08-16 (+48: Install first-screen section and See-what-it-remembered/Your-data subsections added above; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (+2: agent-install pointer added in the Install section; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main — NOTE C7 339 slid onto a colliding key, whole set re-verified)"
     },
     "C7 README.md:398": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
-      "triaged": "2026-08-04 (re-keyed 273->294: the Codex/Gemini MCP setup section added to Get Started shifted this line down 21; same auto-capture table row verified before re-keying); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged \u2014 verified); re-keyed 2026-08-15 293\u2192295 (merge main shifted lines +2; same statement \u2014 verified); re-keyed 2026-08-16 (+48: Install first-screen section and See-what-it-remembered/Your-data subsections added above; statements byte-identical \u2014 verified against HEAD); re-keyed 2026-08-16 (+2: agent-install pointer added in the Install section; statements byte-identical \u2014 verified against HEAD); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main \u2014 NOTE C7 339 slid onto a colliding key, whole set re-verified)"
+      "triaged": "2026-08-04 (re-keyed 273->294: the Codex/Gemini MCP setup section added to Get Started shifted this line down 21; same auto-capture table row verified before re-keying); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-15 293→295 (merge main shifted lines +2; same statement — verified); re-keyed 2026-08-16 (+48: Install first-screen section and See-what-it-remembered/Your-data subsections added above; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (+2: agent-install pointer added in the Install section; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main — NOTE C7 339 slid onto a colliding key, whole set re-verified)"
     },
     "C7 README.md:471": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
-      "triaged": "2026-08-04 (re-keyed 346->348->369: the Codex/Gemini MCP setup section shifted this line down 21 more; same testimonial figure verified before re-keying); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged \u2014 verified); re-keyed 2026-08-15 367\u2192369 (merge main shifted lines +2; same statement \u2014 verified); re-keyed 2026-08-16 (+48: Install first-screen section and See-what-it-remembered/Your-data subsections added above; statements byte-identical \u2014 verified against HEAD); re-keyed 2026-08-16 (+2: agent-install pointer added in the Install section; statements byte-identical \u2014 verified against HEAD); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main \u2014 NOTE C7 339 slid onto a colliding key, whole set re-verified); re-keyed 2026-08-16 (tab table 8 rows -> 5 shifted lines -3; same content verified); re-keyed 2026-08-16 (G1 guard additions shifted lines; same content verified)"
+      "triaged": "2026-08-04 (re-keyed 346->348->369: the Codex/Gemini MCP setup section shifted this line down 21 more; same testimonial figure verified before re-keying); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-15 367→369 (merge main shifted lines +2; same statement — verified); re-keyed 2026-08-16 (+48: Install first-screen section and See-what-it-remembered/Your-data subsections added above; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (+2: agent-install pointer added in the Install section; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main — NOTE C7 339 slid onto a colliding key, whole set re-verified); re-keyed 2026-08-16 (tab table 8 rows -> 5 shifted lines -3; same content verified); re-keyed 2026-08-16 (G1 guard additions shifted lines; same content verified)"
     },
     "C7 README.md:530": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
-      "triaged": "2026-08-04 (re-keyed 353->355->376: the Codex/Gemini MCP setup section shifted this line down 21 more; same 95.60% R@5 out-of-the-box figure verified before re-keying); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged \u2014 verified); re-keyed 2026-08-14 374->426 (the Recipes section added above; same statement \u2014 verified); re-keyed 2026-08-15 426\u2192428 (merge main shifted lines +2; same statement \u2014 verified); re-keyed 2026-08-16 (+48: Install first-screen section and See-what-it-remembered/Your-data subsections added above; statements byte-identical \u2014 verified against HEAD); re-keyed 2026-08-16 (+2: agent-install pointer added in the Install section; statements byte-identical \u2014 verified against HEAD); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main \u2014 NOTE C7 339 slid onto a colliding key, whole set re-verified); re-keyed 2026-08-16 (tab table 8 rows -> 5 shifted lines -3; same content verified); re-keyed 2026-08-16 (G1 guard additions shifted lines; same content verified)"
+      "triaged": "2026-08-04 (re-keyed 353->355->376: the Codex/Gemini MCP setup section shifted this line down 21 more; same 95.60% R@5 out-of-the-box figure verified before re-keying); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-14 374->426 (the Recipes section added above; same statement — verified); re-keyed 2026-08-15 426→428 (merge main shifted lines +2; same statement — verified); re-keyed 2026-08-16 (+48: Install first-screen section and See-what-it-remembered/Your-data subsections added above; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (+2: agent-install pointer added in the Install section; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main — NOTE C7 339 slid onto a colliding key, whole set re-verified); re-keyed 2026-08-16 (tab table 8 rows -> 5 shifted lines -3; same content verified); re-keyed 2026-08-16 (G1 guard additions shifted lines; same content verified)"
     },
     "C7 README.md:561": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
-      "triaged": "2026-08-04 (re-keyed 379->382->386->407: the Codex/Gemini MCP setup section shifted this line down 21 more; same 95.60% R@5 comparison-table figure verified before re-keying); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged \u2014 verified); re-keyed 2026-08-14 405->457 (the Recipes section added above; same statement \u2014 verified); re-keyed 2026-08-15 457\u2192459 (merge main shifted lines +2; same statement \u2014 verified); re-keyed 2026-08-16 (+48: Install first-screen section and See-what-it-remembered/Your-data subsections added above; statements byte-identical \u2014 verified against HEAD); re-keyed 2026-08-16 (+2: agent-install pointer added in the Install section; statements byte-identical \u2014 verified against HEAD); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main \u2014 NOTE C7 339 slid onto a colliding key, whole set re-verified); re-keyed 2026-08-16 (tab table 8 rows -> 5 shifted lines -3; same content verified); re-keyed 2026-08-16 (G1 guard additions shifted lines; same content verified)"
+      "triaged": "2026-08-04 (re-keyed 379->382->386->407: the Codex/Gemini MCP setup section shifted this line down 21 more; same 95.60% R@5 comparison-table figure verified before re-keying); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-14 405->457 (the Recipes section added above; same statement — verified); re-keyed 2026-08-15 457→459 (merge main shifted lines +2; same statement — verified); re-keyed 2026-08-16 (+48: Install first-screen section and See-what-it-remembered/Your-data subsections added above; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (+2: agent-install pointer added in the Install section; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main — NOTE C7 339 slid onto a colliding key, whole set re-verified); re-keyed 2026-08-16 (tab table 8 rows -> 5 shifted lines -3; same content verified); re-keyed 2026-08-16 (G1 guard additions shifted lines; same content verified)"
     },
     "C5 src/core/install-hooks.ts:65": {
       "class": "SAFE-BY-CONSTRUCTION",
-      "reason": "`parsed.hooks ?? {}` in hasMemeshHookMarker: an absent hooks key truthfully means no memesh marker, and the function fails toward 'not wired' \u2014 the caller then PRESCRIBES wiring rather than reporting success.",
-      "triaged": "2026-08-16 (P1 memesh setup; re-applied after merge took main baseline); moved 2026-08-16: the walker itself moved into install-hooks.ts settingsHaveMemeshHooks (release-prep dedup) \u2014 same statement, same conservative fail-toward-not-wired policy"
+      "reason": "`parsed.hooks ?? {}` in hasMemeshHookMarker: an absent hooks key truthfully means no memesh marker, and the function fails toward 'not wired' — the caller then PRESCRIBES wiring rather than reporting success.",
+      "triaged": "2026-08-16 (P1 memesh setup; re-applied after merge took main baseline); moved 2026-08-16: the walker itself moved into install-hooks.ts settingsHaveMemeshHooks (release-prep dedup) — same statement, same conservative fail-toward-not-wired policy"
     },
     "C5 src/core/install-hooks.ts:68": {
       "class": "SAFE-BY-CONSTRUCTION",
       "reason": "`entry.hooks ?? []` in the same marker walk: a malformed entry contributes nothing, and the result degrades to 'not wired' (conservative), pinned by the non-memesh-hooks test.",
-      "triaged": "2026-08-16 (P1 memesh setup; re-applied after merge took main baseline); moved 2026-08-16: the walker itself moved into install-hooks.ts settingsHaveMemeshHooks (release-prep dedup) \u2014 same statement, same conservative fail-toward-not-wired policy"
+      "triaged": "2026-08-16 (P1 memesh setup; re-applied after merge took main baseline); moved 2026-08-16: the walker itself moved into install-hooks.ts settingsHaveMemeshHooks (release-prep dedup) — same statement, same conservative fail-toward-not-wired policy"
     },
     "C5 src/core/install-hooks.ts:308": {
       "class": "SAFE-GUARDED",
       "reason": "readSettings throws on unparseable input; absent hooks truthfully means none wired",
-      "triaged": "2026-08-04; re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged \u2014 verified); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main \u2014 NOTE C7 339 slid onto a colliding key, whole set re-verified); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD)"
+      "triaged": "2026-08-04; re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main — NOTE C7 339 slid onto a colliding key, whole set re-verified); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD)"
     },
     "C5 src/core/install-hooks.ts:454": {
       "class": "SAFE-GUARDED",
       "reason": "readSettings throws on unparseable input; absent hooks truthfully means none wired",
-      "triaged": "2026-08-04; re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged \u2014 verified); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main \u2014 NOTE C7 339 slid onto a colliding key, whole set re-verified); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD); re-keyed 2026-08-24 (uninstallHooks parses settings before deleting the rule file; same statement, classification unchanged)"
+      "triaged": "2026-08-04; re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main — NOTE C7 339 slid onto a colliding key, whole set re-verified); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD); re-keyed 2026-08-24 (uninstallHooks parses settings before deleting the rule file; same statement, classification unchanged)"
     },
     "C5 src/knowledge-graph.ts:683": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "batch-hydrate lookups; confidence bump fails closed",
-      "triaged": "2026-08-09 (re-keyed: review fixes \u2014 busy_timeout, vector-index guards and the .mcp.json entry check \u2014 shifted these lines; same statements, same classification); re-keyed 2026-08-10 (review pass 2: redactUserPaths moved to core/paths, namespace breadcrumb, dreamer retirement); re-keyed 2026-08-14 (UX-1 title column added lines above; same statement \u2014 verified against the line content); re-keyed 2026-08-15 631\u2192649 (merge main shifted lines +18; same statement \u2014 verified); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged)"
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (review pass 2: redactUserPaths moved to core/paths, namespace breadcrumb, dreamer retirement); re-keyed 2026-08-14 (UX-1 title column added lines above; same statement — verified against the line content); re-keyed 2026-08-15 631→649 (merge main shifted lines +18; same statement — verified); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged)"
     },
     "C5 src/knowledge-graph.ts:684": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "batch-hydrate lookups; confidence bump fails closed",
-      "triaged": "2026-08-09 (re-keyed: review fixes \u2014 busy_timeout, vector-index guards and the .mcp.json entry check \u2014 shifted these lines; same statements, same classification); re-keyed 2026-08-10 (review pass 2: redactUserPaths moved to core/paths, namespace breadcrumb, dreamer retirement); re-keyed 2026-08-14 (UX-1 title column added lines above; same statement \u2014 verified against the line content); re-keyed 2026-08-15 629\u2192647 (merge main shifted lines +18; same statement \u2014 verified); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged)"
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (review pass 2: redactUserPaths moved to core/paths, namespace breadcrumb, dreamer retirement); re-keyed 2026-08-14 (UX-1 title column added lines above; same statement — verified against the line content); re-keyed 2026-08-15 629→647 (merge main shifted lines +18; same statement — verified); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged)"
     },
     "C5 src/knowledge-graph.ts:685": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "batch-hydrate lookups; confidence bump fails closed",
-      "triaged": "2026-08-09 (re-keyed: review fixes \u2014 busy_timeout, vector-index guards and the .mcp.json entry check \u2014 shifted these lines; same statements, same classification); re-keyed 2026-08-10 (review pass 2: redactUserPaths moved to core/paths, namespace breadcrumb, dreamer retirement); re-keyed 2026-08-14 (UX-1 title column added lines above; same statement \u2014 verified against the line content); re-keyed 2026-08-15 630\u2192648 (merge main shifted lines +18; same statement \u2014 verified); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged)"
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (review pass 2: redactUserPaths moved to core/paths, namespace breadcrumb, dreamer retirement); re-keyed 2026-08-14 (UX-1 title column added lines above; same statement — verified against the line content); re-keyed 2026-08-15 630→648 (merge main shifted lines +18; same statement — verified); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged)"
     },
     "C5 src/knowledge-graph.ts:732": {
       "class": "SAFE-BY-CONSTRUCTION",
-      "reason": "`opts?.countAsAccess ?? true` in search(): the default is the CONSERVATIVE direction, not the convenient one. Absent means 'this is an ordinary recall, count it' \u2014 the behaviour every caller had before the option existed. Only the one read that must NOT count (exportMemories: a backup is not a use) says so explicitly, and tests/core/reads-that-were-writes.test.ts pins both directions.",
+      "reason": "`opts?.countAsAccess ?? true` in search(): the default is the CONSERVATIVE direction, not the convenient one. Absent means 'this is an ordinary recall, count it' — the behaviour every caller had before the option existed. Only the one read that must NOT count (exportMemories: a backup is not a use) says so explicitly, and tests/core/reads-that-were-writes.test.ts pins both directions.",
       "triaged": "2026-08-24 (full-codebase review, R9-a); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged)"
     },
     "C5 src/core/serializer.ts:44": {
       "class": "SAFE-BY-CONSTRUCTION",
-      "reason": "`args.bundled ?? {}` in buildImportedMetadata: an absent `metadata` in the bundle genuinely means the bundle says nothing about it, and the empty object is the correct reading \u2014 the entity's own metadata (and the import's rebuilt trust/provenance) still apply. A bundle predating the field must not clear metadata the importer already had. Pinned by tests/core/export-import.test.ts 'carries metadata, but never a guard'.",
-      "triaged": "2026-08-24 (full-codebase review, R3-c); re-triaged 2026-08-24 \u2014 the destructure collapsed from three excluded keys to one (`guard`), so the line text changed while the `?? {}` and its reading did not. Same classification, same reason, same test."
+      "reason": "`args.bundled ?? {}` in buildImportedMetadata: an absent `metadata` in the bundle genuinely means the bundle says nothing about it, and the empty object is the correct reading — the entity's own metadata (and the import's rebuilt trust/provenance) still apply. A bundle predating the field must not clear metadata the importer already had. Pinned by tests/core/export-import.test.ts 'carries metadata, but never a guard'.",
+      "triaged": "2026-08-24 (full-codebase review, R3-c); re-triaged 2026-08-24 — the destructure collapsed from three excluded keys to one (`guard`), so the line text changed while the `?? {}` and its reading did not. Same classification, same reason, same test."
     },
     "C1 tests/cli/a-partial-backup-says-so.test.ts": {
       "class": "SAFE",
-      "reason": "the emptiness matches are `exitCode).toBe(0)` \u2014 a command that SUCCEEDED, not an empty result. The positive pins in the file are `entity_count).toBe(2)` and `.toBe(3)`, which the detector's pin pattern only recognises spelled `length).toBe(N)` or `toHaveLength(N)`. Every test here also asserts on actual stdout/stderr text.",
+      "reason": "the emptiness matches are `exitCode).toBe(0)` — a command that SUCCEEDED, not an empty result. The positive pins in the file are `entity_count).toBe(2)` and `.toBe(3)`, which the detector's pin pattern only recognises spelled `length).toBe(N)` or `toHaveLength(N)`. Every test here also asserts on actual stdout/stderr text.",
       "triaged": "2026-08-24"
     },
     "C1 tests/cli/error-envelopes.test.ts": {
       "class": "SAFE",
-      "reason": "the emptiness pattern matched `.toBe(0)` on a CLI exitCode assertion, not on a collection \u2014 this file has no emptiness assertions at all. Every test asserts specific stdout/stderr text and an exact exit code (0 or 1); the detector's heuristic cannot distinguish an exit-code literal from a size assertion.",
+      "reason": "the emptiness pattern matched `.toBe(0)` on a CLI exitCode assertion, not on a collection — this file has no emptiness assertions at all. Every test asserts specific stdout/stderr text and an exact exit code (0 or 1); the detector's heuristic cannot distinguish an exit-code literal from a size assertion.",
       "triaged": "2026-08-24"
     },
     "C5 src/core/doctor.ts:624": {
       "class": "SAFE-GUARDED",
       "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
-      "triaged": "2026-08-09 (re-keyed: review fixes \u2014 busy_timeout, vector-index guards and the .mcp.json entry check \u2014 shifted these lines; same statements, same classification); re-keyed 2026-08-10 (the InstallChannel import and hook-wiring rewrite shifted it +2; same statement, classification unchanged); re-keyed 2026-08-13 421->425 (the DatabaseLike all/run widening added 4 lines above; verified byte-identical statement before re-keying); re-keyed 2026-08-13 rev3 +4 (createCheck gained a 4-line comment about optional codes; same statement, classification unchanged); re-keyed 2026-08-16 (-6: LOCALE_README_FILES list shrank; statements byte-identical \u2014 verified against HEAD); re-keyed 2026-08-16 (doctor --fix on merged tree: fixId field + registry consult added above; byte-identical vs origin/main) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position) re-keyed 2026-08-23 (+12, doctor Config-check comment; statement matched by TEXT against HEAD~1) re-keyed 2026-08-23 (+3, F1 comment; statement matched by TEXT against HEAD~1); re-keyed 2026-08-24 (two imports added for the measured vector count; statements byte-identical, classification unchanged); re-keyed 2026-08-24 (R11 batch); sibling entry restored 2026-08-24 (lost to a re-key collision in the same batch; identical statement, same loop, same classification); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged); re-keyed 2026-08-24 (M-08/M-09/M-10 batch: locale-parity anyLocalePresent guard, isFreshInstall() and its two call sites added above; statements byte-identical, classification unchanged)"
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (the InstallChannel import and hook-wiring rewrite shifted it +2; same statement, classification unchanged); re-keyed 2026-08-13 421->425 (the DatabaseLike all/run widening added 4 lines above; verified byte-identical statement before re-keying); re-keyed 2026-08-13 rev3 +4 (createCheck gained a 4-line comment about optional codes; same statement, classification unchanged); re-keyed 2026-08-16 (-6: LOCALE_README_FILES list shrank; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (doctor --fix on merged tree: fixId field + registry consult added above; byte-identical vs origin/main) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position) re-keyed 2026-08-23 (+12, doctor Config-check comment; statement matched by TEXT against HEAD~1) re-keyed 2026-08-23 (+3, F1 comment; statement matched by TEXT against HEAD~1); re-keyed 2026-08-24 (two imports added for the measured vector count; statements byte-identical, classification unchanged); re-keyed 2026-08-24 (R11 batch); sibling entry restored 2026-08-24 (lost to a re-key collision in the same batch; identical statement, same loop, same classification); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged); re-keyed 2026-08-24 (M-08/M-09/M-10 batch: locale-parity anyLocalePresent guard, isFreshInstall() and its two call sites added above; statements byte-identical, classification unchanged)"
     },
     "C5 src/core/doctor.ts:625": {
       "class": "SAFE-GUARDED",
       "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
-      "triaged": "2026-08-09 (re-keyed: review fixes \u2014 busy_timeout, vector-index guards and the .mcp.json entry check \u2014 shifted these lines; same statements, same classification); re-keyed 2026-08-10 (the InstallChannel import and hook-wiring rewrite shifted it +2; same statement, classification unchanged); re-keyed 2026-08-13 421->425 (the DatabaseLike all/run widening added 4 lines above; verified byte-identical statement before re-keying); re-keyed 2026-08-13 rev3 +4 (createCheck gained a 4-line comment about optional codes; same statement, classification unchanged); re-keyed 2026-08-16 (-6: LOCALE_README_FILES list shrank; statements byte-identical \u2014 verified against HEAD); re-keyed 2026-08-16 (doctor --fix on merged tree: fixId field + registry consult added above; byte-identical vs origin/main) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position) re-keyed 2026-08-23 (+12, doctor Config-check comment; statement matched by TEXT against HEAD~1) re-keyed 2026-08-23 (+3, F1 comment; statement matched by TEXT against HEAD~1); re-keyed 2026-08-24 (two imports added for the measured vector count; statements byte-identical, classification unchanged); re-keyed 2026-08-24 (R11 batch); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged); re-keyed 2026-08-24 (M-08/M-09/M-10 batch: locale-parity anyLocalePresent guard, isFreshInstall() and its two call sites added above; statements byte-identical, classification unchanged)"
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (the InstallChannel import and hook-wiring rewrite shifted it +2; same statement, classification unchanged); re-keyed 2026-08-13 421->425 (the DatabaseLike all/run widening added 4 lines above; verified byte-identical statement before re-keying); re-keyed 2026-08-13 rev3 +4 (createCheck gained a 4-line comment about optional codes; same statement, classification unchanged); re-keyed 2026-08-16 (-6: LOCALE_README_FILES list shrank; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (doctor --fix on merged tree: fixId field + registry consult added above; byte-identical vs origin/main) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position) re-keyed 2026-08-23 (+12, doctor Config-check comment; statement matched by TEXT against HEAD~1) re-keyed 2026-08-23 (+3, F1 comment; statement matched by TEXT against HEAD~1); re-keyed 2026-08-24 (two imports added for the measured vector count; statements byte-identical, classification unchanged); re-keyed 2026-08-24 (R11 batch); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged); re-keyed 2026-08-24 (M-08/M-09/M-10 batch: locale-parity anyLocalePresent guard, isFreshInstall() and its two call sites added above; statements byte-identical, classification unchanged)"
     },
     "C5 src/core/doctor.ts:670": {
       "class": "SAFE-GUARDED",
       "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
-      "triaged": "2026-08-09 (re-keyed: review fixes \u2014 busy_timeout, vector-index guards and the .mcp.json entry check \u2014 shifted these lines; same statements, same classification); re-keyed 2026-08-10 (the InstallChannel import and hook-wiring rewrite shifted it +1; same statement, classification unchanged); re-keyed 2026-08-13 466->470 (the DatabaseLike all/run widening added 4 lines above; verified byte-identical statement before re-keying); re-keyed 2026-08-13 rev3 +4 (createCheck gained a 4-line comment about optional codes; same statement, classification unchanged); re-keyed 2026-08-16 (-6: LOCALE_README_FILES list shrank; statements byte-identical \u2014 verified against HEAD); re-keyed 2026-08-16 (doctor --fix on merged tree: fixId field + registry consult added above; byte-identical vs origin/main) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position) re-keyed 2026-08-23 (+12, doctor Config-check comment; statement matched by TEXT against HEAD~1) re-keyed 2026-08-23 (+3, F1 comment; statement matched by TEXT against HEAD~1); re-keyed 2026-08-24 (two imports added for the measured vector count; statements byte-identical, classification unchanged); re-keyed 2026-08-24 (R11 batch shifted lines; statements byte-identical, classification unchanged); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged); re-keyed 2026-08-24 (M-08/M-09/M-10 batch: locale-parity anyLocalePresent guard, isFreshInstall() and its two call sites added above; statements byte-identical, classification unchanged)"
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (the InstallChannel import and hook-wiring rewrite shifted it +1; same statement, classification unchanged); re-keyed 2026-08-13 466->470 (the DatabaseLike all/run widening added 4 lines above; verified byte-identical statement before re-keying); re-keyed 2026-08-13 rev3 +4 (createCheck gained a 4-line comment about optional codes; same statement, classification unchanged); re-keyed 2026-08-16 (-6: LOCALE_README_FILES list shrank; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (doctor --fix on merged tree: fixId field + registry consult added above; byte-identical vs origin/main) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position) re-keyed 2026-08-23 (+12, doctor Config-check comment; statement matched by TEXT against HEAD~1) re-keyed 2026-08-23 (+3, F1 comment; statement matched by TEXT against HEAD~1); re-keyed 2026-08-24 (two imports added for the measured vector count; statements byte-identical, classification unchanged); re-keyed 2026-08-24 (R11 batch shifted lines; statements byte-identical, classification unchanged); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged); re-keyed 2026-08-24 (M-08/M-09/M-10 batch: locale-parity anyLocalePresent guard, isFreshInstall() and its two call sites added above; statements byte-identical, classification unchanged)"
     },
     "C5 src/core/doctor.ts:1976": {
       "class": "SAFE-GUARDED",
       "reason": "verifySkillsManifest: entries ?? [] is followed by entries.length === 0 -> fail (skills-manifest.empty); the ?? cannot convert absence into a pass",
-      "triaged": "2026-08-09 (re-keyed: review fixes \u2014 busy_timeout, vector-index guards and the .mcp.json entry check \u2014 shifted these lines; same statements, same classification); re-keyed 2026-08-10 (the InstallChannel import and hook-wiring rewrite shifted it +6; same statement, classification unchanged); re-keyed 2026-08-12 +56 (the hook-activity rewrite and hoursSince); re-keyed 2026-08-13 1446->1560 (the review round's inspectHookActivity per-hook rewrite, isAutoCaptureOff and hoursSince round-trip added 114 lines above; verified byte-identical statement before re-keying); re-keyed 2026-08-13 1560->1616 (rev2: source_host corroboration, stop-silent/never-ran-legacy branches and the staleUnknown/stale helpers added 56 lines above; verified byte-identical statement before re-keying); re-keyed 2026-08-13 rev3 1616->1686 (foreign-row exclusion, read-only table probe, stale-unconfirmed/disabled-env branches and the legacy-window query added 70 lines above; verified byte-identical statement before re-keying); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged \u2014 verified); re-keyed 2026-08-16 (-6: LOCALE_README_FILES list shrank; statements byte-identical \u2014 verified against HEAD); re-keyed 2026-08-16 (doctor --fix on merged tree: fixId field + registry consult added above; byte-identical vs origin/main) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position) re-keyed 2026-08-23 (+12, doctor Config-check comment; statement matched by TEXT against HEAD~1) re-keyed 2026-08-23 (+3, F1 comment; statement matched by TEXT against HEAD~1); re-keyed 2026-08-24 (two imports added for the measured vector count; statements byte-identical, classification unchanged); re-keyed 2026-08-24 (R11 batch shifted lines; statements byte-identical, classification unchanged); re-keyed 2026-08-24 (M-08/M-09/M-10 batch: locale-parity anyLocalePresent guard, isFreshInstall() and its two call sites added above; statements byte-identical, classification unchanged); re-keyed 2026-08-24 1847->1854 after merging main (the Codex plugin-host branch adds 7 lines above in inspectHookWiring/inspectShellCli; statement verified byte-identical against origin/main before re-keying)"
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (the InstallChannel import and hook-wiring rewrite shifted it +6; same statement, classification unchanged); re-keyed 2026-08-12 +56 (the hook-activity rewrite and hoursSince); re-keyed 2026-08-13 1446->1560 (the review round's inspectHookActivity per-hook rewrite, isAutoCaptureOff and hoursSince round-trip added 114 lines above; verified byte-identical statement before re-keying); re-keyed 2026-08-13 1560->1616 (rev2: source_host corroboration, stop-silent/never-ran-legacy branches and the staleUnknown/stale helpers added 56 lines above; verified byte-identical statement before re-keying); re-keyed 2026-08-13 rev3 1616->1686 (foreign-row exclusion, read-only table probe, stale-unconfirmed/disabled-env branches and the legacy-window query added 70 lines above; verified byte-identical statement before re-keying); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-16 (-6: LOCALE_README_FILES list shrank; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (doctor --fix on merged tree: fixId field + registry consult added above; byte-identical vs origin/main) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position) re-keyed 2026-08-23 (+12, doctor Config-check comment; statement matched by TEXT against HEAD~1) re-keyed 2026-08-23 (+3, F1 comment; statement matched by TEXT against HEAD~1); re-keyed 2026-08-24 (two imports added for the measured vector count; statements byte-identical, classification unchanged); re-keyed 2026-08-24 (R11 batch shifted lines; statements byte-identical, classification unchanged); re-keyed 2026-08-24 (M-08/M-09/M-10 batch: locale-parity anyLocalePresent guard, isFreshInstall() and its two call sites added above; statements byte-identical, classification unchanged); re-keyed 2026-08-24 1847->1854 after merging main (the Codex plugin-host branch adds 7 lines above in inspectHookWiring/inspectShellCli; statement verified byte-identical against origin/main before re-keying)"
     },
     "C5 src/core/demo.ts:230": {
       "class": "SAFE-ACCUMULATOR",
@@ -608,22 +533,22 @@
     },
     "C5 src/core/why.ts:318": {
       "class": "SAFE-BY-CONSTRUCTION",
-      "reason": "`input.abstentions ?? []` \u2014 pass-through of caller-declared git-side abstentions into the response verbatim; absence means the caller declared none, and nothing here can convert a failure into silence (the CLI always passes its resolveFileCommits abstention in).",
+      "reason": "`input.abstentions ?? []` — pass-through of caller-declared git-side abstentions into the response verbatim; absence means the caller declared none, and nothing here can convert a failure into silence (the CLI always passes its resolveFileCommits abstention in).",
       "triaged": "2026-08-16 (UX-3 memesh why); re-keyed 2026-08-24 (M-07: file_not_found abstention + why.ts imports added above; statements byte-identical, classification unchanged)"
     },
     "C5 src/core/why.ts:322": {
       "class": "SAFE-BY-CONSTRUCTION",
-      "reason": "`input.commits ?? []` \u2014 WhySchema documents commits as optional (a caller without a working tree resolves none); the result carries commits: [] visibly, and every real gap in the chain is a typed abstention, never a default.",
+      "reason": "`input.commits ?? []` — WhySchema documents commits as optional (a caller without a working tree resolves none); the result carries commits: [] visibly, and every real gap in the chain is a typed abstention, never a default.",
       "triaged": "2026-08-16 (UX-3 memesh why); re-keyed 2026-08-24 (M-07: file_not_found abstention + why.ts imports added above; statements byte-identical, classification unchanged)"
     },
     "C5 src/core/serializer.ts:354": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "`relations` is optional on the imported bundle entry; empty means none to re-create. Newly visible after the C5 `||` regex fix.",
-      "triaged": "2026-08-17 (surfaced by the C5 || regex fix); re-keyed 2026-08-24 (dead toolPreferences/avgSessionMinutes fields removed; export gained countAsAccess \u2014 statements byte-identical, classification unchanged); re-keyed 2026-08-24 (R3 export/import batch shifted lines; statements byte-identical, classification unchanged); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged); re-keyed 2026-08-24 (M-05/M-06/M-18 batch: --obs validation, zero-hit retrieval-mode message, import overwritten-counter/dedupe added above; statements byte-identical, classification unchanged)"
+      "triaged": "2026-08-17 (surfaced by the C5 || regex fix); re-keyed 2026-08-24 (dead toolPreferences/avgSessionMinutes fields removed; export gained countAsAccess — statements byte-identical, classification unchanged); re-keyed 2026-08-24 (R3 export/import batch shifted lines; statements byte-identical, classification unchanged); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged); re-keyed 2026-08-24 (M-05/M-06/M-18 batch: --obs validation, zero-hit retrieval-mode message, import overwritten-counter/dedupe added above; statements byte-identical, classification unchanged)"
     },
     "C5 src/core/serializer.ts:306": {
       "class": "SAFE-GUARDED",
-      "reason": "entity.observations can be genuinely undefined for a raw import bundle \u2014 describeInvalidEntity (this file) explicitly permits the field to be absent, only rejecting it if present-and-not-an-array. The ?? [] covers that documented-optional case, not a hidden failure.",
+      "reason": "entity.observations can be genuinely undefined for a raw import bundle — describeInvalidEntity (this file) explicitly permits the field to be absent, only rejecting it if present-and-not-an-array. The ?? [] covers that documented-optional case, not a hidden failure.",
       "triaged": "2026-08-24"
     },
     "C5 src/core/agent-router.ts:800": {
@@ -640,6 +565,116 @@
       "class": "SECURITY-STATIC-GUARD",
       "reason": "The text scan is intentionally a narrow negative security pin: the one-way adapter must not acquire direct console or process argv/stdout/stderr sinks that could expose private channel content. Functional tests in the same file independently exercise delivery, bounds, routing, and failure behavior.",
       "triaged": "2026-08-27 host-native push release audit"
+    },
+    "C5 dashboard/src/components/AnalyticsTab.tsx:204": {
+      "class": "STALE-OR-SAFE",
+      "reason": "comment line or Array.isArray-coerced optional extras (re-keyed 198→204 on 2026-08-29; line shift only, classification unchanged)",
+      "triaged": "2026-08-04; re-keyed 2026-08-24 (dead toolPreferences/avgSessionMinutes fields removed; export gained countAsAccess — statements byte-identical, classification unchanged)"
+    },
+    "C5 dashboard/src/components/MemoriesTab.tsx:242": {
+      "class": "SAFE-DISPLAY",
+      "reason": "client-side search haystack only (absorbs the retired BrowseTab:169 and LessonsTab:298 hay statements) (re-keyed 244→242 on 2026-08-29; line shift only, classification unchanged)",
+      "triaged": "2026-08-16 (tab consolidation: statement moved verbatim from the retired LessonsTab/BrowseTab; original triage 2026-08-04); re-keyed 2026-08-16 (UX-3: local CLUSTER_DOT block removed above, statement unchanged — verified)"
+    },
+    "C5 dashboard/src/components/ProjectRoadmap.tsx:346": {
+      "class": "SAFE-DISPLAY",
+      "reason": "`e.relations ?? []` while collecting lineage edges — relations are optional on the wire; absence draws no arc and the visible legend counts only DRAWN arcs, so missing input yields visible emptiness, not claimed success. (re-keyed 342→346 on 2026-08-29; line shift only, classification unchanged)",
+      "triaged": "2026-08-16 (UX-3 lineage overlay)"
+    },
+    "C5 dashboard/src/components/ProjectRoadmap.tsx:1070": {
+      "class": "SAFE-DISPLAY",
+      "reason": "`e.relations ?? []` building the reverse supersession index in DecisionsView — no relations means no chain lines render; status falls back to active only when NO supersedes edge points at the entity anywhere in the set. (re-keyed 1065→1070 on 2026-08-29; line shift only, classification unchanged)",
+      "triaged": "2026-08-16 (UX-3 ADR view)"
+    },
+    "C5 dashboard/src/components/ProjectRoadmap.tsx:1072": {
+      "class": "SAFE-DISPLAY",
+      "reason": "`m.get(r.to) ?? []` — standard multimap-append idiom inside the reverse index build; the default is the empty bucket being created, not a masked failure. (re-keyed 1067→1072 on 2026-08-29; line shift only, classification unchanged)",
+      "triaged": "2026-08-16 (UX-3 ADR view)"
+    },
+    "C5 dashboard/src/components/ProjectRoadmap.tsx:1103": {
+      "class": "SAFE-DISPLAY",
+      "reason": "`supersededBy.get(e.name) ?? []` — a decision nothing points at is genuinely unreplaced; the empty default is the honest answer and renders as status \"active\", which is the documented two-state contract. (re-keyed 1098→1103 on 2026-08-29; line shift only, classification unchanged)",
+      "triaged": "2026-08-16 (UX-3 ADR view)"
+    },
+    "C5 dashboard/src/components/ProjectRoadmap.tsx:1107": {
+      "class": "SAFE-DISPLAY",
+      "reason": "`(e.relations ?? []).filter` listing outgoing supersedes chain lines — absence renders no chain section at all rather than an empty claim. (re-keyed 1102→1107 on 2026-08-29; line shift only, classification unchanged)",
+      "triaged": "2026-08-16 (UX-3 ADR view)"
+    },
+    "C5 dashboard/src/components/ProjectTab.tsx:44": {
+      "class": "SAFE-DISPLAY",
+      "reason": "`e.relations ?? []` in selectProjectEntities — an entity without relations simply readmits nothing; the readmission rule is pinned by tests/dashboard/ProjectTab.select.test.ts including the no-relations path. (re-keyed 43→44 on 2026-08-29; line shift only, classification unchanged)",
+      "triaged": "2026-08-16 (UX-3 readmission rule)"
+    },
+    "C5 dashboard/src/components/SettingsTab.tsx:283": {
+      "class": "SAFE-GUARDED",
+      "reason": "absent llmFallbacks truthfully means an empty failover chain (a real state, rendered as no entries), not a masked failure; mirrors config.ts:353 (re-keyed 273→283 on 2026-08-29; line shift only, classification unchanged)",
+      "triaged": "2026-08-05; re-keyed 2026-08-28 (search-index provider controls shifted the unchanged statement); re-keyed 2026-08-28 (#220 draft state shifted the unchanged statement)"
+    },
+    "C5 src/core/config.ts:395": {
+      "class": "SAFE-GUARDED",
+      "reason": "absent key truthfully means no failover; corrupt config caught by doctor inspectConfigParse (re-keyed 388→395 on 2026-08-29; line shift only, classification unchanged)",
+      "triaged": "2026-08-04 (re-keyed 353->359->369: the transcriptMining field + isTranscriptMiningEnabled additions shifted the line down 10; same llmFallbacks ?? [] code verified before re-keying); re-keyed 2026-08-10 (the AUTO_CAPTURE_TAG-driven detectCapabilities guard shifted it +7; same statement, classification unchanged); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-14 266->268 (causal-convention sentences in the relation-type description; same statement — verified) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position)"
+    },
+    "C5 src/core/dreamer.ts:1233": {
+      "class": "SAFE-GUARDED",
+      "reason": "upstream filter requires non-empty arrays before these run (the (p.observations ?? []) statement; re-keyed +1 from :669 when the B3 embedder import shifted the line; classification unchanged) (re-keyed 1225→1233 on 2026-08-29; line shift only, classification unchanged)",
+      "triaged": "2026-08-05; re-keyed 2026-08-10 (review pass 4); re-keyed 2026-08-12 +14 from :1172 (NothingToClaimError and the missing-source counter shifted the line); re-keyed 2026-08-14 +3 from :1186 (PROTECTED_TYPES export comment shifted the file; statement verified — the observations line, NOT the evidence sibling that previously sat at this key); re-keyed 2026-08-14 +4 from :1189 (kind != 'relation' guards on the two pending-proposal scans; statement verified); re-keyed 2026-08-15 1193→1199 (merge main shifted lines +6; same statement — verified); re-keyed 2026-08-16 (G1 guard additions shifted lines; same content verified); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged)"
+    },
+    "C5 src/core/dreamer.ts:1236": {
+      "class": "SAFE-GUARDED",
+      "reason": "upstream filter requires non-empty arrays before these run (the (p.evidence ?? []) statement; re-keyed +1 from :672 when the B3 embedder import shifted the line; classification unchanged) (re-keyed 1228→1236 on 2026-08-29; line shift only, classification unchanged)",
+      "triaged": "2026-08-05; re-keyed 2026-08-10 (review pass 4); re-keyed 2026-08-12 +14 from :1175 (NothingToClaimError and the missing-source counter shifted the line); re-keyed 2026-08-14 +3 from :1189 (PROTECTED_TYPES export comment shifted the file; statement verified); re-keyed 2026-08-14 +4 from :1192 (kind != 'relation' guards on the two pending-proposal scans; statement verified); re-keyed 2026-08-16 (G1 guard additions shifted lines; same content verified); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged)"
+    },
+    "C5 src/core/llm-validator.ts:220": {
+      "class": "SAFE-GUARDED",
+      "reason": "models.length === 0 now returns valid:false for all three providers (PR #112) (re-keyed 186→220 on 2026-08-29; line shift only, classification unchanged)",
+      "triaged": "2026-08-04"
+    },
+    "C5 src/core/llm-validator.ts:253": {
+      "class": "SAFE-GUARDED",
+      "reason": "models.length === 0 now returns valid:false for all three providers (PR #112) (re-keyed 219→253 on 2026-08-29; line shift only, classification unchanged)",
+      "triaged": "2026-08-04"
+    },
+    "C3 npm:test:issue-224": {
+      "class": "SAFE",
+      "reason": "Per-issue focused runner for the completion-gate review contract, which only accepts an exact declared `npm run test:*` argv. Nothing in CI references it by design: every test file it names is already inside the default `tests/` run, so the script adds a bounded replay entry point, not coverage. All 9 referenced files were confirmed present on 2026-08-29.",
+      "triaged": "2026-08-29 v4.8.2 dashboard issue sweep"
+    },
+    "C3 npm:test:issue-225": {
+      "class": "SAFE",
+      "reason": "Per-issue focused runner for the completion-gate review contract, which only accepts an exact declared `npm run test:*` argv. Nothing in CI references it by design: every test file it names is already inside the default `tests/` run, so the script adds a bounded replay entry point, not coverage. All 9 referenced files were confirmed present on 2026-08-29.",
+      "triaged": "2026-08-29 v4.8.2 dashboard issue sweep"
+    },
+    "C3 npm:test:issue-226": {
+      "class": "SAFE",
+      "reason": "Per-issue focused runner for the completion-gate review contract, which only accepts an exact declared `npm run test:*` argv. Nothing in CI references it by design: every test file it names is already inside the default `tests/` run, so the script adds a bounded replay entry point, not coverage. All 9 referenced files were confirmed present on 2026-08-29.",
+      "triaged": "2026-08-29 v4.8.2 dashboard issue sweep"
+    },
+    "C3 npm:test:issue-227": {
+      "class": "SAFE",
+      "reason": "Per-issue focused runner for the completion-gate review contract, which only accepts an exact declared `npm run test:*` argv. Nothing in CI references it by design: every test file it names is already inside the default `tests/` run, so the script adds a bounded replay entry point, not coverage. All 9 referenced files were confirmed present on 2026-08-29.",
+      "triaged": "2026-08-29 v4.8.2 dashboard issue sweep"
+    },
+    "C3 npm:test:issue-228": {
+      "class": "SAFE",
+      "reason": "Per-issue focused runner for the completion-gate review contract, which only accepts an exact declared `npm run test:*` argv. Nothing in CI references it by design: every test file it names is already inside the default `tests/` run, so the script adds a bounded replay entry point, not coverage. All 9 referenced files were confirmed present on 2026-08-29.",
+      "triaged": "2026-08-29 v4.8.2 dashboard issue sweep"
+    },
+    "C3 npm:test:issue-229": {
+      "class": "SAFE",
+      "reason": "Per-issue focused runner for the completion-gate review contract, which only accepts an exact declared `npm run test:*` argv. Nothing in CI references it by design: every test file it names is already inside the default `tests/` run, so the script adds a bounded replay entry point, not coverage. All 9 referenced files were confirmed present on 2026-08-29.",
+      "triaged": "2026-08-29 v4.8.2 dashboard issue sweep"
+    },
+    "C3 npm:test:issue-230": {
+      "class": "SAFE",
+      "reason": "Per-issue focused runner for the completion-gate review contract, which only accepts an exact declared `npm run test:*` argv. Nothing in CI references it by design: every test file it names is already inside the default `tests/` run, so the script adds a bounded replay entry point, not coverage. All 9 referenced files were confirmed present on 2026-08-29.",
+      "triaged": "2026-08-29 v4.8.2 dashboard issue sweep"
+    },
+    "C5 src/core/llm-validator.ts:310": {
+      "class": "SAFE-GUARDED",
+      "reason": "models.length === 0 now returns valid:false for all three providers (PR #112) (re-keyed 273→303 on 2026-08-29; line shift only, classification unchanged) (re-keyed 303→310 on 2026-08-29; line shift only, classification unchanged)",
+      "triaged": "2026-08-04"
     }
   }
 }

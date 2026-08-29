@@ -6,6 +6,7 @@ import { t, getLocale } from '../lib/i18n';
 import { relativeDate, timeBucket, accessSignal, typeLabel, displayTitle } from '../lib/entity-display';
 import { EntityIcon } from './icons/EntityIcon';
 import { CaptureDensityBand } from './CaptureDensityBand';
+import { EntityTechnicalDetails } from './LessonCards';
 
 /** The decision species, for the ADR view. `architecture` alone is a
  *  structure description, not a choice — it stays out. */
@@ -138,8 +139,6 @@ function derivePhases(entities: Entity[]): Phase[] {
 interface Props {
   projectName: string;
   entities: Entity[];
-  /** When provided, renders a "Switch to List view" button in the header. */
-  onSwitchToList?: () => void;
 }
 
 /**
@@ -257,7 +256,7 @@ function groupByDate(entities: Entity[], now: Date = new Date()): DateGroup[] {
 
 type RoadmapView = 'tree' | 'mindmap' | 'decisions';
 
-export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props) {
+export function ProjectRoadmap({ projectName, entities }: Props) {
   const [view, setView] = useState<RoadmapView>('tree');
 
   const stats = useMemo(() => {
@@ -320,9 +319,14 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
     const el = entryRefs.current.get(id);
     if (!el) return;
     el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.focus({ preventScroll: true });
     el.style.transition = 'background 0.2s';
     el.style.background = 'var(--life-soft)';
     window.setTimeout(() => { el.style.background = ''; }, 1400);
+  };
+  const focusTreeEntry = (id: number) => {
+    setView('tree');
+    window.requestAnimationFrame(() => focusEntry(id));
   };
 
   /* ---------- lineage overlay (supersedes / contradicts arcs) ---------- */
@@ -478,11 +482,6 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
                 );
               })}
             </div>
-            {onSwitchToList && (
-              <button class="btn btn-sm" onClick={onSwitchToList}>
-                {t('roadmap.switchToList')}
-              </button>
-            )}
           </div>
         </div>
 
@@ -587,7 +586,7 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
           projectName={projectName}
           phases={phases}
           entities={entities}
-          onNodeClick={(id) => { setView('tree'); window.requestAnimationFrame(() => focusEntry(id)); }}
+          onNodeClick={focusTreeEntry}
         />
       )}
       {view === 'mindmap' && phases.length === 0 && (
@@ -601,7 +600,7 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
       {view === 'decisions' && (
         <DecisionsView
           entities={entities}
-          onJump={(id) => { setView('tree'); window.requestAnimationFrame(() => focusEntry(id)); }}
+          onJump={focusTreeEntry}
         />
       )}
 
@@ -783,6 +782,8 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
                                 <div
                                   key={e.id}
                                   ref={setEntryRef(e.id)}
+                                  tabIndex={-1}
+                                  data-roadmap-entry-id={e.id}
                                   style={{
                                     position: 'relative',
                                     paddingLeft: 24,
@@ -853,6 +854,8 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
                             <div
                               key={e.id}
                               ref={setEntryRef(e.id)}
+                              tabIndex={-1}
+                              data-roadmap-entry-id={e.id}
                               style={{ position: 'relative', paddingLeft: 24, paddingTop: 6, paddingBottom: 6 }}
                             >
                               <span
@@ -918,6 +921,8 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
                   <div
                     key={e.id}
                     ref={setEntryRef(e.id)}
+                    tabIndex={-1}
+                    data-roadmap-entry-id={e.id}
                     style={{
                       borderBottom: '1px solid var(--border-subtle)',
                       padding: '12px 0',
@@ -1150,6 +1155,7 @@ function DecisionsView({ entities, onJump }: { entities: Entity[]; onJump: (id: 
                     {obs}
                   </p>
                 ))}
+                <EntityTechnicalDetails entity={e} />
                 {(supersedesTargets.length > 0 || replacedBy.length > 0) && (
                   <div style={{ fontSize: 11, color: 'var(--text-2)', marginTop: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
                     {supersedesTargets.map((name) => (
@@ -1472,7 +1478,7 @@ function RoadmapMindmap({ projectName, phases, entities, onNodeClick }: MindmapP
             <g
               key={`phase-${i}`}
               role={phase.anchorId !== undefined ? 'button' : undefined}
-              tabIndex={phase.anchorId !== undefined ? 0 : undefined}
+              tabindex={phase.anchorId !== undefined ? 0 : undefined}
               aria-label={phase.anchorId !== undefined ? phase.label : undefined}
               style={{ cursor: phase.anchorId !== undefined ? 'pointer' : 'default' }}
               onClick={() => phase.anchorId !== undefined && onNodeClick(phase.anchorId)}
@@ -1528,7 +1534,7 @@ function RoadmapMindmap({ projectName, phases, entities, onNodeClick }: MindmapP
                   <g
                     key={e.id}
                     role="button"
-                    tabIndex={0}
+                    tabindex={0}
                     aria-label={`${label} (${typeLabel(e.type)})`}
                     style={{ cursor: 'pointer' }}
                     onClick={() => onNodeClick(e.id)}

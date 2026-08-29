@@ -1,8 +1,72 @@
-import { useState } from 'preact/hooks';
+import { useCallback, useEffect, useState } from 'preact/hooks';
 import { InsightsTab } from './InsightsTab';
 import { AnalyticsTab } from './AnalyticsTab';
 import { MetricsRow } from './MetricsRow';
+import { api, type HealthData, type ReindexStatusData } from '../lib/api';
 import { t } from '../lib/i18n';
+
+type HomeDestination = 'Memories' | 'Settings';
+type NextActionKind = 'loading' | 'empty' | 'reindex' | 'insights' | 'llm' | 'healthy' | 'unavailable';
+
+interface InsightState {
+  pendingCount: number;
+  llmConfigured: boolean | null;
+  loading: boolean;
+  failed: boolean;
+}
+
+export function chooseNextAction(
+  entityCount: number | null,
+  reindex: ReindexStatusData | null | undefined,
+  insights: InsightState,
+): NextActionKind {
+  if (entityCount === 0) return 'empty';
+  if (reindex === null || insights.failed) return 'unavailable';
+  if (reindex === undefined || insights.loading || insights.llmConfigured === null || entityCount === null) return 'loading';
+  if (reindex.pendingReindex !== null || reindex.missingVectors > 0
+    || reindex.status === 'failed' || reindex.status === 'retry-needed' || reindex.status === 'running') return 'reindex';
+  if (insights.pendingCount > 0) return 'insights';
+  if (!insights.llmConfigured) return 'llm';
+  return 'healthy';
+}
+
+function NextBestAction({
+  kind,
+  onNavigate,
+  onReviewInsights,
+}: {
+  kind: NextActionKind;
+  onNavigate: (destination: HomeDestination) => void;
+  onReviewInsights: () => void;
+}) {
+  const action = kind === 'empty' ? () => onNavigate('Memories')
+    : kind === 'reindex' || kind === 'llm' ? () => onNavigate('Settings')
+      : kind === 'insights' ? onReviewInsights
+        : kind === 'unavailable' ? () => window.location.reload()
+          : null;
+
+  return (
+    <section class="card" aria-labelledby="home-next-action-title" style={{ padding: 16, marginBottom: 12 }}>
+      <div style={{ color: 'var(--text-3)', fontSize: 11, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase' }}>
+        {t('home.nextAction.eyebrow')}
+      </div>
+      <h2 id="home-next-action-title" style={{ margin: '5px 0 6px', fontSize: 18 }}>
+        {t(`home.nextAction.${kind}.title`)}
+      </h2>
+      <p style={{ margin: '0 0 4px', color: 'var(--text-1)', lineHeight: 1.5 }}>
+        <strong>{t('home.nextAction.why')}</strong> {t(`home.nextAction.${kind}.why`)}
+      </p>
+      <p style={{ margin: 0, color: 'var(--text-2)', lineHeight: 1.5 }}>
+        <strong>{t('home.nextAction.result')}</strong> {t(`home.nextAction.${kind}.result`)}
+      </p>
+      {action && (
+        <button class="btn btn-primary" style={{ marginTop: 12 }} onClick={action}>
+          {t(`home.nextAction.${kind}.action`)}
+        </button>
+      )}
+    </section>
+  );
+}
 
 /**
  * Home = what memesh did for the user (Insights, leading) + the analytics
@@ -12,9 +76,41 @@ import { t } from '../lib/i18n';
  * while closed); once visited it stays mounted so collapse/expand keeps
  * its state without refetching (DESIGN.md expander pattern).
  */
-export function HomeTab() {
+export function HomeTab({
+  health = null,
+  dataRevision = 0,
+  onNavigate = () => {},
+}: {
+  health?: HealthData | null;
+  dataRevision?: number;
+  onNavigate?: (destination: HomeDestination) => void;
+}) {
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
   const [analyticsVisited, setAnalyticsVisited] = useState(false);
+  const [reindex, setReindex] = useState<ReindexStatusData | null | undefined>(undefined);
+  const [insights, setInsights] = useState<InsightState>({ pendingCount: 0, llmConfigured: null, loading: true, failed: false });
+
+  useEffect(() => {
+    let cancelled = false;
+    setReindex(undefined);
+    api<ReindexStatusData>('GET', '/v1/reindex')
+      .then((status) => { if (!cancelled) setReindex(status); })
+      .catch((error) => {
+        if (cancelled) return;
+        console.warn('[memesh dashboard] /v1/reindex failed to load:', error);
+        setReindex(null);
+      });
+    return () => { cancelled = true; };
+  }, [dataRevision]);
+
+  const updateInsights = useCallback((next: InsightState) => setInsights(next), []);
+  const reviewInsights = useCallback(() => {
+    const target = document.getElementById('home-insights');
+    target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    target?.focus({ preventScroll: true });
+  }, []);
+
+  const nextAction = chooseNextAction(health?.entity_count ?? null, reindex, insights);
 
   function toggleAnalytics() {
     const next = !analyticsOpen;
@@ -24,11 +120,12 @@ export function HomeTab() {
 
   return (
     <div>
-      {/* Numbers first, then what needs a decision, then what was applied —
-          the order the work-topology plan asked for. The row degrades per
-          tile: one unmeasured metric says so and the others still show. */}
-      <MetricsRow />
-      <InsightsTab />
+      <NextBestAction kind={nextAction} onNavigate={onNavigate} onReviewInsights={reviewInsights} />
+      {/* The recommendation leads; measurements are supporting context. The
+          row still degrades per tile: one unmeasured metric says so and the
+          others continue to show. */}
+      <MetricsRow dataRevision={dataRevision} />
+      <InsightsTab dataRevision={dataRevision} onStateChange={updateInsights} />
       <div class="card" style={{ marginTop: 8 }}>
         <button
           onClick={toggleAnalytics}
@@ -57,7 +154,7 @@ export function HomeTab() {
           )}
         </button>
         <div id="home-analytics" hidden={!analyticsOpen} style={{ marginTop: analyticsOpen ? 14 : 0 }}>
-          {analyticsVisited && <AnalyticsTab />}
+          {analyticsVisited && <AnalyticsTab dataRevision={dataRevision} />}
         </div>
       </div>
     </div>

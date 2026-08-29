@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'preact/hooks';
+import { useState, useEffect, useCallback, useRef } from 'preact/hooks';
 import { Header } from './components/Header';
 import { TabNav } from './components/TabNav';
 import { HomeTab } from './components/HomeTab';
@@ -71,6 +71,12 @@ function initialTab(): Tab {
 export function App() {
   const [locale, setLocale] = useState<Locale>(() => initLocale());
   const [tab, setTab] = useState<Tab>(initialTab);
+  const [settingsDirty, setSettingsDirty] = useState(false);
+  const selectTab = useCallback((next: Tab) => {
+    if (tab === 'Settings' && next !== 'Settings' && settingsDirty
+      && !confirm(t('settings.unsavedConfirm'))) return;
+    setTab(next);
+  }, [settingsDirty, tab]);
   // Tabs that have been activated at least once. Memories and Project each
   // fetch /v1/entities?limit=2000 fully hydrated plus /v1/projects on
   // mount — they keep their component state across tab switches
@@ -102,6 +108,8 @@ export function App() {
     } catch { /* no-op — same private-mode tolerance as storage */ }
   }, [tab]);
   const [health, setHealth] = useState<HealthData | null>(null);
+  const [dataRevision, setDataRevision] = useState(0);
+  const healthGen = useRef(0);
   const [error, setError] = useState('');
   // Codex fix (2026-05-05): the server protects /v1/* with a bearer
   // token whenever it is bound non-loopback. The dashboard SPA stores
@@ -122,13 +130,16 @@ export function App() {
   const [authRejected, setAuthRejected] = useState(false);
 
   const refetchHealth = useCallback(() => {
+    const gen = ++healthGen.current;
     api<HealthData>('GET', '/v1/health')
       .then((data) => {
+        if (gen !== healthGen.current) return;
         setHealth(data);
         setError('');
         setNeedsAuth(false);
       })
       .catch((e) => {
+        if (gen !== healthGen.current) return;
         if (e instanceof AuthRequiredError) {
           // A 401 while a token is already stored means that token was
           // rejected, not that none was supplied.
@@ -149,7 +160,10 @@ export function App() {
   // mutation site keeps the header in sync without coupling components.
   useEffect(() => {
     refetchHealth();
-    const handler = () => refetchHealth();
+    const handler = () => {
+      setDataRevision((revision) => revision + 1);
+      refetchHealth();
+    };
     window.addEventListener('memesh:data-changed', handler);
     return () => window.removeEventListener('memesh:data-changed', handler);
   }, [refetchHealth]);
@@ -178,6 +192,14 @@ export function App() {
   return (
     <div class="shell">
       <Header health={health} error={error} />
+      {health && error && (
+        <div class="error-box" role="alert" style={{ margin: '8px 16px 0' }}>
+          {t('common.error')}: {error}
+        </div>
+      )}
+      {/* Demo cleanup is an available action rather than a competing notice,
+          so it stays outside the one-notice slot after seeding. */}
+      {(health?.demo_entity_count ?? 0) > 0 && <OnboardingBanner health={health} />}
       {/* The notice slot: one banner at a time. Each banner self-decides
           eligibility (ineligible = no DOM), and DOM order IS the priority —
           Doctor (broken install) > Onboarding (empty library) > Insights
@@ -187,19 +209,19 @@ export function App() {
           previously stack into a wall above the nav. */}
       <div class="notice-slot">
         <DoctorBanner />
-        <OnboardingBanner health={health} />
-        <InsightsBanner currentTab={tab} onNavigateToInsights={() => setTab('Home')} />
+        {(health?.demo_entity_count ?? 0) === 0 && <OnboardingBanner health={health} />}
+        <InsightsBanner currentTab={tab} onNavigateToInsights={() => selectTab('Home')} />
       </div>
-      <TabNav tabs={tabLabels} active={tab} onSelect={(k) => setTab(k as Tab)} />
+      <TabNav tabs={tabLabels} active={tab} onSelect={(k) => selectTab(k as Tab)} />
       {/* Each panel is the tabpanel for its TabNav tab: id + role +
           aria-labelledby wire the roving-tablist relationship (see TabNav). */}
       <div class="main">
-        <div id="panel-Home" role="tabpanel" aria-labelledby="tab-Home" class={`panel ${tab === 'Home' ? 'active' : ''}`}>{tab === 'Home' && <HomeTab />}</div>
-        <div id="panel-Memories" role="tabpanel" aria-labelledby="tab-Memories" class={`panel ${tab === 'Memories' ? 'active' : ''}`}>{keepMounted('Memories') && <MemoriesTab health={health} />}</div>
-        <div id="panel-Project" role="tabpanel" aria-labelledby="tab-Project" class={`panel ${tab === 'Project' ? 'active' : ''}`}>{keepMounted('Project') && <ProjectTab health={health} />}</div>
-        <div id="panel-Graph" role="tabpanel" aria-labelledby="tab-Graph" class={`panel ${tab === 'Graph' ? 'active' : ''}`}>{tab === 'Graph' && <GraphTab />}</div>
+        <div id="panel-Home" role="tabpanel" aria-labelledby="tab-Home" class={`panel ${tab === 'Home' ? 'active' : ''}`}>{tab === 'Home' && <HomeTab health={health} dataRevision={dataRevision} onNavigate={selectTab} />}</div>
+        <div id="panel-Memories" role="tabpanel" aria-labelledby="tab-Memories" class={`panel ${tab === 'Memories' ? 'active' : ''}`}>{keepMounted('Memories') && <MemoriesTab health={health} dataRevision={dataRevision} />}</div>
+        <div id="panel-Project" role="tabpanel" aria-labelledby="tab-Project" class={`panel ${tab === 'Project' ? 'active' : ''}`}>{keepMounted('Project') && <ProjectTab health={health} dataRevision={dataRevision} />}</div>
+        <div id="panel-Graph" role="tabpanel" aria-labelledby="tab-Graph" class={`panel ${tab === 'Graph' ? 'active' : ''}`}>{tab === 'Graph' && <GraphTab dataRevision={dataRevision} />}</div>
         <div id="panel-Settings" role="tabpanel" aria-labelledby="tab-Settings" class={`panel ${tab === 'Settings' ? 'active' : ''}`}>
-          {tab === 'Settings' && <SettingsTab locale={locale} onLocaleChange={setLocale} />}
+          {tab === 'Settings' && <SettingsTab locale={locale} onLocaleChange={setLocale} onDirtyChange={setSettingsDirty} />}
         </div>
       </div>
       <FeedbackWidget health={health} />

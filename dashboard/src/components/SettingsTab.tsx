@@ -1,11 +1,21 @@
-import { useState, useEffect } from 'preact/hooks';
-import { api, type ConfigData, type ConfigTestResult, type LlmFallback, type UpdateStatusData } from '../lib/api';
+import { useState, useEffect, useRef } from 'preact/hooks';
+import {
+  api,
+  type ConfigData,
+  type ConfigTestResult,
+  type EmbedderProvider,
+  type LlmFallback,
+  type ReindexStatusData,
+  type UpdateStatusData,
+} from '../lib/api';
 import { t, setLocale, getLocales, type Locale } from '../lib/i18n';
 import { actionFailureMessage } from '../lib/failure';
+import { TerminalHandoff } from './ExternalHandoff';
 
 interface SettingsTabProps {
   locale: Locale;
   onLocaleChange: (locale: Locale) => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 type FallbackProvider = 'anthropic' | 'openai' | 'ollama';
@@ -150,7 +160,7 @@ function getInstallChannelGuidance(channel: UpdateStatusData['installChannel'] |
   }
 }
 
-export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
+export function SettingsTab({ locale, onLocaleChange, onDirtyChange }: SettingsTabProps) {
   const [config, setConfig] = useState<ConfigData | null>(null);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatusData | null>(null);
   const [provider, setProvider] = useState('');
@@ -177,6 +187,36 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
   const [fbTesting, setFbTesting] = useState<number | null>(null);
   const [fbSaving, setFbSaving] = useState(false);
   const [fbMsg, setFbMsg] = useState('');
+  const [indexProvider, setIndexProvider] = useState<EmbedderProvider | ''>('');
+  const [savedIndexProvider, setSavedIndexProvider] = useState<EmbedderProvider | ''>('');
+  const [indexSaving, setIndexSaving] = useState(false);
+  const [indexMsg, setIndexMsg] = useState('');
+  const [reindexStatus, setReindexStatus] = useState<ReindexStatusData | null>(null);
+  const [reindexBusy, setReindexBusy] = useState(false);
+  const [outputLanguageDraft, setOutputLanguageDraft] = useState<string | null>(null);
+  const [outputLanguageStatus, setOutputLanguageStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [outputLanguageError, setOutputLanguageError] = useState('');
+  // Serialize language writes so a slower earlier POST can never land after a
+  // newer selection and silently become the server truth. Superseded jobs may
+  // finish, but the latest queued selection always writes last and is the only
+  // one allowed to update visible status.
+  const outputLanguageGeneration = useRef(0);
+  const outputLanguageQueue = useRef<Promise<void>>(Promise.resolve());
+  const primaryLlmDirty =
+    provider !== initialProvider ||
+    !!apiKey ||
+    model !== initialModel;
+
+  useEffect(() => {
+    onDirtyChange?.(primaryLlmDirty);
+    if (!primaryLlmDirty) return;
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warnBeforeUnload);
+    return () => window.removeEventListener('beforeunload', warnBeforeUnload);
+  }, [primaryLlmDirty, onDirtyChange]);
 
   async function loadUpdateStatus(forceFresh = true, keepCurrentState = false) {
     if (keepCurrentState) {
@@ -231,6 +271,12 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
         // Server masks the key as '***' when one is stored. Empty/undefined
         // means no key on disk (e.g. ollama or fresh install).
         setInitialHasApiKey(!!data.config.llm?.apiKey);
+        const embedder = data.config.embedder?.provider
+          ?? (data.capabilities.embeddings === 'openai' || data.capabilities.embeddings === 'ollama'
+            ? data.capabilities.embeddings
+            : '');
+        setIndexProvider(embedder);
+        setSavedIndexProvider(embedder);
         // Load the failover chain. Deliberately NOT loading fb.apiKey (the
         // '***' mask) into the editable field — track only whether a key
         // exists, so an untouched cloud entry saves without re-sending the mask.
@@ -259,6 +305,14 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
       }
     })();
 
+    api<ReindexStatusData>('GET', '/v1/reindex')
+      .then((status) => {
+        if (!cancelled) setReindexStatus(status);
+      })
+      .catch((e) => {
+        console.warn('[memesh dashboard] /v1/reindex failed to load:', e);
+      });
+
     return () => {
       cancelled = true;
     };
@@ -272,9 +326,10 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
       const result = await api<ConfigTestResult>('POST', '/v1/config/test', {
         provider,
         ...(apiKey ? { apiKey } : {}),
+        ...(model ? { model } : {}),
       });
       setTestResult(result);
-      if (result.valid && !model && result.suggested) {
+      if (!model && result.suggested) {
         setModel(result.suggested);
       }
     } catch (e) {
@@ -295,6 +350,10 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
     setApiKey(v);
     setTestResult(null);
   }
+  function onModelChange(v: string) {
+    setModel(v);
+    setTestResult(null);
+  }
 
   async function save() {
     setSaving(true);
@@ -304,15 +363,18 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
       if (model) llm.model = model;
       if (apiKey) llm.apiKey = apiKey;
       await api('POST', '/v1/config', { llm });
-      setMsg(t('settings.saved'));
-      // If the user just submitted a new apiKey for this provider, the
-      // server now has it on disk — reflect that in the gate state so
-      // the Remove button appears immediately without a page reload.
-      if (apiKey) setInitialHasApiKey(true);
+      const readback = await api<ConfigData>('GET', '/v1/config');
+      const saved = isConfigRenderable(readback) ? readback.config.llm : undefined;
+      if (!saved || saved.provider !== provider || (model && saved.model !== model) || (apiKey && !saved.apiKey)) {
+        throw new Error(t('settings.configReadbackFailed'));
+      }
+      setConfig(readback);
+      setInitialProvider(saved.provider);
+      setInitialModel(saved.model ?? '');
+      setInitialHasApiKey(!!saved.apiKey);
       setApiKey('');
       setTestResult(null);
-      setInitialProvider(provider);
-      setInitialModel(model);
+      setMsg(t('settings.saved'));
     } catch (e) {
       setMsg(t('common.error') + ': ' + actionFailureMessage(e));
     } finally {
@@ -325,11 +387,23 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
   // > ollama). If no env credential is present either, memesh runs in Core
   // Mode (FTS5 keyword search, no LLM-backed features).
   async function removeProvider() {
-    if (!confirm(t('settings.removeProviderConfirm'))) return;
+    const removeMatchingOllamaIndex = initialProvider === 'ollama' && savedIndexProvider === 'ollama';
+    if (!confirm(t(removeMatchingOllamaIndex
+      ? 'settings.removeMatchingProvidersConfirm'
+      : 'settings.removeProviderConfirm'))) return;
     setSaving(true);
     setMsg('');
     try {
-      await api('POST', '/v1/config', { llm: null });
+      await api('POST', '/v1/config', removeMatchingOllamaIndex
+        ? { llm: null, embedder: null }
+        : { llm: null });
+      const readback = await api<ConfigData>('GET', '/v1/config');
+      if (!isConfigRenderable(readback)
+        || readback.config.llm
+        || (removeMatchingOllamaIndex && readback.config.embedder)) {
+        throw new Error(t('settings.configReadbackFailed'));
+      }
+      setConfig(readback);
       setProvider('');
       setModel('');
       setApiKey('');
@@ -337,6 +411,12 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
       setInitialModel('');
       setInitialHasApiKey(false);
       setTestResult(null);
+      if (removeMatchingOllamaIndex) {
+        setIndexProvider('');
+        setSavedIndexProvider('');
+        setReindexStatus(null);
+        setIndexMsg('');
+      }
       setMsg(t('settings.providerRemoved'));
     } catch (e) {
       setMsg(t('common.error') + ': ' + actionFailureMessage(e));
@@ -358,6 +438,91 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
       setMsg(t('settings.saved'));
     } catch (e) {
       setMsg(t('common.error') + ': ' + actionFailureMessage(e));
+    }
+  }
+
+  function saveOutputLanguage(language: string) {
+    const generation = ++outputLanguageGeneration.current;
+    setOutputLanguageDraft(language);
+    setOutputLanguageStatus('saving');
+    setOutputLanguageError('');
+
+    outputLanguageQueue.current = outputLanguageQueue.current
+      .catch(() => undefined)
+      .then(async () => {
+        // If this job was superseded before it started, skip its write. If it
+        // was superseded while in flight, let it settle before the newer job
+        // writes last; never let the stale job claim success or failure.
+        if (generation !== outputLanguageGeneration.current) return;
+        try {
+          await api('POST', '/v1/config', { language });
+          if (generation !== outputLanguageGeneration.current) return;
+
+          const readback = await api<ConfigData>('GET', '/v1/config');
+          if (generation !== outputLanguageGeneration.current) return;
+          if (!isConfigRenderable(readback) || readback.config.language !== language) {
+            throw new Error(t('settings.outputLanguageReadbackFailed'));
+          }
+
+          setConfig(readback);
+          setOutputLanguageDraft(null);
+          setOutputLanguageStatus('saved');
+        } catch (e) {
+          if (generation !== outputLanguageGeneration.current) return;
+          setOutputLanguageStatus('error');
+          setOutputLanguageError(actionFailureMessage(e));
+        }
+      });
+  }
+
+  function changeInterfaceLanguage(nextLocale: Locale) {
+    // Interface locale is browser-local and immediate. Generated-content
+    // language is a separate server setting with its own confirmed state.
+    setLocale(nextLocale);
+    onLocaleChange(nextLocale);
+    const displayName = getLocales().find((candidate) => candidate.code === nextLocale)?.name;
+    if (displayName) saveOutputLanguage(displayName);
+  }
+
+  async function saveIndexProvider() {
+    if (!indexProvider) return;
+    setIndexSaving(true);
+    setIndexMsg('');
+    try {
+      await api('POST', '/v1/config', { embedder: { provider: indexProvider } });
+      const readback = await api<ConfigData>('GET', '/v1/config');
+      if (!isConfigRenderable(readback) || readback.config.embedder?.provider !== indexProvider) {
+        throw new Error(t('settings.indexProviderReadbackFailed'));
+      }
+      setConfig(readback);
+      setSavedIndexProvider(indexProvider);
+      setIndexMsg(t('settings.indexProviderSaved'));
+      const status = await api<ReindexStatusData>('GET', '/v1/reindex');
+      setReindexStatus(status);
+    } catch (e) {
+      setIndexMsg(t('common.error') + ': ' + actionFailureMessage(e));
+    } finally {
+      setIndexSaving(false);
+    }
+  }
+
+  async function startReindex() {
+    if (!indexProvider) return;
+    if (!confirm(t('settings.reindexConfirm', { provider: indexProvider === 'openai' ? 'OpenAI' : 'Ollama' }))) return;
+    setReindexBusy(true);
+    setIndexMsg('');
+    try {
+      let status = await api<ReindexStatusData>('POST', '/v1/reindex');
+      setReindexStatus(status);
+      while (status.status === 'running') {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        status = await api<ReindexStatusData>('GET', '/v1/reindex');
+        setReindexStatus(status);
+      }
+    } catch (e) {
+      setIndexMsg(t('common.error') + ': ' + actionFailureMessage(e));
+    } finally {
+      setReindexBusy(false);
     }
   }
 
@@ -419,6 +584,7 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
       const typed = fb.apiKey.trim();
       const result = await api<ConfigTestResult>('POST', '/v1/config/test', {
         provider: fb.provider,
+        ...(fb.model ? { model: fb.model } : {}),
         ...(typed
           ? { apiKey: typed }
           : (fb.hasStoredKey && fb.originalIndex !== null ? { fallbackIndex: fb.originalIndex } : {})),
@@ -462,6 +628,11 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
   if (loading) return <div class="empty"><div class="loading" /></div>;
 
   const caps = config?.capabilities;
+  const llmSourceLabel = caps?.llmSource === 'config'
+    ? t('settings.llmSourceConfig')
+    : caps?.llmSource === 'environment'
+      ? t('settings.llmSourceEnvironment')
+      : t('settings.llmSourceNone');
   const searchModeLabel = caps?.searchLevel ? t('settings.smartMode') : t('settings.core');
   const isCheckingUpdates = updateLoading || (updateRefreshing && !updateStatus);
   const updateActionInProgress = updateLoading || updateRefreshing;
@@ -568,7 +739,7 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
           </div>
           <div class="stat">
             <div class="stat-val" style={{ fontSize: 14 }}>{capitalize(caps?.llm?.provider || t('settings.none'))}</div>
-            <div class="stat-lbl">{t('settings.llmProvider')}</div>
+            <div class="stat-lbl">{t('settings.effectiveLlm')}</div>
           </div>
           {/* Which model answers is as much a capability as which provider
               does — a user comparing digest quality needs it visible without
@@ -578,11 +749,114 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
             <div class="stat-lbl">{t('settings.model')}</div>
           </div>
         </div>
+        <div
+          data-testid="settings-effective-llm-source"
+          style={{ marginTop: 10, fontSize: 12, color: 'var(--text-2)' }}
+        >
+          {llmSourceLabel}
+        </div>
+      </div>
+
+      <div class="card" data-testid="settings-index-provider">
+        <div class="card-title">{t('settings.indexProviderTitle')}</div>
+        <div style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.55, marginBottom: 12 }}>
+          {t('settings.indexProviderExplainer')}
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--text-1)', marginBottom: 12 }}>
+          {t('settings.indexProviderConfigured', {
+            provider: savedIndexProvider === 'openai' ? 'OpenAI' : savedIndexProvider === 'ollama' ? 'Ollama' : t('settings.none'),
+            dimension: savedIndexProvider === 'openai' ? '1536' : savedIndexProvider === 'ollama' ? '768' : '—',
+          })}
+        </div>
+        <fieldset style={{ border: 0, padding: 0, margin: '0 0 12px' }}>
+          <legend style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 8 }}>
+            {t('settings.indexProviderLabel')}
+          </legend>
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+            {(['ollama', 'openai'] as const).map((value) => (
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                <input
+                  type="radio"
+                  name="embedder-provider"
+                  value={value}
+                  checked={indexProvider === value}
+                  disabled={reindexBusy || reindexStatus?.status === 'running'}
+                  onChange={() => {
+                    setIndexProvider(value);
+                    setIndexMsg('');
+                  }}
+                />
+                {value === 'openai' ? 'OpenAI' : 'Ollama'}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+          <button
+            class="btn btn-primary btn-sm"
+            type="button"
+            disabled={!indexProvider || indexSaving || reindexBusy || reindexStatus?.status === 'running' || indexProvider === savedIndexProvider}
+            onClick={() => { void saveIndexProvider(); }}
+          >
+            {indexSaving ? t('settings.saving') : t('settings.indexProviderSave')}
+          </button>
+          {indexMsg && (
+            <span
+              role={indexMsg.startsWith(t('common.error')) ? 'alert' : 'status'}
+              style={{ fontSize: 12, color: indexMsg.startsWith(t('common.error')) ? 'var(--danger)' : 'var(--success)' }}
+            >
+              {indexMsg}
+            </span>
+          )}
+        </div>
+        <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 12 }}>
+          {reindexStatus?.status === 'running' && (
+            <div aria-live="polite" style={{ fontSize: 12, color: 'var(--info)', marginBottom: 8 }}>
+              {t('settings.reindexRunning', {
+                processed: String(reindexStatus.job?.processed ?? 0),
+                total: String(reindexStatus.job?.total ?? 0),
+              })}
+            </div>
+          )}
+          {reindexStatus?.status === 'succeeded' && (
+            <div role="status" style={{ fontSize: 12, color: 'var(--success)', marginBottom: 8 }}>
+              {t('settings.reindexSucceeded')} {reindexStatus.pendingReindex === null && reindexStatus.missingVectors === 0
+                ? t('settings.reindexUpToDate')
+                : ''}
+            </div>
+          )}
+          {reindexStatus?.status === 'idle' && reindexStatus.pendingReindex === null && reindexStatus.missingVectors === 0 && (
+            <div role="status" style={{ fontSize: 12, color: 'var(--success)', marginBottom: 8 }}>
+              {t('settings.reindexUpToDate')}
+            </div>
+          )}
+          {(reindexStatus?.status === 'failed' || reindexStatus?.status === 'retry-needed') && (
+            <div role={reindexStatus.status === 'failed' ? 'alert' : 'status'} style={{ fontSize: 12, color: 'var(--warning)', marginBottom: 8 }}>
+              {reindexStatus.status === 'failed' ? t('settings.reindexFailed') : t('settings.reindexRetryNeeded')}
+              {reindexStatus.error && reindexStatus.error !== 'The new search index is incomplete. The previous index is still active; retry the rebuild.'
+                ? ` — ${reindexStatus.error}`
+                : ''}
+            </div>
+          )}
+          <button
+            class="btn btn-sm"
+            type="button"
+            disabled={!savedIndexProvider || reindexBusy || reindexStatus?.status === 'running' || indexProvider !== savedIndexProvider}
+            title={indexProvider !== savedIndexProvider ? t('settings.reindexSaveFirst') : undefined}
+            onClick={() => { void startReindex(); }}
+          >
+            {reindexBusy || reindexStatus?.status === 'running'
+              ? t('settings.reindexWorking')
+              : reindexStatus?.status === 'failed' || reindexStatus?.status === 'retry-needed'
+                ? t('settings.reindexRetry')
+                : t('settings.reindexStart')}
+          </button>
+        </div>
       </div>
 
       {/* LLM Config */}
       <div class="card">
-        <div class="card-title">{t('settings.llmProvider')}</div>
+        <div class="card-title">{t('settings.savedLlmSetting')}</div>
         {/*
           #31 — explain LLM is OPTIONAL up-front. memesh's wedge is
           "strong recall with FTS5 alone, no LLM required". The Settings
@@ -697,7 +971,13 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
             </div>
           )}
 
-          {testResult?.valid && testResult.models && testResult.models.length > 0 && (
+          {primaryLlmDirty && (
+            <div role="status" style={{ marginBottom: 12, fontSize: 12, color: 'var(--warning)' }}>
+              {t('settings.unsaved')}
+            </div>
+          )}
+
+          {testResult?.models && testResult.models.length > 0 && (
             <div style={{ marginBottom: 14 }}>
               <label style={{ fontSize: 12, color: 'var(--text-2)', display: 'block', marginBottom: 4 }}>
                 {t('settings.model')}
@@ -709,7 +989,7 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
               </label>
               <select
                 value={model}
-                onChange={(e) => setModel((e.target as HTMLSelectElement).value)}
+                onChange={(e) => onModelChange((e.target as HTMLSelectElement).value)}
                 style={{ width: '100%' }}
               >
                 {testResult.models.map((m) => (
@@ -727,23 +1007,18 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
               Untouched form (e.g. user opened Settings just to glance) does
               not require a fresh Test before Save. */}
           {(() => {
-            const dirty =
-              provider !== initialProvider ||
-              !!apiKey ||
-              model !== initialModel;
-            const needsTest = dirty && !testResult?.valid;
+            const needsTest = primaryLlmDirty && !testResult?.valid;
             const saveDisabled = !provider || saving || needsTest;
             return (
               <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
                 <button class="btn btn-primary" type="submit" disabled={saveDisabled}>
                   {saving ? t('settings.saving') : t('settings.save')}
                 </button>
-                {/* F17: Show Remove button only when a credential exists
-                    on disk. Per the destructive-action UX pattern, hide it
-                    when there's nothing concrete to remove. Ollama is keyless
-                    so it doesn't show this button — users switch ollama by
-                    picking a different provider radio, not by "removing". */}
-                {initialHasApiKey && (
+                {/* A persisted provider is concrete state even when it is a
+                    keyless Ollama install. Let users remove that state; when
+                    the search index points at the same Ollama, the button and
+                    confirmation explicitly name the combined removal. */}
+                {initialProvider && (
                   <button
                     type="button"
                     class="btn"
@@ -756,7 +1031,9 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
                     }}
                     title={t('settings.removeProviderHint')}
                   >
-                    {t('settings.removeProvider')}
+                    {t(initialProvider === 'ollama' && savedIndexProvider === 'ollama'
+                      ? 'settings.removeMatchingProviders'
+                      : 'settings.removeProvider')}
                   </button>
                 )}
                 {needsTest && (
@@ -1063,9 +1340,7 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
           {updateStatus?.recommendedCommand && (
             <div style={{ display: 'grid', gap: 6, marginTop: 4 }}>
               <span style={{ color: 'var(--text-2)', fontSize: 12 }}>{t('settings.updateCommand')}</span>
-              <code style={{ color: 'var(--text-0)', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '8px 10px', fontSize: 12, fontFamily: 'var(--mono)' }}>
-                {updateStatus.recommendedCommand}
-              </code>
+              <TerminalHandoff id="settings-update" command={updateStatus.recommendedCommand} />
             </div>
           )}
         </div>
@@ -1106,34 +1381,61 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
       {/* Language */}
       <div class="card">
         <div class="card-title">{t('settings.language')}</div>
-        <select
-          aria-label={t('settings.language')}
-          value={locale}
-          onChange={(e) => {
-            const nextLocale = (e.target as HTMLSelectElement).value as Locale;
-            setLocale(nextLocale);
-            onLocaleChange(nextLocale);
-            // Server-side counterpart: config.language decides what language
-            // the LLM writes generated CONTENT in (dreamer digests, patterns,
-            // lessons), which the client-side locale cannot reach. Post the
-            // locale's display name ('繁體中文', 'Deutsch', …) — it lands
-            // inside a prompt, and a native language name is unambiguous
-            // where a bare code like 'th' is not. Non-blocking: the UI
-            // language changed either way, and the next visit to Settings
-            // shows the truth.
-            const displayName = getLocales().find((l) => l.code === nextLocale)?.name;
-            if (displayName) {
-              void api('POST', '/v1/config', { language: displayName }).catch(() => {
-                /* offline / auth lapse — UI locale still applied; not worth blocking */
-              });
-            }
-          }}
-          style={{ fontSize: 13, padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text-1)', cursor: 'pointer' }}
-        >
-          {getLocales().map((l) => (
-            <option key={l.code} value={l.code}>{l.name}</option>
-          ))}
-        </select>
+        <div style={{ display: 'grid', gap: 12 }}>
+          <div>
+            <label id="settings-interface-language-label" style={{ fontSize: 12, color: 'var(--text-2)', display: 'block', marginBottom: 4 }}>
+              {t('settings.interfaceLanguage')}
+            </label>
+            <select
+              aria-labelledby="settings-interface-language-label"
+              value={locale}
+              onChange={(e) => changeInterfaceLanguage((e.target as HTMLSelectElement).value as Locale)}
+              style={{ fontSize: 13, padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text-1)', cursor: 'pointer' }}
+            >
+              {getLocales().map((l) => (
+                <option key={l.code} value={l.code}>{l.name}</option>
+              ))}
+            </select>
+            <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>
+              {t('settings.interfaceLanguageHint')}
+            </div>
+          </div>
+
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 12 }}>
+              <span style={{ color: 'var(--text-2)' }}>{t('settings.outputLanguage')}</span>
+              <strong data-testid="confirmed-output-language" style={{ color: 'var(--text-0)' }}>
+                {config?.config.language || t('settings.outputLanguageNotConfigured')}
+              </strong>
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>
+              {t('settings.outputLanguageHint')}
+            </div>
+
+            {outputLanguageStatus === 'saving' && outputLanguageDraft && (
+              <div role="status" style={{ color: 'var(--text-2)', fontSize: 12, marginTop: 8 }}>
+                {t('settings.outputLanguageSaving', { language: outputLanguageDraft })}
+              </div>
+            )}
+            {outputLanguageStatus === 'saved' && (
+              <div role="status" style={{ color: 'var(--success)', fontSize: 12, marginTop: 8 }}>
+                {t('settings.outputLanguageSaved', { language: config?.config.language || '' })}
+              </div>
+            )}
+            {outputLanguageStatus === 'error' && outputLanguageDraft && (
+              <div role="alert" style={{ color: 'var(--danger)', fontSize: 12, lineHeight: 1.5, marginTop: 8 }}>
+                <div>{t('settings.outputLanguageFailed', { language: outputLanguageDraft, message: outputLanguageError })}</div>
+                <button
+                  type="button"
+                  onClick={() => saveOutputLanguage(outputLanguageDraft)}
+                  style={{ marginTop: 6, padding: '5px 9px', fontSize: 12 }}
+                >
+                  {t('settings.retryOutputLanguage')}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

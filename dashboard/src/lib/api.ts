@@ -96,9 +96,10 @@ function envelopeError(json: { errorCode?: unknown; error?: unknown }): Error {
   if (typeof json.errorCode === 'string' && json.errorCode) {
     const key = `httpError.${json.errorCode}`;
     const translated = t(key);
-    if (translated !== key) return new Error(translated);
+    if (translated !== key) return new Error(translated.includes('`memesh') ? `${t('handoff.terminal')}: ${translated}` : translated);
   }
-  return new Error(typeof json.error === 'string' && json.error ? json.error : t('errors.unknown'));
+  const fallback = typeof json.error === 'string' && json.error ? json.error : t('errors.unknown');
+  return new Error(fallback.includes('`memesh') ? `${t('handoff.terminal')}: ${fallback}` : fallback);
 }
 
 export async function api<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
@@ -182,6 +183,7 @@ export interface HealthData {
   status: string;
   version: string;
   entity_count: number;
+  demo_entity_count?: number;
 }
 
 export interface UpdateStatusData {
@@ -233,12 +235,70 @@ export interface LlmFallback {
 }
 
 export type AutoUpdatePolicy = 'off' | 'patch' | 'minor' | 'major';
+export type EmbedderProvider = 'openai' | 'ollama';
+
+export interface EmbedderConfig {
+  provider: EmbedderProvider;
+}
+
+export interface PendingReindexData {
+  from: number;
+  to: number;
+  noticedAt: string;
+  reason: 'dimension-change' | 'vectors-missing';
+}
+
+export interface ReindexGenerationData {
+  state: 'none' | 'unreadable' | 'open';
+  detail?: string;
+  info?: {
+    dimension: number;
+    provider: string;
+    startedAt: string;
+  };
+}
+
+export interface ReindexJobData {
+  id: string;
+  state: 'running' | 'succeeded' | 'failed';
+  processed: number;
+  total: number;
+  startedAt: string;
+  finishedAt: string | null;
+}
+
+export interface ReindexResultData {
+  processed: number;
+  embedded: number;
+  skipped: number;
+  failed: number;
+  outcomes: Record<string, number>;
+  missingVectors: number;
+  missingVectorsDatabaseWide: number;
+  pendingReindexCleared: boolean;
+  generationSwapped: boolean | null;
+  abortedAfter: number | null;
+}
+
+export interface ReindexStatusData {
+  status: 'idle' | 'running' | 'succeeded' | 'failed' | 'retry-needed';
+  job: ReindexJobData | null;
+  configuredProvider: EmbedderProvider | null;
+  configuredDimension: number;
+  storedDimension: number;
+  pendingReindex: PendingReindexData | null;
+  missingVectors: number;
+  generation: ReindexGenerationData;
+  result: ReindexResultData | null;
+  error: string | null;
+}
 
 export interface ConfigData {
   config: {
     llm?: LlmConfig;
     /** Ordered cross-provider failover chain. apiKeys arrive masked as '***'. */
     llmFallbacks?: LlmFallback[];
+    embedder?: EmbedderConfig;
     setupCompleted?: boolean;
     autoCapture?: boolean;
     /** Auto-update policy. Mirrors MEMESH_AUTO_UPDATE env var with env > config precedence. */
@@ -250,7 +310,13 @@ export interface ConfigData {
      */
     language?: string;
   };
-  capabilities: { searchLevel: number; llm?: LlmConfig; llmFallbacks?: LlmFallback[]; embeddings: string };
+  capabilities: {
+    searchLevel: number;
+    llm?: LlmConfig;
+    llmSource: 'config' | 'environment' | 'none';
+    llmFallbacks?: LlmFallback[];
+    embeddings: string;
+  };
 }
 
 export interface ConfigTestResult {
@@ -258,12 +324,15 @@ export interface ConfigTestResult {
   error?: string;
   /**
    * Stable machine code when valid=false: 'auth' | 'network' | 'no_models'
-   * | 'bad_host' | 'http_<status>' | 'unknown'. The dashboard translates
+   * | 'bad_host' | 'inference_failed' | 'http_<status>' | 'unknown'. The dashboard translates
    * known codes (settings.testError.*) and keeps `error` as the detail.
    */
   errorCode?: string;
   models?: Array<{ id: string; created?: string }>;
   suggested?: string;
+  catalogVerified?: boolean;
+  inferenceVerified?: boolean;
+  testedModel?: string;
 }
 
 export interface HealthFactor {

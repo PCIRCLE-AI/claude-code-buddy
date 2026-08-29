@@ -1,7 +1,7 @@
 {
   "name": "@pcircle/memesh",
-  "version": "4.8.1",
-  "description": "MeMesh — agentic memory for coding agents. Captured from the agent's real work via hooks, recalled when it acts. One SQLite file, zero cloud required.",
+  "version": "4.8.2",
+  "description": "MeMesh \u2014 agentic memory for coding agents. Captured from the agent's real work via hooks, recalled when it acts. One SQLite file, zero cloud required.",
   "main": "dist/index.js",
   "type": "module",
   "bin": {
@@ -34,6 +34,13 @@
     "build:dashboard": "node scripts/build-dashboard.mjs",
     "test": "vitest",
     "test:e2e-dashboard": "node scripts/dashboard-e2e-smoke.mjs",
+    "test:issue-224": "vitest run tests/dashboard/issue-224-data-refresh.test.tsx --maxWorkers=1",
+    "test:issue-225": "vitest run tests/dashboard/issue-225-language-persistence.test.tsx --maxWorkers=1",
+    "test:issue-226": "vitest run tests/dashboard/SettingsTab-primary-llm.test.tsx tests/transports/http.test.ts --maxWorkers=1",
+    "test:issue-227": "vitest run tests/dashboard/ProjectRoadmap.test.tsx --maxWorkers=1",
+    "test:issue-228": "vitest run tests/dashboard/FeedbackWidget.test.tsx --maxWorkers=1",
+    "test:issue-229": "vitest run tests/dashboard/OnboardingBanner.test.tsx tests/dashboard-i18n.test.ts --maxWorkers=1",
+    "test:issue-230": "vitest run tests/dashboard/OnboardingBanner.test.tsx tests/transports/http.test.ts tests/core/demo.test.ts --maxWorkers=1",
     "test:packaged": "node scripts/smoke-packed-artifact.mjs",
     "test:packaged:upgrade": "node scripts/smoke-packed-upgrade.mjs",
     "test:surface-parity": "vitest run tests/readme-tool-parity.test.ts tests/codemap-parity.test.ts tests/core/schema-export.test.ts && node scripts/check-version-coherence.mjs && node scripts/check-generated-mirror.mjs && npm run test:packaged",

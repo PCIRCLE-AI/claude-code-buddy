@@ -3,7 +3,7 @@
   "entries": [
     {
       "path": ".claude-plugin/plugin.json",
-      "sha256": "1b9d1a3e0dd305a7914b5ddc16809713fbdc0760bf8bdcb16de18a534e92472b",
+      "sha256": "3af9a5e8c6a08ef45c179f98040b79b46efb73d1c5696825dc3bb49cdcc0fd8e",
       "bytes": 527
     },
     {
@@ -28,8 +28,8 @@
     },
     {
       "path": "scripts/hooks/_generated/core-paths.js",
-      "sha256": "6c867a9765e3e469fd539cc002179ff4fe3b79a59fc2b8b9f7a10d126c621531",
-      "bytes": 5123
+      "sha256": "d9aaba0b0a33b701bc05db9a4b73fe42715279796a77db563767c224c35986c3",
+      "bytes": 5244
     },
     {
       "path": "scripts/hooks/_generated/fts-index.js",

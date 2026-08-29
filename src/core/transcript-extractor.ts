@@ -137,10 +137,16 @@ const MAX_CHUNKS_PER_SESSION = 4;
 const SECRET_SOURCES: readonly string[] = SECRET_PATTERN_SOURCES;
 
 /** True if the text carries something shaped like a known secret. Fresh regex
- * per call — global-flag `lastIndex` state must never leak between calls. */
+ * per call — global-flag `lastIndex` state must never leak between calls.
+ *
+ * Case-insensitive, like the egress redactor. This compiled the shared list
+ * case-SENSITIVELY, so `DB_PASSWORD=…` and `export OPENAI_API_KEY=…` — the
+ * dominant shape in a shell transcript — passed the drop gate and reached
+ * the LLM prompt while the egress masked the same bytes. One list, two
+ * consumers, two answers. */
 export function containsSecret(text: string): boolean {
   if (typeof text !== 'string') return false;
-  return SECRET_SOURCES.some((s) => new RegExp(s).test(text));
+  return SECRET_SOURCES.some((s) => new RegExp(s, 'i').test(text));
 }
 
 /** Replace known secret shapes with a placeholder. Keeps the surrounding text
@@ -148,7 +154,7 @@ export function containsSecret(text: string): boolean {
 export function scrubSecrets(text: string): string {
   if (typeof text !== 'string') return '';
   let out = text;
-  for (const s of SECRET_SOURCES) out = out.replace(new RegExp(s, 'g'), '[REDACTED-SECRET]');
+  for (const s of SECRET_SOURCES) out = out.replace(new RegExp(s, 'gi'), '[REDACTED-SECRET]');
   return out;
 }
 

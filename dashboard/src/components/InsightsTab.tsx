@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'preact/hooks';
+import { useState, useEffect, useCallback, useRef } from 'preact/hooks';
 import { api } from '../lib/api';
 import { t } from '../lib/i18n';
 import { actionFailureMessage, classifyLoadError, failureMessage } from '../lib/failure';
@@ -76,6 +76,12 @@ interface ProposalDetail {
   source_kind?: string;
 }
 
+interface DreamRunResult {
+  proposalsCreated: number;
+  llmCalls: number;
+  skipped: Array<{ reason: string; code?: 'provider_error' }>;
+}
+
 // Proposal timestamps arrive in SQLite's 'YYYY-MM-DD HH:MM:SS' UTC form,
 // which Date() refuses without the T/Z normalisation. The relative-time
 // wording itself is entity-display's relativeDate — the shared, localised
@@ -120,7 +126,13 @@ function statusLabel(status: string): string {
   return label === key ? status : label;
 }
 
-export function InsightsTab() {
+export function InsightsTab({
+  dataRevision = 0,
+  onStateChange,
+}: {
+  dataRevision?: number;
+  onStateChange?: (state: { pendingCount: number; llmConfigured: boolean | null; loading: boolean; failed: boolean }) => void;
+}) {
   // Fetch ALL proposals once and filter client-side. The hero stat
   // row needs cross-status counts, so a server-side filter would
   // require a second round-trip per render. The proposal list is
@@ -131,6 +143,9 @@ export function InsightsTab() {
   const [expanded, setExpanded] = useState<Map<number, ProposalDetail>>(new Map());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [proposalLoadFailed, setProposalLoadFailed] = useState(false);
+  const [configLoadFailed, setConfigLoadFailed] = useState(false);
+  const [runNotice, setRunNotice] = useState('');
   // Whether the user has any LLM provider configured. Without one, the
   // dreamer / pattern detector NEVER produce proposals — so the empty
   // state should point the user to Settings rather than suggesting
@@ -150,10 +165,14 @@ export function InsightsTab() {
   // disable BOTH buttons during a fast click and obscure which was
   // pressed. `null` = idle.
   const [dreamRunning, setDreamRunning] = useState<'plain' | 'validate' | null>(null);
+  const refreshGen = useRef(0);
+  const configGen = useRef(0);
 
   const refresh = useCallback(async () => {
+    const gen = ++refreshGen.current;
     setLoading(true);
     setError('');
+    setProposalLoadFailed(false);
     try {
       // api() already unwraps to json.data, so the response IS the
       // proposal array. The earlier `Array.isArray(data) ? data : ...`
@@ -163,30 +182,40 @@ export function InsightsTab() {
       // `allProposals.filter` threw "filter is not a function". And a
       // payload that is not the array must not read as "no insights yet" —
       // that is a false empty from a response nobody could parse.
+      if (gen !== refreshGen.current) return;
       if (!Array.isArray(data)) {
         console.warn('[memesh dashboard] /v1/dream/proposals answered, but with a shape this bundle cannot render — stale bundle or version skew, not an outage:', data);
-        setAllProposals([]);
+        setProposalLoadFailed(true);
         setError(failureMessage('unreadable'));
       } else {
         setAllProposals(data);
       }
     } catch (e) {
+      if (gen !== refreshGen.current) return;
       console.warn('[memesh dashboard] /v1/dream/proposals failed to load:', e);
+      setProposalLoadFailed(true);
       setError(failureMessage(classifyLoadError(e)));
     } finally {
-      setLoading(false);
+      if (gen === refreshGen.current) setLoading(false);
     }
   }, []);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => { refresh(); }, [refresh, dataRevision]);
 
   // One-shot capability probe — answers "is the empty-state
   // 'configure your LLM' or 'run dream run'?".
   useEffect(() => {
+    const gen = ++configGen.current;
+    setConfigLoadFailed(false);
     api<{ capabilities?: { llm?: { provider?: string } | null } }>('GET', '/v1/config')
-      .then((d) => setLlmConfigured(!!d?.capabilities?.llm))
-      .catch(() => setLlmConfigured(false));
-  }, []);
+      .then((d) => { if (gen === configGen.current) setLlmConfigured(!!d?.capabilities?.llm); })
+      .catch((e) => {
+        if (gen !== configGen.current) return;
+        console.warn('[memesh dashboard] /v1/config failed to refresh:', e);
+        setConfigLoadFailed(true);
+        setError(failureMessage(classifyLoadError(e)));
+      });
+  }, [dataRevision]);
 
   const proposals = filter === 'all' ? allProposals : allProposals.filter(p => p.status === filter);
 
@@ -227,13 +256,12 @@ export function InsightsTab() {
     try {
       await api('POST', `/v1/dream/proposals/${id}/accept`);
       window.dispatchEvent(new Event('memesh:data-changed'));
-      await refresh();
     } catch (e) {
       setError(actionFailureMessage(e));
     } finally {
       clearBusy(id);
     }
-  }, [refresh]);
+  }, []);
 
   // Confirmed, because rejection is one click and permanent. The dreamer
   // deliberately never re-proposes a rejected cluster (dreamer.ts:226) — that
@@ -248,13 +276,12 @@ export function InsightsTab() {
     try {
       await api('POST', `/v1/dream/proposals/${id}/reject`, { reason: 'rejected via dashboard' });
       window.dispatchEvent(new Event('memesh:data-changed'));
-      await refresh();
     } catch (e) {
       setError(actionFailureMessage(e));
     } finally {
       clearBusy(id);
     }
-  }, [refresh]);
+  }, []);
 
   // Trigger a dreamer pass on demand. `mode === 'validate'` plumbs the
   // optional second LLM call through `digest-validator.ts`. Bounded to
@@ -264,26 +291,40 @@ export function InsightsTab() {
   const runDream = useCallback(async (mode: 'plain' | 'validate') => {
     setDreamRunning(mode);
     setError('');
+    setRunNotice('');
     try {
-      await api('POST', '/v1/dream/run', {
+      const result = await api<DreamRunResult>('POST', '/v1/dream/run', {
         maxLlmCalls: 3,
         validate: mode === 'validate',
       });
       window.dispatchEvent(new Event('memesh:data-changed'));
-      await refresh();
+      const providerErrors = result.skipped.filter((entry) => entry.code === 'provider_error');
+      if (providerErrors.length > 0) {
+        setError(t('insights.runProviderError', {
+          error: providerErrors.slice(0, 3).map((entry) => entry.reason).join(' · '),
+        }));
+      } else if (result.proposalsCreated === 0) {
+        setRunNotice(t('insights.runNoResult'));
+      } else {
+        setRunNotice(t('insights.runCreated', { count: result.proposalsCreated }));
+      }
     } catch (e) {
       setError(actionFailureMessage(e));
     } finally {
       setDreamRunning(null);
     }
-  }, [refresh]);
+  }, []);
 
   const pendingCount = allProposals.filter(p => p.status === 'pending').length;
   const appliedCount = allProposals.filter(p => p.status === 'applied').length;
   const rejectedCount = allProposals.filter(p => p.status === 'rejected').length;
 
+  useEffect(() => {
+    onStateChange?.({ pendingCount, llmConfigured, loading, failed: proposalLoadFailed || configLoadFailed });
+  }, [configLoadFailed, llmConfigured, loading, onStateChange, pendingCount, proposalLoadFailed]);
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div id="home-insights" tabIndex={-1} style={{ display: 'flex', flexDirection: 'column', gap: 16, scrollMarginTop: 12 }}>
       {/* Hero — what memesh did for you */}
       <div class="card" style={{ padding: 16 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
@@ -349,6 +390,7 @@ export function InsightsTab() {
       </div>
 
       {error && <div class="card" role="alert" style={{ padding: 12, color: 'var(--danger)' }}>{error}</div>}
+      {runNotice && <div class="card" role="status" style={{ padding: 12, color: 'var(--life)' }}>{runNotice}</div>}
       {loading && <div style={{ color: 'var(--text-3)', fontSize: 13 }}>{t('insights.loading')}</div>}
       {!loading && proposals.length === 0 && (
         <div class="card" style={{ padding: 16, textAlign: 'center', color: 'var(--text-2)' }}>

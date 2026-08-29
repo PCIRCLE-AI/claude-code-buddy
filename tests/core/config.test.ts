@@ -77,6 +77,7 @@ describe('Config: detectCapabilities', () => {
     expect(caps.knowledgeEvolution).toBe(true);
     expect(caps.searchLevel).toBe(0);
     expect(caps.llm).toBeNull();
+    expect(caps.llmSource).toBe('none');
   });
 
   it('reports keyword-only (tfidf) embeddings when no LLM is configured', () => {
@@ -90,6 +91,7 @@ describe('Config: detectCapabilities', () => {
     });
     expect(caps.searchLevel).toBe(1);
     expect(caps.llm?.provider).toBe('anthropic');
+    expect(caps.llmSource).toBe('config');
     // Anthropic has no embedding API and there is no local embedder — keyword-only.
     expect(caps.embeddings).toBe('tfidf');
   });
@@ -120,6 +122,7 @@ describe('Config: detectCapabilities', () => {
     expect(caps.searchLevel).toBe(1);
     expect(caps.llm?.provider).toBe('anthropic');
     expect(caps.llm?.apiKey).toBe('sk-ant-env-key');
+    expect(caps.llmSource).toBe('environment');
   });
 
   // The env-detect flag is an explicit OPT-OUT (it used to be an opt-in
@@ -132,6 +135,7 @@ describe('Config: detectCapabilities', () => {
     const caps = detectCapabilities({});
     expect(caps.llm).toBeNull();
     expect(caps.searchLevel).not.toBe(1);
+    expect(caps.llmSource).toBe('none');
   });
 
   it('accepts false/no/off as opt-out spellings', () => {
@@ -204,64 +208,63 @@ describe('Config: detectCapabilities', () => {
     });
     expect(caps.llm?.provider).toBe('openai');
     expect(caps.llm?.apiKey).toBe('sk-explicit');
+    expect(caps.llmSource).toBe('config');
   });
 });
 
 // ── readConfig / writeConfig / updateConfig ──────────────────────────────────
 
 describe('Config: read/write/update (isolated temp dir)', () => {
-  // We can't easily redirect the config path at module level since it's a const.
-  // Instead, test the logic directly by using the exported functions on temp files.
+  let dir: string;
+  let savedMemeshDir: string | undefined;
+
+  function expectConfigPathInsideOwnedDir(): void {
+    const relative = path.relative(path.resolve(dir), path.resolve(getConfigPath()));
+    expect(relative).toBe('config.json');
+  }
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-cfg-read-write-'));
+    savedMemeshDir = process.env.MEMESH_DIR;
+    process.env.MEMESH_DIR = dir;
+    expectConfigPathInsideOwnedDir();
+  });
+
+  afterEach(() => {
+    if (savedMemeshDir === undefined) delete process.env.MEMESH_DIR;
+    else process.env.MEMESH_DIR = savedMemeshDir;
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  });
+
+  it('resolves config.json below the test-owned directory before mutation', () => {
+    expect(getConfigDir()).toBe(dir);
+    expectConfigPathInsideOwnedDir();
+  });
 
   it('readConfig returns empty object when file does not exist', () => {
-    // This test relies on readConfig catching the ENOENT and returning {}
-    // We can verify the exported function handles the no-file case gracefully
-    const result = readConfig();
-    expect(typeof result).toBe('object');
-    // result may or may not have keys depending on the real ~/.memesh/config.json
-    // The key guarantee: it never throws
+    expect(readConfig()).toEqual({});
   });
 
   it('writeConfig + readConfig round-trip', () => {
-    // We write to the actual config path to test round-trip.
-    // Read existing config first so we can restore it.
-    const originalConfig = readConfig();
     const testMarker = { __test__: true, sessionLimit: 42 } as any;
 
-    try {
-      writeConfig(testMarker);
-      const read = readConfig();
-      expect((read as Record<string, unknown>).__test__).toBe(true);
-      expect(read.sessionLimit).toBe(42);
-    } finally {
-      // Restore original config
-      writeConfig(originalConfig);
-    }
+    writeConfig(testMarker);
+    const read = readConfig();
+    expect((read as Record<string, unknown>).__test__).toBe(true);
+    expect(read.sessionLimit).toBe(42);
   });
 
   it('writeConfig hardens config file and directory permissions', () => {
-    const originalConfig = readConfig();
-
-    try {
-      writeConfig({ sessionLimit: 7 });
-      expectPrivateDir(getConfigDir());
-      expectPrivateFile(getConfigPath());
-    } finally {
-      writeConfig(originalConfig);
-    }
+    writeConfig({ sessionLimit: 7 });
+    expectPrivateDir(getConfigDir());
+    expectPrivateFile(getConfigPath());
   });
 
   it('updateConfig merges partial changes', () => {
-    const originalConfig = readConfig();
-
-    try {
-      writeConfig({ sessionLimit: 5, autoUpdate: 'off' });
-      const updated = updateConfig({ autoUpdate: 'patch' });
-      expect(updated.sessionLimit).toBe(5);
-      expect(updated.autoUpdate).toBe('patch');
-    } finally {
-      writeConfig(originalConfig);
-    }
+    writeConfig({ sessionLimit: 5, autoUpdate: 'off' });
+    const updated = updateConfig({ autoUpdate: 'patch' });
+    expect(updated.sessionLimit).toBe(5);
+    expect(updated.autoUpdate).toBe('patch');
   });
 });
 
@@ -316,6 +319,57 @@ describe('Config: a corrupt config file is traced, not silently ignored', () => 
     readConfig();
     const hits = written.filter((w) => w.includes('[memesh config]'));
     expect(hits).toHaveLength(1);
+  });
+});
+
+describe('Config: primary LLM provider changes do not inherit credentials', () => {
+  let dir: string;
+  let savedMemeshDir: string | undefined;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-cfg-provider-switch-'));
+    savedMemeshDir = process.env.MEMESH_DIR;
+    process.env.MEMESH_DIR = dir;
+  });
+
+  afterEach(() => {
+    if (savedMemeshDir === undefined) delete process.env.MEMESH_DIR;
+    else process.env.MEMESH_DIR = savedMemeshDir;
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  });
+
+  it('drops the previous provider key when the provider changes', () => {
+    writeConfig({ llm: { provider: 'openai', model: 'gpt-5.4-nano', apiKey: 'fixture-openai-key' } });
+
+    const updated = updateConfig({ llm: { provider: 'ollama', model: 'llama3.2' } });
+
+    expect(updated.llm).toEqual({ provider: 'ollama', model: 'llama3.2' });
+    expect(readConfig().llm).toEqual({ provider: 'ollama', model: 'llama3.2' });
+  });
+
+  it('keeps the stored key for a model-only edit on the same provider', () => {
+    writeConfig({ llm: { provider: 'openai', model: 'gpt-4.1', apiKey: 'fixture-openai-key' } });
+
+    const updated = updateConfig({ llm: { provider: 'openai', model: 'gpt-5.4-nano' } });
+
+    expect(updated.llm).toEqual({
+      provider: 'openai',
+      model: 'gpt-5.4-nano',
+      apiKey: 'fixture-openai-key',
+    });
+  });
+
+  it('removes an explicitly cleared search-index provider', () => {
+    writeConfig({
+      llm: { provider: 'ollama', model: 'llama3.2' },
+      embedder: { provider: 'ollama' },
+    });
+
+    const updated = updateConfig({ llm: null, embedder: null });
+
+    expect(updated.llm).toBeUndefined();
+    expect(updated.embedder).toBeUndefined();
+    expect(readConfig()).not.toHaveProperty('embedder');
   });
 });
 

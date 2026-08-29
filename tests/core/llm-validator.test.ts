@@ -244,18 +244,209 @@ describe('provider probes (mocked fetch)', () => {
     expect(r.error).toContain('key');
   });
 
-  it('probeProvider routes to the right probe function', async () => {
-    global.fetch = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({ data: [{ id: 'claude-haiku-4-5' }] }),
-    })) as any;
+  it('probeProvider requires a real inference response after catalog access', async () => {
+    global.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => url.includes('/v1/models')
+          ? { data: [{ id: 'claude-haiku-4-5' }] }
+          : { content: [{ text: 'OK' }] },
+      };
+    }) as any;
 
     const r = await probeProvider('anthropic', 'sk-ant-fake');
     expect(r.valid).toBe(true);
+    expect(r.catalogVerified).toBe(true);
+    expect(r.inferenceVerified).toBe(true);
+    expect(r.testedModel).toBe('claude-haiku-4-5');
 
     const bad = await probeProvider('unknown' as any, '');
     expect(bad.valid).toBe(false);
     expect(bad.error).toContain('Unknown provider');
+  });
+
+  it('does not present model-list success as readiness when the selected model fails inference', async () => {
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/v1/models')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: [{ id: 'gpt-compatible' }, { id: 'gpt-listed-only' }] }),
+        };
+      }
+      return { ok: false, status: 400, json: async () => ({}) };
+    });
+    global.fetch = fetchSpy as any;
+
+    const r = await probeProvider('openai', 'sk-fixture', undefined, 'gpt-listed-only');
+    expect(r.valid).toBe(false);
+    expect(r.catalogVerified).toBe(true);
+    expect(r.inferenceVerified).toBe(false);
+    expect(r.testedModel).toBe('gpt-listed-only');
+    expect(r.errorCode).toBe('inference_failed');
+    expect(r.error).toContain('gpt-listed-only');
+    expect(r.models?.map((entry) => entry.id)).toContain('gpt-compatible');
+
+    const inferenceCall = fetchSpy.mock.calls.find(([url]) => String(url).includes('/chat/completions'));
+    expect(inferenceCall).toBeDefined();
+    expect(JSON.parse(String(inferenceCall?.[1]?.body))).toMatchObject({ model: 'gpt-listed-only' });
+  });
+
+  it('uses the tested Ollama host for both catalog and inference requests', async () => {
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/api/tags')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ models: [{ name: 'fixture-model' }] }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ response: 'OK' }),
+      };
+    });
+    global.fetch = fetchSpy as any;
+
+    const host = 'http://127.0.0.1:23456';
+    const r = await probeProvider('ollama', undefined, host, 'fixture-model');
+
+    expect(r.valid).toBe(true);
+    expect(fetchSpy.mock.calls.map(([url]) => String(url))).toEqual([
+      `${host}/api/tags`,
+      `${host}/api/generate`,
+    ]);
+  });
+});
+
+/* ── issue #238 — a rejected credential never survives the boundary ──────── */
+
+describe('issue #238 — provider errors are redacted at the module boundary', () => {
+  // The exact prose OpenAI returns for a rejected key: it quotes the key back.
+  const KEY = 'sk-proj-AbCdEf0123456789GhIjKlMnOpQrStUvWxYz012345';
+  const UPSTREAM_PROSE = `Incorrect API key provided: ${KEY}. You can find your API key at https://platform.openai.com/account/api-keys.`;
+
+  let originalFetch: typeof fetch;
+  beforeEach(() => { originalFetch = global.fetch; });
+  afterEach(() => { global.fetch = originalFetch; vi.restoreAllMocks(); });
+
+  /** A 401 whose JSON body carries the submitted key — the real leak shape. */
+  function rejectingUpstream(): void {
+    global.fetch = vi.fn(async () => ({
+      ok: false,
+      status: 401,
+      body: null,
+      text: async () => JSON.stringify({ error: { message: UPSTREAM_PROSE, type: 'invalid_request_error' } }),
+    })) as never;
+  }
+
+  /** A transport-level throw whose message carries the submitted key. */
+  function throwingUpstream(): void {
+    global.fetch = vi.fn(async () => { throw new Error(`connect failed while sending Authorization: Bearer ${KEY}`); }) as never;
+  }
+
+  // Four independent entry points. Asserting only one of them is how three
+  // paths kept returning `err.message` raw while the fourth redacted.
+  const bodyPaths: Array<[string, () => Promise<{ error?: string }>]> = [
+    ['probeAnthropic', () => probeAnthropic(KEY)],
+    ['probeOpenAI', () => probeOpenAI(KEY)],
+    ['probeProvider(openai)', () => probeProvider('openai', KEY)],
+  ];
+
+  for (const [name, run] of bodyPaths) {
+    it(`${name} strips the key out of an upstream rejection body`, async () => {
+      rejectingUpstream();
+      const r = await run();
+      expect(r.error).toBeTruthy();
+      expect(r.error).not.toContain(KEY);
+      expect(r.error).not.toContain('sk-proj-');
+      expect(r.error).toContain('***REDACTED***');
+    });
+
+    it(`${name} strips the key out of a thrown transport error`, async () => {
+      throwingUpstream();
+      const r = await run();
+      expect(r.error).toBeTruthy();
+      expect(r.error).not.toContain(KEY);
+    });
+  }
+
+  it('probeOllama strips a credential out of a thrown transport error', async () => {
+    global.fetch = vi.fn(async () => { throw new Error(`TLS handshake failed for Bearer ${KEY}`); }) as never;
+    const r = await probeOllama('http://localhost:11434');
+    expect(r.error).toBeTruthy();
+    expect(r.error).not.toContain(KEY);
+  });
+
+  it('redacts before the length cap, so a key straddling it cannot survive', async () => {
+    // Push the key past the 300-char cap: truncating first would leave a
+    // fragment no pattern matches, and the fragment is what gets published.
+    const padded = `${'x'.repeat(290)} ${KEY}`;
+    global.fetch = vi.fn(async () => ({
+      ok: false, status: 401, body: null,
+      text: async () => JSON.stringify({ error: { message: padded } }),
+    })) as never;
+    const r = await probeOpenAI(KEY);
+    expect(r.error).not.toContain('sk-proj-');
+  });
+
+  it('keeps the non-sensitive diagnostic that makes the error actionable', async () => {
+    global.fetch = vi.fn(async () => ({
+      ok: false, status: 429, body: null,
+      text: async () => JSON.stringify({ error: { message: 'Rate limit reached for gpt-4o-mini in organization org-abc on tokens per min.' } }),
+    })) as never;
+    const r = await probeOpenAI(KEY);
+    expect(r.errorCode).toBe('http_429');
+    expect(r.error).toContain('Rate limit reached');
+    expect(r.error).toContain('gpt-4o-mini');
+  });
+});
+
+/* ── the Ollama host guard cannot be disabled by operator config ─────────── */
+
+describe('probeOllama rejects a caller-supplied non-loopback host in every configuration', () => {
+  const ORIGINAL = process.env.OLLAMA_HOST;
+  let originalFetch: typeof fetch;
+  beforeEach(() => { originalFetch = global.fetch; });
+  afterEach(() => {
+    global.fetch = originalFetch;
+    if (ORIGINAL === undefined) delete process.env.OLLAMA_HOST; else process.env.OLLAMA_HOST = ORIGINAL;
+    vi.restoreAllMocks();
+  });
+
+  // The guard read `!envBase && host && !isSafeOllamaHost(host)`, so an
+  // operator setting OLLAMA_HOST — normal configuration for a remote Ollama —
+  // turned it off, and `host || envBase` then let the caller's value win.
+  // `POST /v1/config/test` would fetch whatever URL the request named.
+  for (const env of [undefined, 'http://localhost:11434'] as const) {
+    it(`rejects 127.0.0.2 with OLLAMA_HOST ${env ?? 'unset'} and never issues the request`, async () => {
+      if (env === undefined) delete process.env.OLLAMA_HOST; else process.env.OLLAMA_HOST = env;
+      const spy = vi.fn(async () => { throw new Error('the guard let a request through'); });
+      global.fetch = spy as never;
+
+      const r = await probeOllama('http://127.0.0.2:11434');
+      expect(r.valid).toBe(false);
+      expect(r.errorCode).toBe('bad_host');
+      expect(spy).not.toHaveBeenCalled();
+    });
+  }
+
+  it('still allows a loopback host, and still honours the operator env when no host is given', async () => {
+    process.env.OLLAMA_HOST = 'http://operator-host.invalid:11434';
+    const seen: string[] = [];
+    global.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      seen.push(String(input));
+      return { ok: true, status: 200, json: async () => ({ models: [{ name: 'llama3.2' }] }) };
+    }) as never;
+
+    expect((await probeOllama('http://localhost:11434')).valid).toBe(true);
+    expect((await probeOllama()).valid).toBe(true);
+    expect(seen[0]).toContain('localhost:11434');
+    expect(seen[1]).toContain('operator-host.invalid');
   });
 });

@@ -286,6 +286,7 @@ export async function reindex(opts) {
         no_vector_index: 0,
     };
     let processed = 0;
+    opts?.onProgress?.({ processed, total: entities.length });
     const CONSECUTIVE_FAILURE_LIMIT = 5;
     let consecutiveFailures = 0;
     let abortedAfter = null;
@@ -293,22 +294,22 @@ export async function reindex(opts) {
     const obsStmt = db.prepare('SELECT content FROM observations WHERE entity_id = ? ORDER BY id');
     for (const entity of entities) {
         processed++;
-        const observations = obsStmt.all(entity.id)
-            .map((o) => o.content);
-        if (observations.length === 0) {
-            const stillThere = db.prepare('SELECT 1 FROM entities WHERE id = ?').get(entity.id);
-            if (!stillThere) {
-                outcomes.entity_missing++;
+        try {
+            const observations = obsStmt.all(entity.id)
+                .map((o) => o.content);
+            if (observations.length === 0) {
+                const stillThere = db.prepare('SELECT 1 FROM entities WHERE id = ?').get(entity.id);
+                if (!stillThere) {
+                    outcomes.entity_missing++;
+                    continue;
+                }
+            }
+            if (observations.join('').trim() === '') {
+                outcomes.nothing_to_embed++;
                 continue;
             }
-        }
-        if (observations.join('').trim() === '') {
-            outcomes.nothing_to_embed++;
-            continue;
-        }
-        const text = entityEmbedText(entity.name, observations);
-        const textHash = createHash('sha256').update(text).digest('hex').slice(0, 32);
-        try {
+            const text = entityEmbedText(entity.name, observations);
+            const textHash = createHash('sha256').update(text).digest('hex').slice(0, 32);
             if (alreadyStaged.has(entity.id) && stagedHashes.get(entity.id) === textHash) {
                 outcomes.already_staged++;
                 continue;
@@ -336,6 +337,9 @@ export async function reindex(opts) {
         catch (err) {
             outcomes.write_failed++;
             process.stderr.write(`MeMesh: Failed to embed entity ${entity.name}: ${err}\n`);
+        }
+        finally {
+            opts?.onProgress?.({ processed, total: entities.length });
         }
     }
     const embedded = outcomes.stored;

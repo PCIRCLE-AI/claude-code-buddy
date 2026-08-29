@@ -1,7 +1,7 @@
 # MeMesh Plugin -- API Reference
 
 **Protocol**: Model Context Protocol (MCP) over stdio
-**Version**: 4.8.1
+**Version**: 4.8.2
 **Compatibility**: Works with Claude Code plugins, Claude Managed Agents (via MCP connector), and any MCP-compatible client.
 
 **Native Integrations**: Beyond MCP, MeMesh integrates as a native memory provider for Hermes Agent (Python `MemoryProvider` plugin) and OpenClaw (TypeScript memory-capability plugin) — same tier as their built-in backends, not HTTP bridges. See [docs/platforms/](../platforms/) for platform-specific guides.
@@ -766,8 +766,10 @@ The limit protects the server from accidentally parsing large payloads (e.g. an 
 | GET | /v1/entities/:name | Get single entity |
 | GET | /v1/config | Get current config and detected capabilities |
 | GET | /v1/update-status | Current/latest package version, freshness state, and update guidance |
-| POST | /v1/config | Save config (partial update); resets embedding state if LLM changed |
+| POST | /v1/config | Save config (partial update), including the independent embedding provider |
 | POST | /v1/config/test | Validate provider+apiKey against the live `/v1/models` endpoint and return the available model list |
+| GET | /v1/reindex | Read semantic-index rebuild status, progress, generation, and database readback |
+| POST | /v1/reindex | Start one asynchronous full semantic-index rebuild; duplicate requests reuse the running job |
 | GET | /v1/stats | Aggregate counts: entities, observations, relations, tags; type/tag/status distributions |
 | GET | /v1/graph | Signal entities (all non-noise types) + up to 200 recent noise entities + all relations |
 | GET | /v1/graph?layer=work | The work layer only: decisions, lessons, plans — plus per-node evidence counts |
@@ -840,19 +842,35 @@ Returns the current configuration and detected capabilities. API keys are masked
 {
   "success": true,
   "data": {
-    "config": { "theme": "dark", "autoCapture": true },
+    "config": {
+      "autoCapture": true,
+      "llm": { "provider": "openai", "apiKey": "***" },
+      "embedder": { "provider": "ollama" }
+    },
     "capabilities": {
       "fts5": true,
       "vectorSearch": true,
       "scoring": true,
       "knowledgeEvolution": true,
-      "embeddings": "tfidf",
-      "llm": null,
-      "searchLevel": 0
+      "embeddings": "ollama",
+      "llm": { "provider": "openai", "apiKey": "***" },
+      "llmSource": "config",
+      "searchLevel": 1
     }
   }
 }
 ```
+
+`config.llm` is the LLM setting persisted by MeMesh. `capabilities.llm` is the
+effective runtime LLM after applying provider precedence, and `llmSource`
+explains where it came from:
+
+- `config` — the saved MeMesh setting is effective (and wins over environment detection)
+- `environment` — a provider was detected from the process environment but is not saved in MeMesh
+- `none` — no effective LLM is available
+
+API keys are masked in both views. The response never exposes the environment
+variable name or value.
 
 ### GET /v1/update-status
 
@@ -893,13 +911,39 @@ Use `?cached=1` to read the cached state only. Without it, MeMesh prefers a fres
 
 Save a partial config update. Fields not provided are preserved.
 
-**Request body**: Any subset of `MeMeshConfig` fields (`llm`, `llmFallbacks`, `autoCapture`, `sessionLimit`, `autoUpdate`, `language`, `setupCompleted`)
+**Request body**: Any supported subset of `MeMeshConfig` fields (`llm`, `llmFallbacks`, `embedder`, `autoCapture`, `sessionLimit`, `autoUpdate`, `language`, `setupCompleted`). Unknown fields are rejected.
+
+`embedder.provider` selects the provider used to build semantic-search vectors and accepts `openai` or `ollama`. It is independent of `llm`, which selects the model used to organize or generate content. Saving a different embedder does not silently rebuild existing vectors; call `POST /v1/reindex` explicitly after reviewing the provider, privacy, and cost implications.
+
+Send `llm: null` to remove the persisted primary LLM. Send `embedder: null` to remove the persisted search-index provider; this leaves the existing derived index on disk but disables provider-backed rebuilds until another provider is saved. The Dashboard sends both nulls only when the saved LLM and search provider are the same Ollama installation and the user explicitly confirms removing both. A provider change replaces the primary LLM object rather than carrying the previous provider's API key across providers; same-provider model edits preserve the stored key when no replacement key is sent.
 
 `language` sets the output language for LLM-generated *content* — dreamer digests, emergent patterns, lessons, digest-validator reasons. It is free-form (a locale code like `zh-TW` or a language name like `繁體中文`, max 60 chars) because it becomes a prompt instruction, not a parsed locale. Unset means English. It is deliberately separate from the dashboard's own locale (stored client-side in the browser): that setting translates the UI chrome, this one decides what language generated memories are written in. Machine identifiers (entity type slugs, tags, category enums) stay English regardless. CLI equivalent: `memesh config set language zh-TW` / `memesh config unset language`.
 
 `llmFallbacks` is the ordered cross-provider failover chain, written *wholesale* — the array you send replaces the stored one, so send the entries in the priority order you want (index 0 is tried first after the primary). Stored secrets are preserved through an EXPLICIT identity, never positional guessing: because GET masks every fallback `apiKey` as `***`, a client MUST NOT echo that mask back. To keep the key already on disk for an entry, send it **with no `apiKey`** and a `keepKeyFrom: <original index>` — the index that entry occupied in the chain you loaded. The server refills the key from exactly that stored slot (guarded by a `provider` match, so a stale index can never graft one provider's key onto another), then strips `keepKeyFrom` before persisting. Carry `keepKeyFrom` with the entry across reorders and removals; omit it (or send `null`) for a new entry, one whose key you retyped, or one whose provider you changed. An entry that sends an `apiKey` sets or rotates that key and wins over `keepKeyFrom`. An entry with neither `apiKey` nor `keepKeyFrom` is stored with no key. CLI equivalent: `memesh config set llmFallbacks '[{"provider":"openai","model":"gpt-4o-mini","apiKey":"sk-..."}]'`.
 
-**Response**: `{ success: true, data: <updated config> }` (every API key — primary and fallback chain — masked if present)
+**Response**: `{ success: true, data: <updated config> }` (every API key — primary and fallback chain — masked if present). Clients that present a persisted-success state should follow with `GET /v1/config` and render that authoritative readback; the Dashboard retains its draft if the readback is missing or disagrees.
+
+### GET /v1/reindex
+
+Returns the current full-index rebuild job plus authoritative database/config readback. `configuredProvider` describes the provider selected in configuration; `storedDimension` describes the live index on disk. They may intentionally disagree until a rebuild completes. The stored dimension does not prove which provider created the live vectors.
+
+When the process restarts, an in-memory job is no longer available. A pending rebuild marker or unfinished staging generation is therefore reported as `retry-needed`, never as success.
+
+**Response fields**:
+
+- `status`: `idle`, `running`, `succeeded`, `failed`, or `retry-needed`
+- `job`: job id, state, progress counts, and timestamps, or `null`
+- `configuredProvider` / `configuredDimension`: current configuration
+- `storedDimension`: width of the live index currently on disk
+- `pendingReindex`, `missingVectors`, `generation`: database readback
+- `result`: the completed core `reindex()` result, when available
+- `error`: a retryable human-readable failure reason, when available
+
+### POST /v1/reindex
+
+Starts a full semantic-index rebuild asynchronously and returns HTTP `202` with the same shape as `GET /v1/reindex`. The request has no body. If a rebuild is already running, the route returns that existing job instead of starting another provider run; this prevents duplicate paid embedding requests.
+
+The core generation safety rules still apply: the live index continues serving until the staging generation is complete and verified. A provider failure or incomplete generation is reported as `failed`; the old live index is not swapped out, and the retained staging work can be retried.
 
 ### GET /v1/stats
 
@@ -1108,7 +1152,7 @@ Returns PM-framed metrics: decision velocity, knowledge-graph connectedness, and
 
 ### POST /v1/config/test
 
-Probes the provider's `/v1/models` endpoint with the supplied `apiKey` (or local `host` for Ollama) and returns whether the credential authenticates plus the live model catalog. Used by the dashboard Settings tab to validate before persisting and to populate a model dropdown with real choices instead of stale hardcoded names. **Does not write to disk.**
+Loads the provider's model catalog, then sends a bounded inference request through the same provider transport used by Dream. `valid:true` means the selected `model` (or the catalog's `suggested` model when omitted) completed that inference request; model-list access alone is not readiness. Used by Dashboard Settings before persisting and to populate a model dropdown with live choices. **Does not write to disk.**
 
 When `apiKey` is omitted the server resolves a stored key so the dashboard can offer "Test with current settings" without re-typing: send `fallbackIndex: <index>` to test the stored key of `llmFallbacks[index]` (provider-guarded — it tests THAT entry's own credential, not the primary's); with no `fallbackIndex`, an omitted key resolves the primary `llm` key when its provider matches. This keeps a Test on a saved-but-untouched fallback from either falsely failing (probing empty) or falsely passing on the primary's key.
 
@@ -1119,6 +1163,7 @@ When `apiKey` is omitted the server resolves a stored key so the dashboard can o
   "provider": "anthropic" | "openai" | "ollama",
   "apiKey": "<optional, required for anthropic/openai unless a stored key is resolved>",
   "host": "<optional, Ollama base URL, defaults to http://localhost:11434>",
+  "model": "<optional, exact model to exercise; defaults to suggested>",
   "fallbackIndex": "<optional, test the stored key of llmFallbacks[index]>"
 }
 ```
@@ -1130,6 +1175,9 @@ When `apiKey` is omitted the server resolves a stored key so the dashboard can o
   "success": true,
   "data": {
     "valid": true,
+    "catalogVerified": true,
+    "inferenceVerified": true,
+    "testedModel": "claude-haiku-4-5",
     "models": [
       { "id": "claude-haiku-4-5", "created": "2026-04-01T00:00:00Z" },
       { "id": "claude-opus-4", "created": "2026-01-15T00:00:00Z" }
@@ -1139,7 +1187,7 @@ When `apiKey` is omitted the server resolves a stored key so the dashboard can o
 }
 ```
 
-On failure: `{ valid: false, error: "<provider message>", errorCode: "<stable code>" }`. The endpoint always returns HTTP 200 with `success:true` even when `valid:false` — the boolean is the contract, not the HTTP status. `error` is the human message (English, may be reworded); `errorCode` is the stable machine code:
+On failure: `{ valid: false, error: "<provider message>", errorCode: "<stable code>" }`. The endpoint always returns HTTP 200 with `success:true` even when `valid:false` — the boolean is the contract, not the HTTP status. `error` is the human message (English, may be reworded); `errorCode` is the stable machine code. The message is **credential-redacted before it leaves the server**: a provider that quotes the submitted key back in its rejection ("Incorrect API key provided: sk-…") has that fragment replaced with `***REDACTED***`, so the response, the rendered Dashboard alert, and anything copied out of either are safe to paste into a bug report. Non-sensitive diagnostics — model name, organisation-level rate-limit prose, HTTP status — are preserved.
 
 | `errorCode` | Meaning |
 |---|---|
@@ -1147,6 +1195,7 @@ On failure: `{ valid: false, error: "<provider message>", errorCode: "<stable co
 | `network` | DNS failure, connection refused/reset, timeout, or abort |
 | `no_models` | Provider answered but returned zero usable models (proxy/gateway interception, or a bare Ollama with nothing pulled) |
 | `bad_host` | Caller-supplied Ollama host rejected (must be loopback; use the server-side `OLLAMA_HOST` env for remote Ollama) |
+| `inference_failed` | The catalog was readable, but the selected/suggested model failed the real inference request |
 | `http_<status>` | Any other upstream HTTP status, e.g. `http_429` for rate limiting |
 | `unknown` | Unclassified failure |
 
@@ -1848,7 +1897,7 @@ Trigger a dream pass via HTTP. Same logic as `memesh dream run`; runs `runDreame
 | `maxLlmCalls` | number | 5 | Hard cap on LLM calls (1–20) |
 | `validate` | boolean | false | Run the digest validator as a second LLM pass before staging |
 
-**Response:** `DreamerResult` shape — `{ proposalsCreated, clustersScanned, llmCalls, skipped: Array<{reason, project, clusterKey}>, durationMs, clusteringMode?, clusteringNote? }`.
+**Response:** `DreamerResult` shape — `{ proposalsCreated, clustersScanned, llmCalls, skipped: Array<{reason, project, clusterKey, code?}>, durationMs, clusteringMode?, clusteringNote? }`. A skipped entry caused by a provider request carries `code: "provider_error"`; clients must surface it as an error even though the Dream envelope itself is HTTP 200. Zero proposals without a `provider_error` remains a normal no-result outcome.
 
 `clusteringMode` is `"semantic"` when entries were grouped by embedding distance and `"calendar"` when the graph has no vectors and they fell back to ISO-week buckets — which can put unrelated work in one digest, so a client that surfaces digests should surface this too. `clusteringNote` is one sentence saying why, or naming candidates that had no embedding and were left out.
 

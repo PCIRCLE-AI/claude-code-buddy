@@ -94,6 +94,7 @@ export async function runDreamer(db, llm, opts = {}) {
                 reason: `LLM call failed: ${err instanceof Error ? err.message : String(err)}`,
                 project: cluster.project,
                 clusterKey: cluster.key,
+                code: 'provider_error',
             });
             continue;
         }
@@ -513,6 +514,7 @@ export async function runPatternDetector(db, llm, opts = {}) {
             result.skipped.push({
                 reason: `LLM call failed: ${err instanceof Error ? err.message : String(err)}`,
                 project,
+                code: 'provider_error',
             });
             continue;
         }
@@ -1215,7 +1217,11 @@ async function proposeGuards(db, llm, opts, result, maxLlmCalls) {
             result.llmCalls++;
         }
         catch (err) {
-            result.skipped.push({ reason: `guard LLM call failed: ${err instanceof Error ? err.message : String(err)}`, project: lesson.project });
+            result.skipped.push({
+                reason: `guard LLM call failed: ${err instanceof Error ? err.message : String(err)}`,
+                project: lesson.project,
+                code: 'provider_error',
+            });
             continue;
         }
         const spec = parseGuardSpec(text);

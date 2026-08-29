@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from 'preact/hooks';
 import { t } from '../lib/i18n';
 import { api, type HealthData } from '../lib/api';
+import { openExternalWindow } from '../lib/external-handoffs';
+import { GitHubDestination } from './ExternalHandoff';
 
 const TYPES = ['bug', 'feature', 'question'] as const;
 type FeedbackType = typeof TYPES[number];
@@ -20,6 +22,9 @@ export function FeedbackWidget({ health }: { health: HealthData | null }) {
   const [desc, setDesc] = useState('');
   const [includeSys, setIncludeSys] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [handoffUrl, setHandoffUrl] = useState('');
+  const [handoffError, setHandoffError] = useState('');
+  const [copied, setCopied] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -85,6 +90,8 @@ export function FeedbackWidget({ health }: { health: HealthData | null }) {
   const submit = async () => {
     if (!desc.trim() || submitting) return;
     setSubmitting(true);
+    setHandoffError('');
+    setCopied(false);
     try {
       const labels = `feedback,from-dashboard,${fbType}`;
       let body = desc.trim();
@@ -99,11 +106,26 @@ export function FeedbackWidget({ health }: { health: HealthData | null }) {
       }
       const typeLabel = t(TYPE_I18N_KEYS[fbType]);
       const url = `https://github.com/PCIRCLE-AI/memesh/issues/new?title=${encodeURIComponent(`[${typeLabel}] `)}&body=${encodeURIComponent(body)}&labels=${encodeURIComponent(labels)}`;
-      window.open(url, '_blank');
+      if (!openExternalWindow(url)) {
+        setHandoffUrl(url);
+        setHandoffError(t('feedback.popupBlocked'));
+        return;
+      }
+      setHandoffUrl('');
       setDesc('');
       setOpen(false);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const copyHandoffLink = async () => {
+    if (!handoffUrl) return;
+    try {
+      await navigator.clipboard.writeText(handoffUrl);
+      setCopied(true);
+    } catch {
+      setHandoffError(t('feedback.copyFailed'));
     }
   };
 
@@ -162,9 +184,25 @@ export function FeedbackWidget({ health }: { health: HealthData | null }) {
             />
             {t('feedback.includeSys')}
           </label>
+          <GitHubDestination id="feedback-submit" />
           <button class="btn btn-primary fb-submit" onClick={submit} disabled={submitting}>
             {submitting ? t('feedback.submitting') : t('feedback.submit')}
           </button>
+          {handoffError && (
+            <div role="alert" class="fb-handoff-error">
+              <div>{handoffError}</div>
+              {handoffUrl && (
+                <div class="fb-handoff-actions">
+                  <a href={handoffUrl} target="_blank" rel="noopener noreferrer">
+                    {t('feedback.retry')}
+                  </a>
+                  <button type="button" class="btn btn-sm" onClick={copyHandoffLink}>
+                    {copied ? t('feedback.linkCopied') : t('feedback.copyLink')}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </>

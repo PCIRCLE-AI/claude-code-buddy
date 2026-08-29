@@ -99,7 +99,7 @@ function recencyIso(e: Entity): string | null {
   return ms === null ? null : new Date(ms).toISOString();
 }
 
-export function MemoriesTab({ health }: { health?: HealthData | null }) {
+export function MemoriesTab({ health, dataRevision = 0 }: { health?: HealthData | null; dataRevision?: number }) {
   const [entities, setEntities] = useState<Entity[]>([]);
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [filter, setFilter] = useState('');
@@ -157,14 +157,12 @@ export function MemoriesTab({ health }: { health?: HealthData | null }) {
       if (gen !== loadGen.current) return;
       if (!Array.isArray(data)) {
         console.warn('[memesh dashboard] /v1/entities answered, but with a shape this bundle cannot render — stale bundle or version skew, not an outage:', data);
-        setEntities([]);
         setError(failureMessage('unreadable'));
       } else {
         setEntities(data);
       }
       setProjects(projs);
       setPage(0);
-      window.dispatchEvent(new Event('memesh:data-changed'));
     } catch (e) {
       if (gen !== loadGen.current) return;
       console.warn('[memesh dashboard] /v1/entities failed to load:', e);
@@ -174,7 +172,7 @@ export function MemoriesTab({ health }: { health?: HealthData | null }) {
     }
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [dataRevision]);
   useEffect(() => { setPage(0); }, [filter, scope, time, value, project, sort]);
 
   // Every "back to browsing" intent goes through here. Dropping the ticket is
@@ -304,7 +302,7 @@ export function MemoriesTab({ health }: { health?: HealthData | null }) {
     if (!confirm(t('browse.confirmArchive'))) return;
     try {
       await api('POST', '/v1/forget', { name });
-      load();
+      window.dispatchEvent(new Event('memesh:data-changed'));
     } catch (e) {
       setError(t('browse.archiveFailed', { message: actionFailureMessage(e) }));
     }
@@ -313,7 +311,7 @@ export function MemoriesTab({ health }: { health?: HealthData | null }) {
   async function handleRestore(name: string) {
     try {
       await api('POST', '/v1/remember', { name, type: 'restored' });
-      load();
+      window.dispatchEvent(new Event('memesh:data-changed'));
     } catch (e) {
       setError(t('browse.restoreFailed', { message: actionFailureMessage(e) }));
     }
@@ -405,6 +403,13 @@ export function MemoriesTab({ health }: { health?: HealthData | null }) {
             )}
           </div>
           <button class="btn btn-sm" onClick={load} title={t('browse.refresh')}>↻</button>
+        </div>
+
+        <div
+          role="status"
+          style={{ fontSize: 12, color: 'var(--text-2)', padding: '8px 10px', marginBottom: 10, background: 'var(--bg-2)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-xs)' }}
+        >
+          {t(signalMode ? 'globalFilter.focusedStatus' : 'globalFilter.allStatus')}
         </div>
 
         {/* One search box, two truths: typing filters the loaded window

@@ -23,6 +23,7 @@ export function Header({ health, error }: { health: HealthData | null; error: st
             class="signal-toggle"
             onClick={() => setSignalMode(!signalMode)}
             aria-pressed={signalMode}
+            aria-label={`${t(signalMode ? 'header.signalModeOn' : 'header.signalModeOff')}. ${t(signalMode ? 'header.signalModeOnHint' : 'header.signalModeOffHint')}`}
             title={t(signalMode ? 'header.signalModeOnHint' : 'header.signalModeOffHint')}
             style={{
               fontSize: 11,

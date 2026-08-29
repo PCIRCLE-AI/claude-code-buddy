@@ -62,16 +62,22 @@ export function updateConfig(partial) {
     const { config: existing, state } = readConfigResult();
     if (state === 'unreadable')
         throw new ConfigUnreadableError(configFilePath());
-    const { llm: partialLlm, ...partialRest } = partial;
+    const { llm: partialLlm, embedder: partialEmbedder, ...partialRest } = partial;
     const config = { ...existing, ...partialRest };
     if (partialLlm === null) {
         delete config.llm;
     }
-    else if (partialLlm && existing.llm) {
+    else if (partialLlm && existing.llm?.provider === partialLlm.provider) {
         config.llm = { ...existing.llm, ...partialLlm };
     }
     else if (partialLlm) {
         config.llm = partialLlm;
+    }
+    if (partialEmbedder === null) {
+        delete config.embedder;
+    }
+    else if (partialEmbedder) {
+        config.embedder = partialEmbedder;
     }
     writeConfig(config);
     return config;
@@ -105,7 +111,9 @@ function detectFromEnv() {
 export function detectCapabilities(config) {
     const cfg = config ?? readConfig();
     const configuredLlm = cfg.llm?.provider ? cfg.llm : null;
-    const llm = configuredLlm ?? detectFromEnv() ?? null;
+    const environmentLlm = configuredLlm ? null : detectFromEnv();
+    const llm = configuredLlm ?? environmentLlm;
+    const llmSource = configuredLlm ? 'config' : environmentLlm ? 'environment' : 'none';
     const embeddings = detectEmbeddingSource(cfg.llm ?? null, cfg.embedder);
     return {
         fts5: true,
@@ -114,6 +122,7 @@ export function detectCapabilities(config) {
         knowledgeEvolution: true,
         embeddings,
         llm,
+        llmSource,
         llmFallbacks: cfg.llmFallbacks ?? [],
         searchLevel: llm ? 1 : 0,
     };
