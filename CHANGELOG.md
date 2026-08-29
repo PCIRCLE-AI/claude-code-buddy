@@ -32,11 +32,12 @@ reported something that was not true.
   always validated; the operator's environment variable remains the
   privileged, unvalidated escape hatch.
 
-- **Redaction no longer mangles ordinary text.** The widened key pattern had
-  no left-hand boundary, so it matched inside `task-runner`, `disk-usage`,
-  `risk-level` and `task_state`. That corrupted diagnostics on the way out
-  and, because the same list backs the transcript drop gate, discarded real
-  captured memories on the way in.
+- **The transcript secret gate now sees uppercase credentials.** Session
+  capture drops a mined memory that carries a credential rather than
+  storing it — but it compiled the shared pattern list case-sensitively, so
+  `DB_PASSWORD=…` and `export OPENAI_API_KEY=…`, the dominant shape in a
+  shell transcript, passed the gate and reached the LLM prompt while the
+  same bytes were masked on the way out. Both consumers now agree.
 
 - **Dream failures are visible.** A provider connection test could pass while
   Dream failed, and Dream's own provider errors were skipped silently.
