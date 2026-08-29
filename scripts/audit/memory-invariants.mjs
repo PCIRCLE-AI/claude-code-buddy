@@ -138,15 +138,19 @@ const INVARIANTS = [
   {
     id: 'explicit-lessons-not-fused-into-other-bucket',
     refs: '#241',
-    says: 'no "-other" lesson entity holds explicit lessons that belong under other names (the repair leaves a lesson whose error is literally "other" in place; re-learn it with a specific error text)',
-    // The SQL only narrows (name shape, explicit tag, at least two `Error:`
-    // lines by a case-insensitive LIKE). The verdict is the repair's own
-    // question, asked in JS below: cut the observations into lessons on
-    // `Error: ` exactly as groupLessons does, slug each error exactly as
-    // learn() does, and call the entity fused only if some lesson's slug is
-    // not the one the entity's name ends with. Two different error texts
-    // that share a slug are ONE lesson under learn()'s contract, not a
-    // fused bucket. No LIMIT here: it would bound candidates, not violations.
+    says: 'no "-other" lesson entity holds more than one explicit lesson (the repair leaves a lesson whose error is literally "other" in place; re-learn it with a specific error text)',
+    // The SQL narrows: name shape, explicit tag, at least two `Error:` lines
+    // (case-insensitive LIKE). A bucket holding exactly ONE lesson is
+    // deliberately not a violation even when that lesson belongs under
+    // another name — see "a single explicit lesson in -other is not a
+    // violation" in the test file; the repair still moves it. Among the
+    // rest, the verdict is the repair's own question, asked in JS below: cut
+    // the observations into lessons on `Error: ` exactly as groupLessons
+    // does, slug each error exactly as learn() does, and call the entity
+    // fused only if it holds more than one slug or a slug its name does not
+    // end with. Two different error texts that share a slug are ONE lesson
+    // under learn()'s contract, not a fused bucket. No LIMIT here: it would
+    // bound candidates, not violations.
     sql: `
       SELECT e.name AS name, COUNT(o.id) AS total
       FROM entities e JOIN observations o ON o.entity_id = e.id

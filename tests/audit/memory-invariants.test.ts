@@ -43,6 +43,18 @@ function insertEntity(db: DatabaseSync, name: string, type: string, extra: Recor
 }
 
 describe('memory-invariants: read-only detector over a real graph', () => {
+  it('mirrors lessonSlug from src/core/lesson-slug.ts exactly (a comment is not a gate)', () => {
+    const body = (src: string): string => {
+      const m = /function lessonSlug\([^)]*\)[^{]*\{([\s\S]*?)\n\}/.exec(src);
+      if (!m) throw new Error('lessonSlug not found');
+      return m[1].replace(/\s+/g, ' ').trim();
+    };
+    const ts = fs.readFileSync(path.resolve('src/core/lesson-slug.ts'), 'utf8');
+    const mjs = fs.readFileSync(script, 'utf8');
+    expect(body(mjs)).toBe(body(ts));
+  });
+
+
   it('exits 0 on a clean graph and 2 when the database is missing', () => {
     const { dir, dbPath } = freshGraph();
     try {

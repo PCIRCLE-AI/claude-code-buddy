@@ -379,6 +379,25 @@ describe('#241 — lessons fused into one -other bucket are split apart', () => 
     closeDatabase();
   });
 
+  it('a bucket-shaped name whose own lesson slugs to itself is not "moved" onto itself', () => {
+    // lessonSlug('the other') === 'the-other', so the target name equals the
+    // bucket's own name. Without the guard this counted as a move, rebuilt FTS
+    // and told the user to run a paid reindex — for nothing.
+    seed((db) => {
+      const id = insertEntity(db, 'lesson-proj-the-other', 'lesson_learned', ['project:proj', 'source:explicit']);
+      const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+      for (const line of ['Error: the other', 'Root cause: a', 'Fix: b', 'Prevention: c']) ins.run(id, line);
+    });
+    const notes: string[] = [];
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => { notes.push(String(chunk)); return true; });
+    let db: Db;
+    try { db = repaired(); } finally { spy.mockRestore(); }
+    expect(notes.join('')).not.toContain('moved');
+    expect(observations(db, 'lesson-proj-the-other')).toEqual(['Error: the other', 'Root cause: a', 'Fix: b', 'Prevention: c']);
+    expect(db.prepare("SELECT value FROM memesh_metadata WHERE key = 'pending_reindex'").get()).toBeUndefined();
+    closeDatabase();
+  });
+
   it('does not carry source:explicit when the bucket also holds auto-learned lessons', () => {
     seed((db) => {
       const id = insertEntity(db, 'lesson-proj-other', 'lesson_learned',
