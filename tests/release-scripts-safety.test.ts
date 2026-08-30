@@ -232,6 +232,15 @@ describe('Feature: release scripts never edit the real ~/.memesh', () => {
     expect(read('.github/workflows/ci.yml')).toContain('run: npm run test:packaged:upgrade');
   });
 
+  it('gives the complete release verification job the proven degraded-runner budget', () => {
+    const ci = read('.github/workflows/ci.yml');
+    const releaseJob = ci.match(/\n {2}release-verify:\n[\s\S]*?(?=\n {2}[A-Za-z0-9_-]+:\n|$)/)?.[0] ?? '';
+    expect(releaseJob).not.toBe('');
+    expect(releaseJob).toMatch(/timeout-minutes:\s*40/);
+    expect(releaseJob).toContain('bash scripts/release-verify.sh --skip-llm-probe');
+    expect(releaseJob).not.toContain('--quick');
+  });
+
   it('fails the sync gate when an installed adapter artifact is missing', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'message-sync-fixture-'));
     const write = (relative: string, content = '') => {

@@ -37,6 +37,7 @@ import fs from 'fs';
 import path from 'path';
 import { homeDir, memeshDir } from './paths.js';
 import { citationRulePath, removeCitationRule, writeCitationRule, type CitationRuleResult } from './citation-rule.js';
+import { pluginHostConfigRoot } from './install-channel.js';
 
 type HookCommand = { type: 'command'; command: string; timeout?: number; _memesh?: boolean };
 type HookEntry = { matcher?: string; hooks: HookCommand[] };
@@ -87,7 +88,7 @@ export interface InstallOptions {
   // want both paths (rare).
   forceOverPlugin?: boolean;
   // Test seam: override the path used to detect a Claude Code plugin
-  // install. Default is `<home>/.claude/plugins/installed_plugins.json`.
+  // install. Default is `<claude-config>/plugins/installed_plugins.json`.
   installedPluginsPathImpl?: string;
 }
 
@@ -131,21 +132,17 @@ const MARKER_FILE = 'install-hooks.json';
  * Inspect Claude Code's `installed_plugins.json` for an active memesh
  * plugin install. When present, Claude Code's plugin runtime is already
  * loading memesh's hooks via `<plugin>/hooks/hooks.json`, and writing
- * the same hooks into `~/.claude/settings.json` would double-fire every
+ * the same hooks into Claude Code's user settings would double-fire every
  * event. Returns the install metadata when found, else null.
  *
  * Used by `installHooks` as a guard. The default lookup path is
- * `<home>/.claude/plugins/installed_plugins.json` but tests can inject
+ * `<claude-config>/plugins/installed_plugins.json` but tests can inject
  * an alternate path via `installedPluginsPathImpl`.
  */
 export function detectPluginRuntime(
   installedPluginsPathImpl?: string,
 ): { installPath: string; version: string } | null {
-  // homeDir(), not a hand-rolled HOME || USERPROFILE chain — the shared
-  // resolver has the os.homedir()/userInfo() fallbacks this copy lacked,
-  // and `memesh setup` (which now imports this) must agree with every
-  // other HOME-derived path in the product.
-  const defaultPath = path.join(homeDir(), '.claude', 'plugins', 'installed_plugins.json');
+  const defaultPath = path.join(pluginHostConfigRoot('claude-code'), 'plugins', 'installed_plugins.json');
   const targetPath = installedPluginsPathImpl ?? defaultPath;
   if (!fs.existsSync(targetPath)) return null;
   try {
@@ -153,11 +150,15 @@ export function detectPluginRuntime(
     const j = JSON.parse(raw);
     const entries = j?.plugins?.['memesh@pcircle-memesh'];
     if (!Array.isArray(entries) || entries.length === 0) return null;
-    const first = entries[0];
-    if (!first || typeof first.installPath !== 'string') return null;
+    const active = entries.find((entry: unknown): entry is { installPath: string; version?: unknown } =>
+      typeof entry === 'object'
+      && entry !== null
+      && typeof (entry as { installPath?: unknown }).installPath === 'string'
+      && (entry as { installPath: string }).installPath.length > 0);
+    if (!active) return null;
     return {
-      installPath: first.installPath,
-      version: typeof first.version === 'string' ? first.version : 'unknown',
+      installPath: active.installPath,
+      version: typeof active.version === 'string' ? active.version : 'unknown',
     };
   } catch {
     return null;
@@ -173,7 +174,7 @@ function settingsPathFor(scope: 'user' | 'project', cwd: string): string {
   if (scope === 'project') {
     return path.join(cwd, '.claude', 'settings.json');
   }
-  return path.join(homeDir(), '.claude', 'settings.json');
+  return path.join(pluginHostConfigRoot('claude-code'), 'settings.json');
 }
 
 // settings.json writer. The CodeQL js/file-system-race rule fires here

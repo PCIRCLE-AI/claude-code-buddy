@@ -19,6 +19,7 @@ import { TASK_STATE_FIELDS, taskStateLines } from '../../core/task-state.js';
 import { executeAgentMessageAction } from '../agent-messaging.js';
 import { getAgentMessageStorageReport, pruneTerminalAgentMessagePayloads, } from '../../core/agent-message-storage.js';
 import { assertSecureLocalHostRuntimeSupported, ensureRouterTokenFile, } from '../../host-runtime/config.js';
+import { pluginHostConfigRoot, versionedPluginCacheRoots } from '../../core/install-channel.js';
 async function withDatabase(fn) {
     try {
         openDatabase();
@@ -1362,29 +1363,38 @@ program
         process.exit(1);
     }
 });
+export function resolveUpgradePluginScript(packageRootPath, pluginCacheRoot, pluginRegistryPath) {
+    const roots = versionedPluginCacheRoots(pluginCacheRoot);
+    const newestRoot = roots[roots.length - 1];
+    const bundled = path.join(packageRootPath, 'scripts', 'upgrade-plugin.sh');
+    const hasRepairTarget = Boolean(newestRoot || (pluginRegistryPath && fs.existsSync(pluginRegistryPath)));
+    if (fs.existsSync(bundled) && hasRepairTarget) {
+        return { script: bundled, newest: newestRoot ? path.basename(newestRoot) : null };
+    }
+    if (!newestRoot)
+        return null;
+    const newest = path.basename(newestRoot);
+    const script = path.join(newestRoot, 'scripts', 'upgrade-plugin.sh');
+    return { script, newest };
+}
 program
     .command('upgrade-plugin')
     .description('Upgrade the Claude Code plugin install (finds and runs its bundled upgrade script)')
     .action(async () => {
     const { spawnSync } = await import('child_process');
-    const cacheRoot = path.join(homeDir(), '.claude', 'plugins', 'cache', 'pcircle-memesh', 'memesh');
-    let versions = [];
-    try {
-        versions = fs.readdirSync(cacheRoot, { withFileTypes: true })
-            .filter((entry) => entry.isDirectory() && /^\d+\.\d+\.\d+/.test(entry.name))
-            .map((entry) => entry.name);
-    }
-    catch { }
-    if (versions.length === 0) {
-        console.error('No Claude Code plugin install found (looked in ~/.claude/plugins/cache/pcircle-memesh).');
+    const configRoot = pluginHostConfigRoot('claude-code');
+    const cacheRoot = path.join(configRoot, 'plugins', 'cache', 'pcircle-memesh', 'memesh');
+    const registryPath = path.join(configRoot, 'plugins', 'installed_plugins.json');
+    const resolved = resolveUpgradePluginScript(packageRoot, cacheRoot, registryPath);
+    if (!resolved) {
+        console.error(`No Claude Code plugin install found (looked in ${cacheRoot}).`);
         console.error('If you installed via npm, upgrade with: memesh update');
+        console.error('If you installed through Codex, run `memesh doctor` for the Codex refresh command.');
         process.exit(1);
     }
-    versions.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-    const newest = versions[versions.length - 1];
-    const script = path.join(cacheRoot, newest, 'scripts', 'upgrade-plugin.sh');
+    const { script, newest } = resolved;
     if (!fs.existsSync(script)) {
-        console.error(`Plugin install found (v${newest}), but it has no scripts/upgrade-plugin.sh — plugin versions before 4.2.5 shipped without it.`);
+        console.error(`Plugin install found${newest ? ` (v${newest})` : ''}, but it has no scripts/upgrade-plugin.sh — plugin versions before 4.2.5 shipped without it.`);
         console.error('Reinstall once from the Claude Code /plugin UI, or run the npm-global copy directly:');
         console.error('  bash "$(npm prefix -g)/lib/node_modules/@pcircle/memesh/scripts/upgrade-plugin.sh"');
         process.exit(1);
@@ -1392,7 +1402,8 @@ program
     const installHints = {
         node: 'node is required by the upgrade script. Install Node.js from https://nodejs.org',
         npm: 'npm is required by the upgrade script. It ships with Node.js — reinstall from https://nodejs.org',
-        rsync: 'rsync is required by the upgrade script. macOS: already installed; Debian/Ubuntu: sudo apt install rsync',
+        git: 'git is required by the upgrade script. macOS: xcode-select --install; Debian/Ubuntu: sudo apt install git',
+        tar: 'tar is required by the upgrade script. macOS: already installed; Debian/Ubuntu: sudo apt install tar',
     };
     const missing = Object.keys(installHints).filter((tool) => !isOnPath(tool));
     if (missing.length > 0) {
@@ -1400,7 +1411,10 @@ program
             console.error(installHints[tool]);
         process.exit(1);
     }
-    const run = spawnSync('bash', [script], { stdio: 'inherit' });
+    const run = spawnSync('bash', [script], {
+        stdio: 'inherit',
+        env: { ...process.env, CLAUDE_CONFIG_DIR: configRoot },
+    });
     if (run.error) {
         console.error(`Could not run the upgrade script: ${run.error.message}`);
         console.error('bash is required to run it. If bash is available under another name, run it yourself:');
@@ -2118,7 +2132,7 @@ dreamCmd
 });
 program
     .command('install-hooks')
-    .description('Wire memesh\'s session hooks into Claude Code (~/.claude/settings.json)')
+    .description('Wire memesh\'s session hooks into Claude Code user settings')
     .option('--scope <scope>', 'user (default) or project — project writes to ./.claude/settings.json', 'user')
     .option('--dry-run', 'Show what would change without modifying any file')
     .option('--force-over-plugin', 'Write user-level hooks even when Claude Code\'s plugin runtime already wires them. Causes double-firing — only use if you genuinely want both surfaces.')
@@ -2139,7 +2153,7 @@ program
             console.log('');
             console.log('Hooks are active. Verify with: memesh doctor');
             console.log('');
-            console.log('If you really want a second copy in ~/.claude/settings.json on top of the plugin, re-run with --force-over-plugin. (Not recommended — every session-start / Stop / PreToolUse event will fire memesh\'s hooks twice.)');
+            console.log(`If you really want a second copy in ${result.settingsPath} on top of the plugin, re-run with --force-over-plugin. (Not recommended — every session-start / Stop / PreToolUse event will fire memesh's hooks twice.)`);
             if (result.citationRule.action === 'foreign-file') {
                 console.log('');
                 console.log(`WARNING: the citation contract was NOT installed — a file memesh did not write already exists at ${result.citationRule.path}.`);

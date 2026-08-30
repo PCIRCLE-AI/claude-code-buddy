@@ -33,6 +33,13 @@ describe('doctor banner i18n', () => {
     expect(trSummary(codedCheck)).toMatch(/[一-鿿]/);
   });
 
+  it('uses the shared localized label for host-specific plugin-cache rows', () => {
+    setLocale('zh-TW');
+    const check = { ...codedCheck, id: 'plugin-cache-claude-code', label: 'Plugin cache source record is current (Claude Code)' };
+    expect(trLabel(check)).toBe(t('doctor.label.plugin-cache'));
+    expect(trLabel(check)).not.toBe(check.label);
+  });
+
   it('interpolates params into the translated message', () => {
     setLocale('zh-TW');
     const c = {

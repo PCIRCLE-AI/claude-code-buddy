@@ -59,6 +59,21 @@ describe('where the rule is written', () => {
     expect(p).not.toContain('CLAUDE.md');
   });
 
+  it('puts the user-scope rule under a relocated CLAUDE_CONFIG_DIR', () => {
+    const previous = process.env.CLAUDE_CONFIG_DIR;
+    const relocated = path.join(home, 'relocated-claude');
+    process.env.CLAUDE_CONFIG_DIR = relocated;
+    try {
+      expect(citationRulePath('user', home, project))
+        .toBe(path.join(relocated, 'rules', CITATION_RULE_FILENAME));
+      expect(citationRulePath('project', home, project))
+        .toBe(path.join(project, '.claude', 'rules', CITATION_RULE_FILENAME));
+    } finally {
+      if (previous === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+      else process.env.CLAUDE_CONFIG_DIR = previous;
+    }
+  });
+
   it('puts the project-scope rule under the project, not the home directory', () => {
     const p = citationRulePath('project', home, project);
     expect(p).toBe(path.join(project, '.claude', 'rules', CITATION_RULE_FILENAME));

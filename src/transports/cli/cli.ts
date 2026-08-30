@@ -30,6 +30,7 @@ import {
   assertSecureLocalHostRuntimeSupported,
   ensureRouterTokenFile,
 } from '../../host-runtime/config.js';
+import { pluginHostConfigRoot, versionedPluginCacheRoots } from '../../core/install-channel.js';
 
 // DX: every CLI command that touches the DB used to repeat
 //   openDatabase(); try { ...body... } finally { closeDatabase(); }
@@ -1811,50 +1812,59 @@ program
 // reaching it meant hand-substituting the installed version into
 // ~/.claude/plugins/cache/pcircle-memesh/memesh/<version>/scripts/... — a
 // path shape most users get wrong on the first try. This command finds the
-// newest installed plugin version itself, checks the script's prerequisites
-// up front (the script hard-requires node, npm and rsync and would otherwise
+// running MeMesh installation first, then the newest installed plugin version,
+// and checks the script's prerequisites up front (the script requires node,
+// npm, git and tar and would otherwise
 // die partway through), and runs it with the script's own exit code.
+export function resolveUpgradePluginScript(
+  packageRootPath: string,
+  pluginCacheRoot: string,
+  pluginRegistryPath?: string,
+): { script: string; newest: string | null } | null {
+  const roots = versionedPluginCacheRoots(pluginCacheRoot);
+  const newestRoot = roots[roots.length - 1];
+  const bundled = path.join(packageRootPath, 'scripts', 'upgrade-plugin.sh');
+  const hasRepairTarget = Boolean(newestRoot || (pluginRegistryPath && fs.existsSync(pluginRegistryPath)));
+  if (fs.existsSync(bundled) && hasRepairTarget) {
+    return { script: bundled, newest: newestRoot ? path.basename(newestRoot) : null };
+  }
+  if (!newestRoot) return null;
+  const newest = path.basename(newestRoot);
+  const script = path.join(newestRoot, 'scripts', 'upgrade-plugin.sh');
+  return { script, newest };
+}
+
 program
   .command('upgrade-plugin')
   .description('Upgrade the Claude Code plugin install (finds and runs its bundled upgrade script)')
   .action(async () => {
     const { spawnSync } = await import('child_process');
-    const cacheRoot = path.join(homeDir(), '.claude', 'plugins', 'cache', 'pcircle-memesh', 'memesh');
+    const configRoot = pluginHostConfigRoot('claude-code');
+    const cacheRoot = path.join(configRoot, 'plugins', 'cache', 'pcircle-memesh', 'memesh');
+    const registryPath = path.join(configRoot, 'plugins', 'installed_plugins.json');
 
-    // The cache holds one directory per installed version. Only
-    // version-shaped names count, so a stray directory can never win the
-    // sort below.
-    let versions: string[] = [];
-    try {
-      versions = fs.readdirSync(cacheRoot, { withFileTypes: true })
-        .filter((entry) => entry.isDirectory() && /^\d+\.\d+\.\d+/.test(entry.name))
-        .map((entry) => entry.name);
-    } catch { /* ENOENT — no plugin cache at all; the empty list says so below */ }
-
-    if (versions.length === 0) {
-      console.error('No Claude Code plugin install found (looked in ~/.claude/plugins/cache/pcircle-memesh).');
+    const resolved = resolveUpgradePluginScript(packageRoot, cacheRoot, registryPath);
+    if (!resolved) {
+      console.error(`No Claude Code plugin install found (looked in ${cacheRoot}).`);
       console.error('If you installed via npm, upgrade with: memesh update');
+      console.error('If you installed through Codex, run `memesh doctor` for the Codex refresh command.');
       process.exit(1);
     }
 
-    // The highest installed version carries the newest copy of the upgrade
-    // script. `numeric: true` compares dotted segments as numbers, so 4.10.0
-    // sorts above 4.9.0 where a plain string sort would not.
-    versions.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-    const newest = versions[versions.length - 1];
-    const script = path.join(cacheRoot, newest, 'scripts', 'upgrade-plugin.sh');
+    const { script, newest } = resolved;
     if (!fs.existsSync(script)) {
-      console.error(`Plugin install found (v${newest}), but it has no scripts/upgrade-plugin.sh — plugin versions before 4.2.5 shipped without it.`);
+      console.error(`Plugin install found${newest ? ` (v${newest})` : ''}, but it has no scripts/upgrade-plugin.sh — plugin versions before 4.2.5 shipped without it.`);
       console.error('Reinstall once from the Claude Code /plugin UI, or run the npm-global copy directly:');
       console.error('  bash "$(npm prefix -g)/lib/node_modules/@pcircle/memesh/scripts/upgrade-plugin.sh"');
       process.exit(1);
     }
 
-    // Same three tools the script itself demands, checked BEFORE it runs.
+    // The same tools the script itself demands, checked BEFORE it runs.
     const installHints: Record<string, string> = {
       node: 'node is required by the upgrade script. Install Node.js from https://nodejs.org',
       npm: 'npm is required by the upgrade script. It ships with Node.js — reinstall from https://nodejs.org',
-      rsync: 'rsync is required by the upgrade script. macOS: already installed; Debian/Ubuntu: sudo apt install rsync',
+      git: 'git is required by the upgrade script. macOS: xcode-select --install; Debian/Ubuntu: sudo apt install git',
+      tar: 'tar is required by the upgrade script. macOS: already installed; Debian/Ubuntu: sudo apt install tar',
     };
     const missing = Object.keys(installHints).filter((tool) => !isOnPath(tool));
     if (missing.length > 0) {
@@ -1862,7 +1872,14 @@ program
       process.exit(1);
     }
 
-    const run = spawnSync('bash', [script], { stdio: 'inherit' });
+    // Pin the same resolved root the CLI used. If HOME is empty or unset,
+    // homeDir() can still resolve the OS account home, while bash cannot;
+    // letting the script recompute it would make discovery and mutation
+    // disagree about which Claude install is authoritative.
+    const run = spawnSync('bash', [script], {
+      stdio: 'inherit',
+      env: { ...process.env, CLAUDE_CONFIG_DIR: configRoot },
+    });
     if (run.error) {
       console.error(`Could not run the upgrade script: ${run.error.message}`);
       console.error('bash is required to run it. If bash is available under another name, run it yourself:');
@@ -2705,11 +2722,11 @@ dreamCmd
 // memesh ships hooks/hooks.json for Claude Code's plugin runtime,
 // but `npm install -g` only puts the CLI on PATH — the plugin
 // runtime never reads them. Inject the hooks directly into
-// ~/.claude/settings.json so they fire on every Claude Code session,
+// the configured Claude Code user settings so they fire on every session,
 // preserving any user-global hooks the user already wired.
 program
   .command('install-hooks')
-  .description('Wire memesh\'s session hooks into Claude Code (~/.claude/settings.json)')
+  .description('Wire memesh\'s session hooks into Claude Code user settings')
   .option('--scope <scope>', 'user (default) or project — project writes to ./.claude/settings.json', 'user')
   .option('--dry-run', 'Show what would change without modifying any file')
   .option('--force-over-plugin', 'Write user-level hooks even when Claude Code\'s plugin runtime already wires them. Causes double-firing — only use if you genuinely want both surfaces.')
@@ -2730,7 +2747,7 @@ program
         console.log('');
         console.log('Hooks are active. Verify with: memesh doctor');
         console.log('');
-        console.log('If you really want a second copy in ~/.claude/settings.json on top of the plugin, re-run with --force-over-plugin. (Not recommended — every session-start / Stop / PreToolUse event will fire memesh\'s hooks twice.)');
+        console.log(`If you really want a second copy in ${result.settingsPath} on top of the plugin, re-run with --force-over-plugin. (Not recommended — every session-start / Stop / PreToolUse event will fire memesh's hooks twice.)`);
       // The citation contract's fate, reported on BOTH exits. `foreign-file`
       // is the one that matters: a file already sits at that path without
       // memesh's marker, so the contract was NOT installed — and the run

@@ -22,6 +22,8 @@ export interface InstallChannelSupport {
 }
 export type PluginHost = 'claude-code' | 'codex';
 export declare const PLUGIN_REFRESH_COMMANDS: Readonly<Record<PluginHost, string>>;
+export declare function pluginHostConfigRoot(host: PluginHost): string;
+export declare function versionedPluginCacheRoots(root: string): string[];
 export declare function detectPluginHost(packageRoot: string, options?: {
     env?: NodeJS.ProcessEnv;
 }): PluginHost | null;

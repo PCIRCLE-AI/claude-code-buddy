@@ -15,7 +15,11 @@ import {
 } from '../db.js';
 import { getUpdateCheck } from './version-check.js';
 import { classifyBump } from './updater.js';
-import { getCurrentInstallChannel, getInstallChannelSupport, detectPluginHost, PLUGIN_REFRESH_COMMANDS, type InstallChannel, type PluginHost } from './install-channel.js';
+import {
+  getCurrentInstallChannel, getInstallChannelSupport, detectPluginHost,
+  pluginHostConfigRoot, versionedPluginCacheRoots, PLUGIN_REFRESH_COMMANDS,
+  type InstallChannel, type PluginHost,
+} from './install-channel.js';
 import { getInstallRecord } from './install-id.js';
 import { citationRulePath, citationRuleState, type CitationRuleScope } from './citation-rule.js';
 import { getDbPath, getMemeshDirFromDbPath, homeDir, memeshDir, getProjectName } from './paths.js';
@@ -139,6 +143,8 @@ interface DoctorOptions {
   /** Test override for the commit the marketplace checkout is at — the
    *  default runs `git rev-parse HEAD` in ~/.claude/plugins/marketplaces. */
   marketplaceHeadShaImpl?: (host: import('./install-channel.js').PluginHost) => string | null;
+  /** Discover plugin caches when doctor is running from npm-global. */
+  pluginCacheDiscoveryImpl?: () => PluginCacheDiscovery[];
   getInstallChannelSupportImpl?: typeof getInstallChannelSupport;
   existsSyncImpl?: typeof fs.existsSync;
   readFileSyncImpl?: typeof fs.readFileSync;
@@ -177,6 +183,21 @@ interface DoctorOptions {
    */
   probeMessageRouterStatus?: boolean;
   messageRouterStatusProbeImpl?: () => Promise<MessageRouterStatusProbe>;
+}
+
+interface PluginCacheDiscovery {
+  host: import('./install-channel.js').PluginHost;
+  packageRoot: string;
+  installedPluginsPath?: string;
+  unverifiableReason?: string;
+}
+
+interface ClaudePluginEntries {
+  exists: boolean;
+  readable: boolean;
+  defined: boolean;
+  malformed: boolean;
+  entries: Array<Record<string, unknown>>;
 }
 
 type MessageRouterStatusProbe = {
@@ -624,8 +645,10 @@ function extractHookScriptPaths(hooksConfig: JsonObject, packageRoot: string): s
 
   const scripts = new Set<string>();
   for (const entries of Object.values(hooks)) {
-    for (const entry of entries ?? []) {
-      for (const hook of entry.hooks ?? []) {
+    if (!Array.isArray(entries)) continue;
+    for (const entry of entries) {
+      if (!Array.isArray(entry.hooks)) continue;
+      for (const hook of entry.hooks) {
         if (typeof hook.command !== 'string') continue;
         const command = hook.command.replace('${CLAUDE_PLUGIN_ROOT}/', '');
         scripts.add(path.join(packageRoot, command));
@@ -670,7 +693,10 @@ function inspectHooksConfig(
     ];
   }
 
-  const hookTypes = Object.keys((parsed.value.hooks as JsonObject | undefined) ?? {});
+  const parsedHooks = parsed.value.hooks;
+  const hookTypes = parsedHooks && typeof parsedHooks === 'object' && !Array.isArray(parsedHooks)
+    ? Object.keys(parsedHooks)
+    : [];
   const missingTypes = EXPECTED_HOOK_TYPES.filter((type) => !hookTypes.includes(type));
   const configCheck = missingTypes.length > 0
     ? createCheck(
@@ -1660,16 +1686,16 @@ function inspectShellCli(
 }
 
 /** Where a plugin host keeps its marketplace checkout and what commit it is at. */
-function defaultMarketplaceHeadSha(host: import('./install-channel.js').PluginHost): string | null {
+function defaultMarketplaceHeadSha(host: PluginHost): string | null {
   if (host === 'codex') {
     // Codex snapshots the marketplace under $CODEX_HOME/.tmp/marketplaces and
     // records the revision it fetched next to it; the same file is copied
     // into the plugin cache on `codex plugin add`, which is what lets the two
     // be compared without a registry.
-    const codexHome = process.env.CODEX_HOME || path.join(homeDir(), '.codex');
+    const codexHome = pluginHostConfigRoot('codex');
     return readCodexInstallRevision(path.join(codexHome, '.tmp', 'marketplaces', 'pcircle-memesh'), fs.readFileSync);
   }
-  const dir = path.join(homeDir(), '.claude', 'plugins', 'marketplaces', 'pcircle-memesh');
+  const dir = path.join(pluginHostConfigRoot('claude-code'), 'plugins', 'marketplaces', 'pcircle-memesh');
   try {
     const out = execFileSync('git', ['-C', dir, 'rev-parse', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
     return /^[0-9a-f]{40}$/.test(out) ? out : null;
@@ -1685,6 +1711,122 @@ function readCodexInstallRevision(root: string, readFileSyncImpl: typeof fs.read
   return typeof rev === 'string' && /^[0-9a-f]{40}$/.test(rev) ? rev : null;
 }
 
+function pluginCacheUnverifiable(host: PluginHost, missing: string): DoctorCheck {
+  const hostLabel = host === 'codex' ? 'Codex' : 'Claude Code';
+  const command = PLUGIN_REFRESH_COMMANDS[host];
+  return createCheck(
+    'plugin-cache',
+    `Plugin cache source record is current (${hostLabel})`,
+    'warn',
+    `Could not tell whether the plugin cache matches the marketplace: ${missing}. The version alone cannot answer this — two builds can carry the same version.`,
+    `Run \`${command}\` — it re-stages the cache from the marketplace and records the commit, after which this check can answer.`,
+    { code: 'plugin-cache.unverifiable', params: { host: hostLabel, command } },
+  );
+}
+
+function readClaudePluginEntries(
+  registryPath: string,
+  readFileSyncImpl: typeof fs.readFileSync,
+  existsSyncImpl: typeof fs.existsSync,
+): ClaudePluginEntries {
+  if (!existsSyncImpl(registryPath)) {
+    return { exists: false, readable: false, defined: false, malformed: false, entries: [] };
+  }
+  const parsed = parseJsonFile(registryPath, readFileSyncImpl);
+  if (!parsed.ok) return { exists: true, readable: false, defined: false, malformed: false, entries: [] };
+  const raw = (parsed.value as { plugins?: Record<string, unknown> })?.plugins?.['memesh@pcircle-memesh'];
+  const entries = Array.isArray(raw)
+    ? raw.filter((entry): entry is Record<string, unknown> => !!entry && typeof entry === 'object')
+    : [];
+  return {
+    exists: true,
+    readable: true,
+    defined: raw !== undefined,
+    malformed: raw !== undefined && (!Array.isArray(raw) || entries.length !== raw.length),
+    entries,
+  };
+}
+
+/** Find installed host caches without making a global install pretend to be one. */
+function defaultPluginCacheDiscovery(
+  readFileSyncImpl: typeof fs.readFileSync,
+  existsSyncImpl: typeof fs.existsSync,
+): PluginCacheDiscovery[] {
+  const discovered: PluginCacheDiscovery[] = [];
+  const claudeConfigRoot = pluginHostConfigRoot('claude-code');
+  const claudeRegistry = path.join(claudeConfigRoot, 'plugins', 'installed_plugins.json');
+  const claudeCacheRoot = path.join(claudeConfigRoot, 'plugins', 'cache', 'pcircle-memesh', 'memesh');
+  const registry = readClaudePluginEntries(claudeRegistry, readFileSyncImpl, existsSyncImpl);
+  const entries = registry.entries;
+  if (registry.malformed) {
+    discovered.push({
+      host: 'claude-code',
+      packageRoot: claudeCacheRoot,
+      installedPluginsPath: claudeRegistry,
+      unverifiableReason: 'installed_plugins.json has a malformed memesh entry',
+    });
+  } else if (entries.length > 0) {
+    const cachesByRoot = new Map<string, PluginCacheDiscovery>();
+    for (const entry of entries) {
+      const recordedInstallPath = typeof entry.installPath === 'string' && entry.installPath.length > 0
+        ? entry.installPath
+        : null;
+      const installPath = recordedInstallPath ?? claudeCacheRoot;
+      const cache = {
+        host: 'claude-code', packageRoot: installPath, installedPluginsPath: claudeRegistry,
+        ...(!recordedInstallPath ? { unverifiableReason: 'an installed_plugins.json entry has no usable installPath' }
+          : !existsSyncImpl(installPath) ? { unverifiableReason: `the recorded plugin cache does not exist at ${installPath}` } : {}),
+      } satisfies PluginCacheDiscovery;
+      const rootKey = path.resolve(installPath);
+      const existing = cachesByRoot.get(rootKey);
+      if (!existing) cachesByRoot.set(rootKey, cache);
+      else if (!existing.unverifiableReason && cache.unverifiableReason) {
+        existing.unverifiableReason = cache.unverifiableReason;
+      }
+    }
+    discovered.push(...cachesByRoot.values());
+  } else if (registry.defined) {
+    const cachedRoots = versionedPluginCacheRoots(claudeCacheRoot);
+    // An empty array can be a clean uninstall, so report it only when a cache
+    // still exists and the registry/cache state contradict each other.
+    if (cachedRoots.length > 0) {
+      discovered.push({
+        host: 'claude-code',
+        packageRoot: cachedRoots[cachedRoots.length - 1],
+        installedPluginsPath: claudeRegistry,
+        unverifiableReason: 'installed_plugins.json records no active memesh install while a versioned plugin cache still exists',
+      });
+    }
+  } else if (!registry.readable) {
+    const cachedRoots = versionedPluginCacheRoots(claudeCacheRoot);
+    const cachedRoot = cachedRoots[cachedRoots.length - 1];
+    // A missing or corrupt registry alone is not evidence that MeMesh is
+    // installed; a real cache plus either condition is safely reported as unknown.
+    if (cachedRoot) {
+      discovered.push({
+        host: 'claude-code', packageRoot: cachedRoot, installedPluginsPath: claudeRegistry,
+        unverifiableReason: registry.exists
+          ? 'installed_plugins.json could not be read or parsed'
+          : 'installed_plugins.json does not exist while a versioned plugin cache still exists',
+      });
+    }
+  }
+
+  const codexHome = pluginHostConfigRoot('codex');
+  const codexCacheRoot = path.join(codexHome, 'plugins', 'cache', 'pcircle-memesh', 'memesh');
+  const codexRoots = versionedPluginCacheRoots(codexCacheRoot);
+  if (codexRoots.length === 1) {
+    discovered.push({ host: 'codex', packageRoot: codexRoots[0] });
+  } else if (codexRoots.length > 1) {
+    discovered.push({
+      host: 'codex',
+      packageRoot: codexRoots[codexRoots.length - 1],
+      unverifiableReason: `several versioned Codex plugin cache directories exist under ${codexCacheRoot}`,
+    });
+  }
+  return discovered;
+}
+
 /**
  * Both plugin hosts key their cache by VERSION: once
  * `<host>/plugins/cache/pcircle-memesh/memesh/<version>/` exists, later
@@ -1697,16 +1839,9 @@ function readCodexInstallRevision(root: string, readFileSyncImpl: typeof fs.read
  * Claude Code records it in installed_plugins.json, Codex in the
  * `.codex-marketplace-install.json` it copies into the cache.
  *
- * Scope: this check diagnoses the copy `doctor` is CURRENTLY RUNNING FROM.
- * It does not go looking for a plugin cache elsewhere on the machine — an
- * `npm install -g @pcircle/memesh` copy running standalone cannot see a
- * separately-installed Claude Code or Codex plugin, even though both would
- * share the same `~/.memesh` database. Run `memesh doctor` from inside that
- * plugin (or through the host that manages it) to check it. Widening this to
- * inspect every host's cache regardless of which copy is running is real
- * work — a second stable identity per host, catalogue entries doubled — and
- * is deliberately out of scope here; PR review flagged it, this comment (and
- * the matching CHANGELOG line) is the documented limitation, not a fix.
+ * On npm-global installs this same helper is also run once for each installed
+ * host cache discovered by `defaultPluginCacheDiscovery`. The caller assigns a
+ * host-specific id so Claude Code and Codex never collapse into one result.
  */
 function inspectPluginCacheCurrency(
   installChannel: import('./install-channel.js').InstallChannel,
@@ -1714,6 +1849,7 @@ function inspectPluginCacheCurrency(
   packageRoot: string,
   installedPluginsPath: string | undefined,
   readFileSyncImpl: typeof fs.readFileSync,
+  existsSyncImpl: typeof fs.existsSync,
   marketplaceHeadShaImpl: (host: import('./install-channel.js').PluginHost) => string | null,
 ): DoctorCheck | null {
   if (installChannel !== 'plugin-marketplace') return null;
@@ -1730,49 +1866,71 @@ function inspectPluginCacheCurrency(
     installedSha = readCodexInstallRevision(packageRoot, readFileSyncImpl);
     installedMissing = 'the plugin cache carries no readable .codex-marketplace-install.json revision';
   } else {
-    const registryPath = installedPluginsPath ?? path.join(homeDir(), '.claude', 'plugins', 'installed_plugins.json');
-    const parsed = parseJsonFile(registryPath, readFileSyncImpl);
-    const entries = parsed.ok
-      ? ((parsed.value as { plugins?: Record<string, Array<Record<string, unknown>>> })?.plugins?.['memesh@pcircle-memesh'] ?? [])
-      : [];
+    const registryPath = installedPluginsPath ?? path.join(pluginHostConfigRoot('claude-code'), 'plugins', 'installed_plugins.json');
+    const registry = readClaudePluginEntries(registryPath, readFileSyncImpl, existsSyncImpl);
+    const entries = registry.entries;
     // One entry per scope (user / project / local). Read the entry for THIS
     // install — entries[0] on a two-scope machine describes another cache.
     const here = path.resolve(packageRoot);
     const matching = entries.filter(e => typeof e?.installPath === 'string' && path.resolve(e.installPath) === here);
-    const entry = matching[0] ?? (entries.length === 1 ? entries[0] : undefined);
-    installedSha = typeof entry?.gitCommitSha === 'string' ? entry.gitCommitSha : null;
-    installedMissing = entries.length > 1 && matching.length === 0
-      ? `installed_plugins.json lists ${entries.length} memesh entries and none of them is this install (${packageRoot})`
-      : 'installed_plugins.json does not record the commit this plugin was installed from';
+    // Exactly one path match identifies this install. Two rows naming the
+    // same cache are corrupt/ambiguous registry state: reading matching[0]
+    // would let a current row hide a stale duplicate and falsely PASS.
+    // This is intentionally stricter than upgrade-plugin.sh's recovery path:
+    // that script may repair a sole legacy row with no installPath by writing
+    // the canonical cache path, while doctor cannot use that row as evidence
+    // that the currently executing cache was built from its recorded commit.
+    const soleEntry = entries.length === 1 ? entries[0] : undefined;
+    const soleEntryHasPath = typeof soleEntry?.installPath === 'string' && soleEntry.installPath.length > 0;
+    const entry = matching.length === 1 ? matching[0] : undefined;
+    installedSha = !registry.malformed
+      && typeof entry?.gitCommitSha === 'string'
+      && /^[0-9a-f]{40}$/.test(entry.gitCommitSha)
+      ? entry.gitCommitSha
+      : null;
+    if (!registry.exists) {
+      installedMissing = `installed_plugins.json does not exist at ${registryPath}`;
+    } else if (!registry.readable) {
+      installedMissing = 'installed_plugins.json could not be read or parsed';
+    } else if (registry.malformed) {
+      installedMissing = 'installed_plugins.json has a malformed memesh entry';
+    } else if (!registry.defined) {
+      installedMissing = 'installed_plugins.json has no memesh@pcircle-memesh entry';
+    } else if (entries.length === 0) {
+      installedMissing = 'installed_plugins.json records no active memesh install for this cache';
+    } else if (matching.length > 1) {
+      installedMissing = `installed_plugins.json lists ${matching.length} memesh entries for this install (${packageRoot})`;
+    } else if (matching.length === 0 && soleEntryHasPath) {
+      installedMissing = `the only memesh entry in installed_plugins.json names another install, not this one (${packageRoot})`;
+    } else if (matching.length === 0 && soleEntry) {
+      installedMissing = 'the only memesh entry in installed_plugins.json has no usable installPath to identify this cache';
+    } else if (entries.length > 1 && matching.length === 0) {
+      installedMissing = `installed_plugins.json lists ${entries.length} memesh entries and none of them is this install (${packageRoot})`;
+    } else {
+      installedMissing = 'installed_plugins.json does not record the commit this plugin was installed from';
+    }
   }
   const marketplaceSha = marketplaceHeadShaImpl(host);
 
   if (!installedSha || !marketplaceSha) {
     const missing = !installedSha ? installedMissing : `the ${hostLabel} marketplace snapshot has no readable commit`;
-    return createCheck(
-      'plugin-cache',
-      'Plugin code is current',
-      'warn',
-      `Could not tell whether the plugin cache matches the marketplace: ${missing}. The version alone cannot answer this — two builds can carry the same version.`,
-      `Run \`${command}\` — it re-stages the cache from the marketplace and records the commit, after which this check can answer.`,
-      { code: 'plugin-cache.unverifiable', params: { host: hostLabel, command } },
-    );
+    return pluginCacheUnverifiable(host, missing);
   }
 
   if (installedSha === marketplaceSha) {
     return createCheck(
       'plugin-cache',
-      'Plugin code is current',
+      `Plugin cache source record is current (${hostLabel})`,
       'pass',
-      `The plugin cache was staged from the commit the marketplace has (${marketplaceSha.slice(0, 8)}).`,
+      `The plugin cache records marketplace commit ${marketplaceSha.slice(0, 8)}, which matches the current marketplace snapshot.`,
     );
   }
 
   return createCheck(
     'plugin-cache',
-    'Plugin code is current',
+    `Plugin cache source record is current (${hostLabel})`,
     'warn',
-    `The plugin cache was built from commit ${installedSha.slice(0, 8)}, but the marketplace has moved to ${marketplaceSha.slice(0, 8)} under the same version — ${hostLabel} does not refresh a cache whose version did not change, so the MCP server and hooks are running older code than the marketplace has.`,
+    `The plugin cache records commit ${installedSha.slice(0, 8)}, but the marketplace has moved to ${marketplaceSha.slice(0, 8)} under the same version — ${hostLabel} does not normally refresh a cache whose version did not change, so refresh the cache before relying on the newer marketplace code.`,
     `Run \`${command}\` to refresh the cache in place, then restart ${hostLabel}.`,
     { code: 'plugin-cache.stale', params: { installed: installedSha.slice(0, 8), marketplace: marketplaceSha.slice(0, 8), host: hostLabel, command } },
   );
@@ -2095,7 +2253,7 @@ function verifySkillsManifest(
       { code: 'skills-manifest.unreadable', params: { detail: err instanceof Error ? err.message : 'parse error' } },
     );
   }
-  const entries = manifest.entries ?? [];
+  const entries = Array.isArray(manifest.entries) ? manifest.entries : [];
   if (entries.length === 0) {
     return createCheck(
       'skills-manifest',
@@ -2483,6 +2641,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
     getCurrentInstallChannelImpl = getCurrentInstallChannel,
     installedPluginsPathImpl,
     marketplaceHeadShaImpl = defaultMarketplaceHeadSha,
+    pluginCacheDiscoveryImpl,
     getInstallChannelSupportImpl = getInstallChannelSupport,
     existsSyncImpl = fs.existsSync,
     readFileSyncImpl = fs.readFileSync,
@@ -2936,8 +3095,28 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   // installedPluginsPathImpl may be undefined — detectPluginRuntime owns the
   // default path; restating it here was a second copy of the same location.
   const wiring = inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir(), install, installedPluginsPathImpl, detectPluginHost(packageRoot));
-  const pluginCache = inspectPluginCacheCurrency(install, detectPluginHost(packageRoot), packageRoot, installedPluginsPathImpl, readFileSyncImpl, marketplaceHeadShaImpl);
+  const pluginCache = inspectPluginCacheCurrency(install, detectPluginHost(packageRoot), packageRoot, installedPluginsPathImpl, readFileSyncImpl, existsSyncImpl, marketplaceHeadShaImpl);
   if (pluginCache) checks.push(pluginCache);
+  if (install === 'npm-global') {
+    const discoveredCounts = new Map<PluginHost, number>();
+    const discoveredPluginCaches = pluginCacheDiscoveryImpl
+      ? pluginCacheDiscoveryImpl()
+      : defaultPluginCacheDiscovery(readFileSyncImpl, existsSyncImpl);
+    for (const discovered of discoveredPluginCaches) {
+      const check = discovered.unverifiableReason
+        ? pluginCacheUnverifiable(discovered.host, discovered.unverifiableReason)
+        : inspectPluginCacheCurrency(
+          'plugin-marketplace', discovered.host, discovered.packageRoot,
+          discovered.installedPluginsPath, readFileSyncImpl, existsSyncImpl, marketplaceHeadShaImpl,
+        );
+      if (check) {
+        const hostName = discovered.host;
+        const index = (discoveredCounts.get(discovered.host) ?? 0) + 1;
+        discoveredCounts.set(discovered.host, index);
+        checks.push({ ...check, id: `plugin-cache-${hostName}${index === 1 ? '' : `-${index}`}` });
+      }
+    }
+  }
   checks.push(wiring);
   // hook-activity's never-ran verdict only reds when wiring is actually in
   // place — otherwise the wiring row above already tells the story, and an

@@ -320,7 +320,11 @@ jobs:
   release-verify:
     name: Release Verification Gate
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # This gate runs the same fully serial suite covered by the matrix's
+    # measured degraded-runner policy above. Run 33299144173 reached the old
+    # 15-minute cap while Vitest was still running; no test failure had been
+    # reported before GitHub cancelled the job.
+    timeout-minutes: 40
 
     steps:
       - name: Checkout

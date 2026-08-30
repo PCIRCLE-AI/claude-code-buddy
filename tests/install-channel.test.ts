@@ -126,7 +126,7 @@ describe('install channel support', () => {
     expect(support.recommendedCommand, 'a Codex user was handed the Claude Code upgrade command')
       .not.toBe('memesh upgrade-plugin');
     expect(support.guidance).not.toMatch(/memesh upgrade-plugin/);
-    expect(support.recommendedCommand).toBe('codex plugin marketplace upgrade pcircle-memesh');
+    expect(support.recommendedCommand).toBe('codex plugin marketplace upgrade pcircle-memesh && codex plugin add memesh@pcircle-memesh');
     expect(support.guidance, 'the guidance never says how to install the refreshed version')
       .toMatch(/codex plugin add memesh@pcircle-memesh/);
     expect(support.label).toMatch(/Codex/);
