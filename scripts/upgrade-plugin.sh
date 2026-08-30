@@ -111,12 +111,22 @@ ENTRY_INDEX="$(INSTALL_REGISTRY="$INSTALL_REGISTRY" CACHE_ROOT="$CACHE_ROOT" nod
   // rewritten.
   if (underRoot.length === 1) { process.stdout.write(String(underRoot[0])); process.exit(0); }
   if (underRoot.length === 0 && entries.length === 1) { process.stdout.write('0'); process.exit(0); }
-  process.stdout.write('ambiguous');
+  // Two different, accurate refusals: several entries live under this root
+  // (which one is THIS install?) vs. none do and there is more than one
+  // entry (nothing to disambiguate by at all). Collapsing both into one
+  // 'ambiguous' value produced a message that said 'none of them lives
+  // under \$CACHE_ROOT' even when the real problem was the opposite —
+  // several of them did.
+  process.stdout.write(underRoot.length > 1 ? 'ambiguous-multiple' : 'ambiguous-none');
 ")" || {
   echo "ERROR: could not read the installed memesh entries from $INSTALL_REGISTRY" >&2
   exit 1
 }
-if [ "$ENTRY_INDEX" = "ambiguous" ]; then
+if [ "$ENTRY_INDEX" = "ambiguous-multiple" ]; then
+  echo "ERROR: installed_plugins.json lists several memesh entries under $CACHE_ROOT — refusing to guess which one to upgrade." >&2
+  exit 1
+fi
+if [ "$ENTRY_INDEX" = "ambiguous-none" ]; then
   echo "ERROR: installed_plugins.json lists several memesh entries and none of them lives under $CACHE_ROOT — refusing to guess which one to upgrade." >&2
   exit 1
 fi
@@ -129,6 +139,22 @@ if [ "$ENTRY_INDEX" = "none" ]; then
   echo "       Reinstall the plugin from the Claude Code /plugin UI." >&2
   exit 1
 fi
+
+# The identity that survives to the write in section 6. Not the numeric
+# index — a position is only meaningful against the array it was computed
+# from, and by section 6 that array may have changed (another process ran
+# meanwhile). The entry's installPath, captured now, is the one value stable
+# enough to re-find the SAME entry later — or to notice it is gone.
+ORIGINAL_INSTALL_PATH="$(INSTALL_REGISTRY="$INSTALL_REGISTRY" ENTRY_INDEX="$ENTRY_INDEX" node -e "
+  const fs = require('fs');
+  const j = JSON.parse(fs.readFileSync(process.env.INSTALL_REGISTRY, 'utf8'));
+  const entries = (j.plugins && j.plugins['memesh@pcircle-memesh']) || [];
+  const entry = entries[Number(process.env.ENTRY_INDEX)];
+  process.stdout.write(typeof entry.installPath === 'string' ? entry.installPath : '');
+")" || {
+  echo "ERROR: could not read the installed memesh entries from $INSTALL_REGISTRY" >&2
+  exit 1
+}
 
 CURRENT_VERSION="$(INSTALL_REGISTRY="$INSTALL_REGISTRY" ENTRY_INDEX="$ENTRY_INDEX" node -e "
   const fs = require('fs');
@@ -189,6 +215,19 @@ PREVIOUS_PATH="$CACHE_ROOT/.previous-$NEW_VERSION-$$"
 cleanup_stage() { rm -rf "$STAGE_PATH"; }
 trap cleanup_stage EXIT
 
+# Shared by every failure branch below that needs to undo the swap: remove
+# whatever got left at NEW_INSTALL_PATH and move the previous cache back.
+# Returns nonzero if the previous cache existed and moving it back failed —
+# callers must check this before claiming "nothing changed".
+rollback_swap() {
+  rm -rf "$NEW_INSTALL_PATH"
+  if [ -e "$PREVIOUS_PATH" ]; then
+    mv "$PREVIOUS_PATH" "$NEW_INSTALL_PATH"
+    return $?
+  fi
+  return 0
+}
+
 echo "==> Staging $NEW_VERSION next to the cache..."
 rm -rf "$STAGE_PATH"
 mkdir -p "$STAGE_PATH"
@@ -227,57 +266,50 @@ if [ -e "$NEW_INSTALL_PATH" ]; then
   }
 fi
 mv "$STAGE_PATH" "$NEW_INSTALL_PATH" || {
-  echo "ERROR: could not move the staged copy into place — restoring the previous cache" >&2
-  [ -e "$PREVIOUS_PATH" ] && mv "$PREVIOUS_PATH" "$NEW_INSTALL_PATH"
+  if rollback_swap; then
+    echo "ERROR: could not move the staged copy into place — restored the previous cache; nothing changed" >&2
+  else
+    echo "ERROR: could not move the staged copy into place, AND restoring the previous cache also failed." >&2
+    echo "       The live install may now be MISSING. The previous cache, if it still exists, is at $PREVIOUS_PATH — move it back manually:" >&2
+    echo "       mv \"$PREVIOUS_PATH\" \"$NEW_INSTALL_PATH\"" >&2
+  fi
   exit 1
 }
 
 # ─── 6. Patch installed_plugins.json (last: the registry names a cache that exists) ──
 # Re-resolve which entry is THIS install from a fresh read of the registry —
-# not the index captured before npm install ran. npm install can take a
-# while; a registry a concurrent process rewrote in that window would make a
-# position captured earlier point at the wrong scope's entry by the time we
-# write. Same "installPath is under CACHE_ROOT" identity as section 2, just
-# asked again, right before the write. Any failure here — no match, more
-# than one match, or the write itself failing — rolls the cache swap back:
-# the write is the only place a partial upgrade gets recorded as done, so
-# nothing partial should exist when it does not happen.
+# not the index captured before npm install ran, and not section 2's
+# "under CACHE_ROOT, else the sole entry" fallback run again either: if the
+# entry we started with was removed by a concurrent process and exactly one
+# OTHER entry happens to remain, that fallback would silently pick and
+# overwrite it — the wrong scope, not "no scope". The one value that
+# identifies the SAME entry we started with is ORIGINAL_INSTALL_PATH,
+# captured in section 2 before anything here could have changed it; refuse
+# unless it still matches exactly one entry. Any failure here — no match,
+# more than one match, or the write itself failing — rolls the cache swap
+# back: the write is the only place a partial upgrade gets recorded as done,
+# so nothing partial should exist when it does not happen.
 echo "==> Updating installed_plugins.json..."
-rollback_swap() {
-  rm -rf "$NEW_INSTALL_PATH"
-  [ -e "$PREVIOUS_PATH" ] && mv "$PREVIOUS_PATH" "$NEW_INSTALL_PATH"
-}
 REGISTRY_TMP="$INSTALL_REGISTRY.tmp-$$"
 NEW_INSTALL_PATH="$NEW_INSTALL_PATH" \
 NEW_VERSION="$NEW_VERSION" \
 INSTALL_REGISTRY="$INSTALL_REGISTRY" \
 REGISTRY_TMP="$REGISTRY_TMP" \
 MARKETPLACE_SHA="$MARKETPLACE_SHA" \
-CACHE_ROOT="$CACHE_ROOT" \
+ORIGINAL_INSTALL_PATH="$ORIGINAL_INSTALL_PATH" \
 node -e "
-  const fs = require('fs'), path = require('path');
+  const fs = require('fs');
   const registryPath = process.env.INSTALL_REGISTRY;
   const j = JSON.parse(fs.readFileSync(registryPath, 'utf8'));
   const entries = (j.plugins && j.plugins['memesh@pcircle-memesh']) || [];
-  const root = path.resolve(process.env.CACHE_ROOT) + path.sep;
-  const underRoot = entries
+  const matches = entries
     .map((e, i) => [e, i])
-    .filter(([e]) => e && typeof e.installPath === 'string' && (path.resolve(e.installPath) + path.sep).startsWith(root));
-  // Same two-tier identity as section 2's initial selection, re-run now: one
-  // entry under this cache root wins outright; failing that, exactly one
-  // entry total (its installPath predates being under CACHE_ROOT, or this is
-  // a fresh registry) is still unambiguous. Anything else refuses — this is
-  // the check that catches the registry having changed while npm install ran.
-  let idx;
-  if (underRoot.length === 1) {
-    idx = underRoot[0][1];
-  } else if (underRoot.length === 0 && entries.length === 1) {
-    idx = 0;
-  } else {
-    console.error(\`re-resolved to \${underRoot.length} of \${entries.length} entries matching under \${process.env.CACHE_ROOT} (expected exactly 1) — the registry changed since this upgrade started\`);
+    .filter(([e]) => e && e.installPath === process.env.ORIGINAL_INSTALL_PATH);
+  if (matches.length !== 1) {
+    console.error(\`re-resolved to \${matches.length} entries whose installPath still equals what this upgrade started with (expected exactly 1) — the registry changed since this upgrade started\`);
     process.exit(2);
   }
-  const entry = entries[idx];
+  const [entry, idx] = matches[0];
   entry.installPath = process.env.NEW_INSTALL_PATH;
   entry.version = process.env.NEW_VERSION;
   entry.lastUpdated = new Date().toISOString();
@@ -287,8 +319,13 @@ node -e "
   fs.writeFileSync(process.env.REGISTRY_TMP, JSON.stringify(j, null, 4) + '\n');
 " && mv "$REGISTRY_TMP" "$INSTALL_REGISTRY" || {
   rm -f "$REGISTRY_TMP"
-  echo "ERROR: failed to update installed_plugins.json — restoring the previous cache; nothing changed" >&2
-  rollback_swap
+  if rollback_swap; then
+    echo "ERROR: failed to update installed_plugins.json — restored the previous cache; nothing changed" >&2
+  else
+    echo "ERROR: failed to update installed_plugins.json, AND restoring the previous cache also failed." >&2
+    echo "       The live install may now be MISSING. The previous cache, if it still exists, is at $PREVIOUS_PATH — move it back manually:" >&2
+    echo "       mv \"$PREVIOUS_PATH\" \"$NEW_INSTALL_PATH\"" >&2
+  fi
   exit 1
 }
 rm -rf "$PREVIOUS_PATH"

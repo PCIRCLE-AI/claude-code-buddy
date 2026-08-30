@@ -211,7 +211,7 @@ describe('upgrade-plugin.sh: same version, different commit', () => {
     try {
       const r = runScript();
       expect(r.exitCode).not.toBe(0);
-      expect(r.stderr).toContain('restoring the previous cache');
+      expect(r.stderr).toContain('restored the previous cache; nothing changed');
     } finally {
       fs.chmodSync(registryDir, 0o755);
     }
@@ -224,4 +224,62 @@ describe('upgrade-plugin.sh: same version, different commit', () => {
     const registryLeftovers = fs.readdirSync(registryDir).filter((n) => n.includes('.tmp-'));
     expect(registryLeftovers, 'registry temp file leftover after rollback').toEqual([]);
   });
+
+  posixOnly('when a concurrent process replaces the original entry with a lone unrelated one mid-run, the write refuses instead of adopting it', () => {
+    // The actual TOCTOU: section 2 resolves and records ORIGINAL_INSTALL_PATH
+    // BEFORE npm install runs; if the registry changes while npm install is
+    // in flight and exactly one OTHER entry (different scope, unrelated
+    // record) happens to remain, section 6 must not silently adopt it — it
+    // was never part of this upgrade. `npm install` runs the staged
+    // package's own `postinstall` life-cycle script by default, which is the
+    // one point in this script where injected code genuinely runs mid-flow —
+    // used here, not to fail the install, but to perform the concurrent
+    // mutation a real second process would.
+    const bumpSha = git(marketplace, 'rev-parse', 'HEAD');
+    const live = path.join(home, '.claude/plugins/cache/pcircle-memesh/memesh/4.8.2');
+    writeRegistry({ installPath: live, version: '4.8.2', gitCommitSha: bumpSha });
+    const mutateRegistry = [
+      'const fs=require("fs");',
+      `fs.writeFileSync(${JSON.stringify(registry)}, JSON.stringify({plugins:{"memesh@pcircle-memesh":[{installPath:"/some/unrelated/scope/4.8.2",version:"4.8.2",gitCommitSha:"${'d'.repeat(40)}"}]}}, null, 4));`,
+    ].join('');
+    fs.writeFileSync(path.join(marketplace, 'package.json'), JSON.stringify({
+      name: 'fake-memesh', version: '4.8.2', private: true,
+      scripts: { postinstall: `node -e ${JSON.stringify(mutateRegistry)}` },
+    }));
+    git(marketplace, 'add', '-A');
+    git(marketplace, 'commit', '-q', '-m', 'fix: entry replaced mid-upgrade');
+    git(marketplace, 'push', '-q', 'origin', 'main');
+
+    const r = runScript();
+    expect(r.exitCode).not.toBe(0);
+    expect(r.stderr).toContain('registry changed since this upgrade started');
+    // Proof the mutation actually ran (not a no-op postinstall failing silently):
+    const after = JSON.parse(fs.readFileSync(registry, 'utf8'));
+    expect(after.plugins['memesh@pcircle-memesh'][0].installPath, 'the unrelated entry was rewritten instead of being left alone').toBe('/some/unrelated/scope/4.8.2');
+    expect(after.plugins['memesh@pcircle-memesh'][0].gitCommitSha).toBe('d'.repeat(40));
+  });
+
+  posixOnly('several entries under this cache root are refused as "several", not misreported as "none"', () => {
+    const bumpSha = git(marketplace, 'rev-parse', 'HEAD');
+    const root = path.join(home, '.claude/plugins/cache/pcircle-memesh/memesh');
+    writeRegistry({ installPath: path.join(root, '4.8.2'), version: '4.8.2', gitCommitSha: bumpSha });
+    const after = JSON.parse(fs.readFileSync(registry, 'utf8'));
+    after.plugins['memesh@pcircle-memesh'].push({ installPath: path.join(root, '4.7.9-leftover'), version: '4.7.9', gitCommitSha: 'e'.repeat(40) });
+    fs.writeFileSync(registry, JSON.stringify(after, null, 4));
+    const r = runScript();
+    expect(r.exitCode).not.toBe(0);
+    expect(r.stderr).toContain('several memesh entries under');
+    expect(r.stderr, 'wrongly claimed none of them lives under the cache root when two of them do').not.toContain('none of them lives under');
+  });
+
+  // No test for "the swap succeeded but BOTH the registry write and the
+  // rollback's restore fail" (upgrade-plugin.sh's rollback_swap, called from
+  // the section-6 failure branch): there is no point in the script's
+  // sequential flow to inject a second, independent filesystem failure
+  // strictly between section 5 (the swap) completing and section 6's write
+  // being attempted, without adding test-only instrumentation to the shipped
+  // script. The code itself is inspected-correct — rollback_swap returns
+  // `mv`'s exit status via `return $?`, and the caller's `if rollback_swap;
+  // then … else …` branches on it — but that inspection is not backed by an
+  // integration test the way every other branch here is.
 });
