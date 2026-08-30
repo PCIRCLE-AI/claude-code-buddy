@@ -220,11 +220,14 @@ trap cleanup_stage EXIT
 # Returns nonzero if the previous cache existed and moving it back failed —
 # callers must check this before claiming "nothing changed".
 rollback_swap() {
-  rm -rf "$NEW_INSTALL_PATH"
+  rm -rf "$NEW_INSTALL_PATH" || return $?
   if [ -e "$PREVIOUS_PATH" ]; then
     mv "$PREVIOUS_PATH" "$NEW_INSTALL_PATH"
     return $?
   fi
+  # Nothing to restore (this was a fresh install, not an upgrade) — but only
+  # a real success if the rm above actually succeeded, checked above, not
+  # assumed here.
   return 0
 }
 

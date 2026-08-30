@@ -29,14 +29,66 @@ function git(cwd: string, ...args: string[]): string {
   }).trim();
 }
 
-function runScript(): { stdout: string; stderr: string; exitCode: number } {
+function runScript(envOverride: Record<string, string> = {}): { stdout: string; stderr: string; exitCode: number } {
   try {
-    const stdout = execFileSync('bash', [SCRIPT], { encoding: 'utf8', env: { ...process.env, HOME: home } });
+    const stdout = execFileSync('bash', [SCRIPT], { encoding: 'utf8', env: { ...process.env, HOME: home, ...envOverride } });
     return { stdout, stderr: '', exitCode: 0 };
   } catch (err: unknown) {
     const e = err as { stdout?: Buffer; stderr?: Buffer; status?: number };
     return { stdout: e.stdout?.toString() ?? '', stderr: e.stderr?.toString() ?? '', exitCode: e.status ?? 1 };
   }
+}
+
+/**
+ * Prepend a shim for one command (`rm` or `mv`) to PATH: it fails once its
+ * arguments have matched `failWhenArgsInclude` (a single path the real
+ * command would receive) `failOnMatchNumber` times (default 1 — fail every
+ * time), and delegates to the real command — found via `command -v` before
+ * the shim directory is on PATH, so the shim cannot find itself — for every
+ * other invocation, including earlier matches. `failOnMatchNumber: 2` is
+ * what makes a genuine forward-then-rollback sequence testable: the section
+ * 5 swap and a later rollback both `mv` to the same NEW_INSTALL_PATH
+ * destination, so only "fail the SECOND time this destination is seen", not
+ * "fail this destination", lets the swap succeed and the rollback fail.
+ * This is how upgrade-plugin.sh's failure-recovery paths get exercised for
+ * real: no chmod timing games (a chmod applied before the script starts can
+ * only block operations that happen to fall after it in the script's own
+ * sequence, and rollback_swap runs after several steps that also need
+ * filesystem access), no test-only hook added to the shipped script — the
+ * shim only ever sees what `rm`/`mv` would have seen anyway.
+ */
+function shimCommandFailure(
+  cmd: 'rm' | 'mv',
+  failWhenArgsInclude: string,
+  failOnMatchNumber = 1,
+): { PATH: string } {
+  const realCmd = execFileSync('command', ['-v', cmd], { shell: '/bin/bash', encoding: 'utf8' }).trim();
+  const shimDir = fs.mkdtempSync(path.join(os.tmpdir(), `memesh-shim-${cmd}-`));
+  const counterFile = path.join(shimDir, '.count');
+  fs.writeFileSync(counterFile, '0');
+  const needle = failWhenArgsInclude.replace(/'/g, `'\\''`);
+  fs.writeFileSync(
+    path.join(shimDir, cmd),
+    [
+      '#!/usr/bin/env bash',
+      'match=0',
+      'for a in "$@"; do',
+      `  if [ "$a" = '${needle}' ]; then match=1; fi`,
+      'done',
+      'if [ "$match" = 1 ]; then',
+      `  n=$(( $(cat '${counterFile}') + 1 ))`,
+      `  echo "$n" > '${counterFile}'`,
+      `  if [ "$n" -eq ${failOnMatchNumber} ]; then`,
+      `    echo "shimmed ${cmd}: refusing on match #$n of '${needle}'" >&2`,
+      '    exit 1',
+      '  fi',
+      'fi',
+      `exec '${realCmd}' "$@"`,
+      '',
+    ].join('\n'),
+    { mode: 0o755 },
+  );
+  return { PATH: `${shimDir}:${process.env.PATH}` };
 }
 
 function writeRegistry(entry: Record<string, unknown>): void {
@@ -272,14 +324,58 @@ describe('upgrade-plugin.sh: same version, different commit', () => {
     expect(r.stderr, 'wrongly claimed none of them lives under the cache root when two of them do').not.toContain('none of them lives under');
   });
 
-  // No test for "the swap succeeded but BOTH the registry write and the
-  // rollback's restore fail" (upgrade-plugin.sh's rollback_swap, called from
-  // the section-6 failure branch): there is no point in the script's
-  // sequential flow to inject a second, independent filesystem failure
-  // strictly between section 5 (the swap) completing and section 6's write
-  // being attempted, without adding test-only instrumentation to the shipped
-  // script. The code itself is inspected-correct — rollback_swap returns
-  // `mv`'s exit status via `return $?`, and the caller's `if rollback_swap;
-  // then … else …` branches on it — but that inspection is not backed by an
-  // integration test the way every other branch here is.
+  posixOnly('a fresh install (no previous cache) whose rollback cleanup itself fails is reported as failed, not "nothing changed"', () => {
+    // rollback_swap's early `rm -rf "$NEW_INSTALL_PATH"` used to run
+    // unchecked; when there is no PREVIOUS_PATH to restore (a genuine
+    // version bump, not a same-version refresh — nothing pre-existed at the
+    // new version's path), the function returned success regardless of
+    // whether that removal actually worked.
+    const cacheRoot = path.join(home, '.claude/plugins/cache/pcircle-memesh/memesh');
+    fs.rmSync(path.join(cacheRoot, '4.8.2'), { recursive: true, force: true }); // beforeEach pre-creates it; this test needs it absent
+    writeRegistry({ installPath: path.join(cacheRoot, '4.7.9'), version: '4.7.9', gitCommitSha: 'f'.repeat(40) });
+    const registryDir = path.dirname(registry);
+    fs.chmodSync(registryDir, 0o555); // forces the registry write in section 6 to fail
+    const shim = shimCommandFailure('rm', path.join(cacheRoot, '4.8.2'));
+    try {
+      const r = runScript(shim);
+      expect(r.exitCode).not.toBe(0);
+      expect(r.stderr).toContain('restoring the previous cache also failed');
+      expect(r.stderr).toContain('may now be MISSING');
+    } finally {
+      fs.chmodSync(registryDir, 0o755);
+    }
+  });
+
+  posixOnly('when the swap succeeds but the registry write AND the restore both fail, the error says so and the live install is left missing, not silently wrong', () => {
+    const bumpSha = git(marketplace, 'rev-parse', 'HEAD');
+    const live = path.join(home, '.claude/plugins/cache/pcircle-memesh/memesh/4.8.2');
+    fs.writeFileSync(path.join(live, 'LIVE-MARKER.txt'), 'previous cache contents\n');
+    writeRegistry({ installPath: live, version: '4.8.2', gitCommitSha: bumpSha });
+    fs.writeFileSync(path.join(marketplace, 'fix.js'), 'module.exports = 7;\n');
+    git(marketplace, 'add', '-A');
+    git(marketplace, 'commit', '-q', '-m', 'fix: double failure via shim');
+    git(marketplace, 'push', '-q', 'origin', 'main');
+    const registryDir = path.dirname(registry);
+    fs.chmodSync(registryDir, 0o555); // registry write fails
+    // Three `mv` calls touch `live` in order: (1) section 5 moving the live
+    // cache aside to PREVIOUS_PATH — source arg; (2) section 5's forward
+    // swap, STAGE_PATH -> live — destination arg; (3) rollback_swap's
+    // restore, PREVIOUS_PATH -> live — destination arg. Let the first two
+    // (the real, successful upgrade swap) through; fail only the third
+    // (the rollback this test is about).
+    const shim = shimCommandFailure('mv', live, 3);
+    try {
+      const r = runScript(shim);
+      expect(r.exitCode).not.toBe(0);
+      expect(r.stderr).toContain('restoring the previous cache also failed');
+      expect(r.stderr).toContain('may now be MISSING');
+      expect(r.stderr).toMatch(/mv ".*\.previous-.*" ".*4\.8\.2"/);
+    } finally {
+      fs.chmodSync(registryDir, 0o755);
+    }
+    expect(fs.existsSync(live), 'the live install should be missing, not silently left in some other state').toBe(false);
+    const leftovers = fs.readdirSync(path.dirname(live)).filter((n) => n.startsWith('.previous-'));
+    expect(leftovers.length, 'the previous cache must still be on disk for the manual recovery command to work').toBe(1);
+    expect(fs.existsSync(path.join(path.dirname(live), leftovers[0], 'LIVE-MARKER.txt')), 'the previous cache itself was corrupted, not just left in place').toBe(true);
+  });
 });
