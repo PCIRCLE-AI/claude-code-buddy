@@ -101,4 +101,53 @@ describe('upgrade-plugin.sh: same version, different commit', () => {
     expect(r.stdout).toContain('refreshing the cache in place');
     expect(r.stdout).toContain('unknown');
   });
+
+  posixOnly('a failed npm install leaves the live cache and the registry untouched', () => {
+    // Same-version refresh targets the directory Claude Code is running from.
+    // The staged copy must be built next to it and swapped in only after
+    // npm install succeeded; otherwise a failure leaves new code with old deps.
+    const bumpSha = git(marketplace, 'rev-parse', 'HEAD');
+    const live = path.join(home, '.claude/plugins/cache/pcircle-memesh/memesh/4.8.2');
+    fs.writeFileSync(path.join(live, 'LIVE-MARKER.txt'), 'the cache Claude Code is running\n');
+    writeRegistry({ installPath: live, version: '4.8.2', gitCommitSha: bumpSha });
+    fs.writeFileSync(path.join(marketplace, 'package.json'), JSON.stringify({
+      name: 'fake-memesh', version: '4.8.2', private: true,
+      dependencies: { '@pcircle/this-package-does-not-exist-9f3a': '1.0.0' },
+    }));
+    git(marketplace, 'add', '-A');
+    git(marketplace, 'commit', '-q', '-m', 'fix: with an uninstallable dependency');
+    git(marketplace, 'push', '-q', 'origin', 'main');
+
+    const r = runScript();
+    expect(r.exitCode).not.toBe(0);
+    expect(r.stderr).toContain('npm install failed');
+    expect(r.stderr).toContain('was not touched');
+    expect(fs.existsSync(path.join(live, 'LIVE-MARKER.txt')), 'live cache was replaced').toBe(true);
+    expect(fs.existsSync(path.join(live, 'package.json')), 'live cache received staged files').toBe(false);
+    const after = JSON.parse(fs.readFileSync(registry, 'utf8'));
+    expect(after.plugins['memesh@pcircle-memesh'][0].gitCommitSha).toBe(bumpSha);
+    const leftovers = fs.readdirSync(path.dirname(live)).filter((n) => n.startsWith('.staging-') || n.startsWith('.previous-'));
+    expect(leftovers, 'staging directory was not cleaned up').toEqual([]);
+  });
+
+  posixOnly('patches the registry entry that lives under this cache root, not entries[0]', () => {
+    const bumpSha = git(marketplace, 'rev-parse', 'HEAD');
+    const live = path.join(home, '.claude/plugins/cache/pcircle-memesh/memesh/4.8.2');
+    fs.writeFileSync(registry, JSON.stringify({ plugins: { 'memesh@pcircle-memesh': [
+      { installPath: path.join(home, 'some-project', '.claude', 'plugins', 'cache', 'memesh', '4.8.2'), version: '4.8.2', scope: 'project', gitCommitSha: 'f'.repeat(40) },
+      { installPath: live, version: '4.8.2', scope: 'user', gitCommitSha: bumpSha },
+    ] } }, null, 4));
+    fs.writeFileSync(path.join(marketplace, 'fix.js'), 'module.exports = 2;\n');
+    git(marketplace, 'add', '-A');
+    git(marketplace, 'commit', '-q', '-m', 'fix: second scope');
+    git(marketplace, 'push', '-q', 'origin', 'main');
+    const headSha = git(marketplace, 'rev-parse', 'HEAD');
+
+    const r = runScript();
+    expect(r.exitCode, r.stderr).toBe(0);
+    const after = JSON.parse(fs.readFileSync(registry, 'utf8')).plugins['memesh@pcircle-memesh'];
+    expect(after[0].gitCommitSha, 'the project-scope entry was rewritten').toBe('f'.repeat(40));
+    expect(after[1].gitCommitSha).toBe(headSha);
+    expect(after[1].installPath).toBe(live);
+  });
 });

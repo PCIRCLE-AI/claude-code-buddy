@@ -182,3 +182,14 @@ export function extractChangelogSection(changelog, version) {
   const body = (next === -1 ? after : after.slice(0, next)).trim();
   return body.length > 0 ? body : null;
 }
+
+/**
+ * The paths a release ships, read from package.json so the guard cannot drift
+ * from the tarball: every `files` entry, plus package.json and its lockfile.
+ * A trailing slash means a directory; `git diff -- <dir>` takes it either way.
+ */
+export function shippedPathsFromPackageJson(pkg) {
+  const files = Array.isArray(pkg?.files) ? pkg.files.filter(f => typeof f === 'string' && f.length > 0) : [];
+  if (files.length === 0) return null;
+  return [...new Set([...files.map(f => f.replace(/\/+$/, '')), 'package.json', 'package-lock.json'])];
+}

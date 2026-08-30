@@ -44,6 +44,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
   checkReleasePreconditions,
+  shippedPathsFromPackageJson,
   extractChangelogSection,
 } from './lib/release-preconditions.mjs';
 
@@ -117,20 +118,20 @@ const remoteTags =
         .filter(r => r.startsWith('v'));
 
 // The commit that introduced this version string into package.json, and every
-// shipped path that moved after it. The paths are what a marketplace install
-// copies and runs (the plugin is the repository tree); tests, docs and CI
-// config are not in that set and may keep moving.
-const SHIPPED_PATHS = ['src', 'dist', 'scripts', 'hooks', 'skills', 'extensions', '.claude-plugin', 'package.json', 'package-lock.json'];
+// shipped path that moved after it. "Shipped" is read from package.json's
+// `files` (plus package.json and the lockfile) — the same list npm packs and a
+// marketplace install copies — so this guard cannot quietly omit a surface.
 // `--first-parent`: the marketplace reads `main`, so what matters is the
 // commit on main's own line where the version string first appeared — the
 // merge of the release PR, not the branch commit inside it. Commits on the
 // release branch after its bump never reach a cache under this version;
 // commits on main after the merge do. `-S` lists every commit where the
 // string's count changed; the oldest is where it first appeared.
+const shippedPaths = shippedPathsFromPackageJson(JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8')));
 const bumpCommits = captureLines('git', ['log', '--first-parent', '--format=%H', '-S', `"version": "${pkgVersion}"`, '--', 'package.json']);
 const bumpCommit = bumpCommits && bumpCommits.length > 0 ? bumpCommits[bumpCommits.length - 1] : null;
-const shippedFilesChangedSinceBump = bumpCommit
-  ? captureLines('git', ['diff', '--name-only', `${bumpCommit}..HEAD`, '--', ...SHIPPED_PATHS])
+const shippedFilesChangedSinceBump = bumpCommit && shippedPaths
+  ? captureLines('git', ['diff', '--name-only', `${bumpCommit}..HEAD`, '--', ...shippedPaths])
   : null;
 
 // Naming the repo proves `gh` exists, is authenticated, and can reach it —

@@ -12,6 +12,10 @@ function getRootBeforeNodeModules(packageRoot) {
         return null;
     return packageRoot.slice(0, index);
 }
+export const PLUGIN_REFRESH_COMMANDS = {
+    'claude-code': 'memesh upgrade-plugin',
+    codex: 'codex plugin marketplace upgrade pcircle-memesh && codex plugin add memesh@pcircle-memesh',
+};
 const PLUGIN_HOST_DIRS = [
     ['claude-code', '.claude', 'CLAUDE_CONFIG_DIR'],
     ['codex', '.codex', 'CODEX_HOME'],
@@ -122,7 +126,7 @@ export function getInstallChannelSupport(channel, packageRoot) {
                     label: 'Codex CLI plugin marketplace',
                     canSelfUpdate: false,
                     recommendedCommand: 'codex plugin marketplace upgrade pcircle-memesh',
-                    guidance: 'Run `codex plugin marketplace upgrade pcircle-memesh` to refresh the snapshot, then `codex plugin remove memesh@pcircle-memesh` and `codex plugin add memesh@pcircle-memesh` to install the new version. The plugin marketplace pins versions, so a new release does not auto-update — and `add` over an existing same-version cache keeps the old files, which is why the remove step is there.',
+                    guidance: `Run \`${PLUGIN_REFRESH_COMMANDS.codex}\` to refresh the snapshot and re-stage the plugin from it (\`add\` replaces an existing same-version cache). The plugin marketplace pins versions, so a new release does not auto-update.`,
                 };
             }
             return {

@@ -15,7 +15,7 @@ import {
 } from '../db.js';
 import { getUpdateCheck } from './version-check.js';
 import { classifyBump } from './updater.js';
-import { getCurrentInstallChannel, getInstallChannelSupport, detectPluginHost, type InstallChannel, type PluginHost } from './install-channel.js';
+import { getCurrentInstallChannel, getInstallChannelSupport, detectPluginHost, PLUGIN_REFRESH_COMMANDS, type InstallChannel, type PluginHost } from './install-channel.js';
 import { getInstallRecord } from './install-id.js';
 import { citationRulePath, citationRuleState, type CitationRuleScope } from './citation-rule.js';
 import { getDbPath, getMemeshDirFromDbPath, homeDir, memeshDir, getProjectName } from './paths.js';
@@ -1685,19 +1685,11 @@ function readCodexInstallRevision(root: string, readFileSyncImpl: typeof fs.read
   return typeof rev === 'string' && /^[0-9a-f]{40}$/.test(rev) ? rev : null;
 }
 
-const PLUGIN_REFRESH_COMMAND: Record<import('./install-channel.js').PluginHost, string> = {
-  'claude-code': 'memesh upgrade-plugin',
-  // `codex plugin add` over an existing same-version cache keeps the old
-  // files (verified 2026-08-30: package.json mtime unchanged after add);
-  // only remove + add re-copies from the refreshed snapshot.
-  codex: 'codex plugin marketplace upgrade pcircle-memesh && codex plugin remove memesh@pcircle-memesh && codex plugin add memesh@pcircle-memesh',
-};
-
 /**
  * Both plugin hosts key their cache by VERSION: once
  * `<host>/plugins/cache/pcircle-memesh/memesh/<version>/` exists, later
  * marketplace updates that keep the same version never refresh it (Claude
- * Code skips the copy; `codex plugin add` keeps the old files). A machine
+ * Code skips the copy; Codex only re-copies on an explicit `plugin add`). A machine
  * that auto-updated between the commit that bumped package.json to 4.8.2 and
  * the fix PRs merged under that same version ran a "4.8.2" MCP server with
  * 19 commits missing, and every version check said it was current. Compare
@@ -1719,7 +1711,7 @@ function inspectPluginCacheCurrency(
   // relocated cache reports null).
   const host: import('./install-channel.js').PluginHost = pluginHost === 'codex' ? 'codex' : 'claude-code';
   const hostLabel = host === 'codex' ? 'Codex' : 'Claude Code';
-  const command = PLUGIN_REFRESH_COMMAND[host];
+  const command = PLUGIN_REFRESH_COMMANDS[host];
 
   let installedSha: string | null;
   let installedMissing: string;
@@ -1729,11 +1721,18 @@ function inspectPluginCacheCurrency(
   } else {
     const registryPath = installedPluginsPath ?? path.join(homeDir(), '.claude', 'plugins', 'installed_plugins.json');
     const parsed = parseJsonFile(registryPath, readFileSyncImpl);
-    const entry = parsed.ok
-      ? ((parsed.value as { plugins?: Record<string, Array<Record<string, unknown>>> })?.plugins?.['memesh@pcircle-memesh'] ?? [])[0]
-      : undefined;
+    const entries = parsed.ok
+      ? ((parsed.value as { plugins?: Record<string, Array<Record<string, unknown>>> })?.plugins?.['memesh@pcircle-memesh'] ?? [])
+      : [];
+    // One entry per scope (user / project / local). Read the entry for THIS
+    // install — entries[0] on a two-scope machine describes another cache.
+    const here = path.resolve(packageRoot);
+    const matching = entries.filter(e => typeof e?.installPath === 'string' && path.resolve(e.installPath) === here);
+    const entry = matching[0] ?? (entries.length === 1 ? entries[0] : undefined);
     installedSha = typeof entry?.gitCommitSha === 'string' ? entry.gitCommitSha : null;
-    installedMissing = 'installed_plugins.json does not record the commit this plugin was installed from';
+    installedMissing = entries.length > 1 && matching.length === 0
+      ? `installed_plugins.json lists ${entries.length} memesh entries and none of them is this install (${packageRoot})`
+      : 'installed_plugins.json does not record the commit this plugin was installed from';
   }
   const marketplaceSha = marketplaceHeadShaImpl(host);
 

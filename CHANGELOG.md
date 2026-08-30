@@ -12,13 +12,18 @@ All notable changes to MeMesh are documented here.
   fix PRs merged under that version kept running a "4.8.2" MCP server with 19
   commits missing — and `memesh upgrade-plugin` answered "Already at 4.8.2 —
   nothing to do." Three changes close this: `upgrade-plugin` compares the
-  commit recorded in `installed_plugins.json` with the marketplace checkout
-  and refreshes the cache in place when they differ; `memesh doctor` reports
-  the same comparison as a `plugin-cache` check (WARN when the cache is
-  behind, WARN "could not tell" when the registry carries no commit — never
-  PASS on the version alone); and `release:finish` refuses to tag when any
-  shipped file changed after the version bump, so a late fix gets its own
-  version instead of shipping under one that caches have already claimed.
+  commit recorded in `installed_plugins.json` with the marketplace checkout,
+  stages the refreshed copy next to the live cache and swaps it in only after
+  its dependencies installed, and patches the registry entry for this install
+  rather than the first one listed; `memesh doctor` reports the same
+  comparison as a `plugin-cache` check on both Claude Code and Codex installs
+  (WARN when the cache is behind, WARN "could not tell" when no commit is
+  recorded — never PASS on the version alone; the Codex fix is
+  `codex plugin marketplace upgrade pcircle-memesh && codex plugin add
+  memesh@pcircle-memesh`, which replaces a same-version cache); and
+  `release:finish` refuses to tag when any path in package.json's `files`
+  changed on main after the version bump, so a late fix gets its own version
+  instead of shipping under one that caches have already claimed.
 
 ## [4.8.2] — 2026-08-29
 

@@ -2713,11 +2713,9 @@ describe('shell CLI on PATH check (plugin-without-global gotcha)', () => {
       expect(check?.code).toBe('plugin-cache.unverifiable');
     });
 
-    it('Codex: WARNs from the .codex-marketplace-install.json revision, and the fix removes before it adds', async () => {
+    it('Codex: WARNs from the .codex-marketplace-install.json revision, and the fix is upgrade + add', async () => {
       // Codex has no installed_plugins.json; it copies the marketplace's
-      // install record into the cache. `codex plugin add` over a same-version
-      // cache keeps the old files (verified 2026-08-30), so the fix must
-      // say remove + add.
+      // install record into the cache.
       const src = createPackageRoot();
       tempRoots.push(src);
       const base = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-doctor-codex-'));
@@ -2746,9 +2744,43 @@ describe('shell CLI on PATH check (plugin-without-global gotcha)', () => {
       expect(check?.status).toBe('warn');
       expect(check?.code).toBe('plugin-cache.stale');
       expect(check?.summary).toContain('Codex');
-      expect(check?.fix).toMatch(/codex plugin remove memesh@pcircle-memesh && codex plugin add/);
+      expect(check?.fix).toMatch(/codex plugin marketplace upgrade pcircle-memesh && codex plugin add memesh@pcircle-memesh/);
+      // `add` replaces a same-version cache atomically (verified on codex-cli
+      // 0.150.1); a `remove` first would leave nothing installed if `add` failed.
+      expect(check?.fix).not.toContain('remove');
       expect(check?.fix).not.toContain('upgrade-plugin');
       expect(check?.params).toMatchObject({ host: 'Codex', installed: 'aaaaaaaa', marketplace: 'bbbbbbbb' });
+    });
+
+    it('reads the registry entry for THIS install when several scopes are listed', async () => {
+      // Claude Code keeps one entry per scope (user / project / local).
+      // entries[0] on a two-scope machine is another cache: here it is stale
+      // while this install's entry is current, so entries[0] would WARN.
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      const registry = path.join(packageRoot, 'installed_plugins.json');
+      fs.writeFileSync(registry, JSON.stringify({ plugins: { 'memesh@pcircle-memesh': [
+        { installPath: '/somewhere/else/4.8.2', version: '4.8.2', scope: 'project', gitCommitSha: 'c'.repeat(40) },
+        { installPath: packageRoot, version: '4.8.2', scope: 'user', gitCommitSha: 'a'.repeat(40) },
+      ] } }));
+      const result = await run(packageRoot, registry, 'a'.repeat(40));
+      const check = result.checks.find((c) => c.id === 'plugin-cache');
+      expect(check?.status).toBe('pass');
+    });
+
+    it('WARNs "could not tell" when several entries are listed and none is this install', async () => {
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      const registry = path.join(packageRoot, 'installed_plugins.json');
+      fs.writeFileSync(registry, JSON.stringify({ plugins: { 'memesh@pcircle-memesh': [
+        { installPath: '/x/4.8.2', version: '4.8.2', gitCommitSha: 'a'.repeat(40) },
+        { installPath: '/y/4.8.2', version: '4.8.2', gitCommitSha: 'a'.repeat(40) },
+      ] } }));
+      const result = await run(packageRoot, registry, 'a'.repeat(40));
+      const check = result.checks.find((c) => c.id === 'plugin-cache');
+      expect(check?.status).toBe('warn');
+      expect(check?.code).toBe('plugin-cache.unverifiable');
+      expect(check?.summary).toContain('none of them is this install');
     });
 
     it('is not reported at all on an npm-global install', async () => {

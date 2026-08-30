@@ -12,7 +12,7 @@ import { probeProvider } from './llm-validator.js';
 import { openDatabase, closeDatabase, getPendingReindexInfo, isDatabaseOpen, readVectorGeneration, generationRowIds, } from '../db.js';
 import { getUpdateCheck } from './version-check.js';
 import { classifyBump } from './updater.js';
-import { getCurrentInstallChannel, getInstallChannelSupport, detectPluginHost } from './install-channel.js';
+import { getCurrentInstallChannel, getInstallChannelSupport, detectPluginHost, PLUGIN_REFRESH_COMMANDS } from './install-channel.js';
 import { getInstallRecord } from './install-id.js';
 import { citationRulePath, citationRuleState } from './citation-rule.js';
 import { getDbPath, getMemeshDirFromDbPath, homeDir, memeshDir, getProjectName } from './paths.js';
@@ -644,16 +644,12 @@ function readCodexInstallRevision(root, readFileSyncImpl) {
     const rev = parsed.value.revision;
     return typeof rev === 'string' && /^[0-9a-f]{40}$/.test(rev) ? rev : null;
 }
-const PLUGIN_REFRESH_COMMAND = {
-    'claude-code': 'memesh upgrade-plugin',
-    codex: 'codex plugin marketplace upgrade pcircle-memesh && codex plugin remove memesh@pcircle-memesh && codex plugin add memesh@pcircle-memesh',
-};
 function inspectPluginCacheCurrency(installChannel, pluginHost, packageRoot, installedPluginsPath, readFileSyncImpl, marketplaceHeadShaImpl) {
     if (installChannel !== 'plugin-marketplace')
         return null;
     const host = pluginHost === 'codex' ? 'codex' : 'claude-code';
     const hostLabel = host === 'codex' ? 'Codex' : 'Claude Code';
-    const command = PLUGIN_REFRESH_COMMAND[host];
+    const command = PLUGIN_REFRESH_COMMANDS[host];
     let installedSha;
     let installedMissing;
     if (host === 'codex') {
@@ -663,11 +659,16 @@ function inspectPluginCacheCurrency(installChannel, pluginHost, packageRoot, ins
     else {
         const registryPath = installedPluginsPath ?? path.join(homeDir(), '.claude', 'plugins', 'installed_plugins.json');
         const parsed = parseJsonFile(registryPath, readFileSyncImpl);
-        const entry = parsed.ok
-            ? (parsed.value?.plugins?.['memesh@pcircle-memesh'] ?? [])[0]
-            : undefined;
+        const entries = parsed.ok
+            ? (parsed.value?.plugins?.['memesh@pcircle-memesh'] ?? [])
+            : [];
+        const here = path.resolve(packageRoot);
+        const matching = entries.filter(e => typeof e?.installPath === 'string' && path.resolve(e.installPath) === here);
+        const entry = matching[0] ?? (entries.length === 1 ? entries[0] : undefined);
         installedSha = typeof entry?.gitCommitSha === 'string' ? entry.gitCommitSha : null;
-        installedMissing = 'installed_plugins.json does not record the commit this plugin was installed from';
+        installedMissing = entries.length > 1 && matching.length === 0
+            ? `installed_plugins.json lists ${entries.length} memesh entries and none of them is this install (${packageRoot})`
+            : 'installed_plugins.json does not record the commit this plugin was installed from';
     }
     const marketplaceSha = marketplaceHeadShaImpl(host);
     if (!installedSha || !marketplaceSha) {

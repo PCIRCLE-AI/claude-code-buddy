@@ -21,6 +21,7 @@ import { fileURLToPath } from 'url';
 import {
   checkReleasePreconditions,
   extractChangelogSection,
+  shippedPathsFromPackageJson,
 } from '../scripts/lib/release-preconditions.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -270,5 +271,25 @@ describe('finish-release cuts the release in one call', () => {
   it('is wired to an npm script, so it is the documented way in', () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
     expect(pkg.scripts['release:finish']).toContain('scripts/finish-release.mjs');
+  });
+});
+
+describe('shipped paths come from package.json, not a hand-kept list', () => {
+  it('lists every `files` entry plus package.json and the lockfile, directories without the trailing slash', () => {
+    const paths = shippedPathsFromPackageJson({ files: ['dist/', 'dashboard/dist/', '.mcp.json', 'hooks/hooks.json'] });
+    expect(paths).toEqual(['dist', 'dashboard/dist', '.mcp.json', 'hooks/hooks.json', 'package.json', 'package-lock.json']);
+  });
+
+  it('covers the surfaces the first hand-kept list missed, using the real package.json', () => {
+    const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
+    const paths = shippedPathsFromPackageJson(pkg)!;
+    for (const must of ['dist', 'dashboard/dist', '.mcp.json', 'hooks/hooks.json', 'scripts/hooks', 'skills', '.claude-plugin', 'package.json']) {
+      expect(paths, `${must} is shipped and must be guarded`).toContain(must);
+    }
+  });
+
+  it('returns null (so the guard refuses) when package.json declares no files', () => {
+    expect(shippedPathsFromPackageJson({})).toBeNull();
+    expect(shippedPathsFromPackageJson({ files: [] })).toBeNull();
   });
 });
