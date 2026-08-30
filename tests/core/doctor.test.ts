@@ -2646,6 +2646,152 @@ describe('shell CLI on PATH check (plugin-without-global gotcha)', () => {
     expect(cliCheck?.fix).toContain('npm install -g @pcircle/memesh');
   });
 
+  describe('plugin-cache: same version is not same code', () => {
+    // Claude Code keys the plugin cache by version. A cache staged from an
+    // earlier commit under the same version is never refreshed, and every
+    // version-based check says it is current. The registry's gitCommitSha
+    // against the marketplace checkout's HEAD is the only honest comparison.
+    const PLUGIN_SUPPORT = {
+      channel: 'plugin-marketplace' as const, label: 'Claude Code plugin marketplace', canSelfUpdate: false,
+      recommendedCommand: 'memesh upgrade-plugin', guidance: '',
+    };
+    function registryWith(packageRoot: string, entry: Record<string, unknown>): string {
+      const registry = path.join(packageRoot, 'installed_plugins.json');
+      fs.writeFileSync(registry, JSON.stringify({ plugins: { 'memesh@pcircle-memesh': [entry] } }));
+      return registry;
+    }
+    async function run(packageRoot: string, registry: string, marketplaceSha: string | null, channel: 'plugin-marketplace' | 'npm-global' = 'plugin-marketplace') {
+      return runDoctor({
+        packageRoot,
+        packageVersion: '4.8.2',
+        openDatabaseImpl: () => makeDatabase(1) as never,
+        closeDatabaseImpl: () => undefined,
+        detectCapabilitiesImpl: () => caps({ searchLevel: 1, embeddings: 'ollama' }),
+        getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+        getUpdateCheckImpl: async () => makeUpdateCheck(),
+        getCurrentInstallChannelImpl: () => channel,
+        getInstallChannelSupportImpl: () => PLUGIN_SUPPORT,
+        installedPluginsPathImpl: registry,
+        marketplaceHeadShaImpl: () => marketplaceSha,
+        nativeBindingProbeImpl: () => ({ ok: true }),
+        resolveShellMemeshImpl: () => null,
+      });
+    }
+
+    it('WARNs when the cache was staged from an older commit than the marketplace has, same version', async () => {
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      const registry = registryWith(packageRoot, { installPath: '/x', version: '4.8.2', gitCommitSha: 'a'.repeat(40) });
+      const result = await run(packageRoot, registry, 'b'.repeat(40));
+      const check = result.checks.find((c) => c.id === 'plugin-cache');
+      expect(check?.status).toBe('warn');
+      expect(check?.code).toBe('plugin-cache.stale');
+      expect(check?.summary).toContain('aaaaaaaa');
+      expect(check?.summary).toContain('bbbbbbbb');
+      expect(check?.fix).toContain('memesh upgrade-plugin');
+    });
+
+    it('PASSes when the registry commit is the marketplace HEAD', async () => {
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      const registry = registryWith(packageRoot, { installPath: '/x', version: '4.8.2', gitCommitSha: 'a'.repeat(40) });
+      const result = await run(packageRoot, registry, 'a'.repeat(40));
+      const check = result.checks.find((c) => c.id === 'plugin-cache');
+      expect(check?.status).toBe('pass');
+      expect(check?.code).toBeUndefined();
+    });
+
+    it('WARNs "could not tell" rather than PASS when the registry carries no commit', async () => {
+      // Absence is not evidence: a registry written by an older Claude Code
+      // (or by hand) has no gitCommitSha, and "unknown" must not read as current.
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      const registry = registryWith(packageRoot, { installPath: '/x', version: '4.8.2' });
+      const result = await run(packageRoot, registry, 'a'.repeat(40));
+      const check = result.checks.find((c) => c.id === 'plugin-cache');
+      expect(check?.status).toBe('warn');
+      expect(check?.code).toBe('plugin-cache.unverifiable');
+    });
+
+    it('Codex: WARNs from the .codex-marketplace-install.json revision, and the fix is upgrade + add', async () => {
+      // Codex has no installed_plugins.json; it copies the marketplace's
+      // install record into the cache.
+      const src = createPackageRoot();
+      tempRoots.push(src);
+      const base = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-doctor-codex-'));
+      tempRoots.push(base);
+      const packageRoot = path.join(base, '.codex', 'plugins', 'cache', 'pcircle-memesh', 'memesh', '4.8.2');
+      fs.cpSync(src, packageRoot, { recursive: true });
+      fs.writeFileSync(path.join(packageRoot, '.codex-marketplace-install.json'), JSON.stringify({ source_type: 'git', revision: 'a'.repeat(40) }));
+      const seenHosts: string[] = [];
+      const result = await runDoctor({
+        packageRoot,
+        packageVersion: '4.8.2',
+        openDatabaseImpl: () => makeDatabase(1) as never,
+        closeDatabaseImpl: () => undefined,
+        detectCapabilitiesImpl: () => caps({ searchLevel: 1, embeddings: 'ollama' }),
+        getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+        getUpdateCheckImpl: async () => makeUpdateCheck(),
+        getCurrentInstallChannelImpl: () => 'plugin-marketplace',
+        getInstallChannelSupportImpl: () => PLUGIN_SUPPORT,
+        installedPluginsPathImpl: path.join(base, 'no-such-registry.json'),
+        marketplaceHeadShaImpl: (host) => { seenHosts.push(host); return 'b'.repeat(40); },
+        nativeBindingProbeImpl: () => ({ ok: true }),
+        resolveShellMemeshImpl: () => null,
+      });
+      const check = result.checks.find((c) => c.id === 'plugin-cache');
+      expect(seenHosts).toEqual(['codex']);
+      expect(check?.status).toBe('warn');
+      expect(check?.code).toBe('plugin-cache.stale');
+      expect(check?.summary).toContain('Codex');
+      expect(check?.fix).toMatch(/codex plugin marketplace upgrade pcircle-memesh && codex plugin add memesh@pcircle-memesh/);
+      // `add` replaces a same-version cache atomically (verified on codex-cli
+      // 0.150.1); a `remove` first would leave nothing installed if `add` failed.
+      expect(check?.fix).not.toContain('remove');
+      expect(check?.fix).not.toContain('upgrade-plugin');
+      expect(check?.params).toMatchObject({ host: 'Codex', installed: 'aaaaaaaa', marketplace: 'bbbbbbbb' });
+    });
+
+    it('reads the registry entry for THIS install when several scopes are listed', async () => {
+      // Claude Code keeps one entry per scope (user / project / local).
+      // entries[0] on a two-scope machine is another cache: here it is stale
+      // while this install's entry is current, so entries[0] would WARN.
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      const registry = path.join(packageRoot, 'installed_plugins.json');
+      fs.writeFileSync(registry, JSON.stringify({ plugins: { 'memesh@pcircle-memesh': [
+        { installPath: '/somewhere/else/4.8.2', version: '4.8.2', scope: 'project', gitCommitSha: 'c'.repeat(40) },
+        { installPath: packageRoot, version: '4.8.2', scope: 'user', gitCommitSha: 'a'.repeat(40) },
+      ] } }));
+      const result = await run(packageRoot, registry, 'a'.repeat(40));
+      const check = result.checks.find((c) => c.id === 'plugin-cache');
+      expect(check?.status).toBe('pass');
+    });
+
+    it('WARNs "could not tell" when several entries are listed and none is this install', async () => {
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      const registry = path.join(packageRoot, 'installed_plugins.json');
+      fs.writeFileSync(registry, JSON.stringify({ plugins: { 'memesh@pcircle-memesh': [
+        { installPath: '/x/4.8.2', version: '4.8.2', gitCommitSha: 'a'.repeat(40) },
+        { installPath: '/y/4.8.2', version: '4.8.2', gitCommitSha: 'a'.repeat(40) },
+      ] } }));
+      const result = await run(packageRoot, registry, 'a'.repeat(40));
+      const check = result.checks.find((c) => c.id === 'plugin-cache');
+      expect(check?.status).toBe('warn');
+      expect(check?.code).toBe('plugin-cache.unverifiable');
+      expect(check?.summary).toContain('none of them is this install');
+    });
+
+    it('is not reported at all on an npm-global install', async () => {
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      const registry = registryWith(packageRoot, { installPath: '/x', version: '4.8.2', gitCommitSha: 'a'.repeat(40) });
+      const result = await run(packageRoot, registry, 'b'.repeat(40), 'npm-global');
+      expect(result.checks.find((c) => c.id === 'plugin-cache')).toBeUndefined();
+    });
+  });
+
   it('PASSes plugin-marketplace install when a separate shell-PATH memesh exists', async () => {
     const packageRoot = createPackageRoot();
     tempRoots.push(packageRoot);

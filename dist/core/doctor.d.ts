@@ -38,6 +38,7 @@ interface DoctorOptions {
     getUpdateCheckImpl?: typeof getUpdateCheck;
     getCurrentInstallChannelImpl?: typeof getCurrentInstallChannel;
     installedPluginsPathImpl?: string;
+    marketplaceHeadShaImpl?: (host: import('./install-channel.js').PluginHost) => string | null;
     getInstallChannelSupportImpl?: typeof getInstallChannelSupport;
     existsSyncImpl?: typeof fs.existsSync;
     readFileSyncImpl?: typeof fs.readFileSync;

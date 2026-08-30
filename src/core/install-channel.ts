@@ -47,6 +47,22 @@ function getRootBeforeNodeModules(packageRoot: string): string | null {
 export type PluginHost = 'claude-code' | 'codex';
 
 /** host, its default home directory name, and the env var that relocates it. */
+/**
+ * The one command per host that re-stages the plugin cache from the
+ * marketplace. Used by the install-channel guidance and by doctor's
+ * plugin-cache check; keep it in one place so the two cannot disagree.
+ *
+ * Codex: `codex plugin add` over an existing same-version cache replaces it
+ * atomically (verified 2026-08-30 on codex-cli 0.150.1 by poisoning the
+ * cache and running `add`: the poison was gone and every file matched the
+ * snapshot). No `remove` step — that would delete the install first and
+ * leave nothing if `add` then failed.
+ */
+export const PLUGIN_REFRESH_COMMANDS: Readonly<Record<PluginHost, string>> = {
+  'claude-code': 'memesh upgrade-plugin',
+  codex: 'codex plugin marketplace upgrade pcircle-memesh && codex plugin add memesh@pcircle-memesh',
+};
+
 const PLUGIN_HOST_DIRS: ReadonlyArray<readonly [PluginHost, string, string]> = [
   ['claude-code', '.claude', 'CLAUDE_CONFIG_DIR'],
   ['codex', '.codex', 'CODEX_HOME'],
@@ -294,7 +310,7 @@ export function getInstallChannelSupport(
           // nothing. Codex ships its own plugin CLI; use that.
           recommendedCommand: 'codex plugin marketplace upgrade pcircle-memesh',
           guidance:
-            'Run `codex plugin marketplace upgrade pcircle-memesh` to refresh the snapshot, then `codex plugin add memesh@pcircle-memesh` to install the new version. The plugin marketplace pins versions, so a new release does not auto-update.',
+            `Run \`${PLUGIN_REFRESH_COMMANDS.codex}\` to refresh the snapshot and re-stage the plugin from it (\`add\` replaces an existing same-version cache). The plugin marketplace pins versions, so a new release does not auto-update.`,
         };
       }
       return {

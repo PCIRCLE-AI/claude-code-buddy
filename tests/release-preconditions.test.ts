@@ -21,6 +21,7 @@ import { fileURLToPath } from 'url';
 import {
   checkReleasePreconditions,
   extractChangelogSection,
+  shippedPathsFromPackageJson,
 } from '../scripts/lib/release-preconditions.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -37,6 +38,7 @@ function ready(overrides: Record<string, unknown> = {}) {
     remoteTags: ['v4.6.0', 'v4.6.1'],
     repoSlug: 'PCIRCLE-AI/memesh',
     notes: '### Added\n\n- something',
+    shippedFilesChangedSinceBump: [],
     ...overrides,
   };
 }
@@ -56,6 +58,22 @@ describe('release preconditions', () => {
 
   it('refuses when the branch cannot be discovered', () => {
     expect(checkReleasePreconditions(ready({ branch: null })).ok).toBe(false);
+  });
+
+  it('refuses when shipped files moved after the version bump', () => {
+    // 4.8.2: the bump commit landed, then two fix PRs merged under the same
+    // version. A plugin cache staged in between was named 4.8.2 and never
+    // refreshed — Claude Code keys the cache by version.
+    const r = checkReleasePreconditions(ready({ shippedFilesChangedSinceBump: ['src/storage/graph-repairs.ts', 'dist/storage/graph-repairs.js'] }));
+    const text = r.blockers.join('\n');
+    expect(text).toContain('after package.json was bumped to 4.7.0');
+    expect(text).toContain('src/storage/graph-repairs.ts');
+    expect(text).toContain('next version');
+  });
+
+  it('refuses when the post-bump diff could not be listed at all', () => {
+    const r = checkReleasePreconditions(ready({ shippedFilesChangedSinceBump: null }));
+    expect(r.blockers.join('\n')).toContain('could not list the shipped files');
   });
 
   it('refuses on a dirty tree', () => {
@@ -253,5 +271,25 @@ describe('finish-release cuts the release in one call', () => {
   it('is wired to an npm script, so it is the documented way in', () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
     expect(pkg.scripts['release:finish']).toContain('scripts/finish-release.mjs');
+  });
+});
+
+describe('shipped paths come from package.json, not a hand-kept list', () => {
+  it('lists every `files` entry plus package.json and the lockfile, directories without the trailing slash', () => {
+    const paths = shippedPathsFromPackageJson({ files: ['dist/', 'dashboard/dist/', '.mcp.json', 'hooks/hooks.json'] });
+    expect(paths).toEqual(['dist', 'dashboard/dist', '.mcp.json', 'hooks/hooks.json', 'package.json', 'package-lock.json']);
+  });
+
+  it('covers the surfaces the first hand-kept list missed, using the real package.json', () => {
+    const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
+    const paths = shippedPathsFromPackageJson(pkg)!;
+    for (const must of ['dist', 'dashboard/dist', '.mcp.json', 'hooks/hooks.json', 'scripts/hooks', 'skills', '.claude-plugin', 'package.json']) {
+      expect(paths, `${must} is shipped and must be guarded`).toContain(must);
+    }
+  });
+
+  it('returns null (so the guard refuses) when package.json declares no files', () => {
+    expect(shippedPathsFromPackageJson({})).toBeNull();
+    expect(shippedPathsFromPackageJson({ files: [] })).toBeNull();
   });
 });

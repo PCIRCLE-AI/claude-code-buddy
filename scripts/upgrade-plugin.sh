@@ -13,6 +13,8 @@
 #   5. Patches ~/.claude/plugins/installed_plugins.json to point at the
 #      new version + path.
 #   6. Leaves the previous version on disk (you can delete it manually if you want).
+#   A same-version refresh (marketplace moved, version did not) is staged next
+#   to the live cache and swapped in only after npm install succeeded.
 #
 # Why this exists:
 #   Claude Code's plugin marketplace pins versions at install time and
@@ -88,91 +90,162 @@ fi
 
 echo "==> Target version: $NEW_VERSION"
 
-CURRENT_VERSION="$(INSTALL_REGISTRY="$INSTALL_REGISTRY" node -e "
-  const fs = require('fs');
+# Which registry entry is THIS install? Claude Code keeps one entry per scope
+# (user / project / local); reading entries[0] on a machine with two of them
+# reports another cache's version and sha, and section 5 would then rewrite
+# the wrong entry. Pick the entry whose installPath sits under this cache
+# root; fall back to the only entry; refuse when it is ambiguous.
+ENTRY_INDEX="$(INSTALL_REGISTRY="$INSTALL_REGISTRY" CACHE_ROOT="$CACHE_ROOT" node -e "
+  const fs = require('fs'), path = require('path');
   const j = JSON.parse(fs.readFileSync(process.env.INSTALL_REGISTRY, 'utf8'));
   const entries = (j.plugins && j.plugins['memesh@pcircle-memesh']) || [];
   if (entries.length === 0) { process.stdout.write('none'); process.exit(0); }
-  process.stdout.write(entries[0].version || 'unknown');
+  const root = path.resolve(process.env.CACHE_ROOT) + path.sep;
+  const idx = entries.findIndex(e => e && typeof e.installPath === 'string' && (path.resolve(e.installPath) + path.sep).startsWith(root));
+  if (idx >= 0) { process.stdout.write(String(idx)); process.exit(0); }
+  if (entries.length === 1) { process.stdout.write('0'); process.exit(0); }
+  process.stdout.write('ambiguous');
 ")" || {
-  # Its sibling twelve lines up has this guard; this read did not, so an
-  # unreadable or malformed installed_plugins.json made CURRENT_VERSION the
-  # empty string. That compares unequal to every target, so the script
-  # reported an upgrade from "" and carried on — on a registry it had just
-  # failed to parse.
+  echo "ERROR: could not read the installed memesh entries from $INSTALL_REGISTRY" >&2
+  exit 1
+}
+if [ "$ENTRY_INDEX" = "ambiguous" ]; then
+  echo "ERROR: installed_plugins.json lists several memesh entries and none of them lives under $CACHE_ROOT — refusing to guess which one to upgrade." >&2
+  exit 1
+fi
+
+CURRENT_VERSION="$(INSTALL_REGISTRY="$INSTALL_REGISTRY" ENTRY_INDEX="$ENTRY_INDEX" node -e "
+  const fs = require('fs');
+  const j = JSON.parse(fs.readFileSync(process.env.INSTALL_REGISTRY, 'utf8'));
+  const entries = (j.plugins && j.plugins['memesh@pcircle-memesh']) || [];
+  if (process.env.ENTRY_INDEX === 'none') { process.stdout.write('none'); process.exit(0); }
+  process.stdout.write(entries[Number(process.env.ENTRY_INDEX)].version || 'unknown');
+")" || {
+  # Its sibling above has this guard; an earlier version of this read did
+  # not, so an unreadable or malformed installed_plugins.json made
+  # CURRENT_VERSION the empty string. That compares unequal to every
+  # target, so the script reported an upgrade from "" and carried on — on
+  # a registry it had just failed to parse.
   echo "ERROR: could not read the installed memesh version from $INSTALL_REGISTRY" >&2
   exit 1
 }
 
 echo "==> Currently installed: $CURRENT_VERSION"
 
+# Same version is NOT "same code". Claude Code keys the plugin cache by
+# version, and so did this script — which is exactly how a machine that
+# auto-updated between the `release: prepare v4.8.2` commit and the two fix
+# PRs that merged under the same version kept serving a 4.8.2 that lacked
+# them, and was told "Already at 4.8.2 — nothing to do." The registry
+# records the commit the cache was staged from (section 5 below); compare
+# that, not the version string.
+INSTALLED_SHA="$(INSTALL_REGISTRY="$INSTALL_REGISTRY" ENTRY_INDEX="$ENTRY_INDEX" node -e "
+  const fs = require('fs');
+  const j = JSON.parse(fs.readFileSync(process.env.INSTALL_REGISTRY, 'utf8'));
+  const entries = (j.plugins && j.plugins['memesh@pcircle-memesh']) || [];
+  const e = (process.env.ENTRY_INDEX === 'none' ? null : entries[Number(process.env.ENTRY_INDEX)]) || {};
+  process.stdout.write(typeof e.gitCommitSha === 'string' ? e.gitCommitSha : 'unknown');
+")" || INSTALLED_SHA="unknown"
+
+MARKETPLACE_SHA="$(git -C "$MARKETPLACE_DIR" rev-parse HEAD 2>/dev/null)" || {
+  echo "ERROR: could not read the marketplace checkout's commit ($MARKETPLACE_DIR)" >&2
+  exit 1
+}
+
 if [ "$CURRENT_VERSION" = "$NEW_VERSION" ]; then
-  echo "==> Already at $NEW_VERSION — nothing to do."
-  exit 0
+  if [ "$INSTALLED_SHA" = "$MARKETPLACE_SHA" ]; then
+    echo "==> Already at $NEW_VERSION (commit ${MARKETPLACE_SHA:0:8}) — nothing to do."
+    exit 0
+  fi
+  echo "==> $NEW_VERSION is installed, but the plugin cache was built from commit ${INSTALLED_SHA:0:8}"
+  echo "    and the marketplace is at ${MARKETPLACE_SHA:0:8} — refreshing the cache in place."
 fi
 
-# ─── 3. Stage new install cache ───────────────────────────────────────────
+# ─── 3. Stage into a sibling, never into the live cache ───────────────────
+# A same-version refresh targets the directory Claude Code is running from.
+# rsync --delete straight into it and then a failed npm install would leave
+# new code with old or missing dependencies and the old registry sha — a
+# broken install that the next restart loads. So: build the whole thing
+# next to the live cache, and only swap once every step has succeeded.
 NEW_INSTALL_PATH="$CACHE_ROOT/$NEW_VERSION"
-echo "==> Staging $NEW_INSTALL_PATH..."
-mkdir -p "$NEW_INSTALL_PATH"
-rsync -a --delete \
+STAGE_PATH="$CACHE_ROOT/.staging-$NEW_VERSION-$$"
+PREVIOUS_PATH="$CACHE_ROOT/.previous-$NEW_VERSION-$$"
+cleanup_stage() { rm -rf "$STAGE_PATH"; }
+trap cleanup_stage EXIT
+
+echo "==> Staging $NEW_VERSION next to the cache..."
+rm -rf "$STAGE_PATH"
+mkdir -p "$STAGE_PATH"
+rsync -a \
   --exclude 'node_modules' \
   --exclude '.git' \
   --exclude 'tests' \
   --exclude 'benchmarks' \
   --exclude 'docs/plans' \
-  "$MARKETPLACE_DIR/" "$NEW_INSTALL_PATH/" || {
-  echo "ERROR: rsync failed" >&2
+  "$MARKETPLACE_DIR/" "$STAGE_PATH/" || {
+  echo "ERROR: rsync failed — the live cache at $NEW_INSTALL_PATH was not touched" >&2
   exit 1
 }
 
-# ─── 4. Install runtime deps ──────────────────────────────────────────────
+# ─── 4. Install runtime deps in the staging copy ──────────────────────────
 echo "==> Installing runtime deps (this may take a minute)..."
 (
-  cd "$NEW_INSTALL_PATH" || exit 1
+  cd "$STAGE_PATH" || exit 1
   npm install --omit=dev --no-audit --no-fund --silent
 ) || {
-  echo "ERROR: npm install failed in $NEW_INSTALL_PATH" >&2
+  echo "ERROR: npm install failed in the staging copy — the live cache at $NEW_INSTALL_PATH was not touched" >&2
   exit 1
 }
 
-# ─── 5. Patch installed_plugins.json ─────────────────────────────────────
+# ─── 5. Swap the staged copy in ───────────────────────────────────────────
+if [ -e "$NEW_INSTALL_PATH" ]; then
+  mv "$NEW_INSTALL_PATH" "$PREVIOUS_PATH" || {
+    echo "ERROR: could not move the live cache aside — nothing was changed" >&2
+    exit 1
+  }
+fi
+mv "$STAGE_PATH" "$NEW_INSTALL_PATH" || {
+  echo "ERROR: could not move the staged copy into place — restoring the previous cache" >&2
+  [ -e "$PREVIOUS_PATH" ] && mv "$PREVIOUS_PATH" "$NEW_INSTALL_PATH"
+  exit 1
+}
+
+# ─── 6. Patch installed_plugins.json (last: the registry names a cache that exists) ──
 echo "==> Updating installed_plugins.json..."
 NEW_INSTALL_PATH="$NEW_INSTALL_PATH" \
 NEW_VERSION="$NEW_VERSION" \
 INSTALL_REGISTRY="$INSTALL_REGISTRY" \
-MARKETPLACE_DIR="$MARKETPLACE_DIR" \
+MARKETPLACE_SHA="$MARKETPLACE_SHA" \
+ENTRY_INDEX="$ENTRY_INDEX" \
 node -e "
   const fs = require('fs');
   const path = process.env.INSTALL_REGISTRY;
   const j = JSON.parse(fs.readFileSync(path, 'utf8'));
-  if (!j.plugins || !Array.isArray(j.plugins['memesh@pcircle-memesh'])) {
+  if (!j.plugins || !Array.isArray(j.plugins['memesh@pcircle-memesh']) || process.env.ENTRY_INDEX === 'none') {
     console.error('installed_plugins.json missing memesh@pcircle-memesh entry');
     process.exit(2);
   }
-  // Read the actual commit sha so future doctor calls match the install.
-  let sha = 'unknown';
-  try {
-    sha = require('child_process')
-      .execFileSync('git', ['-C', process.env.MARKETPLACE_DIR, 'rev-parse', 'HEAD'], { encoding: 'utf8' })
-      .trim();
-  } catch {}
-  const entry = j.plugins['memesh@pcircle-memesh'][0] || {};
+  const idx = Number(process.env.ENTRY_INDEX);
+  const entry = j.plugins['memesh@pcircle-memesh'][idx] || {};
   entry.installPath = process.env.NEW_INSTALL_PATH;
   entry.version = process.env.NEW_VERSION;
   entry.lastUpdated = new Date().toISOString();
-  entry.gitCommitSha = sha;
-  j.plugins['memesh@pcircle-memesh'][0] = entry;
+  // Read once above (MARKETPLACE_SHA); the staleness check compares against it next run.
+  entry.gitCommitSha = process.env.MARKETPLACE_SHA;
+  j.plugins['memesh@pcircle-memesh'][idx] = entry;
   fs.writeFileSync(path, JSON.stringify(j, null, 4) + '\n');
 " || {
-  echo "ERROR: failed to patch installed_plugins.json" >&2
+  echo "ERROR: failed to patch installed_plugins.json — the new cache is in place at $NEW_INSTALL_PATH but the registry still describes the previous one (kept at $PREVIOUS_PATH)" >&2
   exit 1
 }
+rm -rf "$PREVIOUS_PATH"
 
-# ─── 6. Done ─────────────────────────────────────────────────────────────
+# ─── 7. Done ─────────────────────────────────────────────────────────────
 echo ""
-echo "✓ MeMesh upgraded: $CURRENT_VERSION -> $NEW_VERSION"
+echo "✓ MeMesh upgraded: $CURRENT_VERSION (${INSTALLED_SHA:0:8}) -> $NEW_VERSION (${MARKETPLACE_SHA:0:8})"
 echo "  Install path: $NEW_INSTALL_PATH"
 echo ""
 echo "Next step: restart Claude Code so the new MCP server picks up."
-echo "Old version still on disk at $CACHE_ROOT/$CURRENT_VERSION (safe to delete once verified)."
+if [ "$CURRENT_VERSION" != "$NEW_VERSION" ]; then
+  echo "Old version still on disk at $CACHE_ROOT/$CURRENT_VERSION (safe to delete once verified)."
+fi
