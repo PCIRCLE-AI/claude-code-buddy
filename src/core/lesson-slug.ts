@@ -1,9 +1,9 @@
+import { createHash } from 'node:crypto';
+
 /**
- * The name key for an explicit lesson: the first eight significant words of
- * the error, lowercased, non-alphanumerics collapsed. Bounded so a
- * paragraph-length error does not become a paragraph-length entity name;
- * long enough that two different lessons do not collide on a shared opening
- * phrase.
+ * The name key for an explicit lesson: a readable prefix plus a short digest
+ * of the whole normalised error. The prefix keeps the key useful to a human;
+ * the digest keeps lessons with the same opening words distinct.
  *
  * A leaf module on purpose. `lesson-engine.ts` keys new lessons with it, and
  * `storage/graph-repairs.ts` keys the lessons it splits out of a pre-4.8.2
@@ -13,13 +13,14 @@
  * to live below both.
  */
 export function lessonSlug(error: string): string {
-  const words = error
-    .toLowerCase()
+  const normalized = error.normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
+  const words = normalized
     .replace(/[^a-z0-9\u4e00-\u9fff]+/g, ' ')
     .trim()
     .split(/\s+/)
     .filter((w) => w.length > 1)
     .slice(0, 8);
-  const slug = words.join('-');
-  return slug.length > 0 ? slug.slice(0, 80) : 'unspecified';
+  const readable = words.join('-') || 'unspecified';
+  const digest = createHash('sha256').update(normalized).digest('hex').slice(0, 8);
+  return `${readable.slice(0, 71)}-${digest}`;
 }

@@ -41,6 +41,7 @@
     "test:issue-228": "vitest run tests/dashboard/FeedbackWidget.test.tsx --maxWorkers=1",
     "test:issue-229": "vitest run tests/dashboard/OnboardingBanner.test.tsx tests/dashboard-i18n.test.ts --maxWorkers=1",
     "test:issue-230": "vitest run tests/dashboard/OnboardingBanner.test.tsx tests/transports/http.test.ts tests/core/demo.test.ts --maxWorkers=1",
+    "test:issue-241": "vitest run tests/core/lesson-engine.test.ts tests/storage/graph-repairs.test.ts tests/audit/memory-invariants.test.ts --maxWorkers=1",
     "test:issue-267": "vitest run tests/core/briefing.test.ts tests/core/schema-export.test.ts tests/hooks/session-start.test.ts tests/cli/briefing-recipient.test.ts --maxWorkers=1",
     "test:packaged": "node scripts/smoke-packed-artifact.mjs",
     "test:packaged:upgrade": "node scripts/smoke-packed-upgrade.mjs",

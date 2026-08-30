@@ -1,12 +1,14 @@
 // =============================================================================
-// One-shot repairs for data that 4.8.1 and earlier wrote wrongly
+// One-shot repairs for data that 4.8.2 and earlier wrote wrongly
 // =============================================================================
 //
 // v4.8.2 fixed two memory-layer defects (#240, #241). Both fixes stop the
 // wrong rows from being written; neither touches the rows already there. On
 // the maintainer's own graph that was 706 duplicate observations across
 // session summaries and four `-other` lesson entities holding 39 unrelated
-// lessons — and every graph that ran 4.8.1 hooks carries the same shape.
+// lessons — and 4.8.2 itself still left readable-only explicit lesson names
+// behind, so a re-learn after upgrade split one lesson's history across a
+// legacy entity and its new digest-named successor.
 // A fix that only prevents new damage leaves `scripts/audit/memory-invariants.mjs`
 // red on every existing install forever, and leaves recall matching the fused
 // buckets (retrieved 61 times, matched 3) instead of the lessons in them.
@@ -217,13 +219,34 @@ function groupLessons(rows: ObsRow[]): LessonGroup[] {
 }
 
 /**
+ * 4.8.2's first explicit-lesson slug: readable only, no digest.
+ *
+ * Kept local to the repair. Runtime writes use `core/lesson-slug.ts`; this
+ * exists only to recognise historical names that must be canonicalised once.
+ */
+function legacyReadableLessonSlug(error: string): string {
+  const words = error
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fff]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter((w) => w.length > 1)
+    .slice(0, 8);
+  const slug = words.join('-');
+  return slug.length > 0 ? slug.slice(0, 80) : 'unspecified';
+}
+
+/**
  * #241 — one explicit lesson per entity.
  *
- * `learn()` keyed every lesson whose error matched no known runtime category
- * as `lesson-<project>-other`, fusing unrelated lessons into one entity per
- * project. 4.8.2 keys them by a slug of the error text. This pass gives the
- * lessons already fused the same names, so a lesson re-learned after the
- * upgrade lands on its own history rather than beside it.
+ * `learn()` first keyed every lesson whose error matched no known runtime
+ * category as `lesson-<project>-other`, fusing unrelated lessons into one
+ * entity per project; then 4.8.2 switched to a readable-only slug, which kept
+ * one lesson per entity but still collided on shared openings and left old
+ * names behind. The current runtime keys explicit lessons by a readable prefix
+ * plus a digest of the full error text. This pass gives the old rows those
+ * canonical names, so a lesson re-learned after the upgrade lands on its own
+ * history rather than beside it.
  *
  * Each lesson moves — rows, ids and timestamps intact — to
  * `lesson-<project>-<slug>`: created if absent (with the bucket's tags under
@@ -245,7 +268,7 @@ export function splitFusedLessons(
   let moved = -1;
   runOnceMigration(db, {
     key: FUSED_LESSON_SPLIT_KEY,
-    version: 1,
+    version: 2,
     describe: 'fused lesson split',
     migrate: (conn) => {
       const buckets = conn
@@ -273,6 +296,71 @@ export function splitFusedLessons(
       const archive = conn.prepare(`UPDATE entities SET status = 'archived' WHERE id = ? AND ${emptied}`);
       moved = 0;
       let bucketsTouched = 0;
+      let legacyReadableMoved = 0;
+
+      const moveLessonGroups = (
+        source: { id: number; name: string; type: string; namespace: string | null; confidence: number | null; metadata: string | null },
+        project: string,
+        groups: LessonGroup[],
+        tags: string[],
+      ): number => {
+        // The source metadata (trust, provenance, …) describes every lesson
+        // in it equally, so each split-out lesson starts from a copy; only
+        // the fields that are per-entity are replaced below.
+        let inherited: Record<string, unknown> = {};
+        try {
+          const parsed: unknown = source.metadata ? JSON.parse(source.metadata) : {};
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) inherited = parsed as Record<string, unknown>;
+        } catch { /* unreadable metadata: carry nothing rather than guess */ }
+
+        const severities = tags.filter((t) => t.startsWith('severity:'));
+        const carried = tags.filter((t) => !t.startsWith('severity:') && !t.startsWith('source:'));
+        if (severities.length === 1) carried.push(severities[0]);
+        if (!tags.includes('source:auto-learned')) carried.push('source:explicit');
+
+        let movedFromSource = 0;
+        for (const group of groups) {
+          const name = `lesson-${project}-${lessonSlug(group.error)}`;
+          let target = findTarget.get(name) as { id: number; status: string } | undefined;
+          if (target) {
+            if (target.status !== 'active') revive.run(target.id);
+          } else {
+            const contents = group.rows.map((o) => o.content);
+            const title = deps.deriveTitle(source.type, contents);
+            const metadata: Record<string, unknown> = {
+              ...inherited,
+              split_from: source.name,
+              // The signal-score backfill already ran this open; score here so
+              // the split-out lesson is not the one entity without a score.
+              signal_score: computeSignalScore({ type: source.type, name, observations: contents, tags: carried }),
+            };
+            if (title) metadata.title_source = 'heuristic'; else delete metadata.title_source;
+            // Per-entity facts that must not be multiplied: one `dream accept`
+            // put ONE guard on the source (copying it would fire N identical
+            // warnings and count N acceptances); `evidence_for` pairs with a
+            // relation row the new entity does not have; `previous_namespace`
+            // records a move that never happened to it.
+            delete metadata.guard;
+            delete metadata.evidence_for;
+            delete metadata.previous_namespace;
+            const inserted = insertEntity.run(
+              name,
+              source.type,
+              group.rows[0].created_at,
+              JSON.stringify(metadata),
+              source.confidence,
+              source.namespace,
+              title,
+            );
+            target = { id: Number(inserted.lastInsertRowid), status: 'active' };
+            for (const tag of carried) insertTag.run(target.id, tag);
+          }
+          for (const row of group.rows) moveRow.run(target.id, row.id);
+          moved += 1;
+          movedFromSource += 1;
+        }
+        return movedFromSource;
+      };
 
       for (const bucket of buckets) {
         const groups = groupLessons(obsOf.all(bucket.id) as unknown as ObsRow[]);
@@ -283,82 +371,53 @@ export function splitFusedLessons(
         const project =
           tags.find((t) => t.startsWith('project:'))?.slice('project:'.length) ??
           bucket.name.slice('lesson-'.length, -'-other'.length);
-
-        // The bucket's metadata (trust, provenance, …) describes every lesson
-        // in it equally, so each split-out lesson starts from a copy; only
-        // the fields that are per-entity are replaced below.
-        let inherited: Record<string, unknown> = {};
-        try {
-          const parsed: unknown = bucket.metadata ? JSON.parse(bucket.metadata) : {};
-          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) inherited = parsed as Record<string, unknown>;
-        } catch { /* unreadable metadata: carry nothing rather than guess */ }
-
-        const severities = tags.filter((t) => t.startsWith('severity:'));
-        const carried = tags.filter((t) => !t.startsWith('severity:') && !t.startsWith('source:'));
-        if (severities.length === 1) carried.push(severities[0]);
-        if (!tags.includes('source:auto-learned')) carried.push('source:explicit');
-
-        let movedFromBucket = 0;
-        for (const group of groups) {
-          const slug = lessonSlug(group.error);
-          // An error whose slug is exactly "other" would target a bucket — this
-          // one or, after a project rename, another one. Moving rows INTO a
-          // bucket is the state this pass exists to end; leave that group where
-          // it is rather than count a non-move. Exactly "other": a lesson whose
-          // error merely ENDS in the word (`…reach the other`) is a real lesson
-          // and must split out like any other.
-          if (slug === 'other') continue;
-          const name = `lesson-${project}-${slug}`;
-          // A target equal to the bucket itself is a self-move: nothing changes,
-          // and counting it would print a move and owe a reindex for nothing.
-          if (name === bucket.name) continue;
-          let target = findTarget.get(name) as { id: number; status: string } | undefined;
-          if (target) {
-            if (target.status !== 'active') revive.run(target.id);
-          } else {
-            const contents = group.rows.map((o) => o.content);
-            const title = deps.deriveTitle(bucket.type, contents);
-            const metadata: Record<string, unknown> = {
-              ...inherited,
-              split_from: bucket.name,
-              // The signal-score backfill already ran this open; score here so
-              // the split-out lesson is not the one entity without a score.
-              signal_score: computeSignalScore({ type: bucket.type, name, observations: contents, tags: carried }),
-            };
-            if (title) metadata.title_source = 'heuristic'; else delete metadata.title_source;
-            // Per-entity facts that must not be multiplied: one `dream accept`
-            // put ONE guard on the bucket (copying it would fire N identical
-            // warnings and count N acceptances); `evidence_for` pairs with a
-            // relation row the new entity does not have; `previous_namespace`
-            // records a move that never happened to it.
-            delete metadata.guard;
-            delete metadata.evidence_for;
-            delete metadata.previous_namespace;
-            const inserted = insertEntity.run(
-              name,
-              bucket.type,
-              group.rows[0].created_at,
-              JSON.stringify(metadata),
-              bucket.confidence,
-              bucket.namespace,
-              title,
-            );
-            target = { id: Number(inserted.lastInsertRowid), status: 'active' };
-            for (const tag of carried) insertTag.run(target.id, tag);
-          }
-          for (const row of group.rows) moveRow.run(target.id, row.id);
-          moved += 1;
-          movedFromBucket += 1;
-        }
+        const movedFromBucket = moveLessonGroups(bucket, project, groups, tags);
         dropExplicit.run(bucket.id, bucket.id);
         archive.run(bucket.id, bucket.id);
         if (movedFromBucket > 0) bucketsTouched += 1;
       }
 
+      const legacyReadable = conn
+        .prepare(
+          `SELECT e.id, e.name, e.type, e.namespace, e.confidence, e.metadata
+           FROM entities e
+           WHERE e.status = 'active'
+             AND e.type = 'lesson_learned'
+             AND e.name LIKE 'lesson-%'
+             AND e.name NOT LIKE 'lesson-%-other'
+             AND EXISTS (SELECT 1 FROM tags t WHERE t.entity_id = e.id AND t.tag = 'source:explicit')`,
+        )
+        .all() as unknown as Array<{ id: number; name: string; type: string; namespace: string | null; confidence: number | null; metadata: string | null }>;
+
+      for (const entity of legacyReadable) {
+        const rows = obsOf.all(entity.id) as unknown as ObsRow[];
+        const groups = groupLessons(rows);
+        if (groups.length === 0) continue;
+        if (groups.reduce((n, group) => n + group.rows.length, 0) !== rows.length) continue;
+        const tags = (tagsOf.all(entity.id) as unknown as Array<{ tag: string }>).map((t) => t.tag);
+        const project = tags.find((t) => t.startsWith('project:'))?.slice('project:'.length);
+        if (!project) continue;
+        const suffix = entity.name.slice(`lesson-${project}-`.length);
+        // Matching identity and error-pattern tags are indistinguishable from
+        // caller-supplied recurring lessons, so preserve them rather than guess.
+        if (tags.includes(`error-pattern:${suffix}`)) continue;
+        if (!groups.every((group) => `lesson-${project}-${legacyReadableLessonSlug(group.error)}` === entity.name)) continue;
+
+        const movedFromEntity = moveLessonGroups(entity, project, groups, tags);
+        archive.run(entity.id, entity.id);
+        legacyReadableMoved += movedFromEntity;
+      }
+
       if (moved > 0) {
         rebuildFtsIndex(conn);
         deps.markReindexOwed(conn);
-        note(`moved ${moved} lesson(s) out of ${bucketsTouched} "-other" bucket(s) into their own entities; run 'memesh reindex' to refresh their vectors.`);
+        if (legacyReadableMoved === 0) {
+          note(`moved ${moved} lesson(s) out of ${bucketsTouched} "-other" bucket(s) into their own entities; run 'memesh reindex' to refresh their vectors.`);
+        } else if (bucketsTouched === 0) {
+          note(`moved ${legacyReadableMoved} legacy readable-only lesson(s) into their canonical digest entities; run 'memesh reindex' to refresh their vectors.`);
+        } else {
+          note(`moved ${moved - legacyReadableMoved} lesson(s) out of ${bucketsTouched} "-other" bucket(s) and ${legacyReadableMoved} legacy readable-only lesson(s) into their canonical digest entities; run 'memesh reindex' to refresh their vectors.`);
+        }
       }
     },
   });

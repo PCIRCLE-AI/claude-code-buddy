@@ -76,6 +76,11 @@
       "reason": "bounded developer and independent-review replay for the MCP documentation, CODEMAP, and schema-export parity tests; the authoritative release gate is check:surface-parity, which verify:release invokes directly",
       "triaged": "2026-08-28 pre-release surface parity"
     },
+    "C3 npm:test:issue-241": {
+      "class": "SAFE",
+      "reason": "bounded regression runner for issue #241 only; it executes the three focused tests covering slugging, repair rerun semantics, and the read-only invariant detector",
+      "triaged": "2026-08-31 issue-241 focused regression"
+    },
     "C3 scripts/calibrate-transcript-dedup.mjs": {
       "class": "NOT-A-GATE",
       "reason": "manual calibration harness a human runs once to derive TRANSCRIPT_DEDUP_MAX_DISTANCE (its output is cited in the constant's comment); it measures and prints, it is not an automated gate with a CI caller",

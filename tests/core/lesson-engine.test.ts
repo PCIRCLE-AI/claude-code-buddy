@@ -102,10 +102,24 @@ describe('Regression #241: explicit lessons are keyed on content, not on the err
     expect(n).toBe(8); // two submissions x four fields
   });
 
+  it('keeps lessons distinct when their first eight significant words match', () => {
+    const shared = 'The shared parser must preserve every trusted project memory';
+    const a = createExplicitLesson(`${shared} when importing a backup`, 'Keep import provenance', 'proj');
+    const b = createExplicitLesson(`${shared} when rendering a briefing`, 'Keep render provenance', 'proj');
+
+    expect(a.name).not.toBe(b.name);
+    expect(a.name.replace(/-[0-9a-f]{8}$/, '')).toBe(b.name.replace(/-[0-9a-f]{8}$/, ''));
+    const rows = getDatabase().prepare(
+      "SELECT name FROM entities WHERE type = 'lesson_learned' AND name IN (?, ?)",
+    ).all(a.name, b.name);
+    expect(rows).toHaveLength(2);
+  });
+
   it('lessonSlug is bounded and stable', () => {
-    expect(lessonSlug('Null pointer in the auth path')).toBe('null-pointer-in-the-auth-path');
+    expect(lessonSlug('Null pointer in the auth path')).toBe('null-pointer-in-the-auth-path-78ea3cb2');
+    expect(lessonSlug('  NULL pointer in the auth path  ')).toBe('null-pointer-in-the-auth-path-78ea3cb2');
     expect(lessonSlug('x'.repeat(500)).length).toBeLessThanOrEqual(80);
-    expect(lessonSlug('!!!')).toBe('unspecified');
+    expect(lessonSlug('!!!')).toBe('unspecified-e84c538e');
   });
 });
 
