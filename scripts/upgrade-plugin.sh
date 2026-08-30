@@ -106,9 +106,32 @@ CURRENT_VERSION="$(INSTALL_REGISTRY="$INSTALL_REGISTRY" node -e "
 
 echo "==> Currently installed: $CURRENT_VERSION"
 
+# Same version is NOT "same code". Claude Code keys the plugin cache by
+# version, and so did this script — which is exactly how a machine that
+# auto-updated between the `release: prepare v4.8.2` commit and the two fix
+# PRs that merged under the same version kept serving a 4.8.2 that lacked
+# them, and was told "Already at 4.8.2 — nothing to do." The registry
+# records the commit the cache was staged from (section 5 below); compare
+# that, not the version string.
+INSTALLED_SHA="$(INSTALL_REGISTRY="$INSTALL_REGISTRY" node -e "
+  const fs = require('fs');
+  const j = JSON.parse(fs.readFileSync(process.env.INSTALL_REGISTRY, 'utf8'));
+  const e = ((j.plugins && j.plugins['memesh@pcircle-memesh']) || [])[0] || {};
+  process.stdout.write(typeof e.gitCommitSha === 'string' ? e.gitCommitSha : 'unknown');
+")" || INSTALLED_SHA="unknown"
+
+MARKETPLACE_SHA="$(git -C "$MARKETPLACE_DIR" rev-parse HEAD 2>/dev/null)" || {
+  echo "ERROR: could not read the marketplace checkout's commit ($MARKETPLACE_DIR)" >&2
+  exit 1
+}
+
 if [ "$CURRENT_VERSION" = "$NEW_VERSION" ]; then
-  echo "==> Already at $NEW_VERSION — nothing to do."
-  exit 0
+  if [ "$INSTALLED_SHA" = "$MARKETPLACE_SHA" ]; then
+    echo "==> Already at $NEW_VERSION (commit ${MARKETPLACE_SHA:0:8}) — nothing to do."
+    exit 0
+  fi
+  echo "==> $NEW_VERSION is installed, but the plugin cache was built from commit ${INSTALLED_SHA:0:8}"
+  echo "    and the marketplace is at ${MARKETPLACE_SHA:0:8} — refreshing the cache in place."
 fi
 
 # ─── 3. Stage new install cache ───────────────────────────────────────────
@@ -141,7 +164,7 @@ echo "==> Updating installed_plugins.json..."
 NEW_INSTALL_PATH="$NEW_INSTALL_PATH" \
 NEW_VERSION="$NEW_VERSION" \
 INSTALL_REGISTRY="$INSTALL_REGISTRY" \
-MARKETPLACE_DIR="$MARKETPLACE_DIR" \
+MARKETPLACE_SHA="$MARKETPLACE_SHA" \
 node -e "
   const fs = require('fs');
   const path = process.env.INSTALL_REGISTRY;
@@ -151,12 +174,9 @@ node -e "
     process.exit(2);
   }
   // Read the actual commit sha so future doctor calls match the install.
-  let sha = 'unknown';
-  try {
-    sha = require('child_process')
-      .execFileSync('git', ['-C', process.env.MARKETPLACE_DIR, 'rev-parse', 'HEAD'], { encoding: 'utf8' })
-      .trim();
-  } catch {}
+  // Read once above (MARKETPLACE_SHA) and passed in; the staleness check
+  // at the top compares against this value on the next run.
+  const sha = process.env.MARKETPLACE_SHA;
   const entry = j.plugins['memesh@pcircle-memesh'][0] || {};
   entry.installPath = process.env.NEW_INSTALL_PATH;
   entry.version = process.env.NEW_VERSION;
@@ -171,8 +191,10 @@ node -e "
 
 # ─── 6. Done ─────────────────────────────────────────────────────────────
 echo ""
-echo "✓ MeMesh upgraded: $CURRENT_VERSION -> $NEW_VERSION"
+echo "✓ MeMesh upgraded: $CURRENT_VERSION (${INSTALLED_SHA:0:8}) -> $NEW_VERSION (${MARKETPLACE_SHA:0:8})"
 echo "  Install path: $NEW_INSTALL_PATH"
 echo ""
 echo "Next step: restart Claude Code so the new MCP server picks up."
-echo "Old version still on disk at $CACHE_ROOT/$CURRENT_VERSION (safe to delete once verified)."
+if [ "$CURRENT_VERSION" != "$NEW_VERSION" ]; then
+  echo "Old version still on disk at $CACHE_ROOT/$CURRENT_VERSION (safe to delete once verified)."
+fi

@@ -122,7 +122,7 @@ export function getInstallChannelSupport(channel, packageRoot) {
                     label: 'Codex CLI plugin marketplace',
                     canSelfUpdate: false,
                     recommendedCommand: 'codex plugin marketplace upgrade pcircle-memesh',
-                    guidance: 'Run `codex plugin marketplace upgrade pcircle-memesh` to refresh the snapshot, then `codex plugin add memesh@pcircle-memesh` to install the new version. The plugin marketplace pins versions, so a new release does not auto-update.',
+                    guidance: 'Run `codex plugin marketplace upgrade pcircle-memesh` to refresh the snapshot, then `codex plugin remove memesh@pcircle-memesh` and `codex plugin add memesh@pcircle-memesh` to install the new version. The plugin marketplace pins versions, so a new release does not auto-update — and `add` over an existing same-version cache keeps the old files, which is why the remove step is there.',
                 };
             }
             return {

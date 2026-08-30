@@ -4,6 +4,22 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A plugin install can now tell "same version" from "same code".** Claude
+  Code keys its plugin cache by version, so a machine that auto-updated from
+  the marketplace between the commit that bumped package.json to 4.8.2 and the
+  fix PRs merged under that version kept running a "4.8.2" MCP server with 19
+  commits missing — and `memesh upgrade-plugin` answered "Already at 4.8.2 —
+  nothing to do." Three changes close this: `upgrade-plugin` compares the
+  commit recorded in `installed_plugins.json` with the marketplace checkout
+  and refreshes the cache in place when they differ; `memesh doctor` reports
+  the same comparison as a `plugin-cache` check (WARN when the cache is
+  behind, WARN "could not tell" when the registry carries no commit — never
+  PASS on the version alone); and `release:finish` refuses to tag when any
+  shipped file changed after the version bump, so a late fix gets its own
+  version instead of shipping under one that caches have already claimed.
+
 ## [4.8.2] — 2026-08-29
 
 A Dashboard usability sweep. Every item below was found by walking the v4.8.1

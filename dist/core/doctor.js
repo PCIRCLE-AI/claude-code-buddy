@@ -623,6 +623,62 @@ function inspectShellCli(installChannel, packageRoot, resolveShellMemeshImpl) {
         ? `\`memesh\` resolves to ${shellPath}.`
         : `No shell-PATH \`memesh\` detected. If you want terminal access, run \`npm install -g @pcircle/memesh\` (this install is a ${installChannel}, so the check is informational only).`);
 }
+function defaultMarketplaceHeadSha(host) {
+    if (host === 'codex') {
+        const codexHome = process.env.CODEX_HOME || path.join(homeDir(), '.codex');
+        return readCodexInstallRevision(path.join(codexHome, '.tmp', 'marketplaces', 'pcircle-memesh'), fs.readFileSync);
+    }
+    const dir = path.join(homeDir(), '.claude', 'plugins', 'marketplaces', 'pcircle-memesh');
+    try {
+        const out = execFileSync('git', ['-C', dir, 'rev-parse', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+        return /^[0-9a-f]{40}$/.test(out) ? out : null;
+    }
+    catch {
+        return null;
+    }
+}
+function readCodexInstallRevision(root, readFileSyncImpl) {
+    const parsed = parseJsonFile(path.join(root, '.codex-marketplace-install.json'), readFileSyncImpl);
+    if (!parsed.ok)
+        return null;
+    const rev = parsed.value.revision;
+    return typeof rev === 'string' && /^[0-9a-f]{40}$/.test(rev) ? rev : null;
+}
+const PLUGIN_REFRESH_COMMAND = {
+    'claude-code': 'memesh upgrade-plugin',
+    codex: 'codex plugin marketplace upgrade pcircle-memesh && codex plugin remove memesh@pcircle-memesh && codex plugin add memesh@pcircle-memesh',
+};
+function inspectPluginCacheCurrency(installChannel, pluginHost, packageRoot, installedPluginsPath, readFileSyncImpl, marketplaceHeadShaImpl) {
+    if (installChannel !== 'plugin-marketplace')
+        return null;
+    const host = pluginHost === 'codex' ? 'codex' : 'claude-code';
+    const hostLabel = host === 'codex' ? 'Codex' : 'Claude Code';
+    const command = PLUGIN_REFRESH_COMMAND[host];
+    let installedSha;
+    let installedMissing;
+    if (host === 'codex') {
+        installedSha = readCodexInstallRevision(packageRoot, readFileSyncImpl);
+        installedMissing = 'the plugin cache carries no readable .codex-marketplace-install.json revision';
+    }
+    else {
+        const registryPath = installedPluginsPath ?? path.join(homeDir(), '.claude', 'plugins', 'installed_plugins.json');
+        const parsed = parseJsonFile(registryPath, readFileSyncImpl);
+        const entry = parsed.ok
+            ? (parsed.value?.plugins?.['memesh@pcircle-memesh'] ?? [])[0]
+            : undefined;
+        installedSha = typeof entry?.gitCommitSha === 'string' ? entry.gitCommitSha : null;
+        installedMissing = 'installed_plugins.json does not record the commit this plugin was installed from';
+    }
+    const marketplaceSha = marketplaceHeadShaImpl(host);
+    if (!installedSha || !marketplaceSha) {
+        const missing = !installedSha ? installedMissing : `the ${hostLabel} marketplace snapshot has no readable commit`;
+        return createCheck('plugin-cache', 'Plugin code is current', 'warn', `Could not tell whether the plugin cache matches the marketplace: ${missing}. The version alone cannot answer this — two builds can carry the same version.`, `Run \`${command}\` — it re-stages the cache from the marketplace and records the commit, after which this check can answer.`, { code: 'plugin-cache.unverifiable', params: { host: hostLabel, command } });
+    }
+    if (installedSha === marketplaceSha) {
+        return createCheck('plugin-cache', 'Plugin code is current', 'pass', `The plugin cache was staged from the commit the marketplace has (${marketplaceSha.slice(0, 8)}).`);
+    }
+    return createCheck('plugin-cache', 'Plugin code is current', 'warn', `The plugin cache was built from commit ${installedSha.slice(0, 8)}, but the marketplace has moved to ${marketplaceSha.slice(0, 8)} under the same version — ${hostLabel} does not refresh a cache whose version did not change, so the MCP server and hooks are running older code than the marketplace has.`, `Run \`${command}\` to refresh the cache in place, then restart ${hostLabel}.`, { code: 'plugin-cache.stale', params: { installed: installedSha.slice(0, 8), marketplace: marketplaceSha.slice(0, 8), host: hostLabel, command } });
+}
 function inspectDashboardArtifact(packageRoot, existsSyncImpl) {
     const dashboardPath = path.join(packageRoot, 'dashboard', 'dist', 'index.html');
     if (!existsSyncImpl(dashboardPath)) {
@@ -938,7 +994,7 @@ function summarizeOverallStatus(checks) {
     return 'PASS';
 }
 export async function runDoctor(options) {
-    const { packageRoot, packageVersion, probeHttp = false, probeCapabilities = false, embedTextImpl = embedText, probeProviderImpl = probeProvider, httpBaseUrl = 'http://127.0.0.1:3737', platform = process.platform, openDatabaseImpl = openDatabase, closeDatabaseImpl = closeDatabase, isDatabaseOpenImpl = isDatabaseOpen, detectCapabilitiesImpl = detectCapabilities, getConfigPathImpl = getConfigPath, getUpdateCheckImpl = getUpdateCheck, getCurrentInstallChannelImpl = getCurrentInstallChannel, installedPluginsPathImpl, getInstallChannelSupportImpl = getInstallChannelSupport, existsSyncImpl = fs.existsSync, readFileSyncImpl = fs.readFileSync, statSyncImpl = fs.statSync, fetchImpl = fetch, agentMessageStoragePolicy, nativeBindingProbeImpl, resolveShellMemeshImpl = defaultResolveShellMemesh, probeMessageCapability = process.env.MEMESH_DOCTOR_PROBE_MESSAGE_CAPABILITY === '1', messageCapabilityProbeImpl = probeInstalledMessageCapability, probeMessageRouterStatus = process.env.MEMESH_DOCTOR_PROBE_MESSAGE_ROUTER === '1', messageRouterStatusProbeImpl = defaultMessageRouterStatusProbe, } = options;
+    const { packageRoot, packageVersion, probeHttp = false, probeCapabilities = false, embedTextImpl = embedText, probeProviderImpl = probeProvider, httpBaseUrl = 'http://127.0.0.1:3737', platform = process.platform, openDatabaseImpl = openDatabase, closeDatabaseImpl = closeDatabase, isDatabaseOpenImpl = isDatabaseOpen, detectCapabilitiesImpl = detectCapabilities, getConfigPathImpl = getConfigPath, getUpdateCheckImpl = getUpdateCheck, getCurrentInstallChannelImpl = getCurrentInstallChannel, installedPluginsPathImpl, marketplaceHeadShaImpl = defaultMarketplaceHeadSha, getInstallChannelSupportImpl = getInstallChannelSupport, existsSyncImpl = fs.existsSync, readFileSyncImpl = fs.readFileSync, statSyncImpl = fs.statSync, fetchImpl = fetch, agentMessageStoragePolicy, nativeBindingProbeImpl, resolveShellMemeshImpl = defaultResolveShellMemesh, probeMessageCapability = process.env.MEMESH_DOCTOR_PROBE_MESSAGE_CAPABILITY === '1', messageCapabilityProbeImpl = probeInstalledMessageCapability, probeMessageRouterStatus = process.env.MEMESH_DOCTOR_PROBE_MESSAGE_ROUTER === '1', messageRouterStatusProbeImpl = defaultMessageRouterStatusProbe, } = options;
     const wasDbOpenBeforeUs = isDatabaseOpenImpl();
     const safeCloseDatabaseImpl = wasDbOpenBeforeUs
         ? () => undefined
@@ -1144,6 +1200,9 @@ export async function runDoctor(options) {
     checks.push(inspectMcpConfig(packageRoot, existsSyncImpl, readFileSyncImpl));
     checks.push(...inspectHooksConfig(packageRoot, platform, existsSyncImpl, readFileSyncImpl, statSyncImpl));
     const wiring = inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir(), install, installedPluginsPathImpl, detectPluginHost(packageRoot));
+    const pluginCache = inspectPluginCacheCurrency(install, detectPluginHost(packageRoot), packageRoot, installedPluginsPathImpl, readFileSyncImpl, marketplaceHeadShaImpl);
+    if (pluginCache)
+        checks.push(pluginCache);
     checks.push(wiring);
     const captureWired = wiring.status === 'pass'
         && (wiring.params === undefined || wiring.params.captureWired === 1);

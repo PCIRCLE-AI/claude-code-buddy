@@ -136,6 +136,9 @@ interface DoctorOptions {
   /** Test override for Claude Code's plugin registry — the default reads the
    *  real machine, which would make hook-wiring tests host-state-dependent. */
   installedPluginsPathImpl?: string;
+  /** Test override for the commit the marketplace checkout is at — the
+   *  default runs `git rev-parse HEAD` in ~/.claude/plugins/marketplaces. */
+  marketplaceHeadShaImpl?: (host: import('./install-channel.js').PluginHost) => string | null;
   getInstallChannelSupportImpl?: typeof getInstallChannelSupport;
   existsSyncImpl?: typeof fs.existsSync;
   readFileSyncImpl?: typeof fs.readFileSync;
@@ -1656,6 +1659,115 @@ function inspectShellCli(
   );
 }
 
+/** Where a plugin host keeps its marketplace checkout and what commit it is at. */
+function defaultMarketplaceHeadSha(host: import('./install-channel.js').PluginHost): string | null {
+  if (host === 'codex') {
+    // Codex snapshots the marketplace under $CODEX_HOME/.tmp/marketplaces and
+    // records the revision it fetched next to it; the same file is copied
+    // into the plugin cache on `codex plugin add`, which is what lets the two
+    // be compared without a registry.
+    const codexHome = process.env.CODEX_HOME || path.join(homeDir(), '.codex');
+    return readCodexInstallRevision(path.join(codexHome, '.tmp', 'marketplaces', 'pcircle-memesh'), fs.readFileSync);
+  }
+  const dir = path.join(homeDir(), '.claude', 'plugins', 'marketplaces', 'pcircle-memesh');
+  try {
+    const out = execFileSync('git', ['-C', dir, 'rev-parse', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    return /^[0-9a-f]{40}$/.test(out) ? out : null;
+  } catch {
+    return null;
+  }
+}
+
+function readCodexInstallRevision(root: string, readFileSyncImpl: typeof fs.readFileSync): string | null {
+  const parsed = parseJsonFile(path.join(root, '.codex-marketplace-install.json'), readFileSyncImpl);
+  if (!parsed.ok) return null;
+  const rev = (parsed.value as { revision?: unknown }).revision;
+  return typeof rev === 'string' && /^[0-9a-f]{40}$/.test(rev) ? rev : null;
+}
+
+const PLUGIN_REFRESH_COMMAND: Record<import('./install-channel.js').PluginHost, string> = {
+  'claude-code': 'memesh upgrade-plugin',
+  // `codex plugin add` over an existing same-version cache keeps the old
+  // files (verified 2026-08-30: package.json mtime unchanged after add);
+  // only remove + add re-copies from the refreshed snapshot.
+  codex: 'codex plugin marketplace upgrade pcircle-memesh && codex plugin remove memesh@pcircle-memesh && codex plugin add memesh@pcircle-memesh',
+};
+
+/**
+ * Both plugin hosts key their cache by VERSION: once
+ * `<host>/plugins/cache/pcircle-memesh/memesh/<version>/` exists, later
+ * marketplace updates that keep the same version never refresh it (Claude
+ * Code skips the copy; `codex plugin add` keeps the old files). A machine
+ * that auto-updated between the commit that bumped package.json to 4.8.2 and
+ * the fix PRs merged under that same version ran a "4.8.2" MCP server with
+ * 19 commits missing, and every version check said it was current. Compare
+ * the commit the cache was staged from with the one the marketplace has —
+ * Claude Code records it in installed_plugins.json, Codex in the
+ * `.codex-marketplace-install.json` it copies into the cache.
+ */
+function inspectPluginCacheCurrency(
+  installChannel: import('./install-channel.js').InstallChannel,
+  pluginHost: import('./install-channel.js').PluginHost | null,
+  packageRoot: string,
+  installedPluginsPath: string | undefined,
+  readFileSyncImpl: typeof fs.readFileSync,
+  marketplaceHeadShaImpl: (host: import('./install-channel.js').PluginHost) => string | null,
+): DoctorCheck | null {
+  if (installChannel !== 'plugin-marketplace') return null;
+  // Same rule as inspectShellCli: on a plugin-marketplace channel, anything
+  // that is not Codex is Claude Code (the host walk is path-based and a
+  // relocated cache reports null).
+  const host: import('./install-channel.js').PluginHost = pluginHost === 'codex' ? 'codex' : 'claude-code';
+  const hostLabel = host === 'codex' ? 'Codex' : 'Claude Code';
+  const command = PLUGIN_REFRESH_COMMAND[host];
+
+  let installedSha: string | null;
+  let installedMissing: string;
+  if (host === 'codex') {
+    installedSha = readCodexInstallRevision(packageRoot, readFileSyncImpl);
+    installedMissing = 'the plugin cache carries no readable .codex-marketplace-install.json revision';
+  } else {
+    const registryPath = installedPluginsPath ?? path.join(homeDir(), '.claude', 'plugins', 'installed_plugins.json');
+    const parsed = parseJsonFile(registryPath, readFileSyncImpl);
+    const entry = parsed.ok
+      ? ((parsed.value as { plugins?: Record<string, Array<Record<string, unknown>>> })?.plugins?.['memesh@pcircle-memesh'] ?? [])[0]
+      : undefined;
+    installedSha = typeof entry?.gitCommitSha === 'string' ? entry.gitCommitSha : null;
+    installedMissing = 'installed_plugins.json does not record the commit this plugin was installed from';
+  }
+  const marketplaceSha = marketplaceHeadShaImpl(host);
+
+  if (!installedSha || !marketplaceSha) {
+    const missing = !installedSha ? installedMissing : `the ${hostLabel} marketplace snapshot has no readable commit`;
+    return createCheck(
+      'plugin-cache',
+      'Plugin code is current',
+      'warn',
+      `Could not tell whether the plugin cache matches the marketplace: ${missing}. The version alone cannot answer this — two builds can carry the same version.`,
+      `Run \`${command}\` — it re-stages the cache from the marketplace and records the commit, after which this check can answer.`,
+      { code: 'plugin-cache.unverifiable', params: { host: hostLabel, command } },
+    );
+  }
+
+  if (installedSha === marketplaceSha) {
+    return createCheck(
+      'plugin-cache',
+      'Plugin code is current',
+      'pass',
+      `The plugin cache was staged from the commit the marketplace has (${marketplaceSha.slice(0, 8)}).`,
+    );
+  }
+
+  return createCheck(
+    'plugin-cache',
+    'Plugin code is current',
+    'warn',
+    `The plugin cache was built from commit ${installedSha.slice(0, 8)}, but the marketplace has moved to ${marketplaceSha.slice(0, 8)} under the same version — ${hostLabel} does not refresh a cache whose version did not change, so the MCP server and hooks are running older code than the marketplace has.`,
+    `Run \`${command}\` to refresh the cache in place, then restart ${hostLabel}.`,
+    { code: 'plugin-cache.stale', params: { installed: installedSha.slice(0, 8), marketplace: marketplaceSha.slice(0, 8), host: hostLabel, command } },
+  );
+}
+
 function inspectDashboardArtifact(
   packageRoot: string,
   existsSyncImpl: typeof fs.existsSync,
@@ -2360,6 +2472,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
     getUpdateCheckImpl = getUpdateCheck,
     getCurrentInstallChannelImpl = getCurrentInstallChannel,
     installedPluginsPathImpl,
+    marketplaceHeadShaImpl = defaultMarketplaceHeadSha,
     getInstallChannelSupportImpl = getInstallChannelSupport,
     existsSyncImpl = fs.existsSync,
     readFileSyncImpl = fs.readFileSync,
@@ -2813,6 +2926,8 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   // installedPluginsPathImpl may be undefined — detectPluginRuntime owns the
   // default path; restating it here was a second copy of the same location.
   const wiring = inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir(), install, installedPluginsPathImpl, detectPluginHost(packageRoot));
+  const pluginCache = inspectPluginCacheCurrency(install, detectPluginHost(packageRoot), packageRoot, installedPluginsPathImpl, readFileSyncImpl, marketplaceHeadShaImpl);
+  if (pluginCache) checks.push(pluginCache);
   checks.push(wiring);
   // hook-activity's never-ran verdict only reds when wiring is actually in
   // place — otherwise the wiring row above already tells the story, and an

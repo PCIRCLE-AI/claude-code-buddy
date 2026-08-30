@@ -37,6 +37,7 @@ function ready(overrides: Record<string, unknown> = {}) {
     remoteTags: ['v4.6.0', 'v4.6.1'],
     repoSlug: 'PCIRCLE-AI/memesh',
     notes: '### Added\n\n- something',
+    shippedFilesChangedSinceBump: [],
     ...overrides,
   };
 }
@@ -56,6 +57,22 @@ describe('release preconditions', () => {
 
   it('refuses when the branch cannot be discovered', () => {
     expect(checkReleasePreconditions(ready({ branch: null })).ok).toBe(false);
+  });
+
+  it('refuses when shipped files moved after the version bump', () => {
+    // 4.8.2: the bump commit landed, then two fix PRs merged under the same
+    // version. A plugin cache staged in between was named 4.8.2 and never
+    // refreshed — Claude Code keys the cache by version.
+    const r = checkReleasePreconditions(ready({ shippedFilesChangedSinceBump: ['src/storage/graph-repairs.ts', 'dist/storage/graph-repairs.js'] }));
+    const text = r.blockers.join('\n');
+    expect(text).toContain('after package.json was bumped to 4.7.0');
+    expect(text).toContain('src/storage/graph-repairs.ts');
+    expect(text).toContain('next version');
+  });
+
+  it('refuses when the post-bump diff could not be listed at all', () => {
+    const r = checkReleasePreconditions(ready({ shippedFilesChangedSinceBump: null }));
+    expect(r.blockers.join('\n')).toContain('could not list the shipped files');
   });
 
   it('refuses on a dirty tree', () => {

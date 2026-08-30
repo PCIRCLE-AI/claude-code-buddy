@@ -46,9 +46,32 @@ export function checkReleasePreconditions({
   remoteTags,
   repoSlug,
   notes,
+  shippedFilesChangedSinceBump,
 }) {
   const blockers = [];
   const tag = `v${pkgVersion}`;
+
+  // Claude Code keys its plugin cache by version. A machine that auto-updates
+  // from the marketplace between the commit that bumped package.json and the
+  // tag gets a cache named `<version>/` built from that earlier tree — and
+  // nothing ever refreshes it, because the version never changes again. For
+  // 4.8.2 that was 19 commits, including the graph repair the release was
+  // for. So: once the version is bumped, the shipped tree must not move.
+  // A fix that lands after the bump needs its own version.
+  if (!Array.isArray(shippedFilesChangedSinceBump)) {
+    blockers.push(
+      `could not list the shipped files changed since package.json was bumped to ${pkgVersion} — ` +
+        'refusing rather than assuming none were (a shallow clone reports this)'
+    );
+  } else if (shippedFilesChangedSinceBump.length > 0) {
+    const shown = shippedFilesChangedSinceBump.slice(0, 8).join(', ');
+    const more = shippedFilesChangedSinceBump.length > 8 ? `, … (${shippedFilesChangedSinceBump.length} files)` : '';
+    blockers.push(
+      `shipped files changed after package.json was bumped to ${pkgVersion} (${shown}${more}) — ` +
+        'plugin caches that already staged this version will never pick them up. Bump to the next ' +
+        'version in its own commit and release that instead'
+    );
+  }
 
   if (branch !== 'main') {
     blockers.push(
