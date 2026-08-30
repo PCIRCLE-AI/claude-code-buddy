@@ -1696,6 +1696,17 @@ function readCodexInstallRevision(root: string, readFileSyncImpl: typeof fs.read
  * the commit the cache was staged from with the one the marketplace has —
  * Claude Code records it in installed_plugins.json, Codex in the
  * `.codex-marketplace-install.json` it copies into the cache.
+ *
+ * Scope: this check diagnoses the copy `doctor` is CURRENTLY RUNNING FROM.
+ * It does not go looking for a plugin cache elsewhere on the machine — an
+ * `npm install -g @pcircle/memesh` copy running standalone cannot see a
+ * separately-installed Claude Code or Codex plugin, even though both would
+ * share the same `~/.memesh` database. Run `memesh doctor` from inside that
+ * plugin (or through the host that manages it) to check it. Widening this to
+ * inspect every host's cache regardless of which copy is running is real
+ * work — a second stable identity per host, catalogue entries doubled — and
+ * is deliberately out of scope here; PR review flagged it, this comment (and
+ * the matching CHANGELOG line) is the documented limitation, not a fix.
  */
 function inspectPluginCacheCurrency(
   installChannel: import('./install-channel.js').InstallChannel,

@@ -150,4 +150,78 @@ describe('upgrade-plugin.sh: same version, different commit', () => {
     expect(after[1].gitCommitSha).toBe(headSha);
     expect(after[1].installPath).toBe(live);
   });
+
+  posixOnly('an untracked file in the marketplace checkout never reaches the cache', () => {
+    // rsync of the working tree would copy this; git archive of the exact
+    // recorded commit must not.
+    const bumpSha = git(marketplace, 'rev-parse', 'HEAD');
+    writeRegistry({ installPath: path.join(home, '.claude/plugins/cache/pcircle-memesh/memesh/4.8.2'), version: '4.8.2', gitCommitSha: bumpSha });
+    fs.writeFileSync(path.join(marketplace, 'fix.js'), 'module.exports = 3;\n');
+    git(marketplace, 'add', '-A');
+    git(marketplace, 'commit', '-q', '-m', 'fix: committed change');
+    git(marketplace, 'push', '-q', 'origin', 'main');
+    // Uncommitted, never staged, never pushed — must not appear in the cache.
+    fs.writeFileSync(path.join(marketplace, 'UNTRACKED-POISON.js'), 'module.exports = "poison";\n');
+    const headSha = git(marketplace, 'rev-parse', 'HEAD');
+
+    const r = runScript();
+    expect(r.exitCode, r.stderr).toBe(0);
+    const staged = path.join(home, '.claude/plugins/cache/pcircle-memesh/memesh/4.8.2');
+    expect(fs.existsSync(path.join(staged, 'fix.js')), 'the committed change reached the cache').toBe(true);
+    expect(fs.existsSync(path.join(staged, 'UNTRACKED-POISON.js')), 'an untracked file reached the cache').toBe(false);
+    const after = JSON.parse(fs.readFileSync(registry, 'utf8'));
+    expect(after.plugins['memesh@pcircle-memesh'][0].gitCommitSha, 'recorded sha matches what was actually staged').toBe(headSha);
+  });
+
+  posixOnly('refuses before touching anything when the registry has no memesh entry', () => {
+    fs.writeFileSync(registry, JSON.stringify({ plugins: {} }, null, 4));
+    const r = runScript();
+    expect(r.exitCode).not.toBe(0);
+    expect(r.stderr).toContain('no memesh@pcircle-memesh entry');
+    const cacheRoot = path.join(home, '.claude/plugins/cache/pcircle-memesh/memesh');
+    expect(fs.readdirSync(cacheRoot)).toEqual(['4.8.2']); // untouched: only the pre-staged empty dir from beforeEach
+  });
+
+  posixOnly('two entries under this cache root are ambiguous, not "pick the first"', () => {
+    const bumpSha = git(marketplace, 'rev-parse', 'HEAD');
+    const root = path.join(home, '.claude/plugins/cache/pcircle-memesh/memesh');
+    writeRegistry({ installPath: path.join(root, '4.8.2'), version: '4.8.2', gitCommitSha: bumpSha });
+    const after = JSON.parse(fs.readFileSync(registry, 'utf8'));
+    after.plugins['memesh@pcircle-memesh'].push({ installPath: path.join(root, '4.7.9-leftover'), version: '4.7.9', gitCommitSha: 'e'.repeat(40) });
+    fs.writeFileSync(registry, JSON.stringify(after, null, 4));
+    const r = runScript();
+    expect(r.exitCode).not.toBe(0);
+    expect(r.stderr).toContain('refusing to guess');
+  });
+
+  posixOnly('a registry-write failure after the swap restores the previous cache and leaves the registry untouched', () => {
+    const bumpSha = git(marketplace, 'rev-parse', 'HEAD');
+    const live = path.join(home, '.claude/plugins/cache/pcircle-memesh/memesh/4.8.2');
+    fs.writeFileSync(path.join(live, 'LIVE-MARKER.txt'), 'previous cache contents\n');
+    writeRegistry({ installPath: live, version: '4.8.2', gitCommitSha: bumpSha });
+    fs.writeFileSync(path.join(marketplace, 'fix.js'), 'module.exports = 4;\n');
+    git(marketplace, 'add', '-A');
+    git(marketplace, 'commit', '-q', '-m', 'fix: forced registry-write failure');
+    git(marketplace, 'push', '-q', 'origin', 'main');
+    // installed_plugins.json's own permissions don't matter (mv doesn't need
+    // them); it's the CONTAINING directory that must allow creating the temp
+    // file the write goes through. Strip write+execute there.
+    const registryDir = path.dirname(registry);
+    fs.chmodSync(registryDir, 0o555);
+    try {
+      const r = runScript();
+      expect(r.exitCode).not.toBe(0);
+      expect(r.stderr).toContain('restoring the previous cache');
+    } finally {
+      fs.chmodSync(registryDir, 0o755);
+    }
+    expect(fs.existsSync(path.join(live, 'LIVE-MARKER.txt')), 'the previous cache was not restored').toBe(true);
+    expect(fs.existsSync(path.join(live, 'fix.js')), 'the failed upgrade left new files behind').toBe(false);
+    const after2 = JSON.parse(fs.readFileSync(registry, 'utf8'));
+    expect(after2.plugins['memesh@pcircle-memesh'][0].gitCommitSha, 'registry sha changed despite the write failing').toBe(bumpSha);
+    const leftovers = fs.readdirSync(path.dirname(live)).filter((n) => n.startsWith('.staging-') || n.startsWith('.previous-') || n.endsWith('.tmp-') || /\.tmp-\d+$/.test(n));
+    expect(leftovers, 'staging or previous-cache leftovers after rollback').toEqual([]);
+    const registryLeftovers = fs.readdirSync(registryDir).filter((n) => n.includes('.tmp-'));
+    expect(registryLeftovers, 'registry temp file leftover after rollback').toEqual([]);
+  });
 });

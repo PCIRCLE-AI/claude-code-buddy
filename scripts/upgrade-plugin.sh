@@ -8,10 +8,13 @@
 #   1. Fast-forwards the marketplace cache (~/.claude/plugins/marketplaces/pcircle-memesh)
 #      against origin.
 #   2. Reads the new version from .claude-plugin/marketplace.json.
-#   3. Stages a new install cache at ~/.claude/plugins/cache/pcircle-memesh/memesh/<new-version>/.
+#   3. Stages a new install cache at ~/.claude/plugins/cache/pcircle-memesh/memesh/<new-version>/,
+#      from `git archive` of the exact recorded commit (never the marketplace
+#      checkout's working tree, which can hold uncommitted or tampered files).
 #   4. Installs runtime deps inside that cache (npm install --omit=dev).
 #   5. Patches ~/.claude/plugins/installed_plugins.json to point at the
-#      new version + path.
+#      new version + path, atomically, rolling the cache swap back if the
+#      write fails or the registry changed underneath it.
 #   6. Leaves the previous version on disk (you can delete it manually if you want).
 #   A same-version refresh (marketplace moved, version did not) is staged next
 #   to the live cache and swapped in only after npm install succeeded.
@@ -45,10 +48,6 @@ if ! command -v node >/dev/null 2>&1; then
 fi
 if ! command -v npm >/dev/null 2>&1; then
   echo "ERROR: npm is not on PATH (needed to install runtime deps)." >&2
-  exit 1
-fi
-if ! command -v rsync >/dev/null 2>&1; then
-  echo "ERROR: rsync is not on PATH." >&2
   exit 1
 fi
 
@@ -101,9 +100,17 @@ ENTRY_INDEX="$(INSTALL_REGISTRY="$INSTALL_REGISTRY" CACHE_ROOT="$CACHE_ROOT" nod
   const entries = (j.plugins && j.plugins['memesh@pcircle-memesh']) || [];
   if (entries.length === 0) { process.stdout.write('none'); process.exit(0); }
   const root = path.resolve(process.env.CACHE_ROOT) + path.sep;
-  const idx = entries.findIndex(e => e && typeof e.installPath === 'string' && (path.resolve(e.installPath) + path.sep).startsWith(root));
-  if (idx >= 0) { process.stdout.write(String(idx)); process.exit(0); }
-  if (entries.length === 1) { process.stdout.write('0'); process.exit(0); }
+  const underRoot = entries
+    .map((e, i) => i)
+    .filter(i => { const e = entries[i]; return e && typeof e.installPath === 'string' && (path.resolve(e.installPath) + path.sep).startsWith(root); });
+  // Exactly one entry lives under this cache root: use it. None do, but there
+  // is exactly one entry total: it must be this install (a fresh registry, or
+  // one from before installPath was under CACHE_ROOT). Anything else — none
+  // matching with several entries present, or more than one matching — is
+  // ambiguous; guessing which scope to touch is how the wrong one gets
+  // rewritten.
+  if (underRoot.length === 1) { process.stdout.write(String(underRoot[0])); process.exit(0); }
+  if (underRoot.length === 0 && entries.length === 1) { process.stdout.write('0'); process.exit(0); }
   process.stdout.write('ambiguous');
 ")" || {
   echo "ERROR: could not read the installed memesh entries from $INSTALL_REGISTRY" >&2
@@ -111,6 +118,15 @@ ENTRY_INDEX="$(INSTALL_REGISTRY="$INSTALL_REGISTRY" CACHE_ROOT="$CACHE_ROOT" nod
 }
 if [ "$ENTRY_INDEX" = "ambiguous" ]; then
   echo "ERROR: installed_plugins.json lists several memesh entries and none of them lives under $CACHE_ROOT — refusing to guess which one to upgrade." >&2
+  exit 1
+fi
+# Refuse before touching the filesystem, not after staging + swapping — a
+# registry with no memesh entry at all has nothing for section 6 to update,
+# and finding that out after the cache is already swapped would leave new
+# code live with no registry record of it.
+if [ "$ENTRY_INDEX" = "none" ]; then
+  echo "ERROR: installed_plugins.json has no memesh@pcircle-memesh entry — nothing to upgrade in place." >&2
+  echo "       Reinstall the plugin from the Claude Code /plugin UI." >&2
   exit 1
 fi
 
@@ -176,16 +192,22 @@ trap cleanup_stage EXIT
 echo "==> Staging $NEW_VERSION next to the cache..."
 rm -rf "$STAGE_PATH"
 mkdir -p "$STAGE_PATH"
-rsync -a \
-  --exclude 'node_modules' \
-  --exclude '.git' \
-  --exclude 'tests' \
-  --exclude 'benchmarks' \
-  --exclude 'docs/plans' \
-  "$MARKETPLACE_DIR/" "$STAGE_PATH/" || {
-  echo "ERROR: rsync failed — the live cache at $NEW_INSTALL_PATH was not touched" >&2
+# `git archive`, not `rsync` of the working tree: rsync would copy whatever
+# is sitting in $MARKETPLACE_DIR right now, including files nobody committed
+# — so a machine with a tampered or half-merged marketplace checkout could
+# have those bytes installed while MARKETPLACE_SHA (recorded above, and
+# written into the registry in section 6) truthfully names a clean commit
+# that never contained them. `git archive` extracts exactly the tree at
+# $MARKETPLACE_SHA; nothing untracked or uncommitted can reach the cache.
+# node_modules and .git are never tracked, so they never appear in the
+# archive; tests/benchmarks/docs/plans are tracked (real source) and are
+# removed after extraction to keep the shipped cache the same shape as
+# before.
+git -C "$MARKETPLACE_DIR" archive "$MARKETPLACE_SHA" | tar -x -C "$STAGE_PATH" || {
+  echo "ERROR: git archive failed — the live cache at $NEW_INSTALL_PATH was not touched" >&2
   exit 1
 }
+rm -rf "$STAGE_PATH/tests" "$STAGE_PATH/benchmarks" "$STAGE_PATH/docs/plans"
 
 # ─── 4. Install runtime deps in the staging copy ──────────────────────────
 echo "==> Installing runtime deps (this may take a minute)..."
@@ -211,31 +233,62 @@ mv "$STAGE_PATH" "$NEW_INSTALL_PATH" || {
 }
 
 # ─── 6. Patch installed_plugins.json (last: the registry names a cache that exists) ──
+# Re-resolve which entry is THIS install from a fresh read of the registry —
+# not the index captured before npm install ran. npm install can take a
+# while; a registry a concurrent process rewrote in that window would make a
+# position captured earlier point at the wrong scope's entry by the time we
+# write. Same "installPath is under CACHE_ROOT" identity as section 2, just
+# asked again, right before the write. Any failure here — no match, more
+# than one match, or the write itself failing — rolls the cache swap back:
+# the write is the only place a partial upgrade gets recorded as done, so
+# nothing partial should exist when it does not happen.
 echo "==> Updating installed_plugins.json..."
+rollback_swap() {
+  rm -rf "$NEW_INSTALL_PATH"
+  [ -e "$PREVIOUS_PATH" ] && mv "$PREVIOUS_PATH" "$NEW_INSTALL_PATH"
+}
+REGISTRY_TMP="$INSTALL_REGISTRY.tmp-$$"
 NEW_INSTALL_PATH="$NEW_INSTALL_PATH" \
 NEW_VERSION="$NEW_VERSION" \
 INSTALL_REGISTRY="$INSTALL_REGISTRY" \
+REGISTRY_TMP="$REGISTRY_TMP" \
 MARKETPLACE_SHA="$MARKETPLACE_SHA" \
-ENTRY_INDEX="$ENTRY_INDEX" \
+CACHE_ROOT="$CACHE_ROOT" \
 node -e "
-  const fs = require('fs');
-  const path = process.env.INSTALL_REGISTRY;
-  const j = JSON.parse(fs.readFileSync(path, 'utf8'));
-  if (!j.plugins || !Array.isArray(j.plugins['memesh@pcircle-memesh']) || process.env.ENTRY_INDEX === 'none') {
-    console.error('installed_plugins.json missing memesh@pcircle-memesh entry');
+  const fs = require('fs'), path = require('path');
+  const registryPath = process.env.INSTALL_REGISTRY;
+  const j = JSON.parse(fs.readFileSync(registryPath, 'utf8'));
+  const entries = (j.plugins && j.plugins['memesh@pcircle-memesh']) || [];
+  const root = path.resolve(process.env.CACHE_ROOT) + path.sep;
+  const underRoot = entries
+    .map((e, i) => [e, i])
+    .filter(([e]) => e && typeof e.installPath === 'string' && (path.resolve(e.installPath) + path.sep).startsWith(root));
+  // Same two-tier identity as section 2's initial selection, re-run now: one
+  // entry under this cache root wins outright; failing that, exactly one
+  // entry total (its installPath predates being under CACHE_ROOT, or this is
+  // a fresh registry) is still unambiguous. Anything else refuses — this is
+  // the check that catches the registry having changed while npm install ran.
+  let idx;
+  if (underRoot.length === 1) {
+    idx = underRoot[0][1];
+  } else if (underRoot.length === 0 && entries.length === 1) {
+    idx = 0;
+  } else {
+    console.error(\`re-resolved to \${underRoot.length} of \${entries.length} entries matching under \${process.env.CACHE_ROOT} (expected exactly 1) — the registry changed since this upgrade started\`);
     process.exit(2);
   }
-  const idx = Number(process.env.ENTRY_INDEX);
-  const entry = j.plugins['memesh@pcircle-memesh'][idx] || {};
+  const entry = entries[idx];
   entry.installPath = process.env.NEW_INSTALL_PATH;
   entry.version = process.env.NEW_VERSION;
   entry.lastUpdated = new Date().toISOString();
   // Read once above (MARKETPLACE_SHA); the staleness check compares against it next run.
   entry.gitCommitSha = process.env.MARKETPLACE_SHA;
-  j.plugins['memesh@pcircle-memesh'][idx] = entry;
-  fs.writeFileSync(path, JSON.stringify(j, null, 4) + '\n');
-" || {
-  echo "ERROR: failed to patch installed_plugins.json — the new cache is in place at $NEW_INSTALL_PATH but the registry still describes the previous one (kept at $PREVIOUS_PATH)" >&2
+  entries[idx] = entry;
+  fs.writeFileSync(process.env.REGISTRY_TMP, JSON.stringify(j, null, 4) + '\n');
+" && mv "$REGISTRY_TMP" "$INSTALL_REGISTRY" || {
+  rm -f "$REGISTRY_TMP"
+  echo "ERROR: failed to update installed_plugins.json — restoring the previous cache; nothing changed" >&2
+  rollback_swap
   exit 1
 }
 rm -rf "$PREVIOUS_PATH"

@@ -13,17 +13,25 @@ All notable changes to MeMesh are documented here.
   commits missing — and `memesh upgrade-plugin` answered "Already at 4.8.2 —
   nothing to do." Three changes close this: `upgrade-plugin` compares the
   commit recorded in `installed_plugins.json` with the marketplace checkout,
-  stages the refreshed copy next to the live cache and swaps it in only after
-  its dependencies installed, and patches the registry entry for this install
-  rather than the first one listed; `memesh doctor` reports the same
-  comparison as a `plugin-cache` check on both Claude Code and Codex installs
-  (WARN when the cache is behind, WARN "could not tell" when no commit is
-  recorded — never PASS on the version alone; the Codex fix is
+  stages the refreshed copy from `git archive` of that exact commit (never a
+  copy of the marketplace checkout's working tree, which can hold uncommitted
+  files) next to the live cache, swaps it in only after its dependencies
+  installed, and re-resolves — right before the atomic registry write, not
+  from a position captured before the (potentially slow) install — which
+  registry entry is this install, rolling the cache swap back if that write
+  fails or the entry can no longer be resolved uniquely; `memesh doctor`
+  reports the same comparison as a `plugin-cache` check for the copy it is
+  currently running from, on both Claude Code and Codex installs (WARN when
+  the cache is behind, WARN "could not tell" when no commit is recorded —
+  never PASS on the version alone; the Codex fix is
   `codex plugin marketplace upgrade pcircle-memesh && codex plugin add
   memesh@pcircle-memesh`, which replaces a same-version cache); and
   `release:finish` refuses to tag when any path in package.json's `files`
   changed on main after the version bump, so a late fix gets its own version
-  instead of shipping under one that caches have already claimed.
+  instead of shipping under one that caches have already claimed. Known
+  limitation: `memesh doctor` run from a standalone npm-global install does
+  not check a separately-installed Claude Code or Codex plugin on the same
+  machine — it only diagnoses the copy it is running from.
 
 ## [4.8.2] — 2026-08-29
 
