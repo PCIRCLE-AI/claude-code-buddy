@@ -267,7 +267,7 @@ export const TOOL_DEFINITIONS = [
                 },
                 project: { type: 'string', description: 'Local project scope shared by sender and recipient.' },
                 sender: { type: 'string', description: 'Required for send. Stable local sender/agent identifier.' },
-                recipient: { type: 'string', description: 'Stable target local agent/host identifier.' },
+                recipient: { type: 'string', description: 'Required for every action. Stable target local agent/host identifier.' },
                 target_kind: {
                     type: 'string',
                     enum: ['principal', 'session'],
@@ -299,6 +299,10 @@ function ok(data) {
 function fail(message) {
     return { content: [{ type: 'text', text: message }], isError: true };
 }
+function formatIssue(issue) {
+    const path = issue.path.join('.');
+    return path ? `${path}: ${issue.message}` : issue.message;
+}
 function stripNullProps(value) {
     if (Array.isArray(value))
         return value.map(stripNullProps);
@@ -320,14 +324,14 @@ function parseOrFail(schema, args) {
         if (unknownKeys.length > 0) {
             return {
                 ok: false,
-                result: fail(unknownKeys.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')),
+                result: fail(unknownKeys.map(formatIssue).join('; ')),
             };
         }
     }
     const parsed = schema.safeParse(stripNullProps(raw));
     if (!parsed.success) {
         const message = parsed.error instanceof z.ZodError
-            ? parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
+            ? parsed.error.issues.map(formatIssue).join('; ')
             : String(parsed.error);
         return { ok: false, result: fail(message) };
     }

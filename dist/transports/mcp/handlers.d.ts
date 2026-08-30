@@ -325,7 +325,7 @@ export declare const TOOL_DEFINITIONS: readonly [{
             };
             readonly recipient: {
                 readonly type: "string";
-                readonly description: "Stable target local agent/host identifier.";
+                readonly description: "Required for every action. Stable target local agent/host identifier.";
             };
             readonly target_kind: {
                 readonly type: "string";

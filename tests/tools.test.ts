@@ -166,6 +166,27 @@ describe('remember', () => {
     expect(result.content[0].text).toContain('name');
   });
 
+  it('does not prefix root-level validation errors with an empty path', async () => {
+    const result = await handleTool('message', {
+      action: 'poll',
+      project: 'memesh',
+      recipient: 'memesh',
+      target_kind: 'principal',
+      limit: 20,
+      wait_ms: 0,
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toBe('Unrecognized key: "target_kind"');
+  });
+
+  it('keeps the field path for path-specific validation errors', async () => {
+    const result = await handleTool('remember', { name: '', type: 'decision' });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/^name: /);
+  });
+
   it('rejects a whitespace-only observation instead of storing an empty memory (M-05)', async () => {
     const result = await handleTool('remember', {
       name: 'blank-mcp-test', type: 'note', observations: ['   '],

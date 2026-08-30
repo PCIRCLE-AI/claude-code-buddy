@@ -217,7 +217,7 @@ export function exportOpenAITools() {
                         },
                         project: { type: 'string', description: 'Local project scope.' },
                         sender: { type: 'string', description: 'Required for send. Stable local sender identifier.' },
-                        recipient: { type: 'string', description: 'Stable target local agent/host identifier.' },
+                        recipient: { type: 'string', description: 'Required for every action. Stable target local agent/host identifier.' },
                         idempotency_key: { type: 'string', description: 'Required for send and receipt writes. Stable retry key.' },
                         payload: { type: ['string', 'number', 'boolean', 'object', 'array', 'null'], description: 'Required for send. Untrusted JSON value; never executed by MeMesh.' },
                         content_type: { type: 'string', enum: ['text/plain', 'application/json'], description: 'Send media type; defaults to text/plain.' },

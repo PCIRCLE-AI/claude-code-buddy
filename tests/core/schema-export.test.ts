@@ -81,10 +81,15 @@ describe('exportOpenAITools', () => {
       'send', 'poll', 'fetch', 'intake', 'ack', 'disposition', 'activation', 'receipts',
     ]);
     expect(tool.function.description).toMatch(/Reads never imply acknowledgement/);
+    expect(tool.function.parameters.properties.recipient.description).toMatch(/required for every action/i);
+    const mcpMessage = TOOL_DEFINITIONS.find((definition) => definition.name === 'message') as any;
+    expect(tool.function.parameters.properties.recipient.description)
+      .toBe(mcpMessage.inputSchema.properties.recipient.description);
 
     expect(MessageSchema.safeParse({
       action: 'poll', project: 'memesh', recipient: 'codex', wait_ms: 30_001,
     }).success).toBe(false);
+    expect(MessageSchema.safeParse({ action: 'poll', project: 'memesh' }).success).toBe(false);
     expect(MessageSchema.safeParse({
       action: 'ack', project: 'memesh', recipient: 'codex', message_id: 'm-1', idempotency_key: 'ack-1', disposition: 'completed',
     }).success).toBe(false);
