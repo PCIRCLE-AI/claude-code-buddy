@@ -139,7 +139,7 @@ function toTopologyEntity(row: PoolRow, snippet: string | null): TopologyEntity 
  * session-start: task state first (the one line someone stated on purpose),
  * then the ranked topology, wrapped in the shared fence.
  */
-export function assembleBriefing(project?: string): BriefingResult {
+export function assembleBriefing(project?: string, recipient?: string): BriefingResult {
   const projectName = project ?? getProjectName();
   const db = getDatabase();
 
@@ -164,10 +164,14 @@ export function assembleBriefing(project?: string): BriefingResult {
   const { state } = getTaskState(projectName);
   // The inbox line rides WITH the stated lines, not among the ranked
   // memories: like goal / next / blocked it is a fact the agent must act
-  // on, not a memory that scored well. See agent-message-inbox.ts.
+  // on, not a memory that scored well. It is only actionable when the caller
+  // supplies the exact logical recipient; generic briefing has no identity
+  // and must not aggregate another recipient's activity.
   const stateLines = [
     ...taskStateLines(state, projectName),
-    ...unreadInboxLines(unreadDeliveryCount(db, projectName), projectName),
+    ...unreadInboxLines(
+      unreadDeliveryCount(db, projectName, recipient), projectName, recipient,
+    ),
   ];
 
   const projectRows = db.prepare(

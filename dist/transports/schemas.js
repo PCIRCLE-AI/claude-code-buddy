@@ -76,6 +76,7 @@ export const TaskStateSchema = z.object({
 }).strict();
 export const BriefingSchema = z.object({
     project: z.string().min(1).max(200).optional(),
+    recipient: z.string().trim().min(1).max(200).optional(),
 }).strict();
 export const WhySchema = z.object({
     file: z.string().min(1).max(500),

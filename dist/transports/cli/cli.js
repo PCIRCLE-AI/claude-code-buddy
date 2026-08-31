@@ -846,10 +846,11 @@ program
     .command('briefing')
     .description('The assembled work topology for a project — task state, decisions, lessons, knowledge, recent activity')
     .option('--project <name>', 'Project name (default: the current directory’s project)')
+    .option('--recipient <id>', 'Exact recipient; enables recipient-scoped unread message guidance')
     .option('--json', 'Output as JSON')
     .action(async (opts) => {
     await withDatabase(() => {
-        const result = assembleBriefing(opts.project);
+        const result = assembleBriefing(opts.project, opts.recipient);
         if (opts.json) {
             console.log(JSON.stringify(result));
             return;

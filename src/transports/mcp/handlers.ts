@@ -249,6 +249,10 @@ export const TOOL_DEFINITIONS = [
           type: 'string',
           description: 'Project name. Omit to use the current working directory’s project.',
         },
+        recipient: {
+          type: 'string',
+          description: 'Exact logical recipient. Required to surface actionable unread messages; omit for generic context.',
+        },
       },
       additionalProperties: false,
     },
@@ -546,7 +550,7 @@ export async function handleTool(
     if (name === 'briefing') {
       const r = parseOrFail(BriefingSchema, args);
       if (!r.ok) return r.result;
-      return ok(assembleBriefing(r.data.project));
+      return ok(assembleBriefing(r.data.project, r.data.recipient));
     }
     if (name === 'user_patterns') {
       const r = parseOrFail(UserPatternsSchema, args);

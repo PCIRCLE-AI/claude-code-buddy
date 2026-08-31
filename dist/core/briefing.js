@@ -48,7 +48,7 @@ function toTopologyEntity(row, snippet) {
         signalScore: typeof signal === 'number' ? signal : null,
     };
 }
-export function assembleBriefing(project) {
+export function assembleBriefing(project, recipient) {
     const projectName = project ?? getProjectName();
     const db = getDatabase();
     const repoLines = (project === undefined || project === getProjectName())
@@ -57,7 +57,7 @@ export function assembleBriefing(project) {
     const { state } = getTaskState(projectName);
     const stateLines = [
         ...taskStateLines(state, projectName),
-        ...unreadInboxLines(unreadDeliveryCount(db, projectName), projectName),
+        ...unreadInboxLines(unreadDeliveryCount(db, projectName, recipient), projectName, recipient),
     ];
     const projectRows = db.prepare(`SELECT DISTINCT ${CANDIDATE_COLUMNS}
      FROM entities e JOIN tags t ON t.entity_id = e.id

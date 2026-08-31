@@ -5,6 +5,14 @@ MeMesh provides two complementary collaboration surfaces on one machine:
 - shared durable memory, including the `team` namespace, for knowledge, decisions, and coarse handoffs;
 - the `message` tool for explicit durable messages to one named recipient on the same MeMesh instance.
 
+Briefing follows the same trust boundary. Generic `briefing` and automatic
+SessionStart context have no recipient identity, so they never aggregate or
+announce unread message activity. A caller that already knows its exact
+logical recipient may pass both `project` and `recipient` to `briefing`; the
+result reports only that recipient's unfetched deliveries and tells it to
+`message poll` with the exact scope before fetching each returned
+`message_id`. Fetching remains separate from intake and acknowledgement.
+
 The messaging path is durable store-and-forward. For an explicitly configured,
 active local Codex CLI session, MeMesh queues a metadata-only native wakeup;
 the session then fetches the durable payload through the scoped `message`

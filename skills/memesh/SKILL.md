@@ -86,6 +86,12 @@ Call the `briefing` MCP tool or run `memesh briefing`. It returns the assembled
 work topology: where the work was left off (goal / next / blocked / done),
 decisions and direction, lessons not to repeat, what is known, recent activity.
 One call is cheaper than re-exploring the repo to reconstruct the same picture.
+Generic briefing and SessionStart context do not report unread durable messages:
+they have no recipient identity. If you already know the exact logical
+recipient, pass `recipient` with `project` (MCP) or use
+`memesh briefing --project <name> --recipient <id>`. The scoped line names the
+project and recipient and directs you to `message poll` first, then `message
+fetch` each returned `message_id`; fetching does not acknowledge.
 Exception: under Claude Code the session-start hook has ALREADY injected this
 exact block — do not call it again (see "What's Already Automatic").
 

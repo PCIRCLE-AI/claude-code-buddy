@@ -15,6 +15,12 @@ All notable changes to MeMesh are documented here.
   override. The global-filter storage-event regression test also avoids a
   CodeQL DOM-model mismatch while preserving the cross-tab behavior assertion.
 
+- **Briefing no longer aggregates another recipient's unread inbox.** Generic
+  `briefing` and SessionStart context have no exact recipient identity and stay
+  quiet. MCP and CLI callers can pass one known `project` + `recipient` scope
+  to report only that recipient's unfetched deliveries, with instructions to
+  `message poll` that scope before fetching each returned `message_id`.
+
 - **A plugin install can now tell "same version" from "same code".** Claude
   Code keys its plugin cache by version, so a machine that auto-updated from
   the marketplace between the commit that bumped package.json to 4.8.2 and the

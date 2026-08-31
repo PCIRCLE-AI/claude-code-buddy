@@ -226,6 +226,10 @@ export declare const TOOL_DEFINITIONS: readonly [{
                 readonly type: "string";
                 readonly description: "Project name. Omit to use the current working directory’s project.";
             };
+            readonly recipient: {
+                readonly type: "string";
+                readonly description: "Exact logical recipient. Required to surface actionable unread messages; omit for generic context.";
+            };
         };
         readonly additionalProperties: false;
     };
