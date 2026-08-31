@@ -63,6 +63,7 @@ MeMesh separates concerns into two layers:
 - `paths.ts` — centralised filesystem path resolution (HOME-first override; shared with hooks via a build-generated copy in `scripts/hooks/_generated/`)
 - `scoring.ts` — multi-factor scoring engine: weights search relevance, recency, frequency, confidence, recall-impact; exports `rankEntities()` used by all recall paths
 - `llm-client.ts` — single dispatch for anthropic / openai / ollama with cross-provider failover, error classification, and per-attempt telemetry callback
+- `ollama-host.ts` — one trust policy for configured Ollama hosts: persisted/request values stay loopback-only while operator `OLLAMA_HOST` remains the explicit remote override
 - `llm-telemetry.ts` — `llm_telemetry` SQLite table + `recordTelemetry()` + `summariseTelemetry()` + `pruneTelemetry()` retention
 - `dreamer.ts` — LLM cluster compactor + pattern detector with propose/accept/reject lifecycle; auto-trigger from Stop hook; also the entry point for the `--from-transcripts` transcript-mining source.
   Clusters are formed from `entities_vec` embedding distance (L2 cut-off `0.55`, measured — see the constant), with the project a hard partition. Candidates with no vector are grouped by ISO week instead of being dropped, and a graph with no vectors at all falls back to week buckets entirely; `DreamerResult.clusteringMode` reports which rule was used, because a week bucket can mix unrelated work. `cluster_key` is a display label, not the grouping rule — a proposal is identified by its source ids.
@@ -104,6 +105,7 @@ src/
 │   ├── embedder.ts        # Neural embeddings via Ollama (768-dim) / OpenAI (1536-dim); keyword-only FTS5 fallback when none configured
 │   ├── auto-tagger.ts     # LLM-powered auto-tag generation (fire-and-forget)
 │   ├── llm-client.ts      # Single dispatch for anthropic/openai/ollama + cross-provider failover + secret redaction
+│   ├── ollama-host.ts     # Shared configured-host trust policy for Ollama
 │   ├── llm-telemetry.ts   # llm_telemetry table + recordTelemetry + summariseTelemetry + pruneTelemetry
 │   ├── llm-validator.ts   # Provider+model capability detection (list models, byte-capped fetch)
 │   ├── prompt-safety.ts   # F7 prompt-injection hardening (sanitizeForPrompt for 3 call sites)

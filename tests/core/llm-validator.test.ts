@@ -423,7 +423,7 @@ describe('probeOllama rejects a caller-supplied non-loopback host in every confi
   // operator setting OLLAMA_HOST — normal configuration for a remote Ollama —
   // turned it off, and `host || envBase` then let the caller's value win.
   // `POST /v1/config/test` would fetch whatever URL the request named.
-  for (const env of [undefined, 'http://localhost:11434'] as const) {
+  for (const env of [undefined, 'http://localhost:11434', 'http://operator-host.invalid:11434'] as const) {
     it(`rejects 127.0.0.2 with OLLAMA_HOST ${env ?? 'unset'} and never issues the request`, async () => {
       if (env === undefined) delete process.env.OLLAMA_HOST; else process.env.OLLAMA_HOST = env;
       const spy = vi.fn(async () => { throw new Error('the guard let a request through'); });
