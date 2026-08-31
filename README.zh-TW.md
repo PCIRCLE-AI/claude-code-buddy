@@ -9,7 +9,7 @@
   <p align="center">
     <a href="https://www.npmjs.com/package/@pcircle/memesh"><img src="https://img.shields.io/npm/v/@pcircle/memesh?style=flat-square&color=3b82f6&label=npm" alt="npm" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" alt="MIT" /></a>
-    <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D22-22c55e?style=flat-square" alt="Node" /></a>
+    <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D22.13.0-22c55e?style=flat-square" alt="Node" /></a>
     <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP-compatible-a855f7?style=flat-square" alt="MCP" /></a>
   </p>
 </p>
@@ -32,7 +32,7 @@
 /plugin install memesh@pcircle-memesh
 ```
 
-重開 Claude Code。下一個 session 開頭出現 `◉ MeMesh` 狀態列，就代表它在記了。
+重開 Claude Code。下一個 session 開頭出現 `◉ MeMesh` 狀態列，代表 SessionStart hook 已輸出狀態列。
 
 **在終端機裡** — `memesh` CLI、儀表板，以及給 Codex / Cursor 與相容本機 MCP 用戶端用的 `memesh-mcp` server（需要 [Node 22.13+](https://nodejs.org)）：
 
@@ -163,7 +163,7 @@ npm install -g @pcircle/memesh
 
 Claude Code 會自動接好 hooks、skills 和 MCP server。你會獲得對話內自動擷取、主動回憶、可在 Claude Code 對話中使用的 `/memesh` skill（remember / recall / learn / forget），以及代理可呼叫的 `remember` / `recall` / `forget` / `learn` MCP 工具。
 
-**驗證方式：**重開 Claude Code、開任何 session。開頭出現像 `◉ MeMesh ready · no memories for "your-project" yet` 的狀態列 — 那一行就是外掛在運作的證明，不需要另外跑指令。（有記憶之後會改顯示數量。）CLI 與本地儀表板無需任何額外的全域安裝就能完整使用 — `npx @pcircle/memesh <command>` 可執行所有 CLI 指令，`npx @pcircle/memesh` 可在 `localhost:3737` 啟動儀表板。MCP server 直接從外掛內建的編譯產物啟動 — 不需要 `npx` 查找、不需要 `npm install -g`、不需要本地建置步驟。memesh 透過 Node 內建的 `node:sqlite`（22.13+）存放資料，所以升級 Node 不會留下一個為錯誤 runtime 編譯的二進位檔。
+**驗證方式：**重開 Claude Code、開任何 session。開頭出現像 `◉ MeMesh ready · no memories for "your-project" yet` 的狀態列 — 這直接驗證 SessionStart hook 有輸出；單憑這一行不能證明後續 capture 或 recall 已運作。（有記憶之後會改顯示數量。）CLI 與本地儀表板無需任何額外的全域安裝就能完整使用 — `npx @pcircle/memesh <command>` 可執行所有 CLI 指令，`npx @pcircle/memesh` 可在 `localhost:3737` 啟動儀表板。MCP server 直接從外掛內建的編譯產物啟動 — 不需要 `npx` 查找、不需要 `npm install -g`、不需要本地建置步驟。memesh 透過 Node 內建的 `node:sqlite`（22.13+）存放資料，所以升級 Node 不會留下一個為錯誤 runtime 編譯的二進位檔。
 
 ### 選項 B — npm 全域安裝（可選最佳化）
 
@@ -235,6 +235,8 @@ codex mcp list       # memesh 應顯示為 enabled
 **OpenClaw** 有一套第一方記憶能力外掛系統 — MeMesh 整合的層級與 OpenClaw 自己內建的後端（LanceDB）相同，不是 HTTP 橋接。外掛透過 `api.registerMemoryCapability()` 註冊，並提供 `memory_recall`/`memory_store`/`memory_forget` 工具，以及在 `before_prompt_build` hook 上自動 recall。
 
 **與 Hermes 的關鍵差異**：OpenClaw 的自動擷取有門檻控制（觸發時每輪最多 3 筆記憶），而非每一輪都擷取。整合對應到 MeMesh 的 HTTP API（`/v1/recall`、`/v1/remember`、`/v1/forget`）。完整 TypeScript 外掛合約、設定形狀與陷阱：**[docs/platforms/openclaw.md](docs/platforms/openclaw.md)**
+
+目前狀態：source plugin 已存在於 `extensions/memory-memesh/`，但尚未發布，也尚未在真實 OpenClaw runtime 驗證。
 
 ### 第二步：保存一個決策
 
@@ -623,7 +625,16 @@ bash "$(npm prefix -g)/lib/node_modules/@pcircle/memesh/scripts/upgrade-plugin.s
 
 腳本會 fast-forward marketplace cache、把新版本放進 `~/.claude/plugins/cache/`、安裝 runtime deps，然後把 `installed_plugins.json` 重指向新版本。執行完請重啟 Claude Code 讓 MCP server 重連。
 
-**npm-global 安裝**（`npm install -g @pcircle/memesh`）可以直接 `memesh update` 自動更新。Source checkouts：`git pull && npm install && npm run build`。
+**npm-global 安裝**（`npm install -g @pcircle/memesh`）可以直接 `memesh update` 自動更新。Source checkout 請先安裝 npm，再執行 `git pull && npm install && npm run build`。
+
+**Codex plugin marketplace 安裝**（使用 Codex CLI）：
+
+```bash
+codex plugin marketplace add PCIRCLE-AI/memesh
+codex plugin add memesh@pcircle-memesh
+```
+
+若 marketplace snapshot 已過期，先執行 `codex plugin marketplace upgrade pcircle-memesh`，再用 `codex plugin remove memesh` 後重新執行 `codex plugin add memesh@pcircle-memesh`。
 
 Session 開始時，有新版本可下載時會跳一行 banner（每版本每 24 小時節流一次），`memesh doctor` 會回報升級目標版本與對應指令。
 

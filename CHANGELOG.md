@@ -6,6 +6,11 @@ All notable changes to MeMesh are documented here.
 
 ### Fixed
 
+- **Claude Channel diagnostics are now surfaced by `memesh doctor`.** The
+  diagnostic reports the user-scoped `memesh-channel` registration and its
+  configured target, while making clear that it does not prove research-preview
+  channel admission, live delivery, or acknowledgement.
+
 - **Persisted Ollama hosts now use the same loopback guard as provider tests.**
   Runtime LLM calls previously trusted `llm.host` and fallback hosts read from
   config even though the Dashboard's provider-test path rejected non-loopback

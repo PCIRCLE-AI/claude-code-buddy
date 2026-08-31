@@ -207,6 +207,28 @@ codex mcp list
 
 Expected: `memesh` is listed as enabled.
 
+### Optional: Codex plugin marketplace
+
+Current Codex CLI versions can install the repository's plugin marketplace
+directly. For a fresh install:
+
+```
+codex plugin marketplace add PCIRCLE-AI/memesh
+codex plugin add memesh@pcircle-memesh
+```
+
+If the configured marketplace snapshot is stale, refresh it and reinstall the
+plugin:
+
+```
+codex plugin marketplace upgrade pcircle-memesh
+codex plugin remove memesh
+codex plugin add memesh@pcircle-memesh
+```
+
+These commands are separate from the MCP registration above; keep the MCP
+path when a host needs `memesh-mcp` directly.
+
 | Failure | Remedy |
 |---|---|
 | `command not found: codex` | Codex CLI itself is not installed — out of scope here; install it first, then re-run the add. |

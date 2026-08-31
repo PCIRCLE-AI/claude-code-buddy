@@ -9,7 +9,7 @@
   <p align="center">
     <a href="https://www.npmjs.com/package/@pcircle/memesh"><img src="https://img.shields.io/npm/v/@pcircle/memesh?style=flat-square&color=3b82f6&label=npm" alt="npm" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" alt="MIT" /></a>
-    <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D22-22c55e?style=flat-square" alt="Node" /></a>
+    <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D22.13.0-22c55e?style=flat-square" alt="Node" /></a>
     <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP-compatible-a855f7?style=flat-square" alt="MCP" /></a>
   </p>
 </p>
@@ -32,7 +32,7 @@
 /plugin install memesh@pcircle-memesh
 ```
 
-Restart Claude Code. A `◉ MeMesh` status line at the top of your next session means it is capturing.
+Restart Claude Code. A `◉ MeMesh` status line at the top of your next session confirms the SessionStart hook emitted its status output.
 
 **In a terminal** — the `memesh` CLI, the dashboard, and the `memesh-mcp` server for Codex / Cursor and compatible local MCP clients (needs [Node 22.13+](https://nodejs.org)):
 
@@ -152,7 +152,7 @@ If you use Claude Code, install MeMesh as a plugin from inside the CLI:
 
 Claude Code wires hooks, skills, and the MCP server automatically. You get in-session auto-capture, proactive recall, the `/memesh` skill (remember / recall / learn / forget) inside the Claude Code conversation, and `remember` / `recall` / `forget` / `learn` available as MCP tools to the agent.
 
-**Verify it:** restart Claude Code and start any session. A status line like `◉ MeMesh ready · no memories for "your-project" yet` appears at the top — that line IS the plugin working; no separate command needed. (Once you have memories, it shows counts instead.)
+**Verify it:** restart Claude Code and start any session. A status line like `◉ MeMesh ready · no memories for "your-project" yet` appears at the top — this directly verifies SessionStart hook output. It does not by itself prove later capture or recall behavior. (Once you have memories, it shows counts instead.)
 
 The MCP server runs directly from the plugin's bundled compiled output — no `npx` lookup, no build step, and nothing to compile. memesh stores its data through `node:sqlite`, which is part of Node itself (22.13+), so a Node upgrade cannot leave it with a binary built for the wrong runtime.
 
@@ -229,6 +229,8 @@ The integration maps Hermes's `prefetch()` and `sync_turn()` hooks directly onto
 **OpenClaw** has a first-party memory-capability plugin system — MeMesh integrates as a native memory provider at the same tier as OpenClaw's own built-in backends (LanceDB), not as an HTTP bridge. The plugin registers via `api.registerMemoryCapability()` and exposes `memory_recall`/`memory_store`/`memory_forget` tools plus automatic recall on the `before_prompt_build` hook.
 
 **Key difference from Hermes**: OpenClaw's auto-capture is threshold-gated (max 3 memories/turn when triggered), not every-turn. The integration maps onto MeMesh's HTTP API (`/v1/recall`, `/v1/remember`, `/v1/forget`). Full TypeScript plugin contract, config shape, and pitfalls: **[docs/platforms/openclaw.md](docs/platforms/openclaw.md)**
+
+Current status: the source plugin is present under `extensions/memory-memesh/`, but it is not published or verified against a live OpenClaw runtime.
 
 ### Step 2: Store a decision
 
@@ -632,7 +634,16 @@ bash "$(npm prefix -g)/lib/node_modules/@pcircle/memesh/scripts/upgrade-plugin.s
 
 The script fast-forwards the marketplace cache, stages the new version under `~/.claude/plugins/cache/`, installs runtime deps, and re-points `installed_plugins.json`. Restart Claude Code afterwards so the MCP server reconnects.
 
-**npm-global installs** (`npm install -g @pcircle/memesh`) can self-update via `memesh update`. Source checkouts: `git pull && npm install && npm run build`.
+**npm-global installs** (`npm install -g @pcircle/memesh`) can self-update via `memesh update`. For a source checkout, with npm installed, run `git pull && npm install && npm run build`.
+
+**Codex plugin marketplace installs** (using the Codex CLI):
+
+```bash
+codex plugin marketplace add PCIRCLE-AI/memesh
+codex plugin add memesh@pcircle-memesh
+```
+
+For a stale marketplace snapshot, refresh it with `codex plugin marketplace upgrade pcircle-memesh`, then reinstall with `codex plugin remove memesh` followed by `codex plugin add memesh@pcircle-memesh`.
 
 Session start surfaces a one-line banner (throttled to once per 24h per version) when a newer release is available, and `memesh doctor` reports the upgrade target with the channel-specific command.
 

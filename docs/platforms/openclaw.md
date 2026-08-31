@@ -2,7 +2,7 @@
 
 OpenClaw has a **first-party, documented plugin system for memory capabilities** — `api.registerMemoryCapability()` with contract-based registration via `openclaw.json`, activated through `plugins.slots.memory`. This is not a generic HTTP/CLI bridge: OpenClaw ships with LanceDB as a reference memory provider (`@openclaw/memory-lancedb`), and MeMesh can be added as an alternative, with automatic per-turn recall/write — no core OpenClaw file needs editing.
 
-This guide is written from confirmed upstream OpenClaw documentation (docs.openclaw.ai) and the shipping LanceDB reference plugin at `https://github.com/openclaw/openclaw/blob/main/extensions/memory-lancedb/index.ts`. It has NOT been built or verified live (unlike the Hermes Agent integration, which was deployed and tested end-to-end) — treat this as the confirmed CONTRACT for implementation, not a battle-tested deployment guide.
+This guide accompanies the source implementation in `extensions/memory-memesh/` and is based on confirmed upstream OpenClaw documentation (docs.openclaw.ai) plus the shipping LanceDB reference plugin at `https://github.com/openclaw/openclaw/blob/main/extensions/memory-lancedb/index.ts`. The MeMesh plugin has not been installed or verified against a live OpenClaw runtime (unlike the Hermes Agent integration), so treat it as source ready for compatibility testing, not a battle-tested deployment guide.
 
 ## Why this is a good fit
 
@@ -24,7 +24,7 @@ For OpenClaw, decide deliberately:
 ## The plugin shape
 
 ```
-extensions/memory-memesh/   (or publish as @yourorg/openclaw-memory-memesh)
+extensions/memory-memesh/   (published target: @pcircle/openclaw-memory-memesh)
 ├── index.ts                # Plugin entry, implements definePluginEntry()
 ├── api.ts                  # OpenClaw plugin API types (if not importing from SDK)
 ├── config.ts               # Config schema, defaults
@@ -75,7 +75,7 @@ Minimal example (user's `openclaw.json`):
 ## Installation (once published as an npm package)
 
 ```bash
-openclaw plugins install @yourorg/openclaw-memory-memesh
+openclaw plugins install @pcircle/openclaw-memory-memesh
 # Auto-assigns to the memory slot.
 
 # Verify:
@@ -110,9 +110,9 @@ Or manually: drop `extensions/memory-memesh/` into an OpenClaw checkout, add to 
 
 | Client | Best Mode | Setup | Guide |
 |--------|-----------|-------|-------|
-| **OpenClaw** | Native memory plugin | `openclaw plugins install <package>` (once published), or drop `extensions/memory-memesh/` into OpenClaw checkout; configure `plugins.slots.memory: "memesh"` in `openclaw.json` | This page |
+| **OpenClaw** | Native memory plugin | `openclaw plugins install @pcircle/openclaw-memory-memesh` (when published), or drop `extensions/memory-memesh/` into OpenClaw checkout; configure `plugins.slots.memory: "memesh"` in `openclaw.json` | This page |
 
-Unlike the HTTP-only platforms in this directory, OpenClaw should get listed as a **native integration**, same tier as Hermes Agent and MCP mode for Claude Code — the plugin, once written, behaves exactly like OpenClaw's own first-party providers, discoverable and configurable through OpenClaw's own plugin system.
+Unlike the HTTP-only platforms in this directory, OpenClaw is listed as a **native integration** because the source plugin implements OpenClaw's memory-provider contract. That describes the integration shape, not publication or live-runtime verification.
 
 ## Reference implementation
 
@@ -120,7 +120,7 @@ The official LanceDB memory plugin (`@openclaw/memory-lancedb`) is the canonical
 
 ## Status
 
-**Built, security-hardened, NOT yet tested against live OpenClaw.** A complete TypeScript implementation is available at `extensions/memory-memesh/` (478 lines index.ts + config schema + package.json + SECURITY.md). The plugin follows the confirmed contract from upstream OpenClaw docs and the LanceDB reference plugin.
+**Source implementation present and security-reviewed, NOT yet tested against live OpenClaw or published to npm.** A TypeScript implementation is available at `extensions/memory-memesh/` (index.ts + config schema + package.json + SECURITY.md). The plugin follows the confirmed contract from upstream OpenClaw docs and the LanceDB reference plugin.
 
 **Security fixes applied (2026-08-15)**:
 - Tenant isolation via agentId-tagged filtering
@@ -131,7 +131,7 @@ The official LanceDB memory plugin (`@openclaw/memory-lancedb`) is the canonical
 Unlike the Hermes Agent integration (which was built, deployed to dgx94, and verified end-to-end with cross-session automatic recall), this has not been tested against a running OpenClaw instance. Treat as ready for testing, not yet battle-tested.
 
 The next implementer should:
-1. Build the plugin following this spec.
+1. Build and install the existing plugin in a compatible OpenClaw checkout.
 2. Test with `autoCapture: false` first (auto-recall only, explicit tools as backstop).
 3. Run A/B comparison (plugin on vs off, same query) to verify no unintended mutations to OpenClaw's built-in memory files.
 4. Only enable `autoCapture` after confirming step 3 passes cleanly.
