@@ -16,6 +16,8 @@ export interface CodexSessionHostConfig extends Record<string, unknown> {
   project: unknown;
   principal_id: unknown;
   workspace: unknown;
+  model?: unknown;
+  work_summary?: unknown;
 }
 
 export interface CodexSessionStartInput {
@@ -33,7 +35,8 @@ export interface CodexSessionCompanionDependencies {
 /**
  * Bind one living Codex hook process to the router for the lifetime of the
  * ordinary CLI session. The router invokes native queue locally; this process
- * supplies presence/heartbeats and never receives the durable payload.
+ * supplies authenticated presence and heartbeats while the adapter receives
+ * the bounded full message.
  */
 export async function startCodexSessionCompanion(
   config: CodexSessionHostConfig,
@@ -61,9 +64,11 @@ export async function startCodexSessionCompanion(
       principal_id: requiredString(config.principal_id, 'principal_id'),
       session_instance_id: threadId,
       adapter_kind: 'codex-cli-queue',
+      ...(config.model == null ? {} : { model: requiredString(config.model, 'model') }),
+      ...(config.work_summary == null ? {} : { work_summary: requiredString(config.work_summary, 'work_summary') }),
     },
     async deliver() {
-      throw new Error('Codex CLI queue delivery must remain metadata-only inside the router.');
+      throw new Error('Codex CLI queue delivery is owned by the router adapter.');
     },
   });
 }

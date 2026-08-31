@@ -260,18 +260,18 @@ export const TOOL_DEFINITIONS = [
     },
     {
         name: 'message',
-        description: 'Use this to contact another local agent — hand off work, ask for a result, report a disposition — and send here FIRST: the durable inbox is the record, host push is only the delivery. Exchange durable local agent messages on one MeMesh instance. send creates one message/delivery/wakeup event idempotently; poll waits or catches up with an opaque cursor; fetch reads the payload; intake, ack, disposition, and activation record separate explicit facts. Polling or fetching never acknowledges a message, and no action executes payload content.',
+        description: 'Use this to contact or discover another local agent on the same MeMesh instance. discover is a bounded, project-scoped live-directory read of active leases and returns only the router result; it performs no send, fetch, ACK, replay, or receipt work. send creates one durable message idempotently. For target_kind=session, success requires the exact active native host to accept the bounded full message; otherwise send fails with recipient_unavailable while preserving scoped recovery data. Principal targets retain durable store-and-forward behavior. poll/fetch remain compatibility and recovery reads; intake, ack, disposition, and activation are separate explicit facts. Native acceptance, polling, fetching, and discovery never imply agent acknowledgement or workflow completion.',
         inputSchema: {
             type: 'object',
             properties: {
                 action: {
                     type: 'string',
-                    enum: ['send', 'poll', 'fetch', 'intake', 'ack', 'disposition', 'activation', 'receipts'],
-                    description: 'Lifecycle action. Each action validates only its documented fields and rejects unknown fields.',
+                    enum: ['send', 'poll', 'discover', 'fetch', 'intake', 'ack', 'disposition', 'activation', 'receipts'],
+                    description: 'Message lifecycle or live-directory action. Each action validates only its documented fields and rejects unknown fields.',
                 },
                 project: { type: 'string', description: 'Local project scope shared by sender and recipient.' },
                 sender: { type: 'string', description: 'Required for send. Stable local sender/agent identifier.' },
-                recipient: { type: 'string', description: 'Required for every action. Stable target local agent/host identifier.' },
+                recipient: { type: 'string', description: 'Required for every action except discover. Stable target local agent/host identifier.' },
                 target_kind: {
                     type: 'string',
                     enum: ['principal', 'session'],
@@ -285,7 +285,7 @@ export const TOOL_DEFINITIONS = [
                 reply_to: { type: 'string', description: 'Optional earlier message ID this message replies to.' },
                 cursor: { type: 'string', description: 'Optional opaque cursor returned by poll. Clients must not parse it.' },
                 wait_ms: { type: 'number', description: 'Poll wait in milliseconds, 0-30000. Defaults to 0.' },
-                limit: { type: 'number', description: 'Maximum poll events, 1-100. Defaults to 20.' },
+                limit: { type: 'number', description: 'Maximum poll or discovery rows, 1-100. Defaults to 20 for poll and 50 for discover.' },
                 message_id: { type: 'string', description: 'Required for fetch, receipt writes, and receipt readback.' },
                 intake_state: { type: 'string', enum: ['fetched', 'ingested'], description: 'Required only for intake. Neither value implies ACK.' },
                 disposition: { type: 'string', enum: ['accepted', 'rejected', 'completed', 'cancelled', 'deferred'], description: 'Required only for disposition.' },

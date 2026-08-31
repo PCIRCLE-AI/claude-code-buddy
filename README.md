@@ -21,6 +21,7 @@
 ### New collaboration surfaces
 
 - `message` gives local agents a durable exact-recipient inbox with cursor recovery and explicit receipts over MCP, HTTP, and CLI.
+- `message discover` gives agents a bounded, project-scoped live directory with session, principal, host kind, declared model/work (or explicit unknown), and active leases; it performs no message or receipt operation.
 - `improvement` turns active memories into evidence-linked product-work proposals that agents can stage, but only a human can accept or reject.
 
 ## Install
@@ -65,8 +66,8 @@ MeMesh has a real cross-agent advantage: every host connected to the same local 
 The optional secure host-native wakeup runtime currently supports macOS and Linux. Core MeMesh memory, durable message storage, and MCP tools remain available on Windows; Windows host-native wakeup is not yet supported.
 
 - Works today: an MCP, HTTP, or CLI sender can durably send to one named local recipient. A receiver can fetch the payload separately, resume from an opaque cursor after restart, and record intake, acknowledgement, workflow disposition, and host activation as separate facts.
-- With the MeMesh Codex plugin enabled and the owner-private `memesh agent setup codex-session` opt-in, an active Codex session in the exact configured local workspace receives a native `memesh_message_available` wakeup without polling or a human reminder. The marker contains routing metadata only; Codex then fetches the durable payload with the scoped `message` tool.
-- A successful queue admission (`host_accept`) means only that the local Codex queue accepted the marker. It does not mean an agent read the payload, acknowledged it, or accepted the work.
+- With the MeMesh Codex plugin enabled and the owner-private `memesh agent setup codex-session` opt-in, an exact active Codex session receives one bounded full message through its native queue without polling or a human reminder, and without a second inbox fetch. An exact-session send returns success only after that native queue accepts it; otherwise it reports `recipient_unavailable` while preserving scoped recovery data.
+- A successful native admission (`host_accept`) means only that the local Codex queue accepted the bounded message. It does not mean an agent read it, acknowledged it, or accepted the work. Codex currently exposes message text only through its `--message` argument, so same-user process inspection may observe it while the queue command runs; keep native messages free of secrets.
 - Durable message storage is bounded by owner policy, not silent deletion: `memesh message storage report` exposes logical payload, protected rows, reusable SQLite pages, and WAL size; bounded prune is dry-run by default and only tombstones old terminal payloads. An optional `MEMESH_AGENT_MESSAGE_STORAGE_QUOTA_BYTES` rejects a send atomically. See [bounded storage and audit retention](docs/platforms/agent-messaging.md#bounded-storage-and-audit-retention).
 - A stopped, missing, or disconnected Codex session is not awakened or replaced. Its durable inbox remains available for audit and recovery; `poll` and `memesh message watch` are compatibility and diagnostic paths. Native delivery never resumes a stopped model session, executes a payload, or implies acknowledgement.
 - Cooperative trust boundary: the recipient name is a logical routing ID, not a per-agent login or ACL. Every caller with access to the same local MeMesh instance must be treated as a trusted workspace participant; host adapters still enforce their own permissions and human-approval rules.
@@ -402,7 +403,7 @@ You don't need to manually remember everything. MeMesh has **8 hooks** that capt
 | **When Claude stops** | Captures files edited, errors fixed, and auto-generates structured lessons from failures |
 | **Before context compaction** | Saves knowledge before it's lost to context limits |
 | **Before risky commands and edits** | Fires the lesson-guards you accepted — a warning at the exact moment a recorded mistake is about to repeat |
-| **When an opted-in Codex session starts or resumes** | Registers that exact live thread for metadata-only MeMesh message wakeups; other workspaces and stopped sessions are not attached |
+| **When an opted-in Codex session starts or resumes** | Registers that exact live thread for bounded full-message native delivery; other workspaces and stopped sessions are not attached |
 
 > **Opt out anytime:** `export MEMESH_AUTO_CAPTURE=false`
 
@@ -583,7 +584,7 @@ If you switch to an embedder with a different dimension (e.g. 768 → 1536), **n
 | `briefing` | The assembled work topology for any MCP client; generic context stays quiet, while exact `project` + `recipient` can surface only that recipient's unfetched deliveries |
 | `user_patterns` | Analyze your work patterns — schedule, tools, strengths, learning areas |
 | `improvement` | Stage an evidence-linked product improvement for human review, or read its status; agents cannot accept or reject it |
-| `message` | Contact another local agent — hand off work, ask for a result, report back — by sending here first; the durable inbox is the record, host push is only delivery. Poll, fetch, and receipt are separate facts |
+| `message` | Discover live agents in one project, then contact one exact recipient for handoff, results, or disposition. Declared model/work may be unknown; discovery, poll, and fetch never imply acknowledgement |
 
 ---
 

@@ -610,9 +610,9 @@ describe('message', () => {
     const tool = TOOL_DEFINITIONS.find((definition) => definition.name === 'message');
     expect(TOOL_DEFINITIONS).toHaveLength(11);
     expect(tool?.inputSchema.properties.action.enum).toEqual([
-      'send', 'poll', 'fetch', 'intake', 'ack', 'disposition', 'activation', 'receipts',
+      'send', 'poll', 'discover', 'fetch', 'intake', 'ack', 'disposition', 'activation', 'receipts',
     ]);
-    expect(tool?.description).toMatch(/Polling or fetching never acknowledges/);
+    expect(tool?.description).toMatch(/polling, fetching, and discovery never imply agent acknowledgement/i);
   });
 
   it('routes exactly, keeps headers payload-free, and writes receipts only when asked', async () => {

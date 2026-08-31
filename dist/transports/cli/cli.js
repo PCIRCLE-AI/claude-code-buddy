@@ -519,7 +519,7 @@ program
 });
 const messageCmd = program
     .command('message')
-    .description('Send, wait for, fetch, and explicitly receipt durable local agent messages');
+    .description('Send, discover, wait for, fetch, and explicitly receipt local agent messages');
 function parseCliMessagePayload(raw, contentType) {
     if (contentType !== 'application/json')
         return raw;
@@ -531,6 +531,13 @@ function parseCliMessagePayload(raw, contentType) {
     }
 }
 const MAX_CLI_MESSAGE_STDIN_BYTES = 65_536;
+function boundedCliDeclaration(value, option, maxCharacters) {
+    const normalized = value.trim();
+    if (normalized.length === 0 || normalized.length > maxCharacters) {
+        throw new Error(`${option} must be a non-empty string of at most ${maxCharacters} characters.`);
+    }
+    return normalized;
+}
 async function readCliMessagePayloadFromStdin(contentType) {
     let raw = '';
     let bytes = 0;
@@ -568,6 +575,14 @@ function isAgentPollResult(value) {
     const candidate = value;
     return Array.isArray(candidate.events) && typeof candidate.next_cursor === 'string';
 }
+messageCmd
+    .command('discover')
+    .description('Discover active leased agents in one project without sending or acknowledging messages')
+    .requiredOption('--project <name>', 'Project scope')
+    .option('--limit <n>', 'Maximum live agents, 1-100', wholeNumber('--limit'), 50)
+    .action((opts) => runCliMessage({
+    action: 'discover', project: opts.project, limit: opts.limit,
+}));
 messageCmd
     .command('send')
     .description('Durably send one exact-recipient local message (idempotent)')
@@ -784,6 +799,8 @@ agentCmd
     .requiredOption('--project <name>', 'Project scope used for exact routing')
     .requiredOption('--principal <id>', 'Stable logical recipient ID')
     .option('--workspace <path>', 'Managed Codex/Gemini workspace', process.cwd())
+    .option('--model <id>', 'Optional declared model identifier')
+    .option('--work-summary <text>', 'Optional declared current work summary')
     .option('--json', 'Output machine-readable setup result')
     .action((host, opts) => {
     requireOneOf(host, ['codex-session', 'codex', 'claude', 'gemini'], '<host>');
@@ -804,6 +821,8 @@ agentCmd
         token_file: routerTokenFile,
         project: opts.project,
         principal_id: opts.principal,
+        ...(opts.model === undefined ? {} : { model: boundedCliDeclaration(opts.model, '--model', 200) }),
+        ...(opts.workSummary === undefined ? {} : { work_summary: boundedCliDeclaration(opts.workSummary, '--work-summary', 200) }),
     };
     const config = host === 'codex-session'
         ? { ...common, workspace: fs.realpathSync(path.resolve(opts.workspace)) }

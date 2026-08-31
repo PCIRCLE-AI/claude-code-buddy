@@ -21,6 +21,7 @@
 ### Neue Kollaborationsflächen
 
 - `message` gibt lokalen Agenten einen dauerhaften Exact-Recipient-Posteingang mit Cursor-Recovery und expliziten Receipts über MCP, HTTP und CLI.
+- `message discover` liefert ein begrenztes, projektbezogenes Verzeichnis aktiver Agenten mit Session, Principal, Host-Art, deklariertem Model/Work (oder ausdrücklich unbekannt) und aktiven Leases; es führt keine Nachrichten- oder Receipt-Aktion aus.
 - `improvement` verwandelt aktive Memories in evidenzverknüpfte Produktarbeits-Vorschläge; Agenten dürfen sie einreichen und ihren Status lesen, aber nur ein Mensch darf annehmen oder ablehnen.
 
 ## Installation
@@ -74,8 +75,8 @@ Alle Hosts, die mit derselben lokalen MeMesh-Instanz verbunden sind, teilen daue
 Die optionale sichere Host-Native-Wakeup-Laufzeit unterstützt derzeit macOS und Linux. MeMesh-Kernspeicher, dauerhafte Nachrichtenspeicherung und MCP-Tools bleiben unter Windows verfügbar; Host-Native-Wakeup unter Windows wird noch nicht unterstützt.
 
 - Heute verfügbar: Ein Sender kann eine Nachricht dauerhaft an genau einen lokalen Empfänger senden. Der Empfänger kann den Payload getrennt abrufen, nach einem Neustart mit einem opaken Cursor fortsetzen und Intake, Bestätigung, Workflow-Status und Host-Aktivierung getrennt protokollieren.
-- Mit aktiviertem MeMesh-Codex-Plugin und dem owner-private Opt-in `memesh agent setup codex-session` erhält eine aktive Codex-Session im exakt konfigurierten lokalen Workspace ohne Polling oder menschliche Erinnerung einen nativen `memesh_message_available`-Wakeup. Der Marker enthält nur Routing-Metadaten; Codex ruft danach den dauerhaften Payload mit dem passend eingegrenzten `message`-Tool ab.
-- Eine erfolgreiche Queue-Annahme (`host_accept`) bedeutet nur, dass die lokale Codex-Queue den Marker annahm. Sie beweist nicht, dass ein Agent den Payload gelesen, bestätigt oder die Arbeit akzeptiert hat.
+- Mit aktiviertem MeMesh-Codex-Plugin und dem owner-private Opt-in `memesh agent setup codex-session` erhält die exakt aktive Codex-Session eine größenbegrenzte vollständige Nachricht über ihre native Queue — ohne Polling oder menschliche Erinnerung und ohne zweiten Inbox-Abruf. Ein Exact-Session-Send ist erst erfolgreich, wenn die native Queue ihn annimmt; andernfalls meldet er `recipient_unavailable` und behält eingegrenzte Recovery-Daten.
+- Eine erfolgreiche Queue-Annahme (`host_accept`) bedeutet nur, dass die lokale Codex-Queue die größenbegrenzte Nachricht annahm. Sie beweist nicht, dass ein Agent sie gelesen, bestätigt oder die Arbeit akzeptiert hat. Codex übernimmt den Text über das Prozessargument `--message`; deshalb kann eine Prozessinspektion desselben Benutzers ihn während des kurzen Queue-Aufrufs sehen. Native Nachrichten dürfen keine Secrets enthalten.
 - Der dauerhafte Nachrichtenspeicher wird durch eine Owner-Richtlinie begrenzt, nicht still gelöscht: `memesh message storage report` zeigt logische Payload-Größe, geschützte Zeilen, wiederverwendbare SQLite-Seiten und WAL-Größe. Das begrenzte Pruning ist standardmäßig ein Dry Run und tombstoniert nur alte terminale Payloads. Ein optionales `MEMESH_AGENT_MESSAGE_STORAGE_QUOTA_BYTES` lehnt einen zu großen Send atomar ab. Siehe [begrenzte Speicherung und Audit-Aufbewahrung](docs/platforms/agent-messaging.md#bounded-storage-and-audit-retention).
 - Eine gestoppte, fehlende oder getrennte Codex-Session wird weder geweckt noch ersetzt. Ihr dauerhafter Posteingang bleibt für Audit und Wiederherstellung erhalten; `poll` und `memesh message watch` sind Kompatibilitäts- und Diagnosepfade. Native Zustellung setzt keine beendete Modell-Session fort, führt keinen Payload aus und gilt nicht als Bestätigung.
 - Kooperative Vertrauensgrenze: Der Empfängername ist eine logische Routing-ID, keine Anmeldung oder ACL pro Agent. Jeder Aufrufer mit Zugriff auf dieselbe lokale MeMesh-Instanz muss als vertrauenswürdiger Workspace-Teilnehmer gelten; Host-Adapter setzen weiterhin ihre eigenen Berechtigungen und menschlichen Freigaben durch.
@@ -399,7 +400,7 @@ Sie müssen nicht manuell alles speichern. MeMesh verfügt über **8 Hooks**, di
 | **Wenn Claude stoppt** | Erfasst bearbeitete Dateien und behobene Fehler; generiert automatisch strukturierte Lektionen aus Fehlern |
 | **Vor Context-Verdichtung** | Speichert Wissen, bevor es durch Context-Limits verloren geht |
 | **Vor riskanten Befehlen und Edits** | Löst die von Ihnen akzeptierten Lektions-Guards aus — eine Warnung genau in dem Moment, in dem sich ein erfasster Fehler wiederholen würde |
-| **Wenn eine optierte Codex-Session startet oder fortgesetzt wird** | Registriert genau diesen aktiven Thread für metadata-only MeMesh-Wakeups; andere Workspaces und gestoppte Sessions werden nicht angehängt |
+| **Wenn eine optierte Codex-Session startet oder fortgesetzt wird** | Registriert genau diesen aktiven Thread für die native Zustellung größenbegrenzter vollständiger Nachrichten; andere Workspaces und gestoppte Sessions werden nicht angehängt |
 
 > **Jederzeit abschalten:** `export MEMESH_AUTO_CAPTURE=false`
 
@@ -565,7 +566,7 @@ Wechselst du zu einer anderen Dimension (z. B. 768 → 1536), wird **nichts gel�
 | `briefing` | Die Arbeitstopologie für jeden MCP-Client; allgemeiner Kontext bleibt still, während exakte Angaben für `project` + `recipient` nur dessen noch nicht abgerufene Zustellungen anzeigen |
 | `user_patterns` | Arbeitsmuster analysieren — Zeitplan, Tools, Stärken, Lernbereiche |
 | `improvement` | Evidenzverknüpfte Produktverbesserung zur menschlichen Prüfung vorschlagen oder ihren Status lesen; Agenten können sie nicht selbst annehmen oder ablehnen |
-| `message` | Einen anderen lokalen Agenten erreichen (Arbeit übergeben, Ergebnis anfragen, Rückmeldung geben) — zuerst hier senden; der dauerhafte Posteingang ist der Beleg, Host-Push nur die Zustellung. Pollen, Abrufen und Quittieren sind getrennte Fakten |
+| `message` | Aktive Agenten projektbezogen finden und dann einen exakten Empfänger für Übergabe, Ergebnis oder Rückmeldung kontaktieren. Nicht deklarierte Model-/Work-Angaben bleiben unbekannt; Discovery, Poll und Fetch bestätigen nichts |
 
 ---
 

@@ -78,10 +78,10 @@ describe('exportOpenAITools', () => {
     const tool = tools.find((t: any) => t.function.name === 'memesh_message') as any;
     expect(tool.function.parameters.required).toEqual(['action']);
     expect(tool.function.parameters.properties.action.enum).toEqual([
-      'send', 'poll', 'fetch', 'intake', 'ack', 'disposition', 'activation', 'receipts',
+      'send', 'poll', 'discover', 'fetch', 'intake', 'ack', 'disposition', 'activation', 'receipts',
     ]);
     expect(tool.function.description).toMatch(/Reads never imply acknowledgement/);
-    expect(tool.function.parameters.properties.recipient.description).toMatch(/required for every action/i);
+    expect(tool.function.parameters.properties.recipient.description).toMatch(/except discover/i);
     const mcpMessage = TOOL_DEFINITIONS.find((definition) => definition.name === 'message') as any;
     expect(tool.function.parameters.properties.recipient.description)
       .toBe(mcpMessage.inputSchema.properties.recipient.description);

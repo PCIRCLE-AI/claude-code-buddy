@@ -191,7 +191,7 @@ describe('Feature: release scripts never edit the real ~/.memesh', () => {
     const pkg = JSON.parse(read('package.json'));
     expect(pkg.scripts['verify:release']).toContain('node scripts/check-agent-message-sync.mjs');
     const gate = read('scripts/check-agent-message-sync.mjs');
-    for (const action of ['send', 'poll', 'fetch', 'intake', 'ack', 'disposition', 'activation', 'receipts']) {
+    for (const action of ['send', 'poll', 'discover', 'fetch', 'intake', 'ack', 'disposition', 'activation', 'receipts']) {
       expect(gate).toContain(`'${action}'`);
     }
     expect(gate).toContain('dist/host-adapters/acp-client.js');
@@ -203,7 +203,7 @@ describe('Feature: release scripts never edit the real ~/.memesh', () => {
     expect(gate).toContain('mapped to action');
   });
 
-  it('makes packaged smoke verify the installed router-to-adapter metadata contract without poll/watch', () => {
+  it('makes packaged smoke verify bounded full-message native acceptance without poll/watch', () => {
     const smoke = read('scripts/smoke-packed-artifact.mjs');
     expect(smoke).toContain("installedBin('memesh-router')");
     expect(smoke).toContain("'dist', 'host-runtime', 'router-client.js'");
@@ -214,9 +214,9 @@ describe('Feature: release scripts never edit the real ~/.memesh', () => {
     expect(smoke).toContain("adapter_kind: 'codex-cli-queue'");
     expect(smoke).toContain('agent_host_accepts');
     expect(smoke).toContain('no implicit ACK/disposition');
-    expect(smoke).toContain('stopped-or-missing-host');
+    expect(smoke).toContain('stopped-or-missing-session');
     expect(smoke).toContain('without poll/watch');
-    expect(smoke).toContain('installed-artifact router-to-adapter metadata-dispatch contract');
+    expect(smoke).toContain('installed-artifact router-to-adapter full-message contract');
     expect(smoke).toContain('fake queue');
     expect(smoke).toContain('does not create or observe a real Codex task');
     expect(smoke).toContain('user-visible');
@@ -254,33 +254,38 @@ describe('Feature: release scripts never edit the real ~/.memesh', () => {
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(file, content);
     };
-    const actions = ['send', 'poll', 'fetch', 'intake', 'ack', 'disposition', 'activation', 'receipts'];
+    const actions = ['send', 'poll', 'discover', 'fetch', 'intake', 'ack', 'disposition', 'activation', 'receipts'];
     try {
       write('src/transports/schemas.ts', actions.map(action => `action: z.literal('${action}')`).join('\n') + "\ntarget_kind z.enum(['principal', 'session'])");
       const mcpMessageSchema = "name: 'message' target_kind: { type: 'string', enum: ['principal', 'session'] } name === 'message' MessageSchema executeAgentMessageAction";
       write('src/transports/mcp/handlers.ts', mcpMessageSchema);
+      write('src/core/schema-export.ts', actions.map(action => `'${action}'`).join(' '));
+      write('dist/core/schema-export.js', actions.map(action => `'${action}'`).join(' '));
       write('src/transports/http/server.ts', "executeAgentMessageAction\ntransport: 'http'");
       const cliMappings = [
-        ['send', 'send'], ['watch', 'poll'], ['fetch', 'fetch'], ['intake', 'intake'],
+        ['send', 'send'], ['watch', 'poll'], ['discover', 'discover'], ['fetch', 'fetch'], ['intake', 'intake'],
         ['ack', 'ack'], ['disposition', 'disposition'], ['activation', 'activation'], ['receipts', 'receipts'],
       ].map(([command, action]) => `.command('${command}')\n.action(() => ({ action: '${action}' }))`).join('\n');
       const cliRequired = "\n--payload-stdin\nnever argv\nreadCliMessagePayloadFromStdin\nmessageStorageCmd storage report prune automatic_pruning\n'codex-session'\nmode: host === 'codex-session'\n'ordinary-session-native-queue'";
       write('src/transports/cli/cli.ts', cliMappings + cliRequired);
-      write('src/transports/agent-messaging.ts', 'target_kind: input.target_kind');
+      write('src/transports/agent-messaging.ts', 'target_kind: input.target_kind recipient_unavailable native_accepted');
       write('src/core/agent-message-storage.ts', 'protected_unresolved_message_count terminal_prunable_message_count storage_quota_exceeded');
-      write('src/core/agent-router.ts', 'principal session generation');
-      for (const adapter of ['codex-app-server.ts', 'claude-channel.ts', 'acp-client.ts']) write(`src/host-adapters/${adapter}`, 'adapter');
+      write('src/core/agent-router.ts', 'principal session generation host_kind work_summary lease_expires_at_ms');
+      for (const adapter of ['codex-app-server.ts', 'acp-client.ts']) write(`src/host-adapters/${adapter}`, 'adapter');
+      const claudeChannelServer = "'claude/channel' notifications/claude/channel createClaudeChannelServer";
+      write('src/host-adapters/claude-channel.ts', claudeChannelServer);
       write('src/host-adapters/codex-app-server.ts', 'adapter experimentalApi: true thread/queue/add ws://localhost/rpc perMessageDeflate: false');
-      const codexQueueAdapter = "dispatch_metadata_only 'queue', '--thread' '--message', marker shell: false";
+      const codexQueueAdapter = "dispatch(input serializeNativeAgentMessage 'queue', '--thread' '--message', message shell: false";
       write('src/host-adapters/codex-cli-queue.ts', codexQueueAdapter);
       write('dist/mcp/server.js');
       write('dist/transports/mcp/handlers.js', mcpMessageSchema);
       write('dist/transports/http/server.js', 'MessageBody executeAgentMessageAction');
-      write('dist/transports/agent-messaging.js', 'executeAgentMessageAction target_kind: input.target_kind');
+      write('dist/transports/agent-messaging.js', 'executeAgentMessageAction target_kind: input.target_kind recipient_unavailable native_accepted');
       write('dist/transports/schemas.js', "target_kind z.enum(['principal', 'session'])");
       write('dist/transports/cli/cli.js', cliMappings + cliRequired);
       write('dist/core/agent-message-storage.js', 'protected_unresolved_message_count terminal_prunable_message_count storage_quota_exceeded');
-      for (const artifact of ['dist/host-adapters/codex-app-server.js', 'dist/host-adapters/claude-channel.js', 'dist/host-adapters/acp-client.js']) write(artifact);
+      for (const artifact of ['dist/host-adapters/codex-app-server.js', 'dist/host-adapters/acp-client.js']) write(artifact);
+      write('dist/host-adapters/claude-channel.js', claudeChannelServer);
       write('dist/host-adapters/codex-app-server.js', 'experimentalApi: true thread/queue/add ws://localhost/rpc perMessageDeflate: false');
       write('dist/host-adapters/codex-cli-queue.js', codexQueueAdapter);
       write('dist/core/agent-router.js', 'class AgentRouter host_accept');
@@ -293,8 +298,8 @@ describe('Feature: release scripts never edit the real ~/.memesh', () => {
       write('dist/host-runtime/codex-session.js', codexSession);
       write('src/host-runtime/acp.ts', 'session_update_file O_NOFOLLOW');
       write('dist/host-runtime/acp.js', 'session_update_file O_NOFOLLOW');
-      write('docs/api/API_REFERENCE.md', actions.join(' ') + ' principal session generation Local Cloud message storage storage_quota_exceeded');
-      write('docs/platforms/agent-messaging.md', 'principal session generation exact-session principal target Local Cloud Bounded storage and audit retention');
+      write('docs/api/API_REFERENCE.md', actions.join(' ') + ' principal session generation host_kind work_summary lease_expires_at_ms Local Cloud message storage storage_quota_exceeded');
+      write('docs/platforms/agent-messaging.md', 'principal session generation host_kind work_summary lease_expires_at_ms exact-session principal target Local Cloud Bounded storage and audit retention');
       write('skills/memesh/SKILL.md', 'message polling active compatible managed host stopped, missing, or replaced session message storage report');
       write('llms-install.md', '22.13.0 memesh doctor message memesh-router memesh-host-codex memesh-host-claude memesh-host-acp --config message storage report');
       write('README.md', 'message memesh agent setup codex-session without polling or a human reminder stopped, missing, or disconnected Codex session message storage report');

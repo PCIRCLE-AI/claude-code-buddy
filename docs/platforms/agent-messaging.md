@@ -4,6 +4,14 @@ MeMesh provides two complementary collaboration surfaces on one machine:
 
 - shared durable memory, including the `team` namespace, for knowledge, decisions, and coarse handoffs;
 - the `message` tool for explicit durable messages to one named recipient on the same MeMesh instance.
+- `message discover` for a bounded, project-scoped view of currently live host registrations.
+
+Use `memesh message discover --project <name> [--limit 1..100]` to read the
+router directory. Results expose `session_id`, `principal_id`, `host_kind`,
+`project`, declared `model` and `work_summary` (`null` when absent), `active`,
+`generation`, and `lease_expires_at_ms`. Discovery performs no send, fetch, ACK, replay, or
+receipt operation; router unavailability is an explicit error, never an empty
+directory.
 
 Briefing follows the same trust boundary. Generic `briefing` and automatic
 SessionStart context have no recipient identity, so they never aggregate or
@@ -13,13 +21,15 @@ result reports only that recipient's unfetched deliveries and tells it to
 `message poll` with the exact scope before fetching each returned
 `message_id`. Fetching remains separate from intake and acknowledgement.
 
-The messaging path is durable store-and-forward. For an explicitly configured,
-active local Codex CLI session, MeMesh queues a metadata-only native wakeup;
-the session then fetches the durable payload through the scoped `message`
-operation. SQLite remains the audit and recovery authority. `poll`/`watch` are
-compatibility and diagnostic APIs, not the normal delivery loop for that active
-Codex path. A queue admission or `host_accept` is not proof that an agent read
-the payload, acknowledged it, or accepted the work.
+The messaging path keeps durable store-and-forward compatibility. For an
+exact active local Codex or Claude session, MeMesh sends one bounded full
+message through the authenticated native host channel and waits for native
+acceptance; no marker-to-fetch step is required. An unavailable exact session
+returns `recipient_unavailable` while scoped recovery data remains durable.
+Principal targets retain asynchronous store-and-forward semantics.
+`poll`/`watch` are compatibility and diagnostic APIs. A queue admission or
+`host_accept` is not proof that an agent read the payload, acknowledged it, or
+accepted the work.
 
 ## One-time owner-private local-host setup
 
@@ -71,6 +81,9 @@ memesh agent setup codex --project my-project --principal codex-reviewer --works
 memesh agent setup claude --project my-project --principal claude-reviewer
 ```
 
+Optional declarations can be persisted with `--model <id>` and
+`--work-summary <text>` (each is capped at 200 characters); no defaults are guessed.
+
 ### Ordinary active Codex CLI session
 
 `codex-session` is the opt-in path for an ordinary local Codex session and
@@ -92,18 +105,22 @@ realpath before it connects to the router. A missing identity, a different
 workspace, compact lifecycle input, or a failed/disconnected connection does
 not register a host and does not wake anything.
 
-For a registered session, MeMesh invokes `codex queue` with a
-`memesh_message_available` marker containing only the project, recipient,
-target kind, message ID, and delivery ID. The message payload stays in the
-durable MeMesh inbox. Codex must then use the `message` tool to `fetch` that
-same project/recipient/target/message scope. The persisted `host_accept` means
-only that the local Codex queue accepted the marker; it is neither payload
-readback nor an `ack` or workflow disposition.
+For a registered session, MeMesh invokes `codex queue` with one untrusted full
+envelope capped at 16 KiB. The exact-session sender returns
+`native_delivery.status: "native_accepted"` only after the queue accepts it;
+Codex does not need a second `message fetch` to inspect that native message.
+The persisted `host_accept` is neither agent readback nor an `ack` or workflow
+disposition. Codex exposes message text only through its `--message` process
+argument, so same-user process inspection may observe it while the short-lived
+queue command runs; do not put secrets in native messages.
 
 If the configured Codex session is stopped, missing, disconnected, or no
 longer matches its configured workspace, MeMesh does not start or replace it.
-The durable inbox and its receipt history remain available to scoped fetch,
-cursor recovery, `poll`, or `memesh message watch` for audit and diagnosis.
+An exact-session send reports `recipient_unavailable`; durable scoped recovery
+and receipt history remain available to fetch, cursor recovery, `poll`, or
+`memesh message watch` for audit and diagnosis. Exact-session failures are not
+automatically replayed through the native channel on a later registration; the
+sender must retry deliberately if live delivery is still wanted.
 
 ### Separate: MeMesh-managed Codex app-server runner
 
@@ -149,7 +166,7 @@ claude --dangerously-load-development-channels server:memesh-channel
 
 Without that flag Claude may initialize the ordinary MCP transport while
 silently dropping channel events; a MeMesh `host_accept` then proves only that
-the notification was written to stdio, not that Claude admitted it. With the
+the bounded message was written to stdio, not that Claude surfaced it. With the
 channel admitted, initialization creates and registers the exact MeMesh
 session automatically; EOF, MCP close, or normal signals unregister it.
 
@@ -170,7 +187,7 @@ for active Codex-session delivery.
 ## What Works Today
 
 - MCP, HTTP, and CLI use the same message lifecycle and SQLite system of record.
-- `send` creates one canonical message, recipient delivery, and payload-free notification event under an idempotency key.
+- `send` creates one canonical message, recipient delivery, and payload-free notification event under an idempotency key. Exact-session success additionally requires native host acceptance; otherwise it returns `recipient_unavailable` while preserving recovery state.
 - `poll` and `memesh message watch` return only events for the exact project and recipient. They are compatibility and diagnostic paths; the opaque cursor can be persisted and reused after a timeout, dropped hint, duplicate delivery, or process restart.
 - `fetch` returns the payload only to the named recipient and matching `target_kind` in the named project. Exact-session messages require `target_kind=session`; polling and fetching do not acknowledge the message.
 - `intake`, `ack`, `disposition`, and `activation` are explicit, separate, idempotent receipt facts. Inbox/MCP ACK is valid without a host-native acceptance; host-native ACK remains bound to its `host_accept`. `receipts` returns one ordered projection and identifies each underlying fact source. For example, `manual_resume_required` does not imply ACK, acceptance, rejection, cancellation, or completion.
@@ -182,11 +199,11 @@ A **principal** is the stable logical recipient. A **session** is one live host 
 
 Persistence, dispatch attempt, host acceptance, intake, acknowledgement,
 workflow disposition, retention, and presence are independent state axes. An
-active configured Codex session receives a host-native metadata marker without
-polling. A stopped, missing, busy beyond its queue limit, disconnected, or
-unsupported session is not awakened, resumed, or replaced; durable state
-remains available for audit and recovery, subject to exact-session and
-activation-checkpoint rules.
+active configured exact session receives a bounded full message without
+polling or an inbox fetch. A stopped, missing, busy beyond its queue limit,
+disconnected, or unsupported session returns `recipient_unavailable` and is
+not awakened, resumed, or replaced; durable state remains available for audit
+and recovery, subject to exact-session and activation-checkpoint rules.
 
 ## Bounded storage and audit retention
 
@@ -231,9 +248,9 @@ quota or automatic retention policy.
 This guide describes only one local MeMesh instance: its SQLite durable event
 store and same-machine host-native input. Remote and cross-machine transport is
 the responsibility of MeMesh Cloud and requires its own verified relay; Cloud
-state is not evidence that this local host received a marker. A native marker,
-persistence, or fetch does not promise exactly-once cognition, a reply, or a
-stopped-session wake-up.
+state is not evidence that this local host accepted a native message. Native
+acceptance, persistence, or fetch does not promise exactly-once cognition, a
+reply, or a stopped-session wake-up.
 
 ## What This Is Not Yet
 
@@ -248,7 +265,7 @@ stopped-session wake-up.
 
 | Participant | Current path | Status today | Notes |
 |---|---|---|---|
-| Ordinary Codex CLI | `codex-session` owner-private opt-in | metadata-only native wakeup while active | Exact workspace, principal, and SessionStart identity must match; stopped or disconnected sessions are not awakened |
+| Ordinary Codex CLI | `codex-session` owner-private opt-in | bounded full-message native delivery while active | Exact workspace, principal, and SessionStart identity must match; stopped or disconnected exact sessions return `recipient_unavailable` |
 | MeMesh-managed Codex app-server | `memesh-host-codex` | separate managed path | It creates its own Codex thread; it does not attach to an ordinary session |
 | Claude channel | `memesh-host-claude` | separate channel path | Requires the documented Channel opt-in; no stopped-session resume |
 | Other local MCP clients | MCP, HTTP, or CLI message operations | durable messaging only | Use `poll`/`watch` and scoped fetch where their own host loop supports it; this guide makes no native-wakeup claim |
@@ -256,19 +273,19 @@ stopped-session wake-up.
 ## Lifecycle
 
 1. A sender calls `message` with `action: "send"`, a stable sender, one recipient, a project, an idempotency key, and a payload.
-2. For an eligible ordinary Codex session, the router queues only a
-   privacy-minimized `memesh_message_available` marker. An explicit
-   `poll`/`watch` client may instead read privacy-minimized events for
-   compatibility or diagnosis.
-3. Codex calls `fetch` with the marker's project, recipient, target kind, and
-   message ID to read the durable payload. The marker and queue admission do
-   not acknowledge the message.
+2. For an eligible exact Codex or Claude session, the router sends one bounded
+   untrusted full envelope and waits for native host acceptance. An explicit
+   `poll`/`watch` client may still read privacy-minimized events for recovery,
+   compatibility, or diagnosis.
+3. Native acceptance returns `native_delivery.status: "native_accepted"`; an
+   absent or rejected exact session returns `recipient_unavailable`. Neither
+   outcome records an agent acknowledgement or workflow disposition.
 4. The receiver records only the facts that actually happened:
    - `intake`: payload fetched or durably ingested;
    - `ack`: explicit recipient acknowledgement;
    - `disposition`: accepted, rejected, completed, cancelled, or deferred;
    - `activation`: woken, manual resume required, unsupported, or failed.
-5. After router or host restart, registration drains only eligible durable deliveries. A manual cursor replay may repeat an event, so application intake still uses its own idempotency key.
+5. After router or host restart, registration drains only eligible durable principal deliveries. Failed exact-session native delivery requires an explicit retry. A manual cursor replay may repeat an event, so application intake still uses its own idempotency key.
 
 `correlation_id` and `reply_to` can connect messages, but they do not change delivery or routing.
 

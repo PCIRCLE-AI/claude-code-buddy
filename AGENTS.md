@@ -24,7 +24,10 @@ host is recallable from all of them. Not installed yet? Follow
 3. **"What do you remember?"** — call `briefing` and relay its content. Do
    not answer from your own conversation context.
 4. **When you need another agent** — to hand off, to ask, to report back —
-   send a `message` before anything else. The host's own push tool (Claude
+   first use `message discover` with the exact project when you do not already
+   know the recipient. It lists only live registrations and their routing IDs,
+   host kind, declared model/current work, generation, and lease; missing
+   declarations remain unknown. Then send a `message`. The host's own push tool (Claude
    Code's `SendMessage`, a Codex queue) delivers a wakeup; it is not the
    record, and it cannot reach an agent on a different host or one that is
    not running. Generic `briefing` and SessionStart context has no recipient
@@ -46,7 +49,7 @@ host is recallable from all of them. Not installed yet? Follow
 | `briefing` | The assembled work topology; exact `project` + `recipient` can surface only that recipient's unfetched deliveries |
 | `user_patterns` | Analyze work schedule, tool preferences, and focus areas from memory |
 | `improvement` | Propose an evidence-linked product improvement or read its status; only a human may accept/reject it |
-| `message` | **Contact another local agent** — hand off work, ask for a result, report a disposition. Send here first: the durable inbox is the record, host push is only delivery. Polling/fetching never implies acknowledgement |
+| `message` | Discover live agents in one project, then contact one exact recipient for handoff, results, or disposition. Discovery/polling/fetching never implies acknowledgement |
 
 ## Memory hygiene
 

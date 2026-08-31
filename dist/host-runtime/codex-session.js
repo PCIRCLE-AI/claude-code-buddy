@@ -30,9 +30,11 @@ export async function startCodexSessionCompanion(config, hookInput, environment,
             principal_id: requiredString(config.principal_id, 'principal_id'),
             session_instance_id: threadId,
             adapter_kind: 'codex-cli-queue',
+            ...(config.model == null ? {} : { model: requiredString(config.model, 'model') }),
+            ...(config.work_summary == null ? {} : { work_summary: requiredString(config.work_summary, 'work_summary') }),
         },
         async deliver() {
-            throw new Error('Codex CLI queue delivery must remain metadata-only inside the router.');
+            throw new Error('Codex CLI queue delivery is owned by the router adapter.');
         },
     });
 }

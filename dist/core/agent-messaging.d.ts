@@ -203,6 +203,7 @@ export interface AgentRetentionFact {
     detail: AgentJsonObject;
     created_at: string;
 }
+export declare const AGENT_NATIVE_MESSAGE_MAX_BYTES: number;
 export declare class AgentMessagingError extends Error {
 }
 export declare class AgentIdempotencyConflictError extends AgentMessagingError {
@@ -211,6 +212,11 @@ export declare class AgentMessageAccessError extends AgentMessagingError {
 }
 export declare class AgentWaitAbortedError extends AgentMessagingError {
 }
+export declare class AgentNativeMessageTooLargeError extends AgentMessagingError {
+    readonly code = "native_message_too_large";
+    constructor();
+}
+export declare function serializeNativeAgentMessage(envelope: AgentMessagePayload, deliveryId: string): string;
 export declare function sendAgentMessage(db: MemeshDatabase, input: SendAgentMessageInput, options?: SendAgentMessageOptions): SentAgentMessage;
 export declare function pollAgentEvents(db: MemeshDatabase, input: PollAgentEventsInput): PollAgentEventsResult;
 export declare function waitForAgentEvents(db: MemeshDatabase, input: WaitForAgentEventsInput, signal?: AbortSignal): Promise<PollAgentEventsResult>;

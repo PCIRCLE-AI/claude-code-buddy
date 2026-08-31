@@ -6,6 +6,7 @@ import type { MemeshDatabase } from '../storage/sqlite.js';
 import {
   fetchAgentMessage,
   type AgentJsonObject,
+  type AgentJsonValue,
   type AgentMessagePayload,
   type AgentMessagePostCommitNotifier,
   type AgentTargetKind,
@@ -35,6 +36,8 @@ export interface AgentHostRegistration {
   principal_id: string;
   session_instance_id: string;
   adapter_kind: string;
+  model?: string;
+  work_summary?: string;
   /** Optional shared secret supplied by an external host process. */
   auth_token?: string;
 }
@@ -52,24 +55,6 @@ export interface AgentHostDispatchInput {
   envelope: AgentMessagePayload;
 }
 
-export interface AgentHostMetadataDispatchInput {
-  dispatch_id: string;
-  attempt_id: string;
-  project: string;
-  principal_id: string;
-  session_instance_id: string;
-  connection_id: string;
-  generation: number;
-  hops: number;
-  routing: {
-    project: string;
-    recipient: string;
-    target_kind: AgentTargetKind;
-    message_id: string;
-    delivery_id: string;
-  };
-}
-
 export interface AgentHostDispatchResult {
   accepted: boolean;
   receipt?: AgentJsonObject;
@@ -84,10 +69,6 @@ export interface AgentHostAdapter {
   readonly kind: string;
   authenticate(registration: AgentHostRegistration): boolean | Promise<boolean>;
   dispatch?(input: AgentHostDispatchInput): AgentHostDispatchResult | Promise<AgentHostDispatchResult>;
-  /** Native wakeup paths receive routing identifiers only, never the durable payload. */
-  dispatch_metadata_only?(
-    input: AgentHostMetadataDispatchInput,
-  ): AgentHostDispatchResult | Promise<AgentHostDispatchResult>;
 }
 
 export interface AgentRouterLimits {
@@ -116,7 +97,18 @@ export interface AgentRouterRegisterRequest {
   principal_id: string;
   session_instance_id: string;
   adapter_kind: string;
+  model?: string;
+  work_summary?: string;
   auth_token?: string;
+  hops: number;
+}
+
+export interface AgentRouterDiscoverRequest {
+  version: 1;
+  type: 'discover';
+  request_id: string;
+  project: string;
+  limit: number;
   hops: number;
 }
 
@@ -177,6 +169,7 @@ export interface AgentRouterHostRejectRequest {
 
 export type AgentRouterRequest =
   | AgentRouterRegisterRequest
+  | AgentRouterDiscoverRequest
   | AgentRouterNotifyRequest
   | AgentRouterHeartbeatRequest
   | AgentRouterDisconnectRequest
@@ -209,6 +202,18 @@ type ConnectionRow = {
   router_instance_id: string;
   lease_expires_at_ms: number;
 };
+
+export interface AgentSelectionCard {
+  session_id: string;
+  principal_id: string;
+  host_kind: 'codex' | 'claude' | 'gemini' | 'other';
+  project: string;
+  model: string | null;
+  work_summary: string | null;
+  active: true;
+  generation: number;
+  lease_expires_at_ms: number;
+}
 
 type DeliveryRow = {
   delivery_id: string;
@@ -244,6 +249,7 @@ export class AgentRouter {
   private socketIdentity: SocketIdentity | null = null;
   private readonly sockets = new Set<net.Socket>();
   private readonly externalConnections = new Map<string, net.Socket>();
+  private readonly selectionCards = new Map<string, Omit<AgentSelectionCard, 'active' | 'generation' | 'lease_expires_at_ms'>>();
   private readonly inFlightDeliveries = new Map<string, { operation: Promise<boolean> }>();
   private readonly pendingExternal = new Map<string, {
     connection: ConnectionRow;
@@ -319,6 +325,7 @@ export class AgentRouter {
     this.server = null;
     const socketIdentity = this.socketIdentity;
     this.socketIdentity = null;
+    this.selectionCards.clear();
     for (const socket of [...this.sockets]) {
       this.disconnectSocket(socket);
       socket.destroy();
@@ -389,6 +396,8 @@ export class AgentRouter {
     switch (request.type) {
       case 'register':
         return this.register(request, socket);
+      case 'discover':
+        return this.discover(request);
       case 'notify': {
         const delivered = await this.dispatchDelivery(request.delivery_id, request.project, request.hops + 1);
         return { delivered };
@@ -413,6 +422,8 @@ export class AgentRouter {
           `).run(connection.connection_id);
           this.insertPresenceFact(connection, 'disconnected', { reason: 'adapter_disconnect' });
         }).immediate();
+        this.externalConnections.delete(connection.connection_id);
+        this.selectionCards.delete(connection.connection_id);
         return { disconnected: true };
       }
       case 'host_accept':
@@ -429,6 +440,8 @@ export class AgentRouter {
       principal_id: request.principal_id,
       session_instance_id: request.session_instance_id,
       adapter_kind: request.adapter_kind,
+      ...(request.model === undefined ? {} : { model: request.model }),
+      ...(request.work_summary === undefined ? {} : { work_summary: request.work_summary }),
       ...(request.auth_token === undefined ? {} : { auth_token: request.auth_token }),
     };
     if (!await adapter.authenticate(registration)) {
@@ -437,6 +450,14 @@ export class AgentRouter {
 
     const connection = this.registerConnection(registration);
     this.bindExternalConnection(connection, socket);
+    this.selectionCards.set(connection.connection_id, {
+      session_id: connection.session_instance_id,
+      principal_id: connection.principal_id,
+      host_kind: hostKind(connection.adapter_kind),
+      project: connection.project,
+      model: registration.model ?? null,
+      work_summary: registration.work_summary ?? null,
+    });
     setImmediate(() => { void this.drainConnection(connection, request.hops + 1).catch(() => undefined); });
     return {
       connection_id: connection.connection_id,
@@ -448,7 +469,10 @@ export class AgentRouter {
 
   private bindExternalConnection(connection: ConnectionRow, socket: net.Socket): void {
     for (const [connectionId, bound] of this.externalConnections) {
-      if (bound === socket) this.externalConnections.delete(connectionId);
+      if (bound === socket) {
+        this.externalConnections.delete(connectionId);
+        this.selectionCards.delete(connectionId);
+      }
     }
     this.externalConnections.set(connection.connection_id, socket);
   }
@@ -458,6 +482,7 @@ export class AgentRouter {
     for (const [connectionId, bound] of this.externalConnections) {
       if (bound !== socket) continue;
       this.externalConnections.delete(connectionId);
+      this.selectionCards.delete(connectionId);
       const row = this.db.prepare(`
         SELECT connection_id, project, principal_id, session_instance_id, generation,
                adapter_kind, router_instance_id, lease_expires_at_ms
@@ -557,6 +582,7 @@ export class AgentRouter {
       for (const previous of active) {
         const previousSocket = this.externalConnections.get(previous.connection_id);
         this.externalConnections.delete(previous.connection_id);
+        this.selectionCards.delete(previous.connection_id);
         if (previousSocket && !previousSocket.destroyed) {
           previousSocket.end(`${JSON.stringify({
             version: 1,
@@ -612,6 +638,37 @@ export class AgentRouter {
       this.insertPresenceFact(connection, 'connected', {});
       return connection;
     }).immediate();
+  }
+
+  private discover(request: AgentRouterDiscoverRequest): AgentJsonObject {
+    const cards: AgentSelectionCard[] = [];
+    for (const [connectionId, card] of this.selectionCards) {
+      if (card.project !== request.project) continue;
+      const socket = this.externalConnections.get(connectionId);
+      if (!socket || socket.destroyed) {
+        this.selectionCards.delete(connectionId);
+        continue;
+      }
+      const row = this.db.prepare(`
+        SELECT connection_id, project, principal_id, session_instance_id, generation,
+               adapter_kind, router_instance_id, lease_expires_at_ms
+        FROM agent_session_connections
+        WHERE connection_id = ? AND project = ? AND router_instance_id = ?
+          AND disconnected_at IS NULL AND lease_expires_at_ms > ?
+      `).get(connectionId, request.project, this.router_instance_id, Date.now()) as ConnectionRow | undefined;
+      if (!row || row.session_instance_id !== card.session_id) {
+        this.selectionCards.delete(connectionId);
+        continue;
+      }
+      cards.push({
+        ...card,
+        active: true,
+        generation: row.generation,
+        lease_expires_at_ms: row.lease_expires_at_ms,
+      });
+      if (cards.length >= request.limit) break;
+    }
+    return { cards: cards as unknown as AgentJsonValue };
   }
 
   private requireCurrentConnection(request: {
@@ -677,10 +734,7 @@ export class AgentRouter {
       LEFT JOIN agent_host_accepts h ON h.delivery_id = d.delivery_id
       WHERE d.project = ? AND h.delivery_id IS NULL AND e.event_sequence <= ?
         AND (e.event_sequence > ? OR (e.event_sequence = ? AND d.delivery_id > ?))
-        AND (
-          (d.target_kind = 'principal' AND d.recipient = ? AND e.event_sequence > ?)
-          OR (d.target_kind = 'session' AND d.recipient = ?)
-        )
+        AND d.target_kind = 'principal' AND d.recipient = ? AND e.event_sequence > ?
       ORDER BY e.event_sequence ASC, d.delivery_id ASC
       LIMIT ?
     `);
@@ -697,7 +751,6 @@ export class AgentRouter {
         cursorDeliveryId,
         connection.principal_id,
         checkpoint.activation_event_sequence,
-        connection.session_instance_id,
         this.limits.drain_limit,
       ) as Array<{ delivery_id: string; event_sequence: number }>;
       if (rows.length === 0) break;
@@ -743,10 +796,7 @@ export class AgentRouter {
     if (!connection) return false;
     const adapter = this.adapters.get(connection.adapter_kind);
     const externalSocket = this.externalConnections.get(connection.connection_id);
-    const metadataDispatch = adapter?.dispatch_metadata_only;
-    const metadataOnly = Boolean(metadataDispatch);
-    if (metadataOnly && !externalSocket) return false;
-    if (!metadataOnly && !externalSocket && !adapter?.dispatch) return false;
+    if (!externalSocket) return false;
 
     const attempt = this.beginDispatchAttempt(delivery, connection);
 
@@ -762,33 +812,20 @@ export class AgentRouter {
         generation: connection.generation,
         hops,
       };
-      if (metadataDispatch) {
-        result = await metadataDispatch({
-          ...common,
-          routing: {
-            project: delivery.project,
-            recipient: delivery.recipient,
-            target_kind: parseTargetKind(delivery.target_kind),
-            message_id: delivery.message_id,
-            delivery_id: delivery.delivery_id,
-          },
-        });
-      } else {
-        const envelope = fetchAgentMessage(this.db, {
-          project: delivery.project,
-          recipient: delivery.recipient,
-          target_kind: parseTargetKind(delivery.target_kind),
-          message_id: delivery.message_id,
-        });
-        const input: AgentHostDispatchInput = {
-          ...common,
-          untrusted_payload: true,
-          envelope,
-        };
-        result = externalSocket
-          ? await this.dispatchExternal(externalSocket, connection, attempt.attempt_id, input)
-          : await adapter!.dispatch!(input);
-      }
+      const envelope = fetchAgentMessage(this.db, {
+        project: delivery.project,
+        recipient: delivery.recipient,
+        target_kind: parseTargetKind(delivery.target_kind),
+        message_id: delivery.message_id,
+      });
+      const input: AgentHostDispatchInput = {
+        ...common,
+        untrusted_payload: true,
+        envelope,
+      };
+      result = adapter?.dispatch
+        ? await adapter.dispatch(input)
+        : await this.dispatchExternal(externalSocket, connection, attempt.attempt_id, input);
     } catch {
       this.finishAttempt(attempt.attempt_id, 'adapter_failed', 'adapter_error');
       return false;
@@ -800,11 +837,10 @@ export class AgentRouter {
     const receipt = validateReceipt(result.receipt ?? {});
     try {
       this.requireCurrentConnection(connection);
-      if (metadataOnly && (
-        !externalSocket
-        || externalSocket.destroyed
+      if (
+        externalSocket.destroyed
         || this.externalConnections.get(connection.connection_id) !== externalSocket
-      )) throw new AgentRouterStaleGenerationError();
+      ) throw new AgentRouterStaleGenerationError();
     } catch {
       this.finishAttempt(attempt.attempt_id, 'stale_generation', 'stale_generation');
       return false;
@@ -1099,6 +1135,12 @@ function validateRouterSuccessResult(request: AgentRouterRequest, value: unknown
     case 'notify':
       requireResultBoolean('delivered');
       break;
+    case 'discover':
+      if (!Array.isArray(value.cards) || value.cards.length > request.limit
+        || value.cards.some(card => !isSelectionCard(card, request.project))) {
+        throw new AgentRouterProtocolError('invalid_response', 'Router response contained invalid discovery cards.');
+      }
+      break;
     case 'heartbeat':
       requireResultInteger('generation');
       requireResultInteger('lease_ms');
@@ -1118,6 +1160,19 @@ function validateRouterSuccessResult(request: AgentRouterRequest, value: unknown
   return value as AgentJsonObject;
 }
 
+function isSelectionCard(value: unknown, project: string): value is AgentSelectionCard {
+  if (!isPlainObject(value)) return false;
+  return typeof value.session_id === 'string'
+    && typeof value.principal_id === 'string'
+    && ['codex', 'claude', 'gemini', 'other'].includes(String(value.host_kind))
+    && value.project === project
+    && (value.model === null || typeof value.model === 'string')
+    && (value.work_summary === null || typeof value.work_summary === 'string')
+    && value.active === true
+    && Number.isSafeInteger(value.generation) && (value.generation as number) >= 1
+    && Number.isSafeInteger(value.lease_expires_at_ms) && (value.lease_expires_at_ms as number) >= 0;
+}
+
 function parseRequest(frame: Buffer, maxHops: number): AgentRouterRequest {
   let value: unknown;
   try { value = JSON.parse(frame.toString('utf8')); } catch {
@@ -1132,7 +1187,7 @@ function parseRequest(frame: Buffer, maxHops: number): AgentRouterRequest {
   switch (type) {
     case 'register':
       assertAllowedKeys(value, [
-        ...common, 'project', 'principal_id', 'session_instance_id', 'adapter_kind', 'auth_token',
+        ...common, 'project', 'principal_id', 'session_instance_id', 'adapter_kind', 'auth_token', 'model', 'work_summary',
       ]);
       return {
         version: 1,
@@ -1142,7 +1197,20 @@ function parseRequest(frame: Buffer, maxHops: number): AgentRouterRequest {
         principal_id: validateField('principal_id', value.principal_id),
         session_instance_id: validateField('session_instance_id', value.session_instance_id),
         adapter_kind: validateField('adapter_kind', value.adapter_kind),
+        ...(value.model === undefined || value.model === null ? {} : { model: validateField('model', value.model) }),
+        ...(value.work_summary === undefined || value.work_summary === null
+          ? {} : { work_summary: validateField('work_summary', value.work_summary) }),
         ...(value.auth_token === undefined ? {} : { auth_token: validateField('auth_token', value.auth_token) }),
+        hops,
+      };
+    case 'discover':
+      assertAllowedKeys(value, [...common, 'project', 'limit']);
+      return {
+        version: 1,
+        type,
+        request_id: requestId,
+        project: validateField('project', value.project),
+        limit: validateInteger('limit', value.limit, 1, 100),
         hops,
       };
     case 'notify':
@@ -1229,6 +1297,13 @@ function validateField(label: string, value: unknown): string {
     );
   }
   return normalized;
+}
+
+function hostKind(adapterKind: string): AgentSelectionCard['host_kind'] {
+  if (adapterKind === 'codex-cli-queue' || adapterKind === 'codex-app-server') return 'codex';
+  if (adapterKind === 'claude-channel') return 'claude';
+  if (adapterKind === 'acp') return 'gemini';
+  return 'other';
 }
 
 function validateInteger(label: string, value: unknown, min: number, max: number): number {

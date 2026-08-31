@@ -171,6 +171,10 @@ export declare const MessageSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
     wait_ms: z.ZodDefault<z.ZodNumber>;
     limit: z.ZodDefault<z.ZodNumber>;
 }, z.core.$strict>, z.ZodObject<{
+    action: z.ZodLiteral<"discover">;
+    project: z.ZodString;
+    limit: z.ZodDefault<z.ZodNumber>;
+}, z.core.$strict>, z.ZodObject<{
     action: z.ZodLiteral<"fetch">;
     project: z.ZodString;
     recipient: z.ZodString;

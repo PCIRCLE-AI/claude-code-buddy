@@ -140,6 +140,11 @@ export const MessageSchema = z.discriminatedUnion('action', [
         limit: z.number().int().min(1).max(100).default(20),
     }).strict(),
     z.object({
+        action: z.literal('discover'),
+        project: messageProject,
+        limit: z.number().int().min(1).max(100).default(50),
+    }).strict(),
+    z.object({
         action: z.literal('fetch'),
         project: messageProject,
         recipient: messageAgentId,

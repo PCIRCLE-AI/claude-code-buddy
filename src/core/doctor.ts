@@ -2457,7 +2457,7 @@ function probeInstalledMessageCapability(packageRoot: string): { ok: true } | { 
         const tool = (await client.listTools()).tools.find((candidate) => candidate.name === 'message');
         assert.ok(tool, 'installed MCP did not advertise message');
         const actions = tool.inputSchema?.properties?.action?.enum;
-        assert.deepEqual(actions, ['send', 'poll', 'fetch', 'intake', 'ack', 'disposition', 'activation', 'receipts']);
+        assert.deepEqual(actions, ['send', 'poll', 'discover', 'fetch', 'intake', 'ack', 'disposition', 'activation', 'receipts']);
       } finally { await client.close(); }
     `], {
       cwd: packageRoot,
@@ -2482,7 +2482,7 @@ function inspectMessageCapability(
     return createInfo(
       'message-capability',
       'Message adapter imports',
-      'Not verified (opt-in). Set MEMESH_DOCTOR_PROBE_MESSAGE_CAPABILITY=1 to start this installed MCP and verify its eight-action message schema plus bundled host-adapter imports. This does not check a live router socket or host registration.',
+      'Not verified (opt-in). Set MEMESH_DOCTOR_PROBE_MESSAGE_CAPABILITY=1 to start this installed MCP and verify its nine-action message schema plus bundled host-adapter imports. This does not check a live router socket or host registration.',
     );
   }
   const result = probe(packageRoot);
@@ -2490,7 +2490,7 @@ function inspectMessageCapability(
     'message-capability',
     'Message adapter imports',
     'pass',
-    'This installed MCP advertised the eight-action message schema and all bundled host adapters imported successfully. No live router socket, host registration, or host acceptance was verified.',
+    'This installed MCP advertised the nine-action message schema and all bundled host adapters imported successfully. No live router socket, host registration, or host acceptance was verified.',
   );
   return createCheck(
     'message-capability',

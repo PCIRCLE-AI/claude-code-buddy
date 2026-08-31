@@ -14,6 +14,8 @@ export interface ManagedCodexHostConfig extends Record<string, unknown> {
     workspace: unknown;
     codex_command?: unknown;
     startup_timeout_ms?: unknown;
+    model?: unknown;
+    work_summary?: unknown;
 }
 export interface ManagedCodexHost {
     readonly thread_id: string;

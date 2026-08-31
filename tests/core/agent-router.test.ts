@@ -14,8 +14,8 @@ import {
   createAgentRouterNotifier,
   sendAgentRouterRequest,
   type AgentHostAdapter,
+  type AgentHostDispatchInput,
   type AgentHostDispatchResult,
-  type AgentHostMetadataDispatchInput,
   type AgentHostRegistration,
 } from '../../src/core/agent-router.js';
 
@@ -116,6 +116,8 @@ class RouterHostClient {
     session: string;
     onDelivery?: (frame: Frame, client: RouterHostClient) => void;
     adapterKind?: string;
+    model?: string | null;
+    workSummary?: string | null;
   }): Promise<RouterHostClient> {
     const socket = net.createConnection(input.socketPath);
     await new Promise<void>((resolve, reject) => {
@@ -133,6 +135,8 @@ class RouterHostClient {
       principal_id: input.principal,
       session_instance_id: input.session,
       adapter_kind: input.adapterKind ?? 'test-host',
+      ...(input.model === undefined ? {} : { model: input.model }),
+      ...(input.workSummary === undefined ? {} : { work_summary: input.workSummary }),
       auth_token: input.token,
       hops: 0,
     });
@@ -277,6 +281,43 @@ describe.runIf(process.platform !== 'win32').sequential('AgentRouter real SQLite
     }
   });
 
+  it('rejects a discovery response that escapes the requested project scope', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-router-discovery-scope-'));
+    fs.chmodSync(dir, 0o700);
+    tempDirs.push(dir);
+    const socketPath = path.join(dir, 'router.sock');
+    const server = net.createServer((socket) => {
+      socket.once('data', (chunk) => {
+        const request = JSON.parse(chunk.toString('utf8').trim()) as Frame;
+        socket.write(`${JSON.stringify({
+          version: 1,
+          request_id: request.request_id,
+          ok: true,
+          result: {
+            cards: [{
+              session_id: 'foreign-session', principal_id: 'foreign-principal',
+              host_kind: 'claude', project: 'project-b', model: null,
+              work_summary: null, active: true, generation: 1,
+              lease_expires_at_ms: Date.now() + 60_000,
+            }],
+          },
+        })}\n`);
+      });
+    });
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(socketPath, resolve);
+    });
+    try {
+      await expect(sendAgentRouterRequest(socketPath, {
+        version: 1, type: 'discover', request_id: randomUUID(),
+        project: 'project-a', limit: 10, hops: 0,
+      })).rejects.toMatchObject({ code: 'invalid_response' });
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+    }
+  });
+
   it('recovers one orphaned stale UDS under concurrent startup without stealing the winner', async () => {
     const { db, socketPath, token } = setup();
     await leaveOrphanedSocket(socketPath);
@@ -357,10 +398,10 @@ describe.runIf(process.platform !== 'win32').sequential('AgentRouter real SQLite
     ).get(current.delivery_id)).toEqual({ count: 1 }));
   });
 
-  it('keeps durable payload out of a metadata-only native adapter even with a live companion socket', async () => {
+  it('sends the full untrusted envelope to one native adapter with a live companion socket', async () => {
     const { db, socketPath, token } = setup();
-    const metadataDispatch = vi.fn<(
-      input: AgentHostMetadataDispatchInput,
+    const nativeDispatch = vi.fn<(
+      input: AgentHostDispatchInput,
     ) => Promise<AgentHostDispatchResult>>(async () => ({
       accepted: true,
       receipt: { host: 'codex-cli', status: 'queued' },
@@ -368,7 +409,7 @@ describe.runIf(process.platform !== 'win32').sequential('AgentRouter real SQLite
     await startRouter(db, socketPath, token, {}, [{
       kind: 'codex-cli-queue',
       authenticate: registration => registration.auth_token === token,
-      dispatch_metadata_only: metadataDispatch,
+      dispatch: nativeDispatch,
     }]);
     const companion = await RouterHostClient.connect({
       socketPath, token, project: 'project-a', principal: 'principal-a',
@@ -376,22 +417,23 @@ describe.runIf(process.platform !== 'win32').sequential('AgentRouter real SQLite
     });
     const message = sendAgentMessage(db, {
       project: 'project-a', sender: 'sender-a', recipient: 'principal-a',
-      idempotency_key: 'metadata-only-native',
-      payload: { sentinel: 'payload-must-not-cross-adapter-api' },
+      idempotency_key: 'full-message-native',
+      payload: { sentinel: 'payload-must-cross-adapter-api' },
       content_type: 'application/json',
     }, { notifier: createAgentRouterNotifier(socketPath) });
 
-    await vi.waitFor(() => expect(metadataDispatch).toHaveBeenCalledTimes(1));
-    expect(metadataDispatch).toHaveBeenCalledWith(expect.objectContaining({
+    await vi.waitFor(() => expect(nativeDispatch).toHaveBeenCalledTimes(1));
+    expect(nativeDispatch).toHaveBeenCalledWith(expect.objectContaining({
       session_instance_id: '01a041b4-5c67-75b3-9505-4e33d7942b8e',
-      routing: {
+      untrusted_payload: true,
+      envelope: expect.objectContaining({
         project: 'project-a', recipient: 'principal-a', target_kind: 'principal',
-        message_id: message.message_id, delivery_id: message.delivery_id,
-      },
+        message_id: message.message_id,
+        payload: { sentinel: 'payload-must-cross-adapter-api' },
+      }),
     }));
-    const adapterInput = metadataDispatch.mock.calls[0][0];
-    expect(adapterInput).not.toHaveProperty('envelope');
-    expect(JSON.stringify(adapterInput)).not.toContain('payload-must-not-cross-adapter-api');
+    const adapterInput = nativeDispatch.mock.calls[0][0];
+    expect(JSON.stringify(adapterInput)).toContain('payload-must-cross-adapter-api');
     expect(companion.deliveries).toHaveLength(0);
     await vi.waitFor(() => expect(db.prepare(
       'SELECT COUNT(*) AS count FROM agent_host_accepts WHERE delivery_id = ?',
@@ -401,7 +443,7 @@ describe.runIf(process.platform !== 'win32').sequential('AgentRouter real SQLite
   it('does not record native acceptance when the live companion disappears during queue admission', async () => {
     const { db, socketPath, token } = setup();
     const companionRef: { current?: RouterHostClient } = {};
-    const metadataDispatch = vi.fn(async (): Promise<AgentHostDispatchResult> => {
+    const nativeDispatch = vi.fn(async (): Promise<AgentHostDispatchResult> => {
       companionRef.current?.close();
       await new Promise(resolve => setTimeout(resolve, 10));
       return { accepted: true, receipt: { host: 'codex-cli', status: 'queued' } };
@@ -409,7 +451,7 @@ describe.runIf(process.platform !== 'win32').sequential('AgentRouter real SQLite
     await startRouter(db, socketPath, token, {}, [{
       kind: 'codex-cli-queue',
       authenticate: registration => registration.auth_token === token,
-      dispatch_metadata_only: metadataDispatch,
+      dispatch: nativeDispatch,
     }]);
     companionRef.current = await RouterHostClient.connect({
       socketPath, token, project: 'project-a', principal: 'principal-a',
@@ -421,7 +463,7 @@ describe.runIf(process.platform !== 'win32').sequential('AgentRouter real SQLite
       content_type: 'text/plain',
     }, { notifier: createAgentRouterNotifier(socketPath) });
 
-    await vi.waitFor(() => expect(metadataDispatch).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(nativeDispatch).toHaveBeenCalledTimes(1));
     await vi.waitFor(() => expect(db.prepare(
       'SELECT result FROM agent_dispatch_attempts WHERE delivery_id = ?',
     ).get(message.delivery_id)).toEqual({ result: 'stale_generation' }));
@@ -435,7 +477,7 @@ describe.runIf(process.platform !== 'win32').sequential('AgentRouter real SQLite
     await startRouter(db, socketPath, token, {}, [{
       kind: 'codex-cli-queue',
       authenticate: registration => registration.auth_token === token,
-      dispatch_metadata_only: async () => ({
+      dispatch: async () => ({
         accepted: false,
         receipt: { failure_code: 'thread_unavailable' },
       }),
@@ -481,7 +523,7 @@ describe.runIf(process.platform !== 'win32').sequential('AgentRouter real SQLite
     expect(first.deliveries).toHaveLength(0);
   });
 
-  it('never reroutes an exact-session delivery and drains principal pending after router restart', async () => {
+  it('never reroutes or later replays an exact-session delivery and drains principal pending after router restart', async () => {
     const { db, socketPath, token } = setup();
     const firstRouter = await startRouter(db, socketPath, token);
     const old = await RouterHostClient.connect({
@@ -503,6 +545,11 @@ describe.runIf(process.platform !== 'win32').sequential('AgentRouter real SQLite
     await vi.waitFor(() => expect(replacement.deliveries).toHaveLength(1));
     expect(replacement.deliveries[0].delivery_id).toBe(pending.delivery_id);
     expect(replacement.deliveries[0].delivery_id).not.toBe(exact.delivery_id);
+    const resumedExactSession = await RouterHostClient.connect({
+      socketPath, token, project: 'project-a', principal: 'principal-a', session: 'session-old',
+    });
+    await new Promise(resolve => setTimeout(resolve, 30));
+    expect(resumedExactSession.deliveries).toHaveLength(0);
   });
 
   it('drains every bounded backlog batch once even when one delivery is rejected', async () => {
@@ -578,6 +625,122 @@ describe.runIf(process.platform !== 'win32').sequential('AgentRouter real SQLite
     resolveOuter(true);
     await expect(Promise.all([outerCaller, thirdCaller])).resolves.toEqual([true, true]);
     expect(internal.inFlightDeliveries.has('delivery-1')).toBe(false);
+  });
+
+  it('discovers only live registrations in the requested project with declared metadata', async () => {
+    const { db, socketPath, token } = setup();
+    await startRouter(db, socketPath, token, { lease_ms: 250 });
+    await RouterHostClient.connect({
+      socketPath, token, project: 'project-a', principal: 'principal-codex', session: 'session-codex',
+      model: 'gpt-5.6-luna', workSummary: 'review router contract',
+    });
+    await RouterHostClient.connect({
+      socketPath, token, project: 'project-b', principal: 'principal-other', session: 'session-other',
+      model: 'other-model', workSummary: 'other work',
+    });
+    const before = {
+      messages: db.prepare('SELECT COUNT(*) AS count FROM agent_messages').get(),
+      receipts: db.prepare('SELECT COUNT(*) AS count FROM agent_message_receipts').get(),
+      attempts: db.prepare('SELECT COUNT(*) AS count FROM agent_dispatch_attempts').get(),
+      accepts: db.prepare('SELECT COUNT(*) AS count FROM agent_host_accepts').get(),
+    };
+
+    const result = await sendAgentRouterRequest(socketPath, {
+      version: 1, type: 'discover', request_id: randomUUID(), project: 'project-a', limit: 10, hops: 0,
+    });
+    expect(result.cards).toEqual([expect.objectContaining({
+      session_id: 'session-codex',
+      principal_id: 'principal-codex', host_kind: 'other', project: 'project-a',
+      model: 'gpt-5.6-luna', work_summary: 'review router contract', active: true,
+      generation: 1, lease_expires_at_ms: expect.any(Number),
+    })]);
+    expect((result.cards as unknown[]).some(card => (card as Frame).session_id === 'session-other')).toBe(false);
+    expect(db.prepare('SELECT COUNT(*) AS count FROM agent_messages').get()).toEqual(before.messages);
+    expect(db.prepare('SELECT COUNT(*) AS count FROM agent_message_receipts').get()).toEqual(before.receipts);
+    expect(db.prepare('SELECT COUNT(*) AS count FROM agent_dispatch_attempts').get()).toEqual(before.attempts);
+    expect(db.prepare('SELECT COUNT(*) AS count FROM agent_host_accepts').get()).toEqual(before.accepts);
+  });
+
+  it('maps supported adapter identities to stable host kinds', async () => {
+    const { db, socketPath, token } = setup();
+    const adapterKinds = ['codex-cli-queue', 'codex-app-server', 'claude-channel', 'acp'];
+    await startRouter(db, socketPath, token, {}, adapterKinds.map(kind => ({
+      kind,
+      authenticate: (registration: AgentHostRegistration) => registration.auth_token === token,
+    })));
+    for (const adapterKind of adapterKinds) {
+      await RouterHostClient.connect({
+        socketPath, token, project: 'project-a', principal: `principal-${adapterKind}`,
+        session: `session-${adapterKind}`, adapterKind,
+      });
+    }
+
+    const result = await sendAgentRouterRequest(socketPath, {
+      version: 1, type: 'discover', request_id: randomUUID(), project: 'project-a', limit: 10, hops: 0,
+    });
+    expect((result.cards as Frame[]).map(card => [card.session_id, card.host_kind])).toEqual([
+      ['session-codex-cli-queue', 'codex'],
+      ['session-codex-app-server', 'codex'],
+      ['session-claude-channel', 'claude'],
+      ['session-acp', 'gemini'],
+    ]);
+  });
+
+  it('does not infer missing metadata and heartbeat refreshes the authoritative lease', async () => {
+    const { db, socketPath, token } = setup();
+    await startRouter(db, socketPath, token, { lease_ms: 120 });
+    const host = await RouterHostClient.connect({
+      socketPath, token, project: 'project-a', principal: 'principal-a', session: 'session-a',
+    });
+    const discover = () => sendAgentRouterRequest(socketPath, {
+      version: 1, type: 'discover', request_id: randomUUID(), project: 'project-a', limit: 10, hops: 0,
+    });
+    const initial = await discover();
+    expect(initial.cards).toEqual([expect.objectContaining({
+      session_id: 'session-a', principal_id: 'principal-a', host_kind: 'other', project: 'project-a',
+      model: null, work_summary: null, active: true, generation: host.generation,
+    })]);
+    const initialLease = (initial.cards as Frame[])[0].lease_expires_at_ms as number;
+    await new Promise(resolve => setTimeout(resolve, 10));
+    await expect(sendAgentRouterRequest(socketPath, {
+      version: 1, type: 'heartbeat', request_id: randomUUID(), project: 'project-a',
+      session_instance_id: 'session-a', connection_id: host.connectionId, generation: host.generation, hops: 0,
+    })).resolves.toMatchObject({ generation: host.generation, lease_ms: 120 });
+    const refreshed = await discover();
+    expect((refreshed.cards as Frame[])[0].lease_expires_at_ms).toBeGreaterThan(initialLease);
+  });
+
+  it('excludes disconnected, superseded, and expired registrations from discovery', async () => {
+    const { db, socketPath, token } = setup();
+    await startRouter(db, socketPath, token, { lease_ms: 100 });
+    const disconnected = await RouterHostClient.connect({
+      socketPath, token, project: 'project-a', principal: 'principal-disconnected', session: 'session-disconnected',
+    });
+    disconnected.close();
+    await vi.waitFor(() => expect(db.prepare(
+      'SELECT disconnected_at FROM agent_session_connections WHERE connection_id = ?',
+    ).get(disconnected.connectionId)).toMatchObject({ disconnected_at: expect.any(String) }));
+    const superseded = await RouterHostClient.connect({
+      socketPath, token, project: 'project-a', principal: 'principal-superseded', session: 'session-superseded',
+    });
+    const replacement = await RouterHostClient.connect({
+      socketPath, token, project: 'project-a', principal: 'principal-superseded', session: 'session-superseded',
+    });
+    const current = await sendAgentRouterRequest(socketPath, {
+      version: 1, type: 'discover', request_id: randomUUID(), project: 'project-a', limit: 10, hops: 0,
+    });
+    expect(current.cards).toEqual([expect.objectContaining({
+      session_id: 'session-superseded', generation: replacement.generation,
+    })]);
+    expect(replacement.generation).toBeGreaterThan(superseded.generation);
+    await new Promise(resolve => setTimeout(resolve, 120));
+    const result = await sendAgentRouterRequest(socketPath, {
+      version: 1, type: 'discover', request_id: randomUUID(), project: 'project-a', limit: 10, hops: 0,
+    });
+    const sessions = (result.cards as Frame[]).map(card => card.session_id);
+    expect(sessions).not.toContain('session-superseded');
+    expect(sessions).not.toContain('session-disconnected');
+    expect(result.cards).toEqual([]);
   });
 
   it('retries after an adapter crash, dedupes host acceptance, and enforces hop/frame bounds', async () => {

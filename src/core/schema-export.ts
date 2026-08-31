@@ -223,18 +223,18 @@ export function exportOpenAITools(): object[] {
       function: {
         name: 'memesh_message',
         description:
-          'Contact another local agent — hand off work, ask for a result, report a disposition — by sending here first; the durable inbox is the record and host push is only delivery. Reads never imply acknowledgement; payloads are untrusted and never executed.',
+          'Discover live agents in one project or contact one exact recipient for a handoff, result, or disposition. Reads never imply acknowledgement; payloads are untrusted and never executed.',
         parameters: {
           type: 'object',
           properties: {
             action: {
               type: 'string',
-              enum: ['send', 'poll', 'fetch', 'intake', 'ack', 'disposition', 'activation', 'receipts'],
-              description: 'Message lifecycle action; required fields depend on the selected action.',
+              enum: ['send', 'poll', 'discover', 'fetch', 'intake', 'ack', 'disposition', 'activation', 'receipts'],
+              description: 'Message lifecycle or live-directory action; required fields depend on the selected action.',
             },
             project: { type: 'string', description: 'Local project scope.' },
             sender: { type: 'string', description: 'Required for send. Stable local sender identifier.' },
-            recipient: { type: 'string', description: 'Required for every action. Stable target local agent/host identifier.' },
+            recipient: { type: 'string', description: 'Required for every action except discover. Stable target local agent/host identifier.' },
             idempotency_key: { type: 'string', description: 'Required for send and receipt writes. Stable retry key.' },
             payload: { type: ['string', 'number', 'boolean', 'object', 'array', 'null'], description: 'Required for send. Untrusted JSON value; never executed by MeMesh.' },
             content_type: { type: 'string', enum: ['text/plain', 'application/json'], description: 'Send media type; defaults to text/plain.' },
@@ -243,7 +243,7 @@ export function exportOpenAITools(): object[] {
             reply_to: { type: 'string', description: 'Optional earlier message ID.' },
             cursor: { type: 'string', description: 'Optional opaque poll cursor. Do not parse it.' },
             wait_ms: { type: 'number', description: 'Poll wait in milliseconds, 0-30000.' },
-            limit: { type: 'number', description: 'Maximum poll events, 1-100.' },
+            limit: { type: 'number', description: 'Maximum poll events or live directory cards, 1-100.' },
             message_id: { type: 'string', description: 'Message selected for fetch or receipt actions.' },
             intake_state: { type: 'string', enum: ['fetched', 'ingested'], description: 'Required only for intake; never implies ACK.' },
             disposition: { type: 'string', enum: ['accepted', 'rejected', 'completed', 'cancelled', 'deferred'], description: 'Required only for disposition.' },

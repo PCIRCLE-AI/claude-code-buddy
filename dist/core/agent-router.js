@@ -41,6 +41,7 @@ export class AgentRouter {
     socketIdentity = null;
     sockets = new Set();
     externalConnections = new Map();
+    selectionCards = new Map();
     inFlightDeliveries = new Map();
     pendingExternal = new Map();
     constructor(options) {
@@ -109,6 +110,7 @@ export class AgentRouter {
         this.server = null;
         const socketIdentity = this.socketIdentity;
         this.socketIdentity = null;
+        this.selectionCards.clear();
         for (const socket of [...this.sockets]) {
             this.disconnectSocket(socket);
             socket.destroy();
@@ -176,6 +178,8 @@ export class AgentRouter {
         switch (request.type) {
             case 'register':
                 return this.register(request, socket);
+            case 'discover':
+                return this.discover(request);
             case 'notify': {
                 const delivered = await this.dispatchDelivery(request.delivery_id, request.project, request.hops + 1);
                 return { delivered };
@@ -200,6 +204,8 @@ export class AgentRouter {
           `).run(connection.connection_id);
                     this.insertPresenceFact(connection, 'disconnected', { reason: 'adapter_disconnect' });
                 }).immediate();
+                this.externalConnections.delete(connection.connection_id);
+                this.selectionCards.delete(connection.connection_id);
                 return { disconnected: true };
             }
             case 'host_accept':
@@ -216,6 +222,8 @@ export class AgentRouter {
             principal_id: request.principal_id,
             session_instance_id: request.session_instance_id,
             adapter_kind: request.adapter_kind,
+            ...(request.model === undefined ? {} : { model: request.model }),
+            ...(request.work_summary === undefined ? {} : { work_summary: request.work_summary }),
             ...(request.auth_token === undefined ? {} : { auth_token: request.auth_token }),
         };
         if (!await adapter.authenticate(registration)) {
@@ -223,6 +231,14 @@ export class AgentRouter {
         }
         const connection = this.registerConnection(registration);
         this.bindExternalConnection(connection, socket);
+        this.selectionCards.set(connection.connection_id, {
+            session_id: connection.session_instance_id,
+            principal_id: connection.principal_id,
+            host_kind: hostKind(connection.adapter_kind),
+            project: connection.project,
+            model: registration.model ?? null,
+            work_summary: registration.work_summary ?? null,
+        });
         setImmediate(() => { void this.drainConnection(connection, request.hops + 1).catch(() => undefined); });
         return {
             connection_id: connection.connection_id,
@@ -233,8 +249,10 @@ export class AgentRouter {
     }
     bindExternalConnection(connection, socket) {
         for (const [connectionId, bound] of this.externalConnections) {
-            if (bound === socket)
+            if (bound === socket) {
                 this.externalConnections.delete(connectionId);
+                this.selectionCards.delete(connectionId);
+            }
         }
         this.externalConnections.set(connection.connection_id, socket);
     }
@@ -244,6 +262,7 @@ export class AgentRouter {
             if (bound !== socket)
                 continue;
             this.externalConnections.delete(connectionId);
+            this.selectionCards.delete(connectionId);
             const row = this.db.prepare(`
         SELECT connection_id, project, principal_id, session_instance_id, generation,
                adapter_kind, router_instance_id, lease_expires_at_ms
@@ -325,6 +344,7 @@ export class AgentRouter {
             for (const previous of active) {
                 const previousSocket = this.externalConnections.get(previous.connection_id);
                 this.externalConnections.delete(previous.connection_id);
+                this.selectionCards.delete(previous.connection_id);
                 if (previousSocket && !previousSocket.destroyed) {
                     previousSocket.end(`${JSON.stringify({
                         version: 1,
@@ -372,6 +392,38 @@ export class AgentRouter {
             return connection;
         }).immediate();
     }
+    discover(request) {
+        const cards = [];
+        for (const [connectionId, card] of this.selectionCards) {
+            if (card.project !== request.project)
+                continue;
+            const socket = this.externalConnections.get(connectionId);
+            if (!socket || socket.destroyed) {
+                this.selectionCards.delete(connectionId);
+                continue;
+            }
+            const row = this.db.prepare(`
+        SELECT connection_id, project, principal_id, session_instance_id, generation,
+               adapter_kind, router_instance_id, lease_expires_at_ms
+        FROM agent_session_connections
+        WHERE connection_id = ? AND project = ? AND router_instance_id = ?
+          AND disconnected_at IS NULL AND lease_expires_at_ms > ?
+      `).get(connectionId, request.project, this.router_instance_id, Date.now());
+            if (!row || row.session_instance_id !== card.session_id) {
+                this.selectionCards.delete(connectionId);
+                continue;
+            }
+            cards.push({
+                ...card,
+                active: true,
+                generation: row.generation,
+                lease_expires_at_ms: row.lease_expires_at_ms,
+            });
+            if (cards.length >= request.limit)
+                break;
+        }
+        return { cards: cards };
+    }
     requireCurrentConnection(request) {
         const row = this.db.prepare(`
       SELECT connection_id, project, principal_id, session_instance_id, generation,
@@ -410,10 +462,7 @@ export class AgentRouter {
       LEFT JOIN agent_host_accepts h ON h.delivery_id = d.delivery_id
       WHERE d.project = ? AND h.delivery_id IS NULL AND e.event_sequence <= ?
         AND (e.event_sequence > ? OR (e.event_sequence = ? AND d.delivery_id > ?))
-        AND (
-          (d.target_kind = 'principal' AND d.recipient = ? AND e.event_sequence > ?)
-          OR (d.target_kind = 'session' AND d.recipient = ?)
-        )
+        AND d.target_kind = 'principal' AND d.recipient = ? AND e.event_sequence > ?
       ORDER BY e.event_sequence ASC, d.delivery_id ASC
       LIMIT ?
     `);
@@ -421,7 +470,7 @@ export class AgentRouter {
         let cursorSequence = 0;
         let cursorDeliveryId = '';
         for (;;) {
-            const rows = selectBatch.all(connection.project, upperBound, cursorSequence, cursorSequence, cursorDeliveryId, connection.principal_id, checkpoint.activation_event_sequence, connection.session_instance_id, this.limits.drain_limit);
+            const rows = selectBatch.all(connection.project, upperBound, cursorSequence, cursorSequence, cursorDeliveryId, connection.principal_id, checkpoint.activation_event_sequence, this.limits.drain_limit);
             if (rows.length === 0)
                 break;
             for (const row of rows) {
@@ -460,11 +509,7 @@ export class AgentRouter {
             return false;
         const adapter = this.adapters.get(connection.adapter_kind);
         const externalSocket = this.externalConnections.get(connection.connection_id);
-        const metadataDispatch = adapter?.dispatch_metadata_only;
-        const metadataOnly = Boolean(metadataDispatch);
-        if (metadataOnly && !externalSocket)
-            return false;
-        if (!metadataOnly && !externalSocket && !adapter?.dispatch)
+        if (!externalSocket)
             return false;
         const attempt = this.beginDispatchAttempt(delivery, connection);
         let result;
@@ -479,34 +524,20 @@ export class AgentRouter {
                 generation: connection.generation,
                 hops,
             };
-            if (metadataDispatch) {
-                result = await metadataDispatch({
-                    ...common,
-                    routing: {
-                        project: delivery.project,
-                        recipient: delivery.recipient,
-                        target_kind: parseTargetKind(delivery.target_kind),
-                        message_id: delivery.message_id,
-                        delivery_id: delivery.delivery_id,
-                    },
-                });
-            }
-            else {
-                const envelope = fetchAgentMessage(this.db, {
-                    project: delivery.project,
-                    recipient: delivery.recipient,
-                    target_kind: parseTargetKind(delivery.target_kind),
-                    message_id: delivery.message_id,
-                });
-                const input = {
-                    ...common,
-                    untrusted_payload: true,
-                    envelope,
-                };
-                result = externalSocket
-                    ? await this.dispatchExternal(externalSocket, connection, attempt.attempt_id, input)
-                    : await adapter.dispatch(input);
-            }
+            const envelope = fetchAgentMessage(this.db, {
+                project: delivery.project,
+                recipient: delivery.recipient,
+                target_kind: parseTargetKind(delivery.target_kind),
+                message_id: delivery.message_id,
+            });
+            const input = {
+                ...common,
+                untrusted_payload: true,
+                envelope,
+            };
+            result = adapter?.dispatch
+                ? await adapter.dispatch(input)
+                : await this.dispatchExternal(externalSocket, connection, attempt.attempt_id, input);
         }
         catch {
             this.finishAttempt(attempt.attempt_id, 'adapter_failed', 'adapter_error');
@@ -519,9 +550,8 @@ export class AgentRouter {
         const receipt = validateReceipt(result.receipt ?? {});
         try {
             this.requireCurrentConnection(connection);
-            if (metadataOnly && (!externalSocket
-                || externalSocket.destroyed
-                || this.externalConnections.get(connection.connection_id) !== externalSocket))
+            if (externalSocket.destroyed
+                || this.externalConnections.get(connection.connection_id) !== externalSocket)
                 throw new AgentRouterStaleGenerationError();
         }
         catch {
@@ -785,6 +815,12 @@ function validateRouterSuccessResult(request, value) {
         case 'notify':
             requireResultBoolean('delivered');
             break;
+        case 'discover':
+            if (!Array.isArray(value.cards) || value.cards.length > request.limit
+                || value.cards.some(card => !isSelectionCard(card, request.project))) {
+                throw new AgentRouterProtocolError('invalid_response', 'Router response contained invalid discovery cards.');
+            }
+            break;
         case 'heartbeat':
             requireResultInteger('generation');
             requireResultInteger('lease_ms');
@@ -802,6 +838,19 @@ function validateRouterSuccessResult(request, value) {
             break;
     }
     return value;
+}
+function isSelectionCard(value, project) {
+    if (!isPlainObject(value))
+        return false;
+    return typeof value.session_id === 'string'
+        && typeof value.principal_id === 'string'
+        && ['codex', 'claude', 'gemini', 'other'].includes(String(value.host_kind))
+        && value.project === project
+        && (value.model === null || typeof value.model === 'string')
+        && (value.work_summary === null || typeof value.work_summary === 'string')
+        && value.active === true
+        && Number.isSafeInteger(value.generation) && value.generation >= 1
+        && Number.isSafeInteger(value.lease_expires_at_ms) && value.lease_expires_at_ms >= 0;
 }
 function parseRequest(frame, maxHops) {
     let value;
@@ -822,7 +871,7 @@ function parseRequest(frame, maxHops) {
     switch (type) {
         case 'register':
             assertAllowedKeys(value, [
-                ...common, 'project', 'principal_id', 'session_instance_id', 'adapter_kind', 'auth_token',
+                ...common, 'project', 'principal_id', 'session_instance_id', 'adapter_kind', 'auth_token', 'model', 'work_summary',
             ]);
             return {
                 version: 1,
@@ -832,7 +881,20 @@ function parseRequest(frame, maxHops) {
                 principal_id: validateField('principal_id', value.principal_id),
                 session_instance_id: validateField('session_instance_id', value.session_instance_id),
                 adapter_kind: validateField('adapter_kind', value.adapter_kind),
+                ...(value.model === undefined || value.model === null ? {} : { model: validateField('model', value.model) }),
+                ...(value.work_summary === undefined || value.work_summary === null
+                    ? {} : { work_summary: validateField('work_summary', value.work_summary) }),
                 ...(value.auth_token === undefined ? {} : { auth_token: validateField('auth_token', value.auth_token) }),
+                hops,
+            };
+        case 'discover':
+            assertAllowedKeys(value, [...common, 'project', 'limit']);
+            return {
+                version: 1,
+                type,
+                request_id: requestId,
+                project: validateField('project', value.project),
+                limit: validateInteger('limit', value.limit, 1, 100),
                 hops,
             };
         case 'notify':
@@ -912,6 +974,15 @@ function validateField(label, value) {
         throw new AgentRouterProtocolError('invalid_field', `${label} must contain 1-${MAX_FIELD_LENGTH} characters.`);
     }
     return normalized;
+}
+function hostKind(adapterKind) {
+    if (adapterKind === 'codex-cli-queue' || adapterKind === 'codex-app-server')
+        return 'codex';
+    if (adapterKind === 'claude-channel')
+        return 'claude';
+    if (adapterKind === 'acp')
+        return 'gemini';
+    return 'other';
 }
 function validateInteger(label, value, min, max) {
     if (!Number.isInteger(value) || value < min || value > max) {

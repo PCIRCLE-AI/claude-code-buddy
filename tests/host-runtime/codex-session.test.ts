@@ -23,6 +23,8 @@ function fixture() {
       project: 'project-a',
       principal_id: 'principal-a',
       workspace: dir,
+      model: 'gpt-5.6-sol',
+      work_summary: 'review MeMesh delivery',
     },
     hook: { hook_event_name: 'SessionStart', session_id: threadId, cwd: dir, source: 'startup' },
   };
@@ -33,7 +35,7 @@ describe('ordinary Codex session companion', () => {
     const { config, hook } = fixture();
     const close = vi.fn(async () => undefined);
     const connect = vi.fn(async (input) => {
-      await expect(input.deliver({} as never)).rejects.toThrow('metadata-only');
+      await expect(input.deliver({} as never)).rejects.toThrow('owned by the router adapter');
       return { connection_id: 'connection-a', generation: 1, close };
     });
 
@@ -47,6 +49,7 @@ describe('ordinary Codex session companion', () => {
       identity: {
         project: 'project-a', principal_id: 'principal-a',
         session_instance_id: threadId, adapter_kind: 'codex-cli-queue',
+        model: 'gpt-5.6-sol', work_summary: 'review MeMesh delivery',
       },
     }));
   });

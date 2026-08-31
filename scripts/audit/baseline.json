@@ -426,32 +426,32 @@
       "reason": "The decision itself is behavioural: checkReleasePreconditions is a pure function and 21 tests in the same file drive both directions through it. What is read as text is scripts/finish-release.mjs, and only to pin five wiring properties whose happy path cannot be run — cutting the release creates a public GitHub Release and publishes to npm. The regression guarded is someone splitting the single `gh release create --target` back into `git tag` + `git push` + `gh release create`, whose middle leaves a pushed tag with no release: nothing publishes, and the coherence gate now sees the tag and reports ok. Break-tested 2026-08-23: 7/7 mutants killed, including both directions of this pin.",
       "triaged": "2026-08-23"
     },
-    "C7 README.md:376": {
+    "C7 README.md:377": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
       "triaged": "2026-08-04; re-keyed 2026-08-15 21→271 (merge main shifted lines +250; same statement — verified); re-keyed 2026-08-16 (+48: Install first-screen section and See-what-it-remembered/Your-data subsections added above; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (+2: agent-install pointer added in the Install section; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main — NOTE C7 339 slid onto a colliding key, whole set re-verified)"
     },
-    "C7 README.md:382": {
+    "C7 README.md:383": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
       "triaged": "2026-08-04; re-keyed 2026-08-15 27→277 (merge main shifted lines +250; same statement — verified); re-keyed 2026-08-16 (+48: Install first-screen section and See-what-it-remembered/Your-data subsections added above; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (+2: agent-install pointer added in the Install section; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main — NOTE C7 339 slid onto a colliding key, whole set re-verified)"
     },
-    "C7 README.md:400": {
+    "C7 README.md:401": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
       "triaged": "2026-08-04 (re-keyed 273->294: the Codex/Gemini MCP setup section added to Get Started shifted this line down 21; same auto-capture table row verified before re-keying); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-15 293→295 (merge main shifted lines +2; same statement — verified); re-keyed 2026-08-16 (+48: Install first-screen section and See-what-it-remembered/Your-data subsections added above; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (+2: agent-install pointer added in the Install section; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main — NOTE C7 339 slid onto a colliding key, whole set re-verified)"
     },
-    "C7 README.md:473": {
+    "C7 README.md:474": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
       "triaged": "2026-08-04 (re-keyed 346->348->369: the Codex/Gemini MCP setup section shifted this line down 21 more; same testimonial figure verified before re-keying); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-15 367→369 (merge main shifted lines +2; same statement — verified); re-keyed 2026-08-16 (+48: Install first-screen section and See-what-it-remembered/Your-data subsections added above; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (+2: agent-install pointer added in the Install section; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main — NOTE C7 339 slid onto a colliding key, whole set re-verified); re-keyed 2026-08-16 (tab table 8 rows -> 5 shifted lines -3; same content verified); re-keyed 2026-08-16 (G1 guard additions shifted lines; same content verified)"
     },
-    "C7 README.md:532": {
+    "C7 README.md:533": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
       "triaged": "2026-08-04 (re-keyed 353->355->376: the Codex/Gemini MCP setup section shifted this line down 21 more; same 95.60% R@5 out-of-the-box figure verified before re-keying); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-14 374->426 (the Recipes section added above; same statement — verified); re-keyed 2026-08-15 426→428 (merge main shifted lines +2; same statement — verified); re-keyed 2026-08-16 (+48: Install first-screen section and See-what-it-remembered/Your-data subsections added above; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (+2: agent-install pointer added in the Install section; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main — NOTE C7 339 slid onto a colliding key, whole set re-verified); re-keyed 2026-08-16 (tab table 8 rows -> 5 shifted lines -3; same content verified); re-keyed 2026-08-16 (G1 guard additions shifted lines; same content verified)"
     },
-    "C7 README.md:563": {
+    "C7 README.md:564": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
       "triaged": "2026-08-04 (re-keyed 379->382->386->407: the Codex/Gemini MCP setup section shifted this line down 21 more; same 95.60% R@5 comparison-table figure verified before re-keying); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-14 405->457 (the Recipes section added above; same statement — verified); re-keyed 2026-08-15 457→459 (merge main shifted lines +2; same statement — verified); re-keyed 2026-08-16 (+48: Install first-screen section and See-what-it-remembered/Your-data subsections added above; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (+2: agent-install pointer added in the Install section; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main — NOTE C7 339 slid onto a colliding key, whole set re-verified); re-keyed 2026-08-16 (tab table 8 rows -> 5 shifted lines -3; same content verified); re-keyed 2026-08-16 (G1 guard additions shifted lines; same content verified)"
@@ -536,19 +536,14 @@
       "reason": "entity.observations can be genuinely undefined for a raw import bundle — describeInvalidEntity (this file) explicitly permits the field to be absent, only rejecting it if present-and-not-an-array. The ?? [] covers that documented-optional case, not a hidden failure.",
       "triaged": "2026-08-24"
     },
-    "C5 src/core/agent-router.ts:800": {
+    "C5 src/core/agent-router.ts:837": {
       "class": "SAFE-BY-CONSTRUCTION",
       "reason": "A host adapter may accept a delivery without optional transport metadata. The empty receipt is still validated and persisted as an explicit host_accept fact; accepted itself is required and no ACK, read, or workflow state is inferred from the missing receipt.",
-      "triaged": "2026-08-27 host-native push release audit; re-keyed 2026-08-28 after bounded backlog drain and the Windows fail-closed guard moved the unchanged statement"
+      "triaged": "2026-08-27 host-native push release audit; re-keyed 2026-08-28 after bounded backlog drain and the Windows fail-closed guard moved the unchanged statement; re-keyed 2026-09-01 after live-directory code shifted the unchanged statement"
     },
     "C5 src/host-adapters/acp-client.ts:771": {
       "class": "SAFE-BY-CONSTRUCTION",
       "reason": "ACP child argv is optional by API contract; absence truthfully means launch the configured executable with zero arguments. Every supplied argument and the aggregate argv are independently bounded before spawn.",
-      "triaged": "2026-08-27 host-native push release audit"
-    },
-    "C6 tests/host-adapters/claude-channel.test.ts": {
-      "class": "SECURITY-STATIC-GUARD",
-      "reason": "The text scan is intentionally a narrow negative security pin: the one-way adapter must not acquire direct console or process argv/stdout/stderr sinks that could expose private channel content. Functional tests in the same file independently exercise delivery, bounds, routing, and failure behavior.",
       "triaged": "2026-08-27 host-native push release audit"
     },
     "C5 dashboard/src/components/AnalyticsTab.tsx:204": {

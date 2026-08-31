@@ -8,7 +8,7 @@
 
 ## Overview
 
-MeMesh is the local agentic-memory and governed-collaboration layer for individual AI coding agents, including Claude Code, Codex, Gemini, Cursor, and other MCP-compatible clients. It provides 11 MCP tools (`remember`, `recall`, `forget`, `export`, `import`, `learn`, `task_state`, `briefing`, `user_patterns`, `improvement`, `message`) backed by SQLite with FTS5 full-text search and optional sqlite-vec vector embeddings. Memory and durable exact-recipient messaging are available through CLI, HTTP REST, and MCP; `improvement` stages proposals through MCP while the existing CLI/HTTP review surfaces retain human accept/reject authority. Generic briefing and SessionStart context has no recipient identity and stays quiet; `briefing(project, recipient)` reports only that exact recipient's unfetched deliveries and directs the caller to poll before fetching.
+MeMesh is the local agentic-memory and governed-collaboration layer for individual AI coding agents, including Claude Code, Codex, Gemini, Cursor, and other MCP-compatible clients. It provides 11 MCP tools (`remember`, `recall`, `forget`, `export`, `import`, `learn`, `task_state`, `briefing`, `user_patterns`, `improvement`, `message`) backed by SQLite with FTS5 full-text search and optional sqlite-vec vector embeddings. Memory, bounded discovery of live project registrations, and durable exact-recipient messaging are available through CLI, HTTP REST, and MCP; `improvement` stages proposals through MCP while the existing CLI/HTTP review surfaces retain human accept/reject authority. Generic briefing and SessionStart context has no recipient identity and stays quiet; `briefing(project, recipient)` reports only that exact recipient's unfetched deliveries and directs the caller to poll before fetching.
 
 The package is intentionally local-first and inspectable:
 - one SQLite database under the user's control
@@ -58,7 +58,7 @@ MeMesh separates concerns into two layers:
 - `types.ts` — shared TypeScript interfaces (zero external deps)
 - `operations.ts` — `remember`, `recall`, `forget`, `export`, `import` as pure functions called by all transports
 - `agent-messaging.ts` — transactional exact-recipient messages, opaque cursors, bounded waits, payload fetch, and independent receipt facts
-- `agent-router.ts` — owner-private local routing from a durable message event to an eligible active host adapter; native wakeups carry routing metadata, never the payload
+- `agent-router.ts` — owner-private local routing from a durable message event to an eligible active host adapter, plus a bounded project-scoped directory of live registrations; native wakeups carry routing metadata, never the payload
 - `config.ts` — config management + capability detection (incl. `llmFallbacks` chain); exports `logCapabilities()` for startup logging
 - `paths.ts` — centralised filesystem path resolution (HOME-first override; shared with hooks via a build-generated copy in `scripts/hooks/_generated/`)
 - `scoring.ts` — multi-factor scoring engine: weights search relevance, recency, frequency, confidence, recall-impact; exports `rankEntities()` used by all recall paths
@@ -284,15 +284,21 @@ message send (MCP / HTTP / CLI)
   -> durable exact-recipient message + notification event in SQLite
   -> owner-private local agent router
   -> eligible active supported host adapter (for example, configured Codex)
-  -> routing-metadata marker only
-  -> recipient explicitly fetches the durable payload with message fetch
+  -> bounded untrusted full message through the native host channel
+  -> exact-session send returns only after native host acceptance
 ```
 
 Implementation anchors: `src/core/agent-messaging.ts`, `src/core/agent-router.ts`,
 `src/transports/agent-messaging.ts`, `src/host-adapters/`, `src/host-runtime/`, and
 `docs/platforms/agent-messaging.md`.
 
-This branch is optional and local-only: unavailable, stopped, disconnected, or unsupported sessions are not resumed or replaced. A host queue acceptance is a host receipt, not recipient acknowledgement or workflow disposition. See the [`message` API contract](api/API_REFERENCE.md#message) and the [Local Agent Messaging Guide](platforms/agent-messaging.md) for the lifecycle and supported-host limits.
+This branch is optional and local-only: unavailable, stopped, disconnected, or unsupported exact sessions return `recipient_unavailable` and are not resumed or replaced. A host queue acceptance is a host receipt, not recipient acknowledgement or workflow disposition. See the [`message` API contract](api/API_REFERENCE.md#message) and the [Local Agent Messaging Guide](platforms/agent-messaging.md) for the lifecycle and supported-host limits.
+
+Before sending, `message discover` can read the router's live registrations for
+one exact project. It returns session/principal routing identity, host kind,
+declared model and work summary, generation, and authoritative lease expiry.
+The directory is in-memory presence joined to the current connection row; it is
+not a second durable registry, and the read creates no message or receipt facts.
 
 ### Search knowledge (recall)
 
@@ -378,7 +384,7 @@ Hooks are defined in `hooks/hooks.json` and executed by Claude Code at specific 
 | pre-compact.js | PreCompact | Save knowledge before compaction |
 | user-prompt-intent.js | UserPromptSubmit | Detect "remember" intent (5 languages: en, es, fr, pt, zh-TW) and remind Claude to use mcp__memesh__remember |
 | guard-check.js | PreToolUse (Bash) | Fire accepted lesson-guards against the command about to run (warn-only; fires counted) |
-| codex-session.js | SessionStart (startup/resume, async) | Register the exact configured live Codex thread for metadata-only message wakeups; no-op without Codex thread identity |
+| codex-session.js | SessionStart (startup/resume, async) | Register the exact configured live Codex thread for bounded full-message native delivery; no-op without Codex thread identity |
 
 ### Pre-Edit Recall (`scripts/hooks/pre-edit-recall.js`)
 

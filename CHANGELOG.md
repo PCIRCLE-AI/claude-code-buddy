@@ -6,6 +6,21 @@ All notable changes to MeMesh are documented here.
 
 ### Fixed
 
+- **Agents can now find the right live collaborator before sending.** A bounded,
+  project-scoped `message discover` read lists active session and principal IDs,
+  host kind, generation, lease expiry, and explicitly declared model/current
+  work. Missing declarations stay `null`; MeMesh does not infer them from model
+  output. Discovery neither sends nor acknowledges a message and fails
+  explicitly when the local router is unavailable.
+
+- **Exact active agent sessions now receive the message itself, not an inbox
+  marker.** Authenticated Codex and Claude native channels carry one bounded,
+  untrusted full envelope without a second fetch. Exact-session send succeeds
+  only after native host acceptance; a missing, stopped, disconnected, or
+  rejected session returns `recipient_unavailable` and is never silently
+  rerouted or replayed later. Native acceptance still does not mean the agent
+  read, acknowledged, or completed the work.
+
 - **Claude Channel diagnostics are now surfaced by `memesh doctor`.** The
   diagnostic reports the user-scoped `memesh-channel` registration and its
   configured target, while making clear that it does not prove research-preview

@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const ACTIONS = ['send', 'poll', 'fetch', 'intake', 'ack', 'disposition', 'activation', 'receipts'];
+const ACTIONS = ['send', 'poll', 'discover', 'fetch', 'intake', 'ack', 'disposition', 'activation', 'receipts'];
 const here = path.dirname(fileURLToPath(import.meta.url));
 const defaultRoot = path.resolve(here, '..');
 const option = process.argv.indexOf('--root');
@@ -45,6 +45,8 @@ const requirePackageBin = (name, target) => {
 // One authoritative action list must reach every public transport.
 requireText('src/transports/schemas.ts', ACTIONS.map((action) => `action: z.literal('${action}')`));
 requireText('src/transports/mcp/handlers.ts', ["name === 'message'", 'MessageSchema', 'executeAgentMessageAction']);
+requireText('src/core/schema-export.ts', ACTIONS.map((action) => `'${action}'`));
+requireText('dist/core/schema-export.js', ACTIONS.map((action) => `'${action}'`));
 const publicMessageTargetKind = /name:\s*'message'[\s\S]{0,6000}?target_kind:\s*\{\s*type:\s*'string',\s*enum:\s*\['principal',\s*'session'\]/;
 requirePattern(
   'src/transports/mcp/handlers.ts',
@@ -55,6 +57,7 @@ requireText('src/transports/http/server.ts', ['executeAgentMessageAction', "tran
 const CLI_ACTIONS = {
   send: 'send',
   poll: 'watch',
+  discover: 'discover',
   fetch: 'fetch',
   intake: 'intake',
   ack: 'ack',
@@ -80,19 +83,27 @@ for (const [action, command] of Object.entries(CLI_ACTIONS)) {
 requireText('src/transports/cli/cli.ts', ['--payload-stdin', 'never argv', 'readCliMessagePayloadFromStdin']);
 requireText('src/transports/schemas.ts', ['target_kind', "z.enum(['principal', 'session'])"]);
 requireText('dist/transports/schemas.js', ['target_kind', "z.enum(['principal', 'session'])"]);
-requireText('src/transports/agent-messaging.ts', ['target_kind: input.target_kind']);
-requireText('dist/transports/agent-messaging.js', ['target_kind: input.target_kind']);
+requireText('src/transports/agent-messaging.ts', ['target_kind: input.target_kind', 'recipient_unavailable', 'native_accepted']);
+requireText('dist/transports/agent-messaging.js', ['target_kind: input.target_kind', 'recipient_unavailable', 'native_accepted']);
 requireText('src/transports/cli/cli.ts', ['messageStorageCmd', 'storage', 'report', 'prune', 'automatic_pruning']);
 requireText('dist/transports/cli/cli.js', ['messageStorageCmd', 'storage', 'report', 'prune', 'automatic_pruning']);
 requireText('src/core/agent-message-storage.ts', ['protected_unresolved_message_count', 'terminal_prunable_message_count', 'storage_quota_exceeded']);
 requireText('dist/core/agent-message-storage.js', ['protected_unresolved_message_count', 'terminal_prunable_message_count', 'storage_quota_exceeded']);
 
 // Router/session semantics are a separate lifecycle from durable receipts.
-requireText('src/core/agent-router.ts', ['principal', 'session', 'generation']);
+requireText('src/core/agent-router.ts', [
+  'principal', 'session', 'generation', 'host_kind', 'work_summary', 'lease_expires_at_ms',
+]);
 requireText('dist/core/agent-router.js', ['AgentRouter', 'host_accept']);
-for (const adapter of ['codex-app-server.ts', 'claude-channel.ts', 'acp-client.ts']) {
+for (const adapter of ['codex-app-server.ts', 'acp-client.ts']) {
   requireText(`src/host-adapters/${adapter}`, ['adapter']);
 }
+requireText('src/host-adapters/claude-channel.ts', [
+  "'claude/channel'", 'notifications/claude/channel', 'createClaudeChannelServer',
+]);
+requireText('dist/host-adapters/claude-channel.js', [
+  "'claude/channel'", 'notifications/claude/channel', 'createClaudeChannelServer',
+]);
 requireText('src/host-adapters/codex-app-server.ts', [
   'experimentalApi: true', 'thread/queue/add', 'ws://localhost/rpc', 'perMessageDeflate: false',
 ]);
@@ -100,10 +111,10 @@ requireText('dist/host-adapters/codex-app-server.js', [
   'experimentalApi: true', 'thread/queue/add', 'ws://localhost/rpc', 'perMessageDeflate: false',
 ]);
 requireText('src/host-adapters/codex-cli-queue.ts', [
-  'dispatch_metadata_only', "'queue', '--thread'", "'--message', marker", 'shell: false',
+  'dispatch(input', 'serializeNativeAgentMessage', "'queue', '--thread'", "'--message', message", 'shell: false',
 ]);
 requireText('dist/host-adapters/codex-cli-queue.js', [
-  'dispatch_metadata_only', "'queue', '--thread'", "'--message', marker", 'shell: false',
+  'dispatch(input', 'serializeNativeAgentMessage', "'queue', '--thread'", "'--message', message", 'shell: false',
 ]);
 requireText('src/host-runtime/codex-session.ts', [
   'CODEX_THREAD_ID', "hook_event_name !== 'SessionStart'", "adapter_kind: 'codex-cli-queue'", 'workspace !== cwd',
@@ -164,8 +175,14 @@ requirePattern(
 requireText('dist/transports/http/server.js', ['MessageBody', 'executeAgentMessageAction']);
 requireText('dist/transports/agent-messaging.js', ['executeAgentMessageAction']);
 
-requireText('docs/api/API_REFERENCE.md', [...ACTIONS, 'principal', 'session', 'generation', 'Local', 'Cloud', 'message storage', 'storage_quota_exceeded']);
-requireText('docs/platforms/agent-messaging.md', ['principal', 'session', 'generation', 'exact-session', 'principal target', 'Local', 'Cloud', 'Bounded storage and audit retention']);
+requireText('docs/api/API_REFERENCE.md', [
+  ...ACTIONS, 'principal', 'session', 'generation', 'host_kind', 'work_summary',
+  'lease_expires_at_ms', 'Local', 'Cloud', 'message storage', 'storage_quota_exceeded',
+]);
+requireText('docs/platforms/agent-messaging.md', [
+  'principal', 'session', 'generation', 'host_kind', 'work_summary', 'lease_expires_at_ms',
+  'exact-session', 'principal target', 'Local', 'Cloud', 'Bounded storage and audit retention',
+]);
 requireText('skills/memesh/SKILL.md', ['message', 'polling', 'active compatible managed host', 'stopped, missing, or replaced session', 'message storage report']);
 requireText('.mcp.json', ['memesh', '${CLAUDE_PLUGIN_ROOT}/dist/mcp/server.js']);
 requireText('.claude-plugin/plugin.json', ['"name": "memesh"', '"version"']);
