@@ -300,7 +300,7 @@ Decisions and direction for "your-project":
 - [decision] Use FTS5 as the retrieval baseline
 ```
 
-Claude Code 在 session 開始時自動收到的就是同一個區塊，其他 MCP 用戶端呼叫 `briefing` 工具也拿到同一份 — 代理一開場就有方向，不用重讀整個 repo，你也不用再重講上禮拜的事。儀表板（`memesh serve`）是完整的視覺化版本。
+Claude Code 在 session 開始時自動收到的就是同一個區塊，其他 MCP 用戶端呼叫 `briefing` 工具也拿到同一份 — 代理一開場就有方向，不用重讀整個 repo，你也不用再重講上禮拜的事。儀表板（`memesh serve`）是完整的視覺化版本。一般 `briefing` 與 SessionStart 情境不帶 recipient 身分，因此不會顯示未讀訊息。要檢查收件匣，請提供確切的 `project` 與 `recipient`；MeMesh 只回報該 recipient 尚未擷取的訊息，並要求先 poll，再逐筆 fetch。
 
 ### 你的資料
 
@@ -569,7 +569,7 @@ memesh config set embedder.provider openai          # or: ollama
 | `import` | 匯入記憶，包含合併策略（跳過 / 覆寫 / 追加） |
 | `learn` | 記錄來自錯誤的結構化教訓（錯誤、根本原因、修復、預防） |
 | `task_state` | 讀取或記下工作進度——目標、下一步、卡住的地方、剛完成的事 |
-| `briefing` | 組合好的工作拓撲——Claude Code 在 session 開始拿到的那個區塊，任何 MCP client 都拿得到 |
+| `briefing` | 提供給任何 MCP client 的工作拓撲；一般情境不顯示未讀訊息，確切的 `project` + `recipient` 才會顯示該收件者尚未擷取的訊息 |
 | `user_patterns` | 分析你的工作模式——時間表、工具、優勢、學習領域 |
 | `improvement` | 將有證據來源的產品改善送交人類審核，或讀取其狀態；agent 不能自行接受或拒絕 |
 | `message` | 要聯絡另一個本機 agent（交接工作、請求結果、回報處置）先送到這裡：耐久收件匣才是紀錄，host push 只是通知。輪詢、擷取、確認收到是分開記錄的事實 |

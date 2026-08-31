@@ -294,7 +294,7 @@ Decisions and direction for "your-project":
 - [decision] Use FTS5 as the retrieval baseline
 ```
 
-This same block is what Claude Code receives automatically at session start, and what any other MCP client gets from the `briefing` tool — the agent starts oriented instead of re-reading the repository, and you stop re-explaining last week. The dashboard (`memesh serve`) is the full visual view.
+This same block is what Claude Code receives automatically at session start, and what any other MCP client gets from the `briefing` tool — the agent starts oriented instead of re-reading the repository, and you stop re-explaining last week. The dashboard (`memesh serve`) is the full visual view. Generic `briefing` and SessionStart context has no recipient identity, so it does not report unread messages. To check an inbox, supply the exact `project` and `recipient`; MeMesh reports only that recipient's unfetched deliveries and directs the caller to poll before fetching each message.
 
 ### Your data
 
@@ -578,7 +578,7 @@ If you switch to an embedder with a different dimension (e.g. 768 → 1536), **n
 | `import` | Import memories with merge strategies (skip / overwrite / append) |
 | `learn` | Record structured lessons from mistakes (error, root cause, fix, prevention) |
 | `task_state` | Read or record where the work stands — goal, next step, blocker, what was just finished |
-| `briefing` | The assembled work topology — the same block Claude Code gets at session start, for any MCP client |
+| `briefing` | The assembled work topology for any MCP client; generic context stays quiet, while exact `project` + `recipient` can surface only that recipient's unfetched deliveries |
 | `user_patterns` | Analyze your work patterns — schedule, tools, strengths, learning areas |
 | `improvement` | Stage an evidence-linked product improvement for human review, or read its status; agents cannot accept or reject it |
 | `message` | Contact another local agent — hand off work, ask for a result, report back — by sending here first; the durable inbox is the record, host push is only delivery. Poll, fetch, and receipt are separate facts |

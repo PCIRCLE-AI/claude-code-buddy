@@ -1,6 +1,6 @@
 # MeMesh Plugin Architecture
 
-**Version**: 4.8.2
+**Version**: 4.8.3
 
 > Looking for "which file do I change for X?" — see [CODEMAP.md](../CODEMAP.md).
 
@@ -8,7 +8,7 @@
 
 ## Overview
 
-MeMesh is the local agentic-memory and governed-collaboration layer for individual AI coding agents, including Claude Code, Codex, Gemini, Cursor, and other MCP-compatible clients. It provides 11 MCP tools (`remember`, `recall`, `forget`, `export`, `import`, `learn`, `task_state`, `briefing`, `user_patterns`, `improvement`, `message`) backed by SQLite with FTS5 full-text search and optional sqlite-vec vector embeddings. Memory and durable exact-recipient messaging are available through CLI, HTTP REST, and MCP; `improvement` stages proposals through MCP while the existing CLI/HTTP review surfaces retain human accept/reject authority.
+MeMesh is the local agentic-memory and governed-collaboration layer for individual AI coding agents, including Claude Code, Codex, Gemini, Cursor, and other MCP-compatible clients. It provides 11 MCP tools (`remember`, `recall`, `forget`, `export`, `import`, `learn`, `task_state`, `briefing`, `user_patterns`, `improvement`, `message`) backed by SQLite with FTS5 full-text search and optional sqlite-vec vector embeddings. Memory and durable exact-recipient messaging are available through CLI, HTTP REST, and MCP; `improvement` stages proposals through MCP while the existing CLI/HTTP review surfaces retain human accept/reject authority. Generic briefing and SessionStart context has no recipient identity and stays quiet; `briefing(project, recipient)` reports only that exact recipient's unfetched deliveries and directs the caller to poll before fetching.
 
 The package is intentionally local-first and inspectable:
 - one SQLite database under the user's control

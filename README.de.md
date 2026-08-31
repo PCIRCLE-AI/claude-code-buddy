@@ -293,7 +293,7 @@ Decisions and direction for "your-project":
 - [decision] Use FTS5 as the retrieval baseline
 ```
 
-Denselben Block erhält Claude Code automatisch beim Session-Start, und jeder andere MCP-Client über das `briefing`-Tool — der Agent startet orientiert, statt das Repository neu zu lesen, und Sie erklären letzte Woche nicht noch einmal. Das Dashboard (`memesh serve`) ist die vollständige visuelle Ansicht.
+Denselben Block erhält Claude Code automatisch beim Session-Start, und jeder andere MCP-Client über das `briefing`-Tool — der Agent startet orientiert, statt das Repository neu zu lesen, und Sie erklären letzte Woche nicht noch einmal. Das Dashboard (`memesh serve`) ist die vollständige visuelle Ansicht. Ein allgemeiner `briefing`-Aufruf oder SessionStart-Kontext hat keine Empfängeridentität und meldet daher keine ungelesenen Nachrichten. Zum Prüfen eines Postfachs geben Sie den exakten `project` und `recipient` an; MeMesh meldet nur dessen noch nicht abgerufene Zustellungen und verweist zuerst auf Polling, dann auf Fetch.
 
 ### Ihre Daten
 
@@ -562,7 +562,7 @@ Wechselst du zu einer anderen Dimension (z. B. 768 → 1536), wird **nichts gel�
 | `import` | Memories mit Merge-Strategien importieren (Skip / Overwrite / Append) |
 | `learn` | Strukturierte Lektionen aus Fehlern erfassen (Fehler, Grundursache, Behebung, Prävention) |
 | `task_state` | Arbeitsstand lesen oder festhalten — Ziel, nächster Schritt, Blocker, gerade Erledigtes |
-| `briefing` | Die zusammengesetzte Arbeits-Topologie — derselbe Block, den Claude Code beim Session-Start erhält, für jeden MCP-Client |
+| `briefing` | Die Arbeitstopologie für jeden MCP-Client; allgemeiner Kontext bleibt still, während exakte Angaben für `project` + `recipient` nur dessen noch nicht abgerufene Zustellungen anzeigen |
 | `user_patterns` | Arbeitsmuster analysieren — Zeitplan, Tools, Stärken, Lernbereiche |
 | `improvement` | Evidenzverknüpfte Produktverbesserung zur menschlichen Prüfung vorschlagen oder ihren Status lesen; Agenten können sie nicht selbst annehmen oder ablehnen |
 | `message` | Einen anderen lokalen Agenten erreichen (Arbeit übergeben, Ergebnis anfragen, Rückmeldung geben) — zuerst hier senden; der dauerhafte Posteingang ist der Beleg, Host-Push nur die Zustellung. Pollen, Abrufen und Quittieren sind getrennte Fakten |

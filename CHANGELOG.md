@@ -2,7 +2,7 @@
 
 All notable changes to MeMesh are documented here.
 
-## [Unreleased]
+## [4.8.3] — 2026-08-31
 
 ### Fixed
 
@@ -12,8 +12,7 @@ All notable changes to MeMesh are documented here.
   values. A crafted config could therefore send prompts and recalled memory to
   an arbitrary server. One shared resolver now rejects configured remote hosts
   before `fetch`; an operator-set `OLLAMA_HOST` remains the explicit remote
-  override. The global-filter storage-event regression test also avoids a
-  CodeQL DOM-model mismatch while preserving the cross-tab behavior assertion.
+  override.
 
 - **Briefing no longer aggregates another recipient's unread inbox.** Generic
   `briefing` and SessionStart context have no exact recipient identity and stay
@@ -21,38 +20,39 @@ All notable changes to MeMesh are documented here.
   to report only that recipient's unfetched deliveries, with instructions to
   `message poll` that scope before fetching each returned `message_id`.
 
+- **Briefing and SessionStart can add a small amount of shared context without
+  crowding out the current project.** Up to three safe, active global memories
+  are ranked separately and capped at 640 characters. Project decisions,
+  current work and recent project memories keep their existing budget and
+  priority, and capture history records only the memories actually rendered.
+
+- **Explicit lessons that start with the same words no longer collapse into
+  one entity.** Their stable name now combines a readable prefix with a short
+  digest of the complete normalized error, while submitting the same lesson
+  again still appends to the existing lesson. Legacy readable-only identities
+  are repaired without dropping their observations.
+
+- **Dream refreshes its proposal list immediately after a successful run.** A
+  newly generated proposal appears without a page reload; provider or inference
+  failures stay visible instead of being presented as an honest zero-result run.
+
+- **Notification readiness is reported separately from installation.**
+  `memesh doctor` distinguishes an installed Codex command from a live
+  session-specific host task and explains when live notification delivery has
+  not been established. The messaging guide now documents that boundary.
+
+- **MCP validation failures are shorter and more actionable.** Root-level
+  schema errors no longer render a misleading dotted path, and the `message`
+  tool schema states that `recipient` is required for send and fetch operations.
+
 - **A plugin install can now tell "same version" from "same code".** Claude
-  Code keys its plugin cache by version, so a machine that auto-updated from
-  the marketplace between the commit that bumped package.json to 4.8.2 and the
-  fix PRs merged under that version kept running a "4.8.2" MCP server with 19
-  commits missing — and `memesh upgrade-plugin` answered "Already at 4.8.2 —
-  nothing to do." Three changes close this: `upgrade-plugin` compares the
-  commit recorded in `installed_plugins.json` with the marketplace checkout,
-  derives the target version and stages the refreshed copy from that exact
-  commit (never the marketplace checkout's working tree, which can hold
-  uncommitted files), applies one strict SemVer grammar to written and
-  discovered cache directories, honors `CLAUDE_CONFIG_DIR` across the CLI,
-  script, doctor, hook-wiring settings and citation-rule paths (including mixed
-  multi-entry registries, so one valid active row still prevents duplicate
-  hooks), and can repair a registry-backed install whose cache directory is
-  missing. It refuses both an initially symlinked host registry and a
-  same-content file-identity or symlink swap during the install; it swaps the
-  new cache in only after its dependencies installed, then compares the complete
-  authority-selected registry snapshot and original file identity again
-  immediately before the atomic registry write, rolling the cache swap back if
-  either changed, the write fails, or the process is interrupted before the
-  registry and live path agree. `memesh doctor`
-  reports the same comparison as a `plugin-cache` check for the copy it is
-  currently running from, on both Claude Code and Codex installs (WARN when
-  the cache is behind, WARN "could not tell" when no commit is recorded —
-  never PASS on the version alone; the Codex fix is
-  `codex plugin marketplace upgrade pcircle-memesh && codex plugin add
-  memesh@pcircle-memesh`, which replaces a same-version cache); and
-  `memesh doctor` run from an npm-global install also checks each registry-backed
-  Claude Code cache separately and adds one host-level Codex check (omitting
-  hosts that are not installed; several Codex version caches intentionally
-  aggregate to one WARN rather than guessing which is active; missing revision
-  metadata is WARN/unverifiable, never PASS).
+  Code keys its plugin cache by version, so a stale cache could previously look
+  current after fixes landed under the same version. `upgrade-plugin` now
+  compares recorded revisions, repairs missing or stale same-version caches,
+  honors `CLAUDE_CONFIG_DIR`, and updates the cache and registry atomically with
+  rollback on a concurrent or interrupted change. `memesh doctor` reports a
+  cache as current, behind, or unverifiable instead of trusting its version
+  directory alone, and gives the matching Claude Code or Codex refresh action.
 
 ## [4.8.2] — 2026-08-29
 

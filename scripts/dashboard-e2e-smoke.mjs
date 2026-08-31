@@ -109,6 +109,21 @@ function cleanupDir(dirPath) {
 async function main() {
   cleanupDir(smokeDir);
   fs.mkdirSync(smokeDir, { recursive: true });
+  const runtimeHome = path.join(smokeDir, 'runtime-home');
+  const memeshDir = path.join(runtimeHome, '.memesh');
+  const dbPath = path.join(memeshDir, 'knowledge-graph.db');
+  fs.mkdirSync(memeshDir, { recursive: true });
+  const isolatedEnv = {
+    ...process.env,
+    HOME: runtimeHome,
+    USERPROFILE: runtimeHome,
+    MEMESH_DIR: memeshDir,
+    MEMESH_DB_PATH: dbPath,
+    MEMESH_AUTO_DETECT_LLM: '0',
+  };
+  delete isolatedEnv.ANTHROPIC_API_KEY;
+  delete isolatedEnv.OPENAI_API_KEY;
+  delete isolatedEnv.OLLAMA_HOST;
 
   const packJson = npmSync(
     ['pack', '--json', '--pack-destination', smokeDir],
@@ -116,7 +131,7 @@ async function main() {
       cwd: repoRoot,
       encoding: 'utf8',
       env: {
-        ...process.env,
+        ...isolatedEnv,
         npm_config_cache: npmCacheDir,
       },
     }
@@ -149,13 +164,11 @@ async function main() {
   npmSync(['install', '--omit=dev', '--no-audit', '--no-fund'], {
     cwd: packageRoot,
     stdio: 'inherit',
-    env: { ...process.env, npm_config_cache: npmCacheDir },
+    env: { ...isolatedEnv, npm_config_cache: npmCacheDir },
   });
   const cliEntry = path.join(packageRoot, 'dist', 'transports', 'cli', 'cli.js');
-  const dbPath = path.join(smokeDir, 'knowledge-graph.db');
   const commonEnv = {
-    ...process.env,
-    MEMESH_DB_PATH: dbPath,
+    ...isolatedEnv,
     // This spawns the REAL CLI serve, which opts into the background npm
     // update-check. CI must not depend on the npm registry here.
     MEMESH_SKIP_UPDATE_CHECK: '1',
@@ -198,6 +211,12 @@ async function main() {
 
   try {
     await waitForServer(healthUrl, server);
+    const configResponse = await fetch(`http://127.0.0.1:${port}/v1/config`);
+    assert.equal(configResponse.status, 200, 'isolated config readback should succeed');
+    const configPayload = await configResponse.json();
+    assert.equal(configPayload.success, true, 'isolated config readback should return success');
+    assert.equal(configPayload.data.capabilities.llm, null, 'Dashboard E2E must not inherit an owner LLM provider');
+    assert.equal(configPayload.data.capabilities.llmSource, 'none', 'Dashboard E2E provider source must stay isolated');
     const browser = await launchBrowser();
 
     try {

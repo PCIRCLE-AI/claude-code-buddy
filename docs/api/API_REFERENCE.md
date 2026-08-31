@@ -1,7 +1,7 @@
 # MeMesh Plugin -- API Reference
 
 **Protocol**: Model Context Protocol (MCP) over stdio
-**Version**: 4.8.2
+**Version**: 4.8.3
 **Compatibility**: Works with Claude Code plugins, Claude Managed Agents (via MCP connector), and any MCP-compatible client.
 
 **Native Integrations**: Beyond MCP, MeMesh integrates as a native memory provider for Hermes Agent (Python `MemoryProvider` plugin) and OpenClaw (TypeScript memory-capability plugin) — same tier as their built-in backends, not HTTP bridges. See [docs/platforms/](../platforms/) for platform-specific guides.
@@ -717,6 +717,8 @@ Common errors:
 - Unknown tool name
 - Zod validation failure (missing required fields, invalid types)
 - Entity not found (for relations in `remember`)
+
+Root-level Zod issues return only the message. Field and unknown-key issues are prefixed with their path.
 
 ---
 
