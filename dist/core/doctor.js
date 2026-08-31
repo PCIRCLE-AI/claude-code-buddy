@@ -846,7 +846,7 @@ function inspectClaudeChannelRegistration(existsSyncImpl, readFileSyncImpl) {
         ? servers['memesh-channel']
         : undefined;
     if (server === undefined) {
-        return createInfo('claude-channel', 'Claude Channel registration', 'No user-scoped memesh-channel registration was found. Durable MCP/inbox messaging can still work, but live Claude Channel notification is inactive. This is informational because the upstream research-preview channel is opt-in.', 'If you want the opt-in channel, run `memesh agent setup claude` and then register the printed user-scoped MCP command.');
+        return createCheck('claude-channel', 'Claude Channel registration', 'warn', 'No user-scoped memesh-channel registration was found. Durable MCP/inbox messaging can still work, but live Claude Channel notification is inactive. The upstream research-preview channel remains opt-in.', 'If you want the opt-in channel, run `memesh agent setup claude` and then register the printed user-scoped MCP command.');
     }
     const record = server && typeof server === 'object' && !Array.isArray(server)
         ? server

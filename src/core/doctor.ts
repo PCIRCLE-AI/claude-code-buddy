@@ -2001,10 +2001,11 @@ function inspectClaudeChannelRegistration(
     ? (servers as JsonObject)['memesh-channel']
     : undefined;
   if (server === undefined) {
-    return createInfo(
+    return createCheck(
       'claude-channel',
       'Claude Channel registration',
-      'No user-scoped memesh-channel registration was found. Durable MCP/inbox messaging can still work, but live Claude Channel notification is inactive. This is informational because the upstream research-preview channel is opt-in.',
+      'warn',
+      'No user-scoped memesh-channel registration was found. Durable MCP/inbox messaging can still work, but live Claude Channel notification is inactive. The upstream research-preview channel remains opt-in.',
       'If you want the opt-in channel, run `memesh agent setup claude` and then register the printed user-scoped MCP command.',
     );
   }

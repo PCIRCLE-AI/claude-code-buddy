@@ -3402,12 +3402,17 @@ describe('Claude Channel registration diagnostic', () => {
     return path.join(root, name);
   }
 
-  it('reports opt-in absence as informational and does not leak paths', async () => {
+  it('WARNs when the opt-in channel is absent and does not leak paths', async () => {
     const result = await runChannelCase({ mcpServers: {} });
     const row = channelRow(result)!;
-    expect(row.informational).toBe(true);
+    expect(row.status).toBe('warn');
+    expect(row.informational).not.toBe(true);
     expect(row.summary).toMatch(/durable MCP\/inbox.*inactive/i);
     expect(row.summary).not.toMatch(/\/private\/|\/Users\/|memesh-claude-channel-/);
+    expect(result.status).toBe('PASS_WITH_CONCERNS');
+    const report = formatDoctorReport(result, '4.8.2').join('\n');
+    expect(report).toContain('Overall: PASS_WITH_CONCERNS');
+    expect(report).toContain('[WARN] Claude Channel registration');
   });
 
   it('WARNs when a registration points to a missing target', async () => {
