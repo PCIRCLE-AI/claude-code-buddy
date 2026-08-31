@@ -302,6 +302,8 @@ describe('Feature: release scripts never edit the real ~/.memesh', () => {
       write('README.de.md', 'message memesh agent setup codex-session ohne Polling oder menschliche Erinnerung gestoppte, fehlende oder getrennte Codex-Session message storage report');
       write('.mcp.json', 'memesh ${CLAUDE_PLUGIN_ROOT}/dist/mcp/server.js');
       write('.claude-plugin/plugin.json', '"name": "memesh" "version"');
+      write('.codex-plugin/plugin.json', '"name": "memesh" "version" "mcpServers": "./.codex-plugin/mcp.json"');
+      write('.codex-plugin/mcp.json', '"memesh" "command": "node" "./dist/mcp/server.js" "cwd": "."');
       write('.claude-plugin/marketplace.json', '"name": "pcircle-memesh" "version"');
       write('hooks/hooks.json', 'session-start.js session-summary.js pre-compact.js user-prompt-intent.js pre-edit-recall.js guard-check.js post-commit.js codex-session.js startup|resume "async": true');
       write('package.json', JSON.stringify({
