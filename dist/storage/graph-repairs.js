@@ -213,6 +213,9 @@ export function splitFusedLessons(db, deps) {
                 const project = tags.find((t) => t.startsWith('project:'))?.slice('project:'.length);
                 if (!project)
                     continue;
+                const suffix = entity.name.slice(`lesson-${project}-`.length);
+                if (tags.includes(`error-pattern:${suffix}`))
+                    continue;
                 if (!groups.every((group) => `lesson-${project}-${legacyReadableLessonSlug(group.error)}` === entity.name))
                     continue;
                 const movedFromEntity = moveLessonGroups(entity, project, groups, tags);

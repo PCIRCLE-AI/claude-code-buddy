@@ -23,6 +23,7 @@ import {
   groupTopology,
   buildTopologyLines,
   assembleTopologyBlock,
+  buildReferenceContext,
   type TopologyEntity,
 } from '../../src/core/work-topology.js';
 
@@ -238,6 +239,43 @@ describe('work-topology', () => {
     const lines = assembleTopologyBlock(state, pools, 'p', { maxChars: 100 });
     expect(lines.join('\n')).not.toContain('squeezed out');
     expect(lines[0]).toBe('x'.repeat(90));
+  });
+
+  it('gives global memory an additive budget without displacing project memory', () => {
+    const pools = [
+      { entities: [entity({ type: 'decision', name: 'project', title: 'project survives' })], foreign: false },
+      { entities: [entity({ type: 'directive', name: 'global', title: 'global survives' })], foreign: false, global: true },
+    ];
+
+    const lines = assembleTopologyBlock([], pools, 'p', { maxChars: 80, maxLineChars: 160 });
+    const text = lines.join('\n');
+    expect(text).toContain('project survives');
+    expect(text).toContain('global survives');
+    expect(text).toContain('Global memory — applies across projects:');
+  });
+
+  it('caps the global section independently, even with long fenced content', () => {
+    const long = '```` ' + 'global rule '.repeat(40);
+    const lines = assembleTopologyBlock(
+      [],
+      [
+        {
+          entities: Array.from({ length: 4 }, (_, i) =>
+            entity({ type: 'directive', name: `g${i}`, id: i + 1, title: `${long}${i}` })),
+          foreign: false,
+          global: true,
+        },
+      ],
+      'p',
+      { maxChars: 0, maxLineChars: 160 },
+    );
+    const rendered = lines.join('\n');
+    const block = buildReferenceContext(lines);
+    expect(rendered.length).toBeLessThanOrEqual(640);
+    expect((rendered.match(/- \[directive\]/g) ?? [])).toHaveLength(3);
+    expect(rendered).not.toContain(`${long}0`);
+    expect(block).toContain('````');
+    expect(block.trimEnd().endsWith('`````')).toBe(true);
   });
 
   it('keeps one whitelist for the work layer', () => {

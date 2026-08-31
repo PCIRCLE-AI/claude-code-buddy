@@ -452,6 +452,37 @@ function inspectAgentMessageStorage(
   }
 }
 
+/**
+ * Report the separate opt-in bridge that lets ordinary Codex sessions receive
+ * live notifications. A plugin cache copy is only evidence of cached source;
+ * it does not prove that Codex enabled or registered the plugin.
+ */
+function inspectCodexSessionSetup(
+  codexPluginCacheDetected: boolean,
+  existsSyncImpl: typeof fs.existsSync,
+): DoctorCheck | null {
+  if (!codexPluginCacheDetected) return null;
+
+  const configPath = path.join(getMemeshDirFromDbPath(), 'hosts', 'codex-session.json');
+  if (existsSyncImpl(configPath)) {
+    return createCheck(
+      'codex-session-setup',
+      'Codex ordinary-session notification setup',
+      'pass',
+      'A Codex plugin cache copy was detected, but this proves only that cached source exists, not that the plugin is enabled or registered. The explicit opt-in ordinary-session notification setup is present; durable inbox remains available, and MeMesh will not auto-attach.',
+    );
+  }
+
+  return createCheck(
+    'codex-session-setup',
+    'Codex ordinary-session notification setup',
+    'warn',
+    'A Codex plugin cache copy was detected, but this proves only that cached source exists, not that the plugin is enabled or registered. Durable inbox remains available, but live ordinary-session wakeup is inactive. Setup is explicit opt-in; MeMesh will not auto-attach.',
+    'Run `memesh agent setup codex-session --project <project> --principal <principal> --workspace <exact-workspace>`, then restart Codex.',
+    { code: 'codex-session.config-missing' },
+  );
+}
+
 function configuredAgentMessageStoragePolicy(
   explicit: DoctorOptions['agentMessageStoragePolicy'],
 ): DoctorOptions['agentMessageStoragePolicy'] {
@@ -3094,8 +3125,10 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   // memesh's hooks at all).
   // installedPluginsPathImpl may be undefined — detectPluginRuntime owns the
   // default path; restating it here was a second copy of the same location.
-  const wiring = inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir(), install, installedPluginsPathImpl, detectPluginHost(packageRoot));
-  const pluginCache = inspectPluginCacheCurrency(install, detectPluginHost(packageRoot), packageRoot, installedPluginsPathImpl, readFileSyncImpl, existsSyncImpl, marketplaceHeadShaImpl);
+  const pluginHost = detectPluginHost(packageRoot);
+  let codexPluginCacheDetected = pluginHost === 'codex';
+  const wiring = inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir(), install, installedPluginsPathImpl, pluginHost);
+  const pluginCache = inspectPluginCacheCurrency(install, pluginHost, packageRoot, installedPluginsPathImpl, readFileSyncImpl, existsSyncImpl, marketplaceHeadShaImpl);
   if (pluginCache) checks.push(pluginCache);
   if (install === 'npm-global') {
     const discoveredCounts = new Map<PluginHost, number>();
@@ -3103,6 +3136,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
       ? pluginCacheDiscoveryImpl()
       : defaultPluginCacheDiscovery(readFileSyncImpl, existsSyncImpl);
     for (const discovered of discoveredPluginCaches) {
+      if (discovered.host === 'codex') codexPluginCacheDetected = true;
       const check = discovered.unverifiableReason
         ? pluginCacheUnverifiable(discovered.host, discovered.unverifiableReason)
         : inspectPluginCacheCurrency(
@@ -3118,6 +3152,8 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
     }
   }
   checks.push(wiring);
+  const codexSessionSetup = inspectCodexSessionSetup(codexPluginCacheDetected, existsSyncImpl);
+  if (codexSessionSetup) checks.push(codexSessionSetup);
   // hook-activity's never-ran verdict only reds when wiring is actually in
   // place — otherwise the wiring row above already tells the story, and an
   // MCP-only install would carry a permanent unfixable FAIL.

@@ -80,6 +80,12 @@ the setup command from the exact workspace that Codex will use; it stores the
 configured real workspace and stable principal in the owner-private
 `codex-session.json` config. Restart Codex in that workspace after setup.
 
+This guide's supported documented path is ordinary Codex CLI `SessionStart`.
+Codex Desktop or an unattached task is not user-visible native-delivery
+evidence unless that exact live session registers with the router and the
+result is directly verified. This is a scope boundary for evidence, not a
+claim that Codex Desktop is universally unsupported.
+
 On `SessionStart` for `startup` or `resume`, the asynchronous companion checks
 the Codex thread identity, hook session identity, and configured workspace
 realpath before it connects to the router. A missing identity, a different

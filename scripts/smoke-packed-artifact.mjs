@@ -375,12 +375,17 @@ try {
 // source import or a direct AgentRouter test. It starts the `memesh-router`
 // binary npm installed for this consumer, connects a controlled host through
 // the installed router-client module, and sends through the installed `memesh`
-// CLI with a payload on stdin. Neither delivery assertion below uses poll or
-// watch: the only readback is the router's persisted host_accept row.
+// CLI with a payload on stdin. This verifies the installed-artifact
+// router-to-adapter metadata-dispatch contract using a controlled host and a
+// fake queue; it does not create or observe a real Codex task or user-visible
+// notification. The contract is exercised without poll/watch: the only
+// delivery readback is the router's persisted host_accept row.
 //
 // Windows does not provide the owner-private Unix-domain-socket contract this
-// Local runner implements, so a Windows package still gets the manifest and
-// MCP checks above but cannot truthfully run this POSIX host-native proof.
+// local runner implements, so a Windows package still gets the manifest and
+// MCP checks above but cannot run this POSIX router-to-adapter contract. No
+// result from this harness, on any platform, is evidence of a real Codex task
+// or a user-visible notification.
 async function waitFor(condition, description, timeoutMs = 5_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -521,10 +526,10 @@ fs.writeFileSync(process.env.MEMESH_CODEX_QUEUE_CAPTURE, JSON.stringify({ thread
     }));
     await waitFor(
       () => fs.existsSync(queueCapture) || hostExit !== null,
-      'metadata-only native queue admission',
+      'installed-artifact router-to-adapter metadata dispatch to the fake queue',
     );
-    assert.equal(hostExit, null, `installed host stub exited during native delivery: ${hostStderr}`);
-    assert.equal(hostOutput.includes('"unexpected-payload-delivery"'), false, 'router sent the durable payload to the metadata-only companion');
+    assert.equal(hostExit, null, `controlled host exited during router-to-adapter dispatch: ${hostStderr}`);
+    assert.equal(hostOutput.includes('"unexpected-payload-delivery"'), false, 'router sent the durable payload to the metadata-only adapter');
     const queued = JSON.parse(fs.readFileSync(queueCapture, 'utf8'));
     assert.equal(queued.thread_id, '01a041b4-5c67-75b3-9505-4e33d7942b8e');
     assert.equal(queued.marker.message_type, 'memesh_message_available');
@@ -535,10 +540,10 @@ fs.writeFileSync(process.env.MEMESH_CODEX_QUEUE_CAPTURE, JSON.stringify({ thread
       message_id: send.message_id,
       delivery_id: send.delivery_id,
     });
-    assert.equal(JSON.stringify(queued).includes('installed-native-stdin'), false, 'native wakeup marker leaked durable payload bytes');
+    assert.equal(JSON.stringify(queued).includes('installed-native-stdin'), false, 'metadata marker leaked durable payload bytes');
     const accepted = readHostAcceptance(path.join(nativeDir, 'knowledge-graph.db'), send.delivery_id);
-    assert.equal(accepted.attempts, 1, 'native delivery did not persist exactly one dispatch attempt');
-    assert.equal(accepted.acceptance?.adapter_kind, 'codex-cli-queue', 'native delivery did not persist host_accept');
+    assert.equal(accepted.attempts, 1, 'router-to-adapter dispatch did not persist exactly one dispatch attempt');
+    assert.equal(accepted.acceptance?.adapter_kind, 'codex-cli-queue', 'router-to-adapter dispatch did not persist host_accept');
     assert.equal(JSON.parse(accepted.acceptance.receipt_json).host, 'codex-cli');
 
     const fetched = JSON.parse(execFileSync(installedBin('memesh'), [
@@ -556,9 +561,9 @@ fs.writeFileSync(process.env.MEMESH_CODEX_QUEUE_CAPTURE, JSON.stringify({ thread
       '--recipient', 'installed-active-host',
       '--message-id', send.message_id,
     ], { cwd: consumerDir, env: nativeEnv, encoding: 'utf8' }));
-    assert.ok(receipts.some((receipt) => receipt.receipt_kind === 'host_accept'), 'native queue acceptance was absent from receipt readback');
-    assert.equal(receipts.some((receipt) => receipt.receipt_kind === 'ack'), false, 'fetch or native wakeup implicitly acknowledged the message');
-    assert.equal(receipts.some((receipt) => receipt.receipt_kind === 'disposition'), false, 'fetch or native wakeup implicitly set workflow disposition');
+    assert.ok(receipts.some((receipt) => receipt.receipt_kind === 'host_accept'), 'fake queue acceptance was absent from receipt readback');
+    assert.equal(receipts.some((receipt) => receipt.receipt_kind === 'ack'), false, 'fetch or metadata dispatch implicitly acknowledged the message');
+    assert.equal(receipts.some((receipt) => receipt.receipt_kind === 'disposition'), false, 'fetch or metadata dispatch implicitly set workflow disposition');
 
     // No host is registered for this principal. The sender still persists the
     // durable message, but the router must neither wake the active unrelated
@@ -641,4 +646,4 @@ fs.rmSync(smokeDir, { recursive: true, force: true });
 // Say something on success. A check that prints nothing when it passes is
 // indistinguishable from one that did not run — the exact failure mode this
 // repo has spent several releases removing from its own code.
-console.log('✅ Packaged artifact smoke test passed — tarball installs outside the repo, completes MCP lifecycle exchanges, and proves one installed message without poll/watch across metadata-only Codex wakeup → scoped durable fetch → persisted host_accept with no implicit ACK/disposition');
+console.log('✅ Packaged artifact smoke test passed — tarball installs outside the repo, completes MCP lifecycle exchanges, and verifies the installed-artifact router-to-adapter metadata-dispatch contract via a controlled host and fake queue → scoped durable fetch → persisted host_accept with no implicit ACK/disposition');

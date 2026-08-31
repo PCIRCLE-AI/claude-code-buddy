@@ -82,10 +82,15 @@ export function groupTopology(entities, projectName) {
     const lessons = [];
     const knowledge = [];
     const evidence = [];
+    const global = [];
     const foreign = [];
     for (const e of entities) {
         if (e.type === 'task-state')
             continue;
+        if (e.global) {
+            global.push(e);
+            continue;
+        }
         if (e.foreign) {
             foreign.push(e);
             continue;
@@ -104,7 +109,7 @@ export function groupTopology(entities, projectName) {
         else
             decisions.push(e);
     }
-    for (const list of [decisions, lessons, knowledge, evidence, foreign])
+    for (const list of [decisions, lessons, knowledge, evidence, global, foreign])
         list.sort(bySignal);
     const sections = [];
     if (decisions.length)
@@ -115,6 +120,8 @@ export function groupTopology(entities, projectName) {
         sections.push({ heading: `What is known about "${projectName}":`, entities: knowledge });
     if (evidence.length)
         sections.push({ heading: `Recent activity in "${projectName}":`, entities: evidence });
+    if (global.length)
+        sections.push({ heading: 'Global memory — applies across projects:', entities: global });
     if (foreign.length)
         sections.push({ heading: 'From your other projects (may or may not apply here):', entities: foreign });
     return sections;
@@ -123,6 +130,11 @@ const MAX_PER_SECTION = 8;
 export const DEFAULT_TOPOLOGY_BUDGET = {
     maxChars: 4000,
     maxLineChars: 160,
+};
+export const GLOBAL_TOPOLOGY_LIMIT = 3;
+const GLOBAL_TOPOLOGY_BUDGET = {
+    maxChars: 640,
+    maxLineChars: DEFAULT_TOPOLOGY_BUDGET.maxLineChars,
 };
 export const TOPOLOGY_CANDIDATE_CAP = 400;
 export const SNIPPET_FETCH_CHARS = DEFAULT_TOPOLOGY_BUDGET.maxLineChars * 4;
@@ -155,12 +167,18 @@ export function buildTopologyLines(entities, projectName, budget) {
 export function assembleTopologyBlock(stateLines, pools, projectName, budget = DEFAULT_TOPOLOGY_BUDGET) {
     const seen = new Set();
     const candidates = [];
+    const globalCandidates = [];
     for (const pool of pools) {
         for (const e of pool.entities) {
             if (seen.has(e.name))
                 continue;
             seen.add(e.name);
-            candidates.push(pool.foreign && !e.foreign ? { ...e, foreign: true } : e);
+            if (pool.global) {
+                globalCandidates.push(e.global ? e : { ...e, global: true });
+            }
+            else {
+                candidates.push(pool.foreign && !e.foreign ? { ...e, foreign: true } : e);
+            }
         }
     }
     const lines = [];
@@ -173,9 +191,13 @@ export function assembleTopologyBlock(stateLines, pools, projectName, budget = D
     const topologyLines = remaining > 0
         ? buildTopologyLines(candidates, projectName, { ...budget, maxChars: remaining })
         : [];
+    const globalLines = buildTopologyLines(globalCandidates, projectName, GLOBAL_TOPOLOGY_BUDGET);
     if (lines.length > 0 && topologyLines.length > 0)
         lines.push('');
     lines.push(...topologyLines);
+    if (lines.length > 0 && globalLines.length > 0)
+        lines.push('');
+    lines.push(...globalLines);
     return lines;
 }
 export function buildReferenceContext(memoryLines) {

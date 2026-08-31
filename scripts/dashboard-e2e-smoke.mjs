@@ -270,6 +270,65 @@ async function main() {
         'Locale switch back to English triggered a full reload'
       );
 
+      // Reproduce the compatible Dream path against the packaged dashboard.
+      // Keep the provider and proposal lifecycle deterministic while leaving
+      // every other request (including health) on the real server.
+      const dreamPage = await context.newPage();
+      const dreamPageErrors = [];
+      const dreamConsoleErrors = [];
+      const proposal = {
+        id: 1,
+        project: 'dashboard-e2e',
+        cluster_key: 'dashboard-e2e-cluster',
+        source_count: 1,
+        digest_name: 'dashboard-e2e-dream-proposal',
+        digest_observations_preview: 'Dashboard Dream smoke proposal',
+        status: 'pending',
+        created_at: '2026-08-31 00:00:00',
+        kind: 'digest',
+      };
+      let dreamRuns = 0;
+      let proposalReads = 0;
+      dreamPage.on('pageerror', (error) => dreamPageErrors.push(error.message));
+      dreamPage.on('console', (message) => {
+        if (message.type() === 'error') dreamConsoleErrors.push(message.text());
+      });
+      await dreamPage.route('**/v1/config', (route) => route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, data: { capabilities: { llm: { provider: 'openai' } } } }),
+      }));
+      await dreamPage.route('**/v1/dream/run', async (route) => {
+        assert.equal(route.request().method(), 'POST');
+        dreamRuns += 1;
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({
+            success: true,
+            data: { proposalsCreated: 1, llmCalls: 1, skipped: [] },
+          }),
+        });
+      });
+      await dreamPage.route(/\/v1\/dream\/proposals(?:\?.*)?$/, async (route) => {
+        assert.equal(route.request().method(), 'GET');
+        proposalReads += 1;
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({ success: true, data: dreamRuns === 1 ? [proposal] : [] }),
+        });
+      });
+      await dreamPage.goto(`${dashboardUrl}?tab=Home`, { waitUntil: 'networkidle' });
+      assert.equal(
+        await dreamPage.getByText('dashboard-e2e-dream-proposal', { exact: true }).count(),
+        0,
+        'Dream proposal must not be visible before the run succeeds',
+      );
+      await dreamPage.getByRole('button', { name: 'Run weekly recap', exact: true }).click();
+      await expectVisible(dreamPage, 'dashboard-e2e-dream-proposal');
+      assert.equal(dreamRuns, 1, 'Dream run should POST exactly once');
+      assert.ok(proposalReads >= 2, `Dream proposals should be read at least twice (got ${proposalReads})`);
+      assert.deepEqual(dreamPageErrors, [], `Dream page errors detected:\n${dreamPageErrors.join('\n')}`);
+      assert.deepEqual(dreamConsoleErrors, [], `Dream console errors detected:\n${dreamConsoleErrors.join('\n')}`);
+
       assert.deepEqual(pageErrors, [], `Dashboard page errors detected:\n${pageErrors.join('\n')}`);
       assert.deepEqual(consoleErrors, [], `Dashboard console errors detected:\n${consoleErrors.join('\n')}`);
     } finally {

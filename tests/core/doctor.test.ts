@@ -49,9 +49,7 @@ function writeJson(filePath: string, value: unknown): void {
   fs.writeFileSync(filePath, JSON.stringify(value, null, 2));
 }
 
-function createPackageRoot(): string {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-doctor-'));
-
+function createPackageRoot(root = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-doctor-'))): string {
   writeJson(path.join(root, '.mcp.json'), {
     mcpServers: {
       memesh: {
@@ -3822,6 +3820,105 @@ describe('doctor rows that had no assertion', () => {
       expect(check.informational).toBe(true);
       expect(check.summary, 'the row reads identically whether mining is on or off')
         .not.toContain('Off (opt-in)');
+    });
+  });
+
+  describe('Codex ordinary-session notification setup', () => {
+    function codexPackageRoot(): string {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-doctor-.codex-plugins-cache-'));
+      tempRoots.push(root);
+      const packageRoot = path.join(root, '.codex', 'plugins', 'cache', 'pcircle-memesh', 'memesh', '4.8.2');
+      fs.mkdirSync(packageRoot, { recursive: true });
+      createPackageRoot(packageRoot);
+      return packageRoot;
+    }
+
+    function codexOptions(packageRoot: string, overrides: Record<string, unknown> = {}) {
+      return options(packageRoot, {
+        getCurrentInstallChannelImpl: () => 'plugin-marketplace',
+        getInstallChannelSupportImpl: () => ({
+          channel: 'plugin-marketplace', label: 'Codex plugin marketplace', canSelfUpdate: false,
+          recommendedCommand: 'codex plugin add memesh@pcircle-memesh', guidance: '',
+        }),
+        ...overrides,
+      });
+    }
+
+    it('passes when the explicit session setup config exists', async () => {
+      const packageRoot = codexPackageRoot();
+      const memeshDir = isolateMemeshDir();
+      const configPath = path.join(memeshDir, 'hosts', 'codex-session.json');
+      writeJson(configPath, { project: 'ignored', principal: 'ignored', workspace: 'ignored' });
+
+      const result = await runDoctorImpl(codexOptions(packageRoot));
+      const check = row(result, 'codex-session-setup');
+      expect(check.status).toBe('pass');
+      expect(check.label).toBe('Codex ordinary-session notification setup');
+      expect(check.summary.toLowerCase()).toContain('durable inbox remains available');
+      expect(check.summary).toContain('will not auto-attach');
+    });
+
+    it('warns when the session setup config is missing', async () => {
+      const packageRoot = codexPackageRoot();
+      isolateMemeshDir();
+
+      const result = await runDoctorImpl(codexOptions(packageRoot));
+      const check = row(result, 'codex-session-setup');
+      expect(check.status).toBe('warn');
+      expect(check.code).toBe('codex-session.config-missing');
+      expect(check.summary.toLowerCase()).toContain('durable inbox remains available');
+      expect(check.summary).toContain('live ordinary-session wakeup is inactive');
+      expect(check.summary).toContain('explicit opt-in');
+      expect(check.summary).toContain('will not auto-attach');
+      expect(check.fix).toBe('Run `memesh agent setup codex-session --project <project> --principal <principal> --workspace <exact-workspace>`, then restart Codex.');
+      expect(result.status).toBe('PASS_WITH_CONCERNS');
+    });
+
+    it('does not add a row for a non-Codex plugin host', async () => {
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      isolateMemeshDir();
+
+      const result = await runDoctorImpl(codexOptions(packageRoot));
+      expect(result.checks.some(check => check.id === 'codex-session-setup')).toBe(false);
+    });
+
+    it('reports a discovered Codex cache for an npm-global install', async () => {
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      isolateMemeshDir();
+      const discoveredCodexRoot = codexPackageRoot();
+
+      const result = await runDoctorImpl(options(packageRoot, {
+        pluginCacheDiscoveryImpl: () => [{ host: 'codex', packageRoot: discoveredCodexRoot }],
+      }));
+      const check = row(result, 'codex-session-setup');
+      expect(check.status).toBe('warn');
+      expect(check.code).toBe('codex-session.config-missing');
+    });
+
+    it('uses only existsSync for setup detection and does not probe a router', async () => {
+      const packageRoot = codexPackageRoot();
+      const memeshDir = isolateMemeshDir();
+      const configPath = path.join(memeshDir, 'hosts', 'codex-session.json');
+      const readPaths: string[] = [];
+      let routerCalls = 0;
+
+      const result = await runDoctorImpl(codexOptions(packageRoot, {
+        existsSyncImpl: (candidate: fs.PathLike) => fs.existsSync(candidate),
+        readFileSyncImpl: ((candidate: fs.PathOrFileDescriptor, ...args: any[]) => {
+          if (String(candidate) === configPath) readPaths.push(configPath);
+          return (fs.readFileSync as any)(candidate, ...args);
+        }) as typeof fs.readFileSync,
+        messageRouterStatusProbeImpl: async () => {
+          routerCalls++;
+          return { socket_path: '/tmp/unused.sock', socket: 'missing' as const };
+        },
+      }));
+
+      expect(result.checks.find(check => check.id === 'codex-session-setup')?.status).toBe('warn');
+      expect(readPaths).toEqual([]);
+      expect(routerCalls).toBe(0);
     });
   });
 

@@ -81,6 +81,11 @@
       "reason": "bounded regression runner for issue #241 only; it executes the three focused tests covering slugging, repair rerun semantics, and the read-only invariant detector",
       "triaged": "2026-08-31 issue-241 focused regression"
     },
+    "C3 npm:test:issue-242": {
+      "class": "SAFE",
+      "reason": "bounded issue-specific replay for the owned briefing, work-topology, and session-start surfaces; it proves the targeted regression without claiming release-wide coverage",
+      "triaged": "2026-08-30 issue-242 bounded replay"
+    },
     "C3 scripts/calibrate-transcript-dedup.mjs": {
       "class": "NOT-A-GATE",
       "reason": "manual calibration harness a human runs once to derive TRANSCRIPT_DEDUP_MAX_DISTANCE (its output is cited in the constant's comment); it measures and prints, it is not an automated gate with a CI caller",
@@ -286,10 +291,10 @@
       "reason": "display fallbacks; empty renders an explicit notice",
       "triaged": "2026-08-16 (tab consolidation: statement moved verbatim from the retired LessonsTab/BrowseTab; original triage 2026-08-04)"
     },
-    "C5 src/core/work-topology.ts:417": {
+    "C5 src/core/work-topology.ts:447": {
       "class": "SAFE-BY-CONSTRUCTION",
       "reason": "`line.match(/`+/g) ?? []` in buildReferenceContext, moved verbatim from scripts/hooks/_shared.js (which the C5 scan does not cover) so the MCP briefing surface shares the hook's fence. match() returns null when a line contains no backtick run; the empty list truthfully means 'no backticks', and the fence floor Math.max(3, longestRun + 1) still applies. Pinned by tests/hooks/reference-context-fence.test.ts, which feeds lines WITH backtick runs and asserts the fence outruns them.",
-      "triaged": "2026-08-16 (A1c briefing); re-keyed 2026-08-16 (assembleTopologyBlock + budget consts added above; same match statement — verified); re-keyed 2026-08-16 (citation-handle additions above shifted the line 386->416; same statement verified)"
+      "triaged": "2026-08-16 (A1c briefing); re-keyed 2026-08-16 (assembleTopologyBlock + budget consts added above; same match statement — verified); re-keyed 2026-08-16 (citation-handle additions above shifted the line 386->416; same statement verified); re-keyed 2026-08-30 (issue-242 global-section additions shifted the line 417->447; same match statement verified)"
     },
     "C1 tests/hooks/guard-check.test.ts": {
       "class": "SAFE",

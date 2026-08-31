@@ -173,7 +173,7 @@ describe('assembleBriefing', () => {
     expect(result.hasTaskState).toBe(false);
   });
 
-  it('excludes what the auto-injection gate blocks, same as the hook', () => {
+  it('excludes what the auto-injection gate blocks, without restricting explicit recall', async () => {
     seed();
     // An imported memory: reachable by explicit recall, never auto-injected.
     remember({
@@ -185,6 +185,10 @@ describe('assembleBriefing', () => {
     const t = assembleBriefing(PROJECT).text;
     expect(t).not.toContain('Imported wisdom');
     expect(t).toContain('Use PKCE for the CLI');
+
+    const recall = await handleTool('recall', { query: 'Imported wisdom' });
+    const recalled = JSON.parse(recall.content[0].text).entities as Array<{ name: string }>;
+    expect(recalled.map((entity) => entity.name)).toContain('imported-note');
   });
 
   it('is reachable as the briefing MCP tool', async () => {
@@ -222,6 +226,45 @@ describe('assembleBriefing', () => {
       name: 'lesson-y', type: 'lesson_learned', title: 'Do not trust a green suite alone',
       observations: ['Revert the fix and confirm red.'], tags: [`project:${project}`],
     });
+    for (let i = 0; i < 7; i++) {
+      remember({
+        name: `project-decision-${i}`, type: 'decision', title: `Project decision ${i}`,
+        observations: [`Project-only detail ${i}`], tags: [`project:${project}`],
+      });
+    }
+    for (let i = 0; i < 4; i++) {
+      remember({
+        name: `global-rule-${i}`, type: 'directive', namespace: 'global', title: `Global rule ${i}`,
+        observations: [`Cross-project detail ${i}`], tags: i === 3 ? [`project:${project}`] : [],
+      });
+    }
+    const db = getDatabase();
+    db.prepare('UPDATE entities SET confidence = ? WHERE name = ?').run(1.0, 'decision-x');
+    for (let i = 0; i < 7; i++) {
+      db.prepare('UPDATE entities SET confidence = ? WHERE name = ?').run(0.93 - i * 0.01, `project-decision-${i}`);
+    }
+    for (let i = 0; i < 4; i++) {
+      db.prepare('UPDATE entities SET confidence = ? WHERE name = ?').run(0.73 + i * 0.01, `global-rule-${i}`);
+    }
+    db.prepare(
+      "INSERT INTO entities (name, type, title, namespace, status, metadata) VALUES (?, ?, ?, 'global', ?, ?)",
+    ).run('global-rule-archived', 'directive', 'Archived global rule', 'archived', null);
+    db.prepare(
+      "INSERT INTO entities (name, type, title, namespace, status, metadata) VALUES (?, ?, ?, 'global', 'active', ?)",
+    ).run(
+      'global-rule-untrusted',
+      'directive',
+      'Untrusted global rule',
+      JSON.stringify({ trust: 'untrusted', provenance: { source: 'import' } }),
+    );
+    db.prepare(
+      "INSERT INTO entities (name, type, title, namespace, status, metadata) VALUES (?, ?, ?, 'global', 'active', ?)",
+    ).run(
+      'global-rule-imported',
+      'directive',
+      'Imported global rule',
+      JSON.stringify({ trust: 'trusted', provenance: { source: 'import' } }),
+    );
     setTaskState({ project, patch: { goal: 'Prove the parity', next: 'Run both paths' } });
     closeDatabase(); // the hook opens its own handle; release the write lock
     // Re-open for the assembler after the hook has run (below).
@@ -242,10 +285,21 @@ describe('assembleBriefing', () => {
     const contentLines = (block: string) =>
       block.split('\n').filter((l) => l.startsWith('- ') || l.endsWith(':'));
 
-    // Every content line the hook injected, the briefing carries — and the
-    // reverse — in the same order.
+    // Both independent selectors agree on membership and the shared renderer
+    // agrees on the resulting sections. This exercises active untagged global
+    // context, the separate cap, and trust/status rejection without pinning a
+    // database-specific ranking implementation.
     expect(contentLines(briefing)).toEqual(contentLines(injected));
     expect(briefing).toContain('Prove the parity');
+    expect(briefing).toContain('Global memory — applies across projects:');
+    expect(briefing).toContain('Global rule 2');
+    expect((briefing.match(/- \[directive\] Global rule/g) ?? [])).toHaveLength(3);
+    expect(briefing).not.toContain('Global rule 0');
+    expect(briefing).not.toContain('Archived global rule');
+    expect(briefing).not.toContain('Untrusted global rule');
+    expect(briefing).not.toContain('Imported global rule');
+    expect(briefing).toContain('Ship FTS5 as the baseline');
+    for (let i = 0; i < 7; i++) expect(briefing).toContain(`Project decision ${i}`);
   });
 
   it('the candidate window keeps the newest entities when a project exceeds the cap (M-19)', () => {

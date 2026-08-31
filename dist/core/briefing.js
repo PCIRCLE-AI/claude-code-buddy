@@ -5,7 +5,7 @@ import { rankEntities } from './scoring.js';
 import { getTaskState } from './task-state-store.js';
 import { unreadDeliveryCount, unreadInboxLines } from './agent-message-inbox.js';
 import { taskStateLines } from './task-state.js';
-import { SNIPPET_FETCH_CHARS, TOPOLOGY_CANDIDATE_CAP, assembleTopologyBlock, buildReferenceContext, isAutoInjectable, } from './work-topology.js';
+import { GLOBAL_TOPOLOGY_LIMIT, SNIPPET_FETCH_CHARS, TOPOLOGY_CANDIDATE_CAP, assembleTopologyBlock, buildReferenceContext, isAutoInjectable, } from './work-topology.js';
 const PROJECT_LIMIT = 30;
 const RECENT_LIMIT = 5;
 const CANDIDATE_COLUMNS = 'e.id, e.name, e.type, e.title, e.metadata, e.access_count, e.last_accessed_at, e.confidence, e.recall_hits, e.recall_misses';
@@ -59,19 +59,30 @@ export function assembleBriefing(project, recipient) {
         ...taskStateLines(state, projectName),
         ...unreadInboxLines(unreadDeliveryCount(db, projectName, recipient), projectName, recipient),
     ];
+    const hasNamespace = db.prepare('PRAGMA table_info(entities)').all()
+        .some((column) => column.name === 'namespace');
+    const nonGlobal = hasNamespace ? " AND (e.namespace IS NULL OR e.namespace <> 'global')" : '';
     const projectRows = db.prepare(`SELECT DISTINCT ${CANDIDATE_COLUMNS}
      FROM entities e JOIN tags t ON t.entity_id = e.id
-     WHERE t.tag = ? AND e.status = 'active'
+     WHERE t.tag = ? AND e.status = 'active'${nonGlobal}
      ORDER BY e.id DESC
      LIMIT ?`).all(`project:${projectName}`, TOPOLOGY_CANDIDATE_CAP);
     const projectPool = selectPool(projectRows, PROJECT_LIMIT);
+    const globalRows = hasNamespace
+        ? db.prepare(`SELECT ${CANDIDATE_COLUMNS}
+       FROM entities e
+       WHERE e.namespace = 'global' AND e.status = 'active'
+       ORDER BY e.id DESC
+       LIMIT ?`).all(TOPOLOGY_CANDIDATE_CAP)
+        : [];
+    const globalPool = selectPool(globalRows, GLOBAL_TOPOLOGY_LIMIT);
     const recentRows = db.prepare(`SELECT ${CANDIDATE_COLUMNS}
      FROM entities e
-     WHERE e.status = 'active'
+     WHERE e.status = 'active'${nonGlobal}
      ORDER BY e.id DESC
      LIMIT ?`).all(TOPOLOGY_CANDIDATE_CAP);
     const recentPool = selectPool(recentRows, RECENT_LIMIT);
-    const survivorIds = [...new Set([...projectPool, ...recentPool].map((row) => row.id))];
+    const survivorIds = [...new Set([...projectPool, ...globalPool, ...recentPool].map((row) => row.id))];
     const snippets = new Map();
     if (survivorIds.length > 0) {
         const placeholders = survivorIds.map(() => '?').join(',');
@@ -89,6 +100,7 @@ export function assembleBriefing(project, recipient) {
     const toEntities = (pool) => pool.map((row) => toTopologyEntity(row, snippets.get(row.id) ?? null));
     const lines = assembleTopologyBlock(stateLines, [
         { entities: toEntities(projectPool), foreign: false },
+        { entities: toEntities(globalPool), foreign: false, global: true },
         { entities: toEntities(recentPool), foreign: true },
     ], projectName);
     const withRepo = lines.length > 0 && repoLines.length > 0

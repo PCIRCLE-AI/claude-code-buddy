@@ -10,6 +10,7 @@ export interface TopologyEntity {
     title?: string | null;
     snippet?: string | null;
     signalScore?: number | null;
+    global?: boolean;
     foreign?: boolean;
 }
 export declare function topologyLine(entity: TopologyEntity, maxChars: number): string;
@@ -24,12 +25,14 @@ export interface TopologyBudget {
     maxLineChars?: number;
 }
 export declare const DEFAULT_TOPOLOGY_BUDGET: Readonly<Required<TopologyBudget>>;
+export declare const GLOBAL_TOPOLOGY_LIMIT = 3;
 export declare const TOPOLOGY_CANDIDATE_CAP = 400;
 export declare const SNIPPET_FETCH_CHARS: number;
 export declare function buildTopologyLines(entities: TopologyEntity[], projectName: string, budget: TopologyBudget): string[];
 export interface TopologyPool {
     entities: TopologyEntity[];
     foreign: boolean;
+    global?: boolean;
 }
 export declare function assembleTopologyBlock(stateLines: readonly string[], pools: readonly TopologyPool[], projectName: string, budget?: TopologyBudget): string[];
 export declare function buildReferenceContext(memoryLines: ReadonlyArray<string | null | undefined>): string;

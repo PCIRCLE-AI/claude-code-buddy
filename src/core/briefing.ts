@@ -33,6 +33,7 @@ import { getTaskState } from './task-state-store.js';
 import { unreadDeliveryCount, unreadInboxLines } from './agent-message-inbox.js';
 import { taskStateLines } from './task-state.js';
 import {
+  GLOBAL_TOPOLOGY_LIMIT,
   SNIPPET_FETCH_CHARS,
   TOPOLOGY_CANDIDATE_CAP,
   assembleTopologyBlock,
@@ -174,14 +175,36 @@ export function assembleBriefing(project?: string, recipient?: string): Briefing
     ),
   ];
 
+  // A database from before namespaces cannot hold global rows. Preserve the
+  // previous project/recent behaviour instead of making briefing fail to open.
+  const hasNamespace = (db.prepare('PRAGMA table_info(entities)').all() as Array<{ name: string }>)
+    .some((column) => column.name === 'namespace');
+  const nonGlobal = hasNamespace ? " AND (e.namespace IS NULL OR e.namespace <> 'global')" : '';
+
   const projectRows = db.prepare(
     `SELECT DISTINCT ${CANDIDATE_COLUMNS}
      FROM entities e JOIN tags t ON t.entity_id = e.id
-     WHERE t.tag = ? AND e.status = 'active'
+     WHERE t.tag = ? AND e.status = 'active'${nonGlobal}
      ORDER BY e.id DESC
      LIMIT ?`,
   ).all(`project:${projectName}`, TOPOLOGY_CANDIDATE_CAP) as unknown as CandidateRow[];
   const projectPool = selectPool(projectRows, PROJECT_LIMIT);
+
+  // `global` is an explicit storage scope, not a project tag. It gets an
+  // additive bounded pool and the shared assembler gives it an independent
+  // render budget. Keeping it out of the project and recent queries below
+  // makes this the only selection path, so a tagged global row cannot appear
+  // twice and overflow globals cannot sneak back through recency.
+  const globalRows: CandidateRow[] = hasNamespace
+    ? db.prepare(
+      `SELECT ${CANDIDATE_COLUMNS}
+       FROM entities e
+       WHERE e.namespace = 'global' AND e.status = 'active'
+       ORDER BY e.id DESC
+       LIMIT ?`,
+    ).all(TOPOLOGY_CANDIDATE_CAP) as unknown as CandidateRow[]
+    : [];
+  const globalPool = selectPool(globalRows, GLOBAL_TOPOLOGY_LIMIT);
 
   // Recent pool: newest activity across ALL projects. Anything only here is
   // from elsewhere and must say so — the assembler files rows from a foreign
@@ -189,7 +212,7 @@ export function assembleBriefing(project?: string, recipient?: string): Briefing
   const recentRows = db.prepare(
     `SELECT ${CANDIDATE_COLUMNS}
      FROM entities e
-     WHERE e.status = 'active'
+     WHERE e.status = 'active'${nonGlobal}
      ORDER BY e.id DESC
      LIMIT ?`,
   ).all(TOPOLOGY_CANDIDATE_CAP) as unknown as CandidateRow[];
@@ -198,7 +221,7 @@ export function assembleBriefing(project?: string, recipient?: string): Briefing
   // One snippet per survivor, one query — first observation per entity,
   // fetched a few line-widths long so clip() can still cut on a word
   // boundary. This is the survivors-only hydration the hook already uses.
-  const survivorIds = [...new Set([...projectPool, ...recentPool].map((row) => row.id))];
+  const survivorIds = [...new Set([...projectPool, ...globalPool, ...recentPool].map((row) => row.id))];
   const snippets = new Map<number, string>();
   if (survivorIds.length > 0) {
     const placeholders = survivorIds.map(() => '?').join(',');
@@ -221,6 +244,7 @@ export function assembleBriefing(project?: string, recipient?: string): Briefing
     stateLines,
     [
       { entities: toEntities(projectPool), foreign: false },
+      { entities: toEntities(globalPool), foreign: false, global: true },
       { entities: toEntities(recentPool), foreign: true },
     ],
     projectName,

@@ -147,6 +147,15 @@ function inspectAgentMessageStorage(db, databasePath, policy) {
         return undefined;
     }
 }
+function inspectCodexSessionSetup(codexPluginCacheDetected, existsSyncImpl) {
+    if (!codexPluginCacheDetected)
+        return null;
+    const configPath = path.join(getMemeshDirFromDbPath(), 'hosts', 'codex-session.json');
+    if (existsSyncImpl(configPath)) {
+        return createCheck('codex-session-setup', 'Codex ordinary-session notification setup', 'pass', 'A Codex plugin cache copy was detected, but this proves only that cached source exists, not that the plugin is enabled or registered. The explicit opt-in ordinary-session notification setup is present; durable inbox remains available, and MeMesh will not auto-attach.');
+    }
+    return createCheck('codex-session-setup', 'Codex ordinary-session notification setup', 'warn', 'A Codex plugin cache copy was detected, but this proves only that cached source exists, not that the plugin is enabled or registered. Durable inbox remains available, but live ordinary-session wakeup is inactive. Setup is explicit opt-in; MeMesh will not auto-attach.', 'Run `memesh agent setup codex-session --project <project> --principal <principal> --workspace <exact-workspace>`, then restart Codex.', { code: 'codex-session.config-missing' });
+}
 function configuredAgentMessageStoragePolicy(explicit) {
     if (explicit !== undefined)
         return explicit;
@@ -1337,8 +1346,10 @@ export async function runDoctor(options) {
     checks.push(inspectConfigFile(existsSyncImpl, readFileSyncImpl, getConfigPathImpl, detectCapabilitiesImpl().llm));
     checks.push(inspectMcpConfig(packageRoot, existsSyncImpl, readFileSyncImpl));
     checks.push(...inspectHooksConfig(packageRoot, platform, existsSyncImpl, readFileSyncImpl, statSyncImpl));
-    const wiring = inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir(), install, installedPluginsPathImpl, detectPluginHost(packageRoot));
-    const pluginCache = inspectPluginCacheCurrency(install, detectPluginHost(packageRoot), packageRoot, installedPluginsPathImpl, readFileSyncImpl, existsSyncImpl, marketplaceHeadShaImpl);
+    const pluginHost = detectPluginHost(packageRoot);
+    let codexPluginCacheDetected = pluginHost === 'codex';
+    const wiring = inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir(), install, installedPluginsPathImpl, pluginHost);
+    const pluginCache = inspectPluginCacheCurrency(install, pluginHost, packageRoot, installedPluginsPathImpl, readFileSyncImpl, existsSyncImpl, marketplaceHeadShaImpl);
     if (pluginCache)
         checks.push(pluginCache);
     if (install === 'npm-global') {
@@ -1347,6 +1358,8 @@ export async function runDoctor(options) {
             ? pluginCacheDiscoveryImpl()
             : defaultPluginCacheDiscovery(readFileSyncImpl, existsSyncImpl);
         for (const discovered of discoveredPluginCaches) {
+            if (discovered.host === 'codex')
+                codexPluginCacheDetected = true;
             const check = discovered.unverifiableReason
                 ? pluginCacheUnverifiable(discovered.host, discovered.unverifiableReason)
                 : inspectPluginCacheCurrency('plugin-marketplace', discovered.host, discovered.packageRoot, discovered.installedPluginsPath, readFileSyncImpl, existsSyncImpl, marketplaceHeadShaImpl);
@@ -1359,6 +1372,9 @@ export async function runDoctor(options) {
         }
     }
     checks.push(wiring);
+    const codexSessionSetup = inspectCodexSessionSetup(codexPluginCacheDetected, existsSyncImpl);
+    if (codexSessionSetup)
+        checks.push(codexSessionSetup);
     const captureWired = wiring.status === 'pass'
         && (wiring.params === undefined || wiring.params.captureWired === 1);
     checks.push(inspectHookActivity(openDatabaseImpl, safeCloseDatabaseImpl, existsSyncImpl, statSyncImpl, captureWired));

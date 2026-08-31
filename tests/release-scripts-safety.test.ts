@@ -203,7 +203,7 @@ describe('Feature: release scripts never edit the real ~/.memesh', () => {
     expect(gate).toContain('mapped to action');
   });
 
-  it('makes packaged smoke exercise the installed native router path without poll/watch', () => {
+  it('makes packaged smoke verify the installed router-to-adapter metadata contract without poll/watch', () => {
     const smoke = read('scripts/smoke-packed-artifact.mjs');
     expect(smoke).toContain("installedBin('memesh-router')");
     expect(smoke).toContain("'dist', 'host-runtime', 'router-client.js'");
@@ -216,6 +216,12 @@ describe('Feature: release scripts never edit the real ~/.memesh', () => {
     expect(smoke).toContain('no implicit ACK/disposition');
     expect(smoke).toContain('stopped-or-missing-host');
     expect(smoke).toContain('without poll/watch');
+    expect(smoke).toContain('installed-artifact router-to-adapter metadata-dispatch contract');
+    expect(smoke).toContain('fake queue');
+    expect(smoke).toContain('does not create or observe a real Codex task');
+    expect(smoke).toContain('user-visible');
+    expect(smoke).not.toContain('host-native proof');
+    expect(smoke).not.toContain('metadata-only native queue admission');
     expect(smoke).toContain('consumerInstallTimeoutMs');
     expect(smoke).toContain('timeout: consumerInstallTimeoutMs');
   });

@@ -551,6 +551,60 @@ describe('InsightsTab action failure routing', () => {
       expect(container.querySelector('[role="status"]')?.textContent).toContain(t('insights.runNoResult'));
     });
   });
+
+  it('renders the proposal created by a compatible Dream run after success', async () => {
+    let dreamRan = false;
+    let proposalReads = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? 'GET').toUpperCase();
+      if (method === 'POST' && url.includes('/v1/dream/run')) {
+        dreamRan = true;
+        return jsonResponse({
+          success: true,
+          data: { proposalsCreated: 1, llmCalls: 1, skipped: [] },
+        });
+      }
+      if (url.includes('/v1/dream/proposals')) {
+        proposalReads += 1;
+        return jsonResponse({
+          success: true,
+          data: dreamRan
+            ? [{
+                id: 42,
+                project: 'dashboard-e2e',
+                cluster_key: 'compatible-model',
+                source_count: 2,
+                digest_name: 'dashboard-e2e-dream-proposal',
+                digest_observations_preview: 'Created through the real Dream response path',
+                status: 'pending',
+                created_at: '2026-08-31 00:00:00',
+                kind: 'digest',
+              }]
+            : [],
+        });
+      }
+      return jsonResponse({ success: true, data: { capabilities: { llm: { provider: 'openai' } } } });
+    });
+
+    const { container } = render(<InsightsTab />);
+    const run = await waitFor(() => {
+      const button = [...container.querySelectorAll('button')]
+        .find((entry) => entry.textContent === t('insights.runDream')) as HTMLButtonElement | undefined;
+      if (!button) throw new Error('Dream button not rendered');
+      return button;
+    });
+    expect(container.textContent).not.toContain('dashboard-e2e-dream-proposal');
+
+    fireEvent.click(run);
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('dashboard-e2e-dream-proposal');
+      expect(container.querySelector('[role="status"]')?.textContent)
+        .toContain(t('insights.runCreated', { count: 1 }));
+    });
+    expect(proposalReads).toBeGreaterThanOrEqual(2);
+  });
 });
 
 /* ── EmptyLibraryState: its own failure surface ──────────────────────────── */
