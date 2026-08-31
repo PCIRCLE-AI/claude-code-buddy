@@ -2,11 +2,9 @@ const DEFAULT_OLLAMA_HOST = 'http://localhost:11434';
 const OLLAMA_LOOPBACK_HOSTS = new Set([
     'localhost',
     '127.0.0.1',
-    '0.0.0.0',
-    '::1',
     '[::1]',
 ]);
-export const UNSAFE_OLLAMA_HOST_ERROR = 'Ollama host must be loopback (localhost / 127.0.0.1). For non-local Ollama, set the OLLAMA_HOST environment variable on the server.';
+export const UNSAFE_OLLAMA_HOST_ERROR = 'Ollama host must be loopback (localhost / 127.0.0.1 / ::1). For non-local Ollama, set the OLLAMA_HOST environment variable on the server.';
 export class UnsafeOllamaHostError extends Error {
     constructor() {
         super(UNSAFE_OLLAMA_HOST_ERROR);
