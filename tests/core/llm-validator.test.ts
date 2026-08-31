@@ -423,20 +423,22 @@ describe('probeOllama rejects a caller-supplied non-loopback host in every confi
   // operator setting OLLAMA_HOST — normal configuration for a remote Ollama —
   // turned it off, and `host || envBase` then let the caller's value win.
   // `POST /v1/config/test` would fetch whatever URL the request named.
-  for (const env of [undefined, 'http://localhost:11434', 'http://operator-host.invalid:11434'] as const) {
-    it(`rejects 127.0.0.2 with OLLAMA_HOST ${env ?? 'unset'} and never issues the request`, async () => {
-      if (env === undefined) delete process.env.OLLAMA_HOST; else process.env.OLLAMA_HOST = env;
-      const spy = vi.fn(async () => { throw new Error('the guard let a request through'); });
-      global.fetch = spy as never;
+  for (const host of ['127.0.0.2', '0.0.0.0']) {
+    for (const env of [undefined, 'http://localhost:11434', 'http://operator-host.invalid:11434'] as const) {
+      it(`rejects ${host} with OLLAMA_HOST ${env ?? 'unset'} and never issues the request`, async () => {
+        if (env === undefined) delete process.env.OLLAMA_HOST; else process.env.OLLAMA_HOST = env;
+        const spy = vi.fn(async () => { throw new Error('the guard let a request through'); });
+        global.fetch = spy as never;
 
-      const r = await probeOllama('http://127.0.0.2:11434');
-      expect(r.valid).toBe(false);
-      expect(r.errorCode).toBe('bad_host');
-      expect(spy).not.toHaveBeenCalled();
-    });
+        const r = await probeOllama(`http://${host}:11434`);
+        expect(r.valid).toBe(false);
+        expect(r.errorCode).toBe('bad_host');
+        expect(spy).not.toHaveBeenCalled();
+      });
+    }
   }
 
-  it('still allows a loopback host, and still honours the operator env when no host is given', async () => {
+  it('allows IPv4 and IPv6 loopback hosts, and honours the operator env when no host is given', async () => {
     process.env.OLLAMA_HOST = 'http://operator-host.invalid:11434';
     const seen: string[] = [];
     global.fetch = vi.fn(async (input: RequestInfo | URL) => {
@@ -445,8 +447,10 @@ describe('probeOllama rejects a caller-supplied non-loopback host in every confi
     }) as never;
 
     expect((await probeOllama('http://localhost:11434')).valid).toBe(true);
+    expect((await probeOllama('http://[::1]:11434')).valid).toBe(true);
     expect((await probeOllama()).valid).toBe(true);
     expect(seen[0]).toContain('localhost:11434');
-    expect(seen[1]).toContain('operator-host.invalid');
+    expect(seen[1]).toContain('[::1]:11434');
+    expect(seen[2]).toContain('operator-host.invalid');
   });
 });

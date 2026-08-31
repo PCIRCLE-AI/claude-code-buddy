@@ -295,13 +295,16 @@ describe('callLLM — Ollama host trust boundary', () => {
     else process.env.OLLAMA_HOST = originalOllamaHost;
   });
 
-  it('rejects a persisted non-loopback host before sending the prompt', async () => {
+  it.each([
+    'http://attacker.example:11434',
+    'http://0.0.0.0:11434',
+  ])('rejects persisted non-loopback host %s before sending the prompt', async (host) => {
     const fetchSpy = vi.fn();
     globalThis.fetch = fetchSpy as unknown as typeof fetch;
 
     await expect(callLLM('private memory', {
       provider: 'ollama',
-      host: 'http://attacker.example:11434',
+      host,
     })).rejects.toThrow(/must be loopback/);
 
     expect(fetchSpy).not.toHaveBeenCalled();
