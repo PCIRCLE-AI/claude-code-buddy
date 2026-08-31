@@ -487,7 +487,7 @@ ORIGINAL_REGISTRY_DEV="$ORIGINAL_REGISTRY_DEV" \
 ORIGINAL_REGISTRY_INO="$ORIGINAL_REGISTRY_INO" \
 ENTRY_INDEX="$ENTRY_INDEX" \
 node -e "
-  const fs = require('fs'), crypto = require('crypto');
+  const fs = require('fs'), path = require('path'), crypto = require('crypto');
   const registryPath = process.env.INSTALL_REGISTRY;
   const sha256 = text => crypto.createHash('sha256').update(text).digest('hex');
   const expectedDev = BigInt(process.env.ORIGINAL_REGISTRY_DEV);
@@ -532,17 +532,74 @@ node -e "
   // Read once above (MARKETPLACE_SHA); the staleness check compares against it next run.
   entry.gitCommitSha = process.env.MARKETPLACE_SHA;
   entries[idx] = entry;
-  const tmp = registryPath + '.tmp-' + process.pid;
+  const sameFile = (a, b) => a.dev === b.dev && a.ino === b.ino;
+  let tmpDir, tmpDirIdentity, tmpPath, tmpFd, tmpIdentity;
+  const cleanupTemp = () => {
+    if (tmpFd !== undefined) {
+      try { fs.closeSync(tmpFd); } catch {}
+      tmpFd = undefined;
+    }
+    if (tmpPath && tmpIdentity) {
+      try {
+        const named = fs.lstatSync(tmpPath, { bigint: true });
+        if (named.isFile() && !named.isSymbolicLink() && sameFile(named, tmpIdentity)) {
+          fs.unlinkSync(tmpPath);
+        }
+      } catch {}
+    }
+    if (tmpDir && tmpDirIdentity) {
+      try {
+        const named = fs.lstatSync(tmpDir, { bigint: true });
+        if (named.isDirectory() && !named.isSymbolicLink() && sameFile(named, tmpDirIdentity)) {
+          fs.rmdirSync(tmpDir);
+        }
+      } catch {}
+    }
+  };
+  const assertTempDir = () => {
+    const named = fs.lstatSync(tmpDir, { bigint: true });
+    if (!named.isDirectory() || named.isSymbolicLink() || !sameFile(named, tmpDirIdentity)) {
+      throw new Error('registry temporary directory identity changed before the atomic write');
+    }
+  };
+  const assertTempFile = stat => {
+    if (!stat.isFile() || stat.isSymbolicLink() || !sameFile(stat, tmpIdentity)) {
+      throw new Error('registry temporary file identity changed before the atomic write');
+    }
+  };
   try {
-    fs.writeFileSync(tmp, JSON.stringify(j, null, 4) + '\n', { mode: registryMode });
-    fs.chmodSync(tmp, registryMode);
+    const registryDir = path.dirname(registryPath);
+    tmpDir = fs.mkdtempSync(path.join(registryDir, '.' + path.basename(registryPath) + '.tmp-'));
+    tmpDirIdentity = fs.lstatSync(tmpDir, { bigint: true });
+    if (!tmpDirIdentity.isDirectory() || tmpDirIdentity.isSymbolicLink()) {
+      throw new Error('registry temporary location is not a real directory');
+    }
+    tmpPath = path.join(tmpDir, 'registry.json');
+    const flags = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL
+      | (fs.constants.O_NOFOLLOW || 0);
+    tmpFd = fs.openSync(tmpPath, flags, registryMode);
+    tmpIdentity = fs.fstatSync(tmpFd, { bigint: true });
+    assertTempDir();
+    assertTempFile(fs.lstatSync(tmpPath, { bigint: true }));
+    fs.writeFileSync(tmpFd, JSON.stringify(j, null, 4) + '\n', 'utf8');
+    fs.fchmodSync(tmpFd, registryMode);
+    fs.fsyncSync(tmpFd);
+    assertTempFile(fs.fstatSync(tmpFd, { bigint: true }));
+    assertTempFile(fs.lstatSync(tmpPath, { bigint: true }));
+    fs.closeSync(tmpFd);
+    tmpFd = undefined;
     if (sha256(readOriginalFile().text) !== process.env.ORIGINAL_REGISTRY_SHA256) {
       throw new Error('the complete registry changed immediately before the atomic write');
     }
     assertOriginalFile(fs.lstatSync(registryPath, { bigint: true }));
-    fs.renameSync(tmp, registryPath);
+    assertTempDir();
+    assertTempFile(fs.lstatSync(tmpPath, { bigint: true }));
+    fs.renameSync(tmpPath, registryPath);
+    // rename is the commit point. Cleanup after it must never turn an applied
+    // registry update into a reported failure and trigger a cache rollback.
+    try { fs.rmdirSync(tmpDir); } catch {}
   } catch (err) {
-    try { fs.unlinkSync(tmp); } catch {}
+    cleanupTemp();
     throw err;
   }
 "

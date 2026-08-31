@@ -33,9 +33,11 @@ All notable changes to MeMesh are documented here.
   never PASS on the version alone; the Codex fix is
   `codex plugin marketplace upgrade pcircle-memesh && codex plugin add
   memesh@pcircle-memesh`, which replaces a same-version cache); and
-  `memesh doctor` run from an npm-global install also checks each installed
-  Claude Code and Codex plugin cache separately (omitting hosts that are not
-  installed; missing revision metadata is WARN/unverifiable, never PASS).
+  `memesh doctor` run from an npm-global install also checks each registry-backed
+  Claude Code cache separately and adds one host-level Codex check (omitting
+  hosts that are not installed; several Codex version caches intentionally
+  aggregate to one WARN rather than guessing which is active; missing revision
+  metadata is WARN/unverifiable, never PASS).
 
 ## [4.8.2] — 2026-08-29
 

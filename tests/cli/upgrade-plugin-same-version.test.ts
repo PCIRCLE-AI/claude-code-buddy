@@ -186,6 +186,28 @@ function shimPauseBeforeMarketplaceHead(markerPath: string, releasePath: string)
   return { PATH: `${shimDir}:${process.env.PATH}` };
 }
 
+/**
+ * Reproduce the old section-6 attack: a PATH wrapper keeps its PID across
+ * `exec node`, so it can plant installed_plugins.json.tmp-<node-pid> as a
+ * symlink immediately before the registry writer starts.
+ */
+function shimLegacyRegistryTempSymlink(targetPath: string, markerPath: string): { PATH: string } {
+  const realNode = execFileSync('which', ['node'], { encoding: 'utf8' }).trim();
+  const shimDir = fs.mkdtempSync(path.join(home, '.shim-node-registry-temp-'));
+  const quote = (value: string) => value.replace(/'/g, `'\\''`);
+  fs.writeFileSync(path.join(shimDir, 'node'), [
+    '#!/usr/bin/env bash',
+    'if [ -n "${ORIGINAL_REGISTRY_SHA256:-}" ]; then',
+    '  legacy_temp="$INSTALL_REGISTRY.tmp-$$"',
+    `  ln -s '${quote(targetPath)}' "$legacy_temp"`,
+    `  printf '%s\\n' "$legacy_temp" > '${quote(markerPath)}'`,
+    'fi',
+    `exec '${quote(realNode)}' "$@"`,
+    '',
+  ].join('\n'), { mode: 0o755 });
+  return { PATH: `${shimDir}:${process.env.PATH}` };
+}
+
 function pathContainingOnly(tools: string[]): string {
   const shimDir = fs.mkdtempSync(path.join(home, '.shim-path-'));
   for (const tool of tools) {
@@ -678,6 +700,37 @@ describe('upgrade-plugin.sh: same version, different commit', () => {
     const r = runScript();
     expect(r.exitCode, r.stderr).toBe(0);
     expect(fs.statSync(registry).mode & 0o777).toBe(0o600);
+  });
+
+  posixOnly('ignores a precreated legacy PID-temp symlink and writes the registry through its own private temp', () => {
+    const oldSha = git(marketplace, 'rev-parse', 'HEAD');
+    const live = path.join(home, '.claude/plugins/cache/pcircle-memesh/memesh/4.8.2');
+    const sentinel = path.join(home, 'outside-registry-sentinel');
+    const marker = path.join(home, 'legacy-registry-temp-path');
+    const sentinelBefore = 'outside data must not change\n';
+    writeRegistry({ installPath: live, version: '4.8.2', gitCommitSha: oldSha });
+    fs.writeFileSync(sentinel, sentinelBefore);
+    fs.writeFileSync(path.join(marketplace, 'secure-fix.js'), 'module.exports = 16;\n');
+    git(marketplace, 'add', '-A');
+    git(marketplace, 'commit', '-q', '-m', 'fix: secure registry temp fixture');
+    git(marketplace, 'push', '-q', 'origin', 'main');
+    const newSha = git(marketplace, 'rev-parse', 'HEAD');
+
+    const r = runScript(shimLegacyRegistryTempSymlink(sentinel, marker));
+    expect(r.exitCode, r.stderr).toBe(0);
+    expect(fs.existsSync(marker), 'the attack wrapper never reached the registry writer').toBe(true);
+    const legacyTemp = fs.readFileSync(marker, 'utf8').trim();
+    expect(fs.lstatSync(legacyTemp).isSymbolicLink(), 'the old predictable temp symlink was not planted').toBe(true);
+    expect(fs.readFileSync(sentinel, 'utf8'), 'the registry writer followed the attacker symlink').toBe(sentinelBefore);
+    expect(fs.lstatSync(registry).isFile(), 'installed_plugins.json is no longer a regular file').toBe(true);
+    expect(fs.lstatSync(registry).isSymbolicLink(), 'installed_plugins.json became the attacker symlink').toBe(false);
+    const entry = JSON.parse(fs.readFileSync(registry, 'utf8')).plugins['memesh@pcircle-memesh'][0];
+    expect(entry).toMatchObject({ installPath: live, version: '4.8.2', gitCommitSha: newSha });
+    expect(fs.existsSync(path.join(live, 'secure-fix.js')), 'the reported upgrade did not install the committed cache').toBe(true);
+    expect(r.stdout).toContain(`MeMesh upgraded: 4.8.2 (${oldSha.slice(0, 8)}) -> 4.8.2 (${newSha.slice(0, 8)})`);
+    expect(r.stderr).not.toContain('failed to update installed_plugins.json');
+    const ownedTemps = fs.readdirSync(path.dirname(registry)).filter(name => name.startsWith('.installed_plugins.json.tmp-'));
+    expect(ownedTemps, 'the registry writer left its private temporary directory behind').toEqual([]);
   });
 
   posixOnly('refuses a symlinked installed_plugins.json instead of replacing the host-owned link', () => {
