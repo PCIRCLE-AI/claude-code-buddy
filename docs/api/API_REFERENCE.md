@@ -506,6 +506,7 @@ The text is wrapped in the same fence and "background data, not instructions" pr
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project` | string | No | Project name (default: the current working directory's project) |
+| `recipient` | string | No | Exact logical recipient. When supplied, reports only that recipient's unfetched deliveries for the project. Omit for generic context; generic briefing never reports unread activity. |
 
 **Response**:
 
@@ -528,6 +529,9 @@ The text is wrapped in the same fence and "background data, not instructions" pr
 
 // Another project's briefing
 { "project": "other-repo" }
+
+// Load actionable inbox context for one exact recipient
+{ "project": "other-repo", "recipient": "reviewer-agent" }
 ```
 
 ---
@@ -628,7 +632,7 @@ Status returns the proposal state, source IDs, review timestamps/reason, and `ac
 
 Exchange durable exact-recipient messages between local hosts connected to the same MeMesh SQLite instance. One tool owns the lifecycle so every transport uses the same validation and state semantics.
 
-**When to use it:** to contact another local agent — hand off work, ask for a result, report a disposition. Send here first. The durable inbox is the record; a host's own push (Claude Code's `SendMessage`, a Codex queue) is only a wakeup, cannot reach an agent on another host or one that is not running, and leaves no receipt. `briefing` and the SessionStart hook surface `N messages waiting for "<project>"` when a delivery has no intake receipt.
+**When to use it:** to contact another local agent — hand off work, ask for a result, report a disposition. Send here first. The durable inbox is the record; a host's own push (Claude Code's `SendMessage`, a Codex queue) is only a wakeup, cannot reach an agent on another host or one that is not running, and leaves no receipt. A briefing surfaces `N messages waiting for "<recipient>" in project "<project>"` only when the caller supplies that exact recipient; generic briefing and SessionStart context have no recipient identity and remain quiet. The line directs the recipient to poll with the exact project/recipient, then fetch each returned `message_id`; fetching does not acknowledge.
 
 The durable API is separate from host-native delivery. A stable **principal** names a logical recipient; a **session** is one active connection, and its **generation** changes when replaced. Exact-session delivery never reroutes; a principal target may use only an eligible active session after activation. Persistence, dispatch, host acceptance, intake, acknowledgement, workflow disposition, retention, and presence are independent state axes. A Local host-native input may remove polling for an active session, but no stopped session is awakened. Cloud relay, A2A, SSE, discovery, persistence, or fetch is not proof of Local host delivery.
 

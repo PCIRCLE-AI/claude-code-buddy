@@ -106,6 +106,7 @@ export declare const TaskStateSchema: z.ZodObject<{
 }, z.core.$strict>;
 export declare const BriefingSchema: z.ZodObject<{
     project: z.ZodOptional<z.ZodString>;
+    recipient: z.ZodOptional<z.ZodString>;
 }, z.core.$strict>;
 export declare const WhySchema: z.ZodObject<{
     file: z.ZodString;

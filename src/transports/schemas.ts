@@ -161,6 +161,7 @@ export const TaskStateSchema = z.object({
 
 export const BriefingSchema = z.object({
   project: z.string().min(1).max(200).optional(),
+  recipient: z.string().trim().min(1).max(200).optional(),
 }).strict();
 
 // `why` deliberately takes commit HASHES, not a repo path: the server never

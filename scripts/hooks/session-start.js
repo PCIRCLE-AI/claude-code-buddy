@@ -955,8 +955,8 @@ process.stdin.on('end', async () => {
         const taskRow = db
           .prepare('SELECT metadata FROM entities WHERE name = ?')
           .get(taskStateName(projectName));
-        // Inbox line beside the stated lines — the same leaf briefing uses,
-        // so the two surfaces cannot disagree on what "unread" means.
+        // SessionStart has no exact recipient identity. The shared leaf fails
+        // closed before querying, so hook and briefing cannot diverge here.
         const stateLines = [
           ...taskStateLines(
             parseTaskState(parseEntityMetadata(taskRow?.metadata)),

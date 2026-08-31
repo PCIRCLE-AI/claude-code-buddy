@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { exportOpenAITools } from '../../src/core/schema-export.js';
-import { MessageSchema, RememberSchema, RecallSchema } from '../../src/transports/schemas.js';
+import { BriefingSchema, MessageSchema, RememberSchema, RecallSchema } from '../../src/transports/schemas.js';
 import { TOOL_DEFINITIONS } from '../../src/transports/mcp/handlers.js';
 
 describe('exportOpenAITools', () => {
@@ -118,6 +118,17 @@ describe('exportOpenAITools', () => {
     expect(exported).toContain('include_archived');
     expect(exported).toContain('cross_project');
     expect(exported).toContain('namespace');
+  });
+
+  it('memesh_briefing exposes the optional exact recipient scope', () => {
+    const tool = tools.find((t: any) => t.function.name === 'memesh_briefing') as any;
+    const exported = Object.keys(tool.function.parameters.properties);
+    expect(exported).toEqual(Object.keys(BriefingSchema.shape));
+    expect(tool.function.parameters.properties.recipient.description).toMatch(/exact logical recipient/i);
+
+    const mcp = TOOL_DEFINITIONS.find((definition) => definition.name === 'briefing')!;
+    expect(Object.keys(mcp.inputSchema.properties)).toEqual(Object.keys(BriefingSchema.shape));
+    expect(mcp.inputSchema.properties.recipient.description).toMatch(/exact logical recipient/i);
   });
 
   it('the relations field is shaped as an array of {to, type} objects', () => {

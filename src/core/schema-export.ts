@@ -160,6 +160,7 @@ export function exportOpenAITools(): object[] {
           type: 'object',
           properties: {
             project: { type: 'string', description: 'Project name. Omit for the current directory’s project.' },
+            recipient: { type: 'string', description: 'Exact logical recipient. Required to surface actionable unread messages; omit for generic context.' },
           },
         },
       },

@@ -18,8 +18,8 @@
     },
     {
       "path": "scripts/hooks/_generated/agent-message-inbox.js",
-      "sha256": "32eefdac2b8699bf33ed0b111fad5e374cc64dba0f17b95d4475f30243cef290",
-      "bytes": 1394
+      "sha256": "5c08c513f42ae103d0f07fda2b86dba98d3b75abe4033f6cd8c72456b984e41a",
+      "bytes": 1734
     },
     {
       "path": "scripts/hooks/_generated/capture-flag.js",
@@ -108,8 +108,8 @@
     },
     {
       "path": "scripts/hooks/session-start.js",
-      "sha256": "9dd8010551deb8a4016d2963f83a1699313f40302bd714b082b5ec82aa71c467",
-      "bytes": 60042
+      "sha256": "1baa81ec8fd83881dda5794ba2bd6238fcead9774f44d46d83cfabb2f064f744",
+      "bytes": 60048
     },
     {
       "path": "scripts/hooks/session-summary.js",
@@ -128,8 +128,8 @@
     },
     {
       "path": "skills/memesh/SKILL.md",
-      "sha256": "56f4a8352f75526a57fc3aa3b58bbd7ba1ef63c289a150cc842c182a055b3d2d",
-      "bytes": 15089
+      "sha256": "a5f00299134b6a1cebdff579d6768fd3c6539e7a3e932ad2454719a53ed65717",
+      "bytes": 15519
     }
   ]
 }
