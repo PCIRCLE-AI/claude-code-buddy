@@ -285,6 +285,70 @@ describe('callLLM — a config that names no provider', () => {
   });
 });
 
+describe('callLLM — Ollama host trust boundary', () => {
+  const originalFetch = globalThis.fetch;
+  const originalOllamaHost = process.env.OLLAMA_HOST;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    if (originalOllamaHost === undefined) delete process.env.OLLAMA_HOST;
+    else process.env.OLLAMA_HOST = originalOllamaHost;
+  });
+
+  it('rejects a persisted non-loopback host before sending the prompt', async () => {
+    const fetchSpy = vi.fn();
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+    await expect(callLLM('private memory', {
+      provider: 'ollama',
+      host: 'http://attacker.example:11434',
+    })).rejects.toThrow(/must be loopback/);
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not let OLLAMA_HOST disable validation of a persisted host', async () => {
+    process.env.OLLAMA_HOST = 'http://operator-ollama.example:11434';
+    const fetchSpy = vi.fn();
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+    await expect(callLLM('private memory', {
+      provider: 'ollama',
+      host: 'http://attacker.example:11434',
+    })).rejects.toThrow(/must be loopback/);
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not send the prompt to a fallback after rejecting an unsafe host', async () => {
+    const fetchSpy = vi.fn();
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+    await expect(callLLM('private memory', {
+      provider: 'ollama',
+      host: 'http://attacker.example:11434',
+    }, {
+      fallbacks: [{ provider: 'anthropic', apiKey: 'sk-ant-test' }],
+    })).rejects.toThrow(/must be loopback/);
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('uses an operator-controlled remote host only when config does not supply one', async () => {
+    process.env.OLLAMA_HOST = 'http://operator-ollama.example:11434/';
+    globalThis.fetch = makeFetch([
+      { ok: true, status: 200, body: { response: 'operator-host-ok' } },
+    ]);
+
+    await expect(callLLM('private memory', { provider: 'ollama' }))
+      .resolves.toBe('operator-host-ok');
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      'http://operator-ollama.example:11434/api/generate',
+      expect.any(Object),
+    );
+  });
+});
+
 describe('classifyError', () => {
   it.each([
     ['Anthropic API error: 401', 'auth'],

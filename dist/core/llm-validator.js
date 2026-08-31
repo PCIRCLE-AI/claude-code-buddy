@@ -1,4 +1,5 @@
 import { callLLM } from './llm-client.js';
+import { resolveOllamaHost, UNSAFE_OLLAMA_HOST_ERROR } from './ollama-host.js';
 import { redactSecrets } from './paths.js';
 import { sanitizeForPrompt } from './prompt-safety.js';
 class ProbeError extends Error {
@@ -159,26 +160,16 @@ export async function probeOpenAI(apiKey) {
         return fail(probeErrorCode(err), err instanceof Error ? err.message : String(err));
     }
 }
-const OLLAMA_LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '0.0.0.0', '::1', '[::1]']);
-function isSafeOllamaHost(url) {
+export async function probeOllama(host) {
+    let base;
     try {
-        const u = new URL(url);
-        if (u.protocol !== 'http:' && u.protocol !== 'https:')
-            return false;
-        return OLLAMA_LOOPBACK_HOSTS.has(u.hostname);
+        base = resolveOllamaHost(host);
     }
     catch {
-        return false;
+        return fail('bad_host', UNSAFE_OLLAMA_HOST_ERROR);
     }
-}
-export async function probeOllama(host) {
-    const envBase = process.env.OLLAMA_HOST;
-    if (host && !isSafeOllamaHost(host)) {
-        return fail('bad_host', 'Ollama host must be loopback (localhost / 127.0.0.1). For non-local Ollama, set the OLLAMA_HOST environment variable on the server.');
-    }
-    const base = host || envBase || 'http://localhost:11434';
     try {
-        const data = await fetchJson(`${base.replace(/\/$/, '')}/api/tags`, { method: 'GET' });
+        const data = await fetchJson(`${base}/api/tags`, { method: 'GET' });
         const models = (data.models ?? []).map((m) => ({
             id: m.name,
             created: m.modified_at,

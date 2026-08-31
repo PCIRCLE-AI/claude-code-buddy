@@ -27,6 +27,12 @@ function entity(id: number, type = 'decision'): Entity {
   };
 }
 
+function storageEvent(key: string): StorageEvent {
+  const event = new StorageEvent('storage');
+  Object.defineProperty(event, 'key', { value: key });
+  return event;
+}
+
 beforeEach(() => {
   localStorage.clear();
   setLocale('zh-TW');
@@ -84,7 +90,10 @@ describe('issue #232 — understandable global memory filter', () => {
     expect(toggle.getAttribute('aria-pressed')).toBe('false');
 
     localStorage.setItem('memesh.signalMode', 'true');
-    window.dispatchEvent(new StorageEvent('storage', { key: 'memesh.signalMode' }));
+    window.dispatchEvent(storageEvent('unrelated.setting'));
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
+
+    window.dispatchEvent(storageEvent('memesh.signalMode'));
     await waitFor(() => expect(toggle.textContent).toContain('重點記憶'));
     expect(toggle.getAttribute('aria-pressed')).toBe('true');
   });

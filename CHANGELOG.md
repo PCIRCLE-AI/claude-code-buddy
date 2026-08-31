@@ -6,6 +6,15 @@ All notable changes to MeMesh are documented here.
 
 ### Fixed
 
+- **Persisted Ollama hosts now use the same loopback guard as provider tests.**
+  Runtime LLM calls previously trusted `llm.host` and fallback hosts read from
+  config even though the Dashboard's provider-test path rejected non-loopback
+  values. A crafted config could therefore send prompts and recalled memory to
+  an arbitrary server. One shared resolver now rejects configured remote hosts
+  before `fetch`; an operator-set `OLLAMA_HOST` remains the explicit remote
+  override. The global-filter storage-event regression test also avoids a
+  CodeQL DOM-model mismatch while preserving the cross-tab behavior assertion.
+
 - **A plugin install can now tell "same version" from "same code".** Claude
   Code keys its plugin cache by version, so a machine that auto-updated from
   the marketplace between the commit that bumped package.json to 4.8.2 and the

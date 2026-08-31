@@ -42,12 +42,13 @@
 import type { LLMConfig } from './config.js';
 import type { AnthropicResponse, OpenAIResponse, OllamaResponse } from './types.js';
 import { redactSecrets } from './paths.js';
+import { resolveOllamaHost, UnsafeOllamaHostError } from './ollama-host.js';
 
 export type LLMErrorClass =
   | 'auth'         // 401 / 403 — credential rejected; another provider may help
   | 'rate_limit'   // 429 — provider-specific quota; another provider may help
   | 'upstream'     // 5xx / 503 — provider outage; another provider may help
-  | 'bad_request'  // 4xx (not 401/403/429) — prompt itself is broken; do NOT retry
+  | 'bad_request'  // 4xx or unsafe per-provider config — do NOT retry
   | 'network'      // DNS / connection / timeout — another provider may help
   | 'parse'        // 2xx body did not match expected shape — provider drift; another provider may help
   | 'unknown';     // unclassified — conservatively retried
@@ -247,7 +248,7 @@ async function callSingle(
   }
 
   if (config.provider === 'ollama') {
-    const host = config.host || process.env.OLLAMA_HOST || 'http://localhost:11434';
+    const host = resolveOllamaHost(config.host);
     const res = await fetchWithTimeout(`${host}/api/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -367,6 +368,10 @@ function describeShape(v: unknown): string {
  * structure its own error type.
  */
 export function classifyError(e: Error): LLMErrorClass {
+  // A persisted unsafe host is a configuration-policy violation, not a
+  // provider outage. Falling through could silently send the same private
+  // prompt to a cloud fallback after the intended local provider was blocked.
+  if (e instanceof UnsafeOllamaHostError) return 'bad_request';
   // Response shape drift — the prompt + creds were fine, the provider
   // body just didn't match what we expected. Try the next provider.
   if (e instanceof LLMResponseParseError) return 'parse';
