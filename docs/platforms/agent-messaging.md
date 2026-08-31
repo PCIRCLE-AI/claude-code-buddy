@@ -119,6 +119,17 @@ process arguments.
 
 ### Claude channel runner
 
+When `memesh doctor` is running from a Claude Code plugin cache, its default
+`Claude Channel registration` row inspects only the user-scoped
+`mcpServers.memesh-channel` entry in Claude's canonical user config and the
+owner-private config file named by its `--config` argument. Missing
+registration is informational: durable MCP/inbox messaging can still work,
+while live Channel notification remains inactive until the upstream
+research-preview channel is explicitly opted into. A malformed, stale, or
+insecure target is a warning. `CONFIGURED` means only that the declaration and
+target are coherent; it does not verify development-channel admission or that
+an agent surfaced the notification.
+
 Run the printed `registration_command` once to add `memesh-channel` as a
 user-scoped stdio MCP server. Claude owns that process for the session:
 

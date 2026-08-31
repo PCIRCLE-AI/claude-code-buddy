@@ -27,6 +27,7 @@ import { parseSqliteUtcMs } from './time-utils.js';
 import { autoCaptureDecision } from './capture-flag.js';
 import { guardFromMetadata } from './guards.js';
 import { getAgentMessageStorageReport } from './agent-message-storage.js';
+import { readHostConfigFile } from '../host-runtime/config.js';
 const EMBEDDING_PROBE_TIMEOUT_MS = 15000;
 const EXPECTED_HOOK_TYPES = ['PreToolUse', 'SessionStart', 'PostToolUse', 'Stop', 'PreCompact'];
 const AGENT_MESSAGE_STORAGE_QUOTA_ENV = 'MEMESH_AGENT_MESSAGE_STORAGE_QUOTA_BYTES';
@@ -826,6 +827,68 @@ function inspectPluginCacheCurrency(installChannel, pluginHost, packageRoot, ins
     }
     return createCheck('plugin-cache', `Plugin cache source record is current (${hostLabel})`, 'warn', `The plugin cache records commit ${installedSha.slice(0, 8)}, but the marketplace has moved to ${marketplaceSha.slice(0, 8)} under the same version — ${hostLabel} does not normally refresh a cache whose version did not change, so refresh the cache before relying on the newer marketplace code.`, `Run \`${command}\` to refresh the cache in place, then restart ${hostLabel}.`, { code: 'plugin-cache.stale', params: { installed: installedSha.slice(0, 8), marketplace: marketplaceSha.slice(0, 8), host: hostLabel, command } });
 }
+function inspectClaudeChannelRegistration(existsSyncImpl, readFileSyncImpl) {
+    const configPath = path.join(homeDir(), '.claude.json');
+    let parsed = null;
+    if (existsSyncImpl(configPath)) {
+        try {
+            const value = JSON.parse(readFileSyncImpl(configPath, 'utf8'));
+            if (!value || typeof value !== 'object' || Array.isArray(value))
+                throw new Error('not an object');
+            parsed = value;
+        }
+        catch {
+            return createCheck('claude-channel', 'Claude Channel registration', 'warn', 'The canonical Claude user config could not be read as JSON, so the memesh-channel registration is malformed or unverifiable.', 'Repair the owner-controlled Claude config with `claude mcp remove memesh-channel` and re-run `memesh agent setup claude` to obtain a fresh registration command.');
+        }
+    }
+    const servers = parsed?.mcpServers;
+    const server = servers && typeof servers === 'object' && !Array.isArray(servers)
+        ? servers['memesh-channel']
+        : undefined;
+    if (server === undefined) {
+        return createInfo('claude-channel', 'Claude Channel registration', 'No user-scoped memesh-channel registration was found. Durable MCP/inbox messaging can still work, but live Claude Channel notification is inactive. This is informational because the upstream research-preview channel is opt-in.', 'If you want the opt-in channel, run `memesh agent setup claude` and then register the printed user-scoped MCP command.');
+    }
+    const record = server && typeof server === 'object' && !Array.isArray(server)
+        ? server
+        : null;
+    const command = record?.command;
+    const rawArgs = record?.args;
+    const args = Array.isArray(rawArgs) ? rawArgs : null;
+    const configIndex = args?.indexOf('--config') ?? -1;
+    const target = args && configIndex >= 0 && typeof args[configIndex + 1] === 'string'
+        ? args[configIndex + 1]
+        : null;
+    let targetConfigValid = false;
+    if (target) {
+        try {
+            const config = readHostConfigFile(target);
+            const required = ['router_socket', 'token_file', 'project', 'principal_id'];
+            targetConfigValid = config.server_name === 'memesh-channel'
+                && required.every((key) => {
+                    const value = config[key];
+                    return typeof value === 'string'
+                        && value.length > 0
+                        && Buffer.byteLength(value) <= 4096;
+                });
+        }
+        catch {
+            targetConfigValid = false;
+        }
+    }
+    const coherent = command === 'memesh-host-claude'
+        && args !== null
+        && args.length === 2
+        && configIndex === 0
+        && target !== null
+        && targetConfigValid;
+    if (!coherent) {
+        const reason = command !== 'memesh-host-claude' || args === null || configIndex !== 0 || target === null
+            ? 'the command or --config declaration is malformed'
+            : 'the declared owner config target is missing, insecure, malformed, or incomplete';
+        return createCheck('claude-channel', 'Claude Channel registration', 'warn', `The user-scoped memesh-channel registration is present but ${reason}. Live Claude Channel notification is not established.`, 'Remove and re-register the owner-controlled memesh-channel entry with `memesh agent setup claude`; keep its generated config file owner-private.');
+    }
+    return createInfo('claude-channel', 'Claude Channel registration', 'The user-scoped memesh-channel registration and owner-private config target are coherent (CONFIGURED). Development-channel admission and agent surfacing are not verified; durable MCP/inbox messaging remains a separate path.');
+}
 function inspectDashboardArtifact(packageRoot, existsSyncImpl) {
     const dashboardPath = path.join(packageRoot, 'dashboard', 'dist', 'index.html');
     if (!existsSyncImpl(dashboardPath)) {
@@ -1348,6 +1411,7 @@ export async function runDoctor(options) {
     checks.push(...inspectHooksConfig(packageRoot, platform, existsSyncImpl, readFileSyncImpl, statSyncImpl));
     const pluginHost = detectPluginHost(packageRoot);
     let codexPluginCacheDetected = pluginHost === 'codex';
+    let claudePluginCacheDetected = pluginHost === 'claude-code';
     const wiring = inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir(), install, installedPluginsPathImpl, pluginHost);
     const pluginCache = inspectPluginCacheCurrency(install, pluginHost, packageRoot, installedPluginsPathImpl, readFileSyncImpl, existsSyncImpl, marketplaceHeadShaImpl);
     if (pluginCache)
@@ -1360,6 +1424,8 @@ export async function runDoctor(options) {
         for (const discovered of discoveredPluginCaches) {
             if (discovered.host === 'codex')
                 codexPluginCacheDetected = true;
+            if (discovered.host === 'claude-code')
+                claudePluginCacheDetected = true;
             const check = discovered.unverifiableReason
                 ? pluginCacheUnverifiable(discovered.host, discovered.unverifiableReason)
                 : inspectPluginCacheCurrency('plugin-marketplace', discovered.host, discovered.packageRoot, discovered.installedPluginsPath, readFileSyncImpl, existsSyncImpl, marketplaceHeadShaImpl);
@@ -1372,6 +1438,9 @@ export async function runDoctor(options) {
         }
     }
     checks.push(wiring);
+    if (claudePluginCacheDetected) {
+        checks.push(inspectClaudeChannelRegistration(existsSyncImpl, readFileSyncImpl));
+    }
     const codexSessionSetup = inspectCodexSessionSetup(codexPluginCacheDetected, existsSyncImpl);
     if (codexSessionSetup)
         checks.push(codexSessionSetup);

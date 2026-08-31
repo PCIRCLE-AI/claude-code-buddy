@@ -3349,6 +3349,132 @@ describe('shell CLI on PATH check (plugin-without-global gotcha)', () => {
   });
 });
 
+describe('Claude Channel registration diagnostic', () => {
+  async function runChannelCase(server: unknown, target?: { path: string; mode?: number; content?: string; symlinkTo?: string }) {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-claude-channel-'));
+    tempRoots.push(home);
+    const packageRoot = createPackageRoot(path.join(home, '.claude', 'plugins', 'cache', 'pcircle-memesh', 'memesh', '4.8.2'));
+    const previousHome = process.env.HOME;
+    process.env.HOME = home;
+    try {
+      if (target) {
+        fs.mkdirSync(path.dirname(target.path), { recursive: true });
+        const content = target.content ?? JSON.stringify({
+          router_socket: '/tmp/memesh-router.sock', token_file: '/tmp/memesh-router.token',
+          project: 'fixture', principal_id: 'claude-reviewer', server_name: 'memesh-channel',
+        });
+        if (target.symlinkTo) {
+          fs.writeFileSync(target.symlinkTo, content);
+          fs.symlinkSync(target.symlinkTo, target.path);
+        } else {
+          fs.writeFileSync(target.path, content);
+          fs.chmodSync(target.path, target.mode ?? 0o600);
+        }
+      }
+      writeJson(path.join(home, '.claude.json'), server);
+      return await runDoctor({
+        packageRoot,
+        packageVersion: '4.8.2',
+        openDatabaseImpl: () => makeDatabase(1) as never,
+        closeDatabaseImpl: () => undefined,
+        detectCapabilitiesImpl: () => caps({ searchLevel: 1, embeddings: 'ollama' }),
+        getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+        getUpdateCheckImpl: async () => makeUpdateCheck(),
+        getCurrentInstallChannelImpl: () => 'plugin-marketplace' as const,
+        getInstallChannelSupportImpl: () => ({ channel: 'plugin-marketplace' as const, label: 'Claude Code plugin marketplace', canSelfUpdate: false, recommendedCommand: 'memesh upgrade-plugin', guidance: '' }),
+        installedPluginsPathImpl: path.join(packageRoot, 'missing-registry.json'),
+        marketplaceHeadShaImpl: () => null,
+        nativeBindingProbeImpl: () => ({ ok: true }),
+        resolveShellMemeshImpl: () => null,
+      });
+    } finally {
+      if (previousHome === undefined) delete process.env.HOME; else process.env.HOME = previousHome;
+    }
+  }
+
+  function channelRow(result: Awaited<ReturnType<typeof runDoctorImpl>>) {
+    return result.checks.find(check => check.id === 'claude-channel');
+  }
+
+  function channelTarget(name: string) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-claude-channel-target-'));
+    tempRoots.push(root);
+    return path.join(root, name);
+  }
+
+  it('reports opt-in absence as informational and does not leak paths', async () => {
+    const result = await runChannelCase({ mcpServers: {} });
+    const row = channelRow(result)!;
+    expect(row.informational).toBe(true);
+    expect(row.summary).toMatch(/durable MCP\/inbox.*inactive/i);
+    expect(row.summary).not.toMatch(/\/private\/|\/Users\/|memesh-claude-channel-/);
+  });
+
+  it('WARNs when a registration points to a missing target', async () => {
+    const missing = channelTarget('missing.json');
+    const result = await runChannelCase({ mcpServers: { 'memesh-channel': { command: 'memesh-host-claude', args: ['--config', missing] } } });
+    expect(channelRow(result)).toMatchObject({ status: 'warn' });
+    expect(channelRow(result)?.summary).toMatch(/missing, insecure, malformed, or incomplete/i);
+    expect(channelRow(result)?.summary).not.toContain(missing);
+  });
+
+  it('WARNs malformed registrations', async () => {
+    const target = channelTarget('malformed-registration.json');
+    const result = await runChannelCase({ mcpServers: { 'memesh-channel': { command: 'other', args: ['--config', target] } } }, { path: target, mode: 0o644 });
+    expect(channelRow(result)).toMatchObject({ status: 'warn' });
+    expect(channelRow(result)?.summary).toMatch(/malformed/i);
+    expect(channelRow(result)?.summary).not.toContain(target);
+  });
+
+  it('WARNs an insecure owner config target', async () => {
+    const target = channelTarget('insecure.json');
+    const result = await runChannelCase({ mcpServers: { 'memesh-channel': { command: 'memesh-host-claude', args: ['--config', target] } } }, { path: target, mode: 0o644 });
+    expect(channelRow(result)).toMatchObject({ status: 'warn' });
+    expect(channelRow(result)?.summary).toMatch(/missing, insecure, malformed, or incomplete/i);
+    expect(channelRow(result)?.summary).not.toContain(target);
+  });
+
+  it('reports a coherent registration as CONFIGURED without claiming admission', async () => {
+    const target = channelTarget('configured.json');
+    const result = await runChannelCase({ mcpServers: { 'memesh-channel': { command: 'memesh-host-claude', args: ['--config', target] } } }, { path: target });
+    expect(channelRow(result)).toMatchObject({ status: 'pass', informational: true });
+    expect(channelRow(result)?.summary).toMatch(/CONFIGURED/);
+    expect(channelRow(result)?.summary).toMatch(/admission.*not verified/i);
+  });
+
+  it('WARNs when the declared target content is malformed or incomplete', async () => {
+    const target = channelTarget('malformed-content.json');
+    const result = await runChannelCase({ mcpServers: { 'memesh-channel': { command: 'memesh-host-claude', args: ['--config', target] } } }, { path: target, content: '{broken' });
+    expect(channelRow(result)).toMatchObject({ status: 'warn' });
+    expect(channelRow(result)?.summary).toMatch(/missing, insecure, malformed, or incomplete/i);
+    expect(channelRow(result)?.summary).not.toContain(target);
+  });
+
+  it('WARNs when the declared target is a symlink', async () => {
+    const target = channelTarget('link.json');
+    const realTarget = path.join(path.dirname(target), 'real.json');
+    const result = await runChannelCase({ mcpServers: { 'memesh-channel': { command: 'memesh-host-claude', args: ['--config', target] } } }, { path: target, symlinkTo: realTarget });
+    expect(channelRow(result)).toMatchObject({ status: 'warn' });
+    expect(channelRow(result)?.summary).toMatch(/missing, insecure, malformed, or incomplete/i);
+    expect(channelRow(result)?.summary).not.toContain(realTarget);
+  });
+
+  it('does not add a Claude row for a Codex plugin cache', async () => {
+    const packageRoot = createPackageRoot(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-codex-')), '.codex', 'plugins', 'cache', 'pcircle-memesh', 'memesh', '4.8.2'));
+    tempRoots.push(path.dirname(path.dirname(path.dirname(path.dirname(packageRoot)))));
+    const result = await runDoctor({
+      packageRoot, packageVersion: '4.8.2', openDatabaseImpl: () => makeDatabase(1) as never,
+      closeDatabaseImpl: () => undefined, detectCapabilitiesImpl: () => caps({ searchLevel: 1 }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'), getUpdateCheckImpl: async () => makeUpdateCheck(),
+      getCurrentInstallChannelImpl: () => 'plugin-marketplace' as const,
+      getInstallChannelSupportImpl: () => ({ channel: 'plugin-marketplace' as const, label: 'Codex plugin', canSelfUpdate: false, recommendedCommand: '', guidance: '' }),
+      installedPluginsPathImpl: path.join(packageRoot, 'missing.json'), marketplaceHeadShaImpl: () => null,
+      nativeBindingProbeImpl: () => ({ ok: true }), resolveShellMemeshImpl: () => null,
+    });
+    expect(channelRow(result)).toBeUndefined();
+  });
+});
+
 /**
  * The embedding probe row.
  *
