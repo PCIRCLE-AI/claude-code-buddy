@@ -7,6 +7,16 @@
       "bytes": 527
     },
     {
+      "path": ".codex-plugin/mcp.json",
+      "sha256": "a6c6dd58b6ab5a3dd16fd776bdadb43e94f8140d970f1eca2d2294812321c80f",
+      "bytes": 98
+    },
+    {
+      "path": ".codex-plugin/plugin.json",
+      "sha256": "4a31bc9ce1ef62f7203ed9b3a9d4a9aa4b9a95a19f37f60cf4cfbdffa0ca95d8",
+      "bytes": 154
+    },
+    {
       "path": ".mcp.json",
       "sha256": "b3f72e0ed3ca2d34267f25f5f478d6f9e087f4058fcbf2e72a89759a3e324aad",
       "bytes": 132

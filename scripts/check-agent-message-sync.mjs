@@ -169,6 +169,8 @@ requireText('docs/platforms/agent-messaging.md', ['principal', 'session', 'gener
 requireText('skills/memesh/SKILL.md', ['message', 'polling', 'active compatible managed host', 'stopped, missing, or replaced session', 'message storage report']);
 requireText('.mcp.json', ['memesh', '${CLAUDE_PLUGIN_ROOT}/dist/mcp/server.js']);
 requireText('.claude-plugin/plugin.json', ['"name": "memesh"', '"version"']);
+requireText('.codex-plugin/plugin.json', ['"name": "memesh"', '"version"', '"mcpServers": "./.codex-plugin/mcp.json"']);
+requireText('.codex-plugin/mcp.json', ['"memesh"', '"command": "node"', '"./dist/mcp/server.js"', '"cwd": "."']);
 requireText('.claude-plugin/marketplace.json', ['"name": "pcircle-memesh"', '"version"']);
 requireText('hooks/hooks.json', [
   'session-start.js', 'session-summary.js', 'pre-compact.js',

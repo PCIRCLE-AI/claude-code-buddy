@@ -24,6 +24,7 @@
     "skills/",
     "docs/platforms/agent-messaging.md",
     ".claude-plugin/",
+    ".codex-plugin/",
     "README.md",
     "LICENSE",
     "llms-install.md",
