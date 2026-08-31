@@ -722,10 +722,14 @@ describe('upgrade-plugin.sh: same version, different commit', () => {
     const legacyTemp = fs.readFileSync(marker, 'utf8').trim();
     expect(fs.lstatSync(legacyTemp).isSymbolicLink(), 'the old predictable temp symlink was not planted').toBe(true);
     expect(fs.readFileSync(sentinel, 'utf8'), 'the registry writer followed the attacker symlink').toBe(sentinelBefore);
-    expect(fs.lstatSync(registry).isFile(), 'installed_plugins.json is no longer a regular file').toBe(true);
-    expect(fs.lstatSync(registry).isSymbolicLink(), 'installed_plugins.json became the attacker symlink').toBe(false);
-    const entry = JSON.parse(fs.readFileSync(registry, 'utf8')).plugins['memesh@pcircle-memesh'][0];
-    expect(entry).toMatchObject({ installPath: live, version: '4.8.2', gitCommitSha: newSha });
+    const registryFd = fs.openSync(registry, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    try {
+      expect(fs.fstatSync(registryFd).isFile(), 'installed_plugins.json is no longer a regular file').toBe(true);
+      const entry = JSON.parse(fs.readFileSync(registryFd, 'utf8')).plugins['memesh@pcircle-memesh'][0];
+      expect(entry).toMatchObject({ installPath: live, version: '4.8.2', gitCommitSha: newSha });
+    } finally {
+      fs.closeSync(registryFd);
+    }
     expect(fs.existsSync(path.join(live, 'secure-fix.js')), 'the reported upgrade did not install the committed cache').toBe(true);
     expect(r.stdout).toContain(`MeMesh upgraded: 4.8.2 (${oldSha.slice(0, 8)}) -> 4.8.2 (${newSha.slice(0, 8)})`);
     expect(r.stderr).not.toContain('failed to update installed_plugins.json');
