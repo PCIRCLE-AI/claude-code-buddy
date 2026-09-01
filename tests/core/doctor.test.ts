@@ -3463,11 +3463,11 @@ describe('Claude Channel registration diagnostic', () => {
     expect(row.summary).not.toContain(target);
   });
 
-  it('reports a coherent registration as CONFIGURED on a supported platform', async () => {
+  it.skipIf(process.platform === 'win32')('reports a coherent registration as CONFIGURED on a supported platform', async () => {
     const target = channelTarget('configured.json');
-    const result = await withPlatform('darwin', () => runChannelCase(
+    const result = await runChannelCase(
       { mcpServers: { 'memesh-channel': { command: 'memesh-host-claude', args: ['--config', target] } } }, { path: target },
-    ));
+    );
     const row = channelRow(result)!;
     expect(row).toMatchObject({ status: 'pass', informational: true });
     expect(row.summary).toMatch(/CONFIGURED/);

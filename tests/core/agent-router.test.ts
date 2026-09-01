@@ -712,7 +712,7 @@ describe.runIf(process.platform !== 'win32').sequential('AgentRouter real SQLite
 
   it('excludes disconnected, superseded, and expired registrations from discovery', async () => {
     const { db, socketPath, token } = setup();
-    await startRouter(db, socketPath, token, { lease_ms: 100 });
+    await startRouter(db, socketPath, token, { lease_ms: 10_000 });
     const disconnected = await RouterHostClient.connect({
       socketPath, token, project: 'project-a', principal: 'principal-disconnected', session: 'session-disconnected',
     });
@@ -733,7 +733,9 @@ describe.runIf(process.platform !== 'win32').sequential('AgentRouter real SQLite
       session_id: 'session-superseded', generation: replacement.generation,
     })]);
     expect(replacement.generation).toBeGreaterThan(superseded.generation);
-    await new Promise(resolve => setTimeout(resolve, 120));
+    db.prepare(
+      'UPDATE agent_session_connections SET lease_expires_at_ms = ? WHERE connection_id = ?',
+    ).run(Date.now() - 1, replacement.connectionId);
     const result = await sendAgentRouterRequest(socketPath, {
       version: 1, type: 'discover', request_id: randomUUID(), project: 'project-a', limit: 10, hops: 0,
     });
