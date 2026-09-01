@@ -310,7 +310,7 @@ export declare const TOOL_DEFINITIONS: readonly [{
     };
 }, {
     readonly name: "message";
-    readonly description: "Use this to contact or discover another local agent on the same MeMesh instance. discover is a bounded, project-scoped live-directory read of active leases and returns only the router result; it performs no send, fetch, ACK, replay, or receipt work. send creates one durable message idempotently. For target_kind=session, success requires the exact active native host to accept the bounded full message; otherwise send fails with recipient_unavailable while preserving scoped recovery data. Principal targets retain durable store-and-forward behavior. poll/fetch remain compatibility and recovery reads; intake, ack, disposition, and activation are separate explicit facts. Native acceptance, polling, fetching, and discovery never imply agent acknowledgement or workflow completion.";
+    readonly description: "Use this to contact or discover another local agent on the same MeMesh instance. discover is a bounded, project-scoped live-directory read of active leases and returns only the router result; it performs no send, fetch, ACK, replay, or receipt work. send durably stores one untrusted JSON-encoded payload of at most 65536 UTF-8 bytes (64 KiB) idempotently. Native delivery has a separate 16384-byte (16 KiB) cap for the complete envelope, including routing metadata and payload. For target_kind=session, success requires the exact active native host to accept that full envelope; otherwise send fails with recipient_unavailable while preserving scoped recovery data. Principal targets retain durable store-and-forward behavior even when native delivery is unavailable. poll/fetch remain compatibility and recovery reads; intake, ack, disposition, and activation are separate explicit facts. Native acceptance, polling, fetching, and discovery never imply agent acknowledgement or workflow completion.";
     readonly inputSchema: {
         readonly type: "object";
         readonly properties: {
@@ -342,7 +342,7 @@ export declare const TOOL_DEFINITIONS: readonly [{
             };
             readonly payload: {
                 readonly type: readonly ["string", "number", "boolean", "object", "array", "null"];
-                readonly description: "Required for send. JSON value treated as untrusted data and never executed by MeMesh.";
+                readonly description: "Required for send. Untrusted JSON value, limited to 65536 UTF-8 bytes (64 KiB) after JSON encoding. Native push additionally requires the complete envelope to fit 16384 bytes (16 KiB). MeMesh never executes the payload.";
             };
             readonly content_type: {
                 readonly type: "string";

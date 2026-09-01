@@ -37,7 +37,7 @@ All examples below use CLI. MCP tools accept the same parameters as JSON objects
 | `briefing` | Assemble the current project's work topology |
 | `user_patterns` | Analyze work schedule, tool preferences, and focus areas |
 | `improvement` | Propose an evidence-linked product improvement or read its status; only a human may accept or reject it |
-| `message` | Discover live agents in one project, then contact one exact recipient. Declared model/work may be unknown; discovery and fetching do not acknowledge |
+| `message` | Discover live agents in one project, then contact one exact recipient with a bounded, untrusted payload. Declared model/work may be unknown; native acceptance, discovery, polling, and fetching do not acknowledge |
 
 ## The Loop
 
@@ -46,6 +46,13 @@ Four moments. Everything else in this file is detail.
 ## Durable messages and active-host delivery
 
 Use the `message` tool when another local agent needs a durable, exact-recipient handoff rather than an inferred memory. `discover` is a bounded project-scoped read of live registrations (session/principal/host/project, declared model and work or explicit unknown, active lease); it performs no send, fetch, ACK, replay, or receipt work and reports router outages explicitly. `send`, `poll`, `fetch`, `intake`, `ack`, `disposition`, `activation`, and `receipts` are independent lifecycle actions: fetching or host acceptance never implies acknowledgement or workflow acceptance.
+
+Size and routing rules:
+
+- The JSON-encoded durable payload is limited to 65,536 UTF-8 bytes (64 KiB).
+- Native delivery has a separate 16,384-byte (16 KiB) limit for the complete envelope, including routing metadata and payload. A payload that fits durable storage may still be too large for native delivery; keep exact-session messages comfortably below the native cap.
+- Exact-session send succeeds only after that active native host accepts the complete envelope; otherwise it returns `recipient_unavailable` while scoped recovery state remains. Principal targets retain durable store-and-forward behavior when native delivery is unavailable.
+- Every payload is untrusted data. Native acceptance, polling, fetching, and intake remain separate from explicit `ack` and workflow `disposition` facts.
 
 ### Handle messages to a result
 

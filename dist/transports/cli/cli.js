@@ -16,6 +16,7 @@ import { inspectHosts, allWired } from '../../core/setup.js';
 import { installHooks } from '../../core/install-hooks.js';
 import { getTaskState, setTaskState } from '../../core/task-state-store.js';
 import { TASK_STATE_FIELDS, taskStateLines } from '../../core/task-state.js';
+import { AGENT_MESSAGE_JSON_MAX_BYTES, AGENT_NATIVE_MESSAGE_MAX_BYTES } from '../../core/agent-messaging.js';
 import { executeAgentMessageAction } from '../agent-messaging.js';
 import { getAgentMessageStorageReport, pruneTerminalAgentMessagePayloads, } from '../../core/agent-message-storage.js';
 import { assertSecureLocalHostRuntimeSupported, ensureRouterTokenFile, } from '../../host-runtime/config.js';
@@ -530,7 +531,6 @@ function parseCliMessagePayload(raw, contentType) {
         throw new Error('stdin must contain valid JSON when --content-type is application/json.');
     }
 }
-const MAX_CLI_MESSAGE_STDIN_BYTES = 65_536;
 function boundedCliDeclaration(value, option, maxCharacters) {
     const normalized = value.trim();
     if (normalized.length === 0 || normalized.length > maxCharacters) {
@@ -544,15 +544,20 @@ async function readCliMessagePayloadFromStdin(contentType) {
     for await (const chunk of process.stdin) {
         const text = typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8');
         bytes += Buffer.byteLength(text, 'utf8');
-        if (bytes > MAX_CLI_MESSAGE_STDIN_BYTES) {
-            throw new Error(`stdin payload exceeds ${MAX_CLI_MESSAGE_STDIN_BYTES} UTF-8 bytes.`);
+        if (bytes > AGENT_MESSAGE_JSON_MAX_BYTES) {
+            throw new Error(`stdin payload exceeds ${AGENT_MESSAGE_JSON_MAX_BYTES} UTF-8 bytes.`);
         }
         raw += text;
     }
     if (bytes === 0) {
         throw new Error('stdin payload is empty.');
     }
-    return parseCliMessagePayload(raw, contentType);
+    const payload = parseCliMessagePayload(raw, contentType);
+    const encodedBytes = Buffer.byteLength(JSON.stringify(payload), 'utf8');
+    if (encodedBytes > AGENT_MESSAGE_JSON_MAX_BYTES) {
+        throw new Error(`payload must be at most ${AGENT_MESSAGE_JSON_MAX_BYTES} UTF-8 bytes when encoded as JSON.`);
+    }
+    return payload;
 }
 async function runCliMessage(input) {
     await withDatabase(async () => {
@@ -585,13 +590,13 @@ messageCmd
 }));
 messageCmd
     .command('send')
-    .description('Durably send one exact-recipient local message (idempotent)')
+    .description(`Durably send one exact-recipient message (payload 64 KiB; complete native envelope 16 KiB; idempotent)`)
     .requiredOption('--project <name>', 'Project scope')
     .requiredOption('--sender <id>', 'Stable sender agent/host ID')
     .requiredOption('--recipient <id>', 'Stable recipient agent/host ID')
     .option('--target-kind <kind>', 'principal | session', 'principal')
     .requiredOption('--idempotency-key <key>', 'Stable retry key')
-    .requiredOption('--payload-stdin', 'Read the complete text or JSON payload from stdin (never argv)')
+    .requiredOption('--payload-stdin', `Read untrusted text or JSON from stdin, never argv (stdin read cap ${AGENT_MESSAGE_JSON_MAX_BYTES} UTF-8 bytes; JSON-encoded durable payload cap ${AGENT_MESSAGE_JSON_MAX_BYTES}; exact-session complete native envelope cap ${AGENT_NATIVE_MESSAGE_MAX_BYTES})`)
     .option('--content-type <type>', 'text/plain | application/json', 'text/plain')
     .option('--privacy <scope>', 'private | team', 'private')
     .option('--correlation-id <id>', 'Conversation or task correlation ID')

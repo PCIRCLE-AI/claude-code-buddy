@@ -203,6 +203,7 @@ export interface AgentRetentionFact {
     detail: AgentJsonObject;
     created_at: string;
 }
+export declare const AGENT_MESSAGE_JSON_MAX_BYTES: number;
 export declare const AGENT_NATIVE_MESSAGE_MAX_BYTES: number;
 export declare class AgentMessagingError extends Error {
 }

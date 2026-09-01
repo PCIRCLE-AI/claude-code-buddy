@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { executeAgentMessageAction } from '../../src/transports/agent-messaging.js';
 import { getDatabase } from '../../src/db.js';
 import { MessageSchema } from '../../src/transports/schemas.js';
+import { AGENT_MESSAGE_JSON_MAX_BYTES } from '../../src/core/agent-messaging.js';
 import { useTestDatabase } from '../helpers/db-fixture.js';
 
 useTestDatabase('memesh-agent-message-transport-');
@@ -67,6 +68,26 @@ function seedHostAccept(message: PublicSentMessage): string {
 }
 
 describe('agent message transport', () => {
+  it('accepts exactly the durable JSON payload limit and rejects one byte over it', () => {
+    const base = {
+      action: 'send' as const,
+      project: 'limits',
+      sender: 'sender',
+      recipient: 'recipient',
+      idempotency_key: 'limit-check',
+    };
+    expect(MessageSchema.safeParse({
+      ...base,
+      payload: 'x'.repeat(AGENT_MESSAGE_JSON_MAX_BYTES - 2),
+    }).success).toBe(true);
+    const over = MessageSchema.safeParse({
+      ...base,
+      payload: 'x'.repeat(AGENT_MESSAGE_JSON_MAX_BYTES - 1),
+    });
+    expect(over.success).toBe(false);
+    if (!over.success) expect(over.error.issues[0]?.message).toContain(`${AGENT_MESSAGE_JSON_MAX_BYTES}`);
+  });
+
   it('validates discover scope and bounded defaults', () => {
     expect(MessageSchema.parse({ action: 'discover', project: 'directory' })).toEqual({
       action: 'discover', project: 'directory', limit: 50,

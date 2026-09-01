@@ -32,6 +32,19 @@ function readOwnerPrivateRegularFile(filePath: string): string {
 }
 
 describe('CLI durable-message ingress', () => {
+  it('documents the separate durable payload and complete native envelope limits', () => {
+    const result = spawnSync(process.execPath, cliArgs('message', 'send', '--help'), {
+      encoding: 'utf8',
+      env: { ...process.env, MEMESH_AUTO_CAPTURE: 'false' },
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain('payload 64 KiB');
+    expect(result.stdout).toMatch(/complete native\s+envelope 16 KiB/);
+    expect(result.stdout).toContain('65536 UTF-8 bytes');
+    expect(result.stdout).toContain('16384');
+    expect(result.stdout).toContain('untrusted');
+  });
+
   it('accepts JSON from stdin through the current source CLI', () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-cli-message-'));
     const payload = JSON.stringify({ kind: 'stdin-happy-path', value: 7 });
@@ -53,6 +66,34 @@ describe('CLI durable-message ingress', () => {
       });
       expect(typeof response.message_id).toBe('string');
       expect(result.stdout).not.toContain(payload);
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('enforces the durable limit after JSON encoding for plain text', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-cli-message-limit-'));
+    try {
+      const accepted = spawnSync(process.execPath, cliArgs(
+        'message', 'send', '--project', 'test', '--sender', 'sender',
+        '--recipient', 'recipient', '--idempotency-key', 'plain-limit-accepted', '--payload-stdin',
+      ), {
+        encoding: 'utf8',
+        input: 'x'.repeat(65_534),
+        env: { ...process.env, HOME: home, MEMESH_AUTO_CAPTURE: 'false' },
+      });
+      expect(accepted.status, accepted.stderr).toBe(0);
+
+      const rejected = spawnSync(process.execPath, cliArgs(
+        'message', 'send', '--project', 'test', '--sender', 'sender',
+        '--recipient', 'recipient', '--idempotency-key', 'plain-limit-rejected', '--payload-stdin',
+      ), {
+        encoding: 'utf8',
+        input: 'x'.repeat(65_535),
+        env: { ...process.env, HOME: home, MEMESH_AUTO_CAPTURE: 'false' },
+      });
+      expect(rejected.status).not.toBe(0);
+      expect(rejected.stderr).toContain('payload must be at most 65536 UTF-8 bytes when encoded as JSON');
     } finally {
       fs.rmSync(home, { recursive: true, force: true });
     }

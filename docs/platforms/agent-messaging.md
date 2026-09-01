@@ -27,6 +27,11 @@ message through the authenticated native host channel and waits for native
 acceptance; no marker-to-fetch step is required. An unavailable exact session
 returns `recipient_unavailable` while scoped recovery data remains durable.
 Principal targets retain asynchronous store-and-forward semantics.
+The JSON-encoded durable payload is limited to 65,536 UTF-8 bytes (64 KiB).
+Native delivery separately limits the complete envelope, including routing
+metadata and payload, to 16,384 bytes (16 KiB). Fitting the durable limit does
+not guarantee that a native envelope fits; exact-session messages should stay
+comfortably below the native cap.
 `poll`/`watch` are compatibility and diagnostic APIs. A queue admission or
 `host_accept` is not proof that an agent read the payload, acknowledged it, or
 accepted the work.
@@ -106,7 +111,8 @@ workspace, compact lifecycle input, or a failed/disconnected connection does
 not register a host and does not wake anything.
 
 For a registered session, MeMesh invokes `codex queue` with one untrusted full
-envelope capped at 16 KiB. The exact-session sender returns
+envelope capped at 16,384 bytes (16 KiB), including routing metadata and payload.
+The separate durable JSON-encoded payload limit is 65,536 bytes (64 KiB). The exact-session sender returns
 `native_delivery.status: "native_accepted"` only after the queue accepts it;
 Codex does not need a second `message fetch` to inspect that native message.
 The persisted `host_accept` is neither agent readback nor an `ack` or workflow

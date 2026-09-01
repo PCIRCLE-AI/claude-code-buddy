@@ -49,7 +49,7 @@ host is recallable from all of them. Not installed yet? Follow
 | `briefing` | The assembled work topology; exact `project` + `recipient` can surface only that recipient's unfetched deliveries |
 | `user_patterns` | Analyze work schedule, tool preferences, and focus areas from memory |
 | `improvement` | Propose an evidence-linked product improvement or read its status; only a human may accept/reject it |
-| `message` | Discover live agents in one project, then contact one exact recipient for handoff, results, or disposition. Discovery/polling/fetching never implies acknowledgement |
+| `message` | Discover live agents, then exchange exact-recipient untrusted messages: durable JSON payload max 64 KiB; complete native envelope max 16 KiB; delivery reads/acceptance never imply ACK or disposition |
 
 ## Memory hygiene
 

@@ -9,7 +9,7 @@
   <p align="center">
     <a href="https://www.npmjs.com/package/@pcircle/memesh"><img src="https://img.shields.io/npm/v/@pcircle/memesh?style=flat-square&color=3b82f6&label=npm" alt="npm" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" alt="MIT" /></a>
-    <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D22-22c55e?style=flat-square" alt="Node" /></a>
+    <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D22.13.0-22c55e?style=flat-square" alt="Node" /></a>
     <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP-compatible-a855f7?style=flat-square" alt="MCP" /></a>
   </p>
 </p>
@@ -33,7 +33,7 @@
 /plugin install memesh@pcircle-memesh
 ```
 
-Claude Code neu starten. Eine `◉ MeMesh`-Statuszeile am Anfang der nächsten Session bedeutet: es zeichnet auf.
+Claude Code neu starten. Eine `◉ MeMesh`-Statuszeile am Anfang der nächsten Session bestätigt, dass der SessionStart-Hook seine Statusausgabe erzeugt hat.
 
 **Im Terminal** — die `memesh`-CLI, das Dashboard und der `memesh-mcp`-Server für Codex / Cursor und kompatible lokale MCP-Clients (braucht [Node 22.13+](https://nodejs.org)):
 
@@ -74,8 +74,8 @@ Alle Hosts, die mit derselben lokalen MeMesh-Instanz verbunden sind, teilen daue
 
 Die optionale sichere Host-Native-Wakeup-Laufzeit unterstützt derzeit macOS und Linux. MeMesh-Kernspeicher, dauerhafte Nachrichtenspeicherung und MCP-Tools bleiben unter Windows verfügbar; Host-Native-Wakeup unter Windows wird noch nicht unterstützt.
 
-- Heute verfügbar: Ein Sender kann eine Nachricht dauerhaft an genau einen lokalen Empfänger senden. Der Empfänger kann den Payload getrennt abrufen, nach einem Neustart mit einem opaken Cursor fortsetzen und Intake, Bestätigung, Workflow-Status und Host-Aktivierung getrennt protokollieren.
-- Mit aktiviertem MeMesh-Codex-Plugin und dem owner-private Opt-in `memesh agent setup codex-session` erhält die exakt aktive Codex-Session eine größenbegrenzte vollständige Nachricht über ihre native Queue — ohne Polling oder menschliche Erinnerung und ohne zweiten Inbox-Abruf. Ein Exact-Session-Send ist erst erfolgreich, wenn die native Queue ihn annimmt; andernfalls meldet er `recipient_unavailable` und behält eingegrenzte Recovery-Daten.
+- Heute verfügbar: Ein Sender über MCP, HTTP oder CLI kann einen nicht vertrauenswürdigen, JSON-kodierten Payload von höchstens 65.536 UTF-8-Bytes (64 KiB) dauerhaft an genau einen lokalen Empfänger senden. Der Empfänger kann ihn getrennt abrufen, nach einem Neustart mit einem opaken Cursor fortsetzen und Intake, Bestätigung, Workflow-Status und Host-Aktivierung getrennt protokollieren.
+- Mit aktiviertem MeMesh-Codex-Plugin und dem owner-private Opt-in `memesh agent setup codex-session` erhält die exakt aktive Codex-Session eine vollständige Nachricht über ihre native Queue — ohne Polling oder menschliche Erinnerung und ohne zweiten Inbox-Abruf. Der vollständige native Envelope einschließlich Routing-Metadaten und Payload ist separat auf 16.384 Bytes (16 KiB) begrenzt. Ein Exact-Session-Send ist erst erfolgreich, wenn die native Queue ihn annimmt; andernfalls meldet er `recipient_unavailable` und behält eingegrenzte Recovery-Daten. Principal-Ziele behalten Durable Store-and-Forward bei, wenn native Zustellung nicht verfügbar ist.
 - Eine erfolgreiche Queue-Annahme (`host_accept`) bedeutet nur, dass die lokale Codex-Queue die größenbegrenzte Nachricht annahm. Sie beweist nicht, dass ein Agent sie gelesen, bestätigt oder die Arbeit akzeptiert hat. Codex übernimmt den Text über das Prozessargument `--message`; deshalb kann eine Prozessinspektion desselben Benutzers ihn während des kurzen Queue-Aufrufs sehen. Native Nachrichten dürfen keine Secrets enthalten.
 - Der dauerhafte Nachrichtenspeicher wird durch eine Owner-Richtlinie begrenzt, nicht still gelöscht: `memesh message storage report` zeigt logische Payload-Größe, geschützte Zeilen, wiederverwendbare SQLite-Seiten und WAL-Größe. Das begrenzte Pruning ist standardmäßig ein Dry Run und tombstoniert nur alte terminale Payloads. Ein optionales `MEMESH_AGENT_MESSAGE_STORAGE_QUOTA_BYTES` lehnt einen zu großen Send atomar ab. Siehe [begrenzte Speicherung und Audit-Aufbewahrung](docs/platforms/agent-messaging.md#bounded-storage-and-audit-retention).
 - Eine gestoppte, fehlende oder getrennte Codex-Session wird weder geweckt noch ersetzt. Ihr dauerhafter Posteingang bleibt für Audit und Wiederherstellung erhalten; `poll` und `memesh message watch` sind Kompatibilitäts- und Diagnosepfade. Native Zustellung setzt keine beendete Modell-Session fort, führt keinen Payload aus und gilt nicht als Bestätigung.
@@ -164,7 +164,7 @@ Wenn Sie Claude Code nutzen, installieren Sie MeMesh als Plugin direkt in der CL
 
 Claude Code verdrahtet Hooks, Skills und den MCP-Server automatisch. Sie erhalten Auto-Capture in der Session, proaktives Recall, den `/memesh`-Skill in der Unterhaltung und `remember` / `recall` / `forget` / `learn` als MCP-Tools für den Agenten.
 
-**Prüfen:** Claude Code neu starten und eine beliebige Session beginnen. Eine Statuszeile wie `◉ MeMesh ready · no memories for "your-project" yet` erscheint oben — diese Zeile IST das funktionierende Plugin; kein separater Befehl nötig. (Mit vorhandenen Memories zeigt sie stattdessen Zähler.)
+**Prüfen:** Claude Code neu starten und eine beliebige Session beginnen. Eine Statuszeile wie `◉ MeMesh ready · no memories for "your-project" yet` erscheint oben — sie bestätigt direkt die Statusausgabe des SessionStart-Hooks. Sie allein beweist nicht, dass spätere Capture- oder Recall-Vorgänge funktionieren. (Mit vorhandenen Memories zeigt sie stattdessen Zähler.)
 
 ### Option B — npm global (optionale Optimierung)
 
@@ -566,7 +566,7 @@ Wechselst du zu einer anderen Dimension (z. B. 768 → 1536), wird **nichts gel�
 | `briefing` | Die Arbeitstopologie für jeden MCP-Client; allgemeiner Kontext bleibt still, während exakte Angaben für `project` + `recipient` nur dessen noch nicht abgerufene Zustellungen anzeigen |
 | `user_patterns` | Arbeitsmuster analysieren — Zeitplan, Tools, Stärken, Lernbereiche |
 | `improvement` | Evidenzverknüpfte Produktverbesserung zur menschlichen Prüfung vorschlagen oder ihren Status lesen; Agenten können sie nicht selbst annehmen oder ablehnen |
-| `message` | Aktive Agenten projektbezogen finden und dann einen exakten Empfänger für Übergabe, Ergebnis oder Rückmeldung kontaktieren. Nicht deklarierte Model-/Work-Angaben bleiben unbekannt; Discovery, Poll und Fetch bestätigen nichts |
+| `message` | Aktive Agenten finden und nicht vertrauenswürdige Nachrichten mit exaktem Empfänger austauschen. Dauerhafter JSON-Payload: max. 64 KiB; vollständiger nativer Envelope: max. 16 KiB. Native Annahme, Discovery, Poll und Fetch bedeuten weder Bestätigung noch Workflow-Status |
 
 ---
 

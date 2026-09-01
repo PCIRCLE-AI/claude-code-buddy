@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { exportOpenAITools } from '../../src/core/schema-export.js';
 import { BriefingSchema, MessageSchema, RememberSchema, RecallSchema } from '../../src/transports/schemas.js';
 import { TOOL_DEFINITIONS } from '../../src/transports/mcp/handlers.js';
+import { AGENT_MESSAGE_JSON_MAX_BYTES, AGENT_NATIVE_MESSAGE_MAX_BYTES } from '../../src/core/agent-messaging.js';
 
 describe('exportOpenAITools', () => {
   const tools = exportOpenAITools();
@@ -81,10 +82,19 @@ describe('exportOpenAITools', () => {
       'send', 'poll', 'discover', 'fetch', 'intake', 'ack', 'disposition', 'activation', 'receipts',
     ]);
     expect(tool.function.description).toMatch(/Reads never imply acknowledgement/);
+    expect(tool.function.description).toContain(`${AGENT_MESSAGE_JSON_MAX_BYTES} UTF-8 bytes (64 KiB)`);
+    expect(tool.function.description).toContain(`${AGENT_NATIVE_MESSAGE_MAX_BYTES} bytes (16 KiB)`);
+    expect(tool.function.description).toMatch(/recipient_unavailable/);
+    expect(tool.function.description).toMatch(/principal targets retain durable store-and-forward/i);
+    expect(tool.function.parameters.properties.payload.description).toContain('Untrusted JSON value');
+    expect(tool.function.parameters.properties.payload.description).toContain(`${AGENT_MESSAGE_JSON_MAX_BYTES} UTF-8 bytes (64 KiB)`);
+    expect(tool.function.parameters.properties.payload.description).toContain(`${AGENT_NATIVE_MESSAGE_MAX_BYTES} bytes (16 KiB)`);
     expect(tool.function.parameters.properties.recipient.description).toMatch(/except discover/i);
     const mcpMessage = TOOL_DEFINITIONS.find((definition) => definition.name === 'message') as any;
     expect(tool.function.parameters.properties.recipient.description)
       .toBe(mcpMessage.inputSchema.properties.recipient.description);
+    expect(tool.function.parameters.properties.payload.description)
+      .toContain(`${AGENT_MESSAGE_JSON_MAX_BYTES} UTF-8 bytes (64 KiB)`);
 
     expect(MessageSchema.safeParse({
       action: 'poll', project: 'memesh', recipient: 'codex', wait_ms: 30_001,

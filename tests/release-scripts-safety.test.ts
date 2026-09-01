@@ -302,9 +302,21 @@ describe('Feature: release scripts never edit the real ~/.memesh', () => {
       write('docs/platforms/agent-messaging.md', 'principal session generation host_kind work_summary lease_expires_at_ms exact-session principal target Local Cloud Bounded storage and audit retention');
       write('skills/memesh/SKILL.md', 'message polling active compatible managed host stopped, missing, or replaced session message storage report');
       write('llms-install.md', '22.13.0 memesh doctor message memesh-router memesh-host-codex memesh-host-claude memesh-host-acp --config message storage report');
-      write('README.md', 'message memesh agent setup codex-session without polling or a human reminder stopped, missing, or disconnected Codex session message storage report');
-      write('README.zh-TW.md', 'message memesh agent setup codex-session 沒有輪詢或人工提醒 停止、缺失或斷線 message storage report');
-      write('README.de.md', 'message memesh agent setup codex-session ohne Polling oder menschliche Erinnerung gestoppte, fehlende oder getrennte Codex-Session message storage report');
+      write('README.md', [
+        'message memesh agent setup codex-session without polling or a human reminder stopped, missing, or disconnected Codex session message storage report',
+        'untrusted JSON-encoded payload is limited to 65,536 UTF-8 bytes (64 KiB); intake, acknowledgement, and workflow disposition are separate facts.',
+        'The complete native envelope is limited to 16,384 bytes (16 KiB); recipient_unavailable is explicit. Principal targets retain durable store-and-forward behavior.',
+      ].join('\n'));
+      write('README.zh-TW.md', [
+        'message memesh agent setup codex-session 沒有輪詢或人工提醒 停止、缺失或斷線 message storage report',
+        'JSON 編碼後不超過 65,536 UTF-8 bytes（64 KiB）的不受信任 payload；intake、acknowledgement 與 workflow disposition 分開記錄。',
+        '完整 native envelope 不超過 16,384 bytes（16 KiB）；recipient_unavailable 明確回報。Principal target 保留 durable store-and-forward。',
+      ].join('\n'));
+      write('README.de.md', [
+        'message memesh agent setup codex-session ohne Polling oder menschliche Erinnerung gestoppte, fehlende oder getrennte Codex-Session message storage report',
+        'Beim nicht vertrauenswürdigen, JSON-kodierten Payload gelten 65.536 UTF-8-Bytes (64 KiB); Intake, Bestätigung und Workflow-Status werden getrennt protokollieren.',
+        'Die vollständige native Envelope ist auf 16.384 Bytes (16 KiB) begrenzt; recipient_unavailable bleibt explizit. Principal-Ziele behalten Durable Store-and-Forward.',
+      ].join('\n'));
       write('.mcp.json', 'memesh ${CLAUDE_PLUGIN_ROOT}/dist/mcp/server.js');
       write('.claude-plugin/plugin.json', '"name": "memesh" "version"');
       write('.codex-plugin/plugin.json', '"name": "memesh" "version" "mcpServers": "./.codex-plugin/mcp.json"');

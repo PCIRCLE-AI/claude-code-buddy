@@ -74,8 +74,8 @@ MeMesh 有一個很強的跨代理優勢：凡是連到同一個本機 MeMesh in
 
 可選的安全 host-native 喚醒 runtime 目前支援 macOS 與 Linux。Windows 仍可使用 MeMesh 核心記憶、耐久化 message storage 與 MCP tools；Windows host-native 喚醒目前尚未支援。
 
-- 今天就能做的：MCP、HTTP 或 CLI sender 可把訊息耐久化送給一個指定的本機 recipient。接收端可另行擷取 payload、在重啟後用 opaque cursor 補收，並把 intake、acknowledgement、workflow disposition 與 host activation 分開記錄。
-- 啟用 MeMesh Codex plugin 並完成 owner-private 的 `memesh agent setup codex-session` opt-in 後，確切活動中的 Codex session 可在沒有輪詢或人工提醒下透過原生 queue 收到一則有大小上限的完整訊息，也不需要再次 fetch inbox。exact-session send 只有在原生 queue 接受後才成功；否則回報 `recipient_unavailable`，同時保留 scope 相符的 recovery data。
+- 今天就能做的：MCP、HTTP 或 CLI sender 可把一份 JSON 編碼後不超過 65,536 UTF-8 bytes（64 KiB）的不受信任 payload 耐久化送給一個指定的本機 recipient。接收端可另行擷取、在重啟後用 opaque cursor 補收，並把 intake、acknowledgement、workflow disposition 與 host activation 分開記錄。
+- 啟用 MeMesh Codex plugin 並完成 owner-private 的 `memesh agent setup codex-session` opt-in 後，確切活動中的 Codex session 可在沒有輪詢或人工提醒下透過原生 queue 收到一則完整訊息，也不需要再次 fetch inbox。包含 routing metadata 與 payload 的完整 native envelope 另有 16,384 bytes（16 KiB）上限。exact-session send 只有在原生 queue 接受後才成功；否則回報 `recipient_unavailable`，同時保留 scope 相符的 recovery data。Principal target 在無法原生傳遞時仍保有 durable store-and-forward。
 - 成功的原生 admission（`host_accept`）只代表本機 Codex queue 接受了這則有界訊息；它不代表 agent 已讀、已確認收到，或接受了工作。Codex 目前只提供 `--message` 參數傳入文字，因此同一使用者的 process inspection 可能在 queue command 執行期間看到內容；原生訊息不要放 secrets。
 - Durable message storage 由 owner policy 控制，不會偷偷刪除未解決訊息：`memesh message storage report` 會顯示 logical payload、protected rows、可重用 SQLite pages 與 WAL 大小；bounded prune 預設只 dry-run，且只 tombstone 舊的 terminal payload。可選的 `MEMESH_AGENT_MESSAGE_STORAGE_QUOTA_BYTES` 會在交易內原子拒絕超額 send。詳見 [bounded storage and audit retention](docs/platforms/agent-messaging.md#bounded-storage-and-audit-retention)。
 - 已停止、缺失或斷線的 Codex session 不會被喚醒或取代。它的耐久化 inbox 仍可供稽核與復原；`poll` 與 `memesh message watch` 是相容與診斷路徑。原生傳遞不會自動恢復已停止的模型 session、不會執行 payload，也不代表已確認收到。
@@ -575,7 +575,7 @@ memesh config set embedder.provider openai          # or: ollama
 | `briefing` | 提供給任何 MCP client 的工作拓撲；一般情境不顯示未讀訊息，確切的 `project` + `recipient` 才會顯示該收件者尚未擷取的訊息 |
 | `user_patterns` | 分析你的工作模式——時間表、工具、優勢、學習領域 |
 | `improvement` | 將有證據來源的產品改善送交人類審核，或讀取其狀態；agent 不能自行接受或拒絕 |
-| `message` | 先依 project 找出活動 agent，再向確切收件者交接、請求結果或回報處置。未宣告的 model/work 會保持 unknown；探索、輪詢與擷取都不代表確認收到 |
+| `message` | 先找出活動 agent，再交換確切收件者的不受信任訊息。Durable JSON payload 上限 64 KiB；完整 native envelope 上限 16 KiB。原生接受、探索、輪詢與擷取都不代表 ACK 或 workflow disposition |
 
 ---
 

@@ -20,6 +20,7 @@ import {
   BriefingSchema, ExportSchema, ImportSchema, LearnSchema, TaskStateSchema, UserPatternsSchema,
   ImprovementSchema, MessageSchema,
 } from '../schemas.js';
+import { AGENT_MESSAGE_JSON_MAX_BYTES, AGENT_NATIVE_MESSAGE_MAX_BYTES } from '../../core/agent-messaging.js';
 
 // ---------------------------------------------------------------------------
 // Tool definitions (MCP-specific format)
@@ -316,7 +317,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: 'message',
     description:
-      'Use this to contact or discover another local agent on the same MeMesh instance. discover is a bounded, project-scoped live-directory read of active leases and returns only the router result; it performs no send, fetch, ACK, replay, or receipt work. send creates one durable message idempotently. For target_kind=session, success requires the exact active native host to accept the bounded full message; otherwise send fails with recipient_unavailable while preserving scoped recovery data. Principal targets retain durable store-and-forward behavior. poll/fetch remain compatibility and recovery reads; intake, ack, disposition, and activation are separate explicit facts. Native acceptance, polling, fetching, and discovery never imply agent acknowledgement or workflow completion.',
+      `Use this to contact or discover another local agent on the same MeMesh instance. discover is a bounded, project-scoped live-directory read of active leases and returns only the router result; it performs no send, fetch, ACK, replay, or receipt work. send durably stores one untrusted JSON-encoded payload of at most ${AGENT_MESSAGE_JSON_MAX_BYTES} UTF-8 bytes (64 KiB) idempotently. Native delivery has a separate ${AGENT_NATIVE_MESSAGE_MAX_BYTES}-byte (16 KiB) cap for the complete envelope, including routing metadata and payload. For target_kind=session, success requires the exact active native host to accept that full envelope; otherwise send fails with recipient_unavailable while preserving scoped recovery data. Principal targets retain durable store-and-forward behavior even when native delivery is unavailable. poll/fetch remain compatibility and recovery reads; intake, ack, disposition, and activation are separate explicit facts. Native acceptance, polling, fetching, and discovery never imply agent acknowledgement or workflow completion.`,
     inputSchema: {
       type: 'object' as const,
       properties: {
@@ -335,7 +336,10 @@ export const TOOL_DEFINITIONS = [
             'Recipient identity kind for send and fetch. Defaults to principal; exact-session delivery and fetch require session.',
         },
         idempotency_key: { type: 'string', description: 'Required for send and receipt writes. Stable retry key.' },
-        payload: { type: ['string', 'number', 'boolean', 'object', 'array', 'null'], description: 'Required for send. JSON value treated as untrusted data and never executed by MeMesh.' },
+        payload: {
+          type: ['string', 'number', 'boolean', 'object', 'array', 'null'],
+          description: `Required for send. Untrusted JSON value, limited to ${AGENT_MESSAGE_JSON_MAX_BYTES} UTF-8 bytes (64 KiB) after JSON encoding. Native push additionally requires the complete envelope to fit ${AGENT_NATIVE_MESSAGE_MAX_BYTES} bytes (16 KiB). MeMesh never executes the payload.`,
+        },
         content_type: { type: 'string', enum: ['text/plain', 'application/json'], description: 'Send payload media type. Defaults to text/plain.' },
         privacy: { type: 'string', enum: ['private', 'team'], description: 'Send privacy classification. Routing remains exact-recipient in v1.' },
         correlation_id: { type: 'string', description: 'Optional caller-stable conversation or task correlation ID.' },

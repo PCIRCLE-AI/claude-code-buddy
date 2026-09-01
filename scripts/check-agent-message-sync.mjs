@@ -200,16 +200,37 @@ requireText('llms-install.md', [
 ]);
 requireText('README.md', [
   'message', 'memesh agent setup codex-session', 'without polling or a human reminder',
-  'stopped, missing, or disconnected Codex session', 'message storage report',
+  'stopped, missing, or disconnected Codex session', 'message storage report', '64 KiB', '16 KiB',
+  'untrusted', 'recipient_unavailable', 'Principal targets retain durable store-and-forward',
+  'acknowledgement', 'workflow disposition',
 ]);
 requireText('README.zh-TW.md', [
   'message', 'memesh agent setup codex-session', '沒有輪詢或人工提醒',
-  '停止、缺失或斷線', 'message storage report',
+  '停止、缺失或斷線', 'message storage report', '64 KiB', '16 KiB',
+  '不受信任', 'recipient_unavailable', 'Principal target', 'durable store-and-forward',
+  'acknowledgement', 'workflow disposition',
 ]);
 requireText('README.de.md', [
   'message', 'memesh agent setup codex-session', 'ohne Polling oder menschliche Erinnerung',
-  'gestoppte, fehlende oder getrennte Codex-Session', 'message storage report',
+  'gestoppte, fehlende oder getrennte Codex-Session', 'message storage report', '64 KiB', '16 KiB',
+  'nicht vertrauenswürdigen', 'recipient_unavailable', 'Principal-Ziele', 'Durable Store-and-Forward',
+  'Bestätigung', 'Workflow-Status',
 ]);
+requirePattern(
+  'README.md',
+  /untrusted JSON-encoded payload[^\n]*65,536 UTF-8 bytes \(64 KiB\)[^\n]*acknowledgement[^\n]*workflow disposition[^\n]*separate facts[\s\S]{0,800}?complete native envelope[^\n]*16,384 bytes \(16 KiB\)[^\n]*recipient_unavailable[^\n]*Principal targets retain durable store-and-forward behavior/,
+  'durable=64 KiB, native=16 KiB, and separate lifecycle facts in the collaboration narrative',
+);
+requirePattern(
+  'README.zh-TW.md',
+  /JSON 編碼後不超過 65,536 UTF-8 bytes（64 KiB）的不受信任 payload[^\n]*acknowledgement[^\n]*workflow disposition[^\n]*分開記錄[\s\S]{0,900}?完整 native envelope[^\n]*16,384 bytes（16 KiB）[^\n]*recipient_unavailable[^\n]*Principal target[^\n]*durable store-and-forward/,
+  'durable=64 KiB, native=16 KiB, and separate lifecycle facts in the Traditional Chinese collaboration narrative',
+);
+requirePattern(
+  'README.de.md',
+  /nicht vertrauenswürdigen, JSON-kodierten Payload[^\n]*65\.536 UTF-8-Bytes \(64 KiB\)[^\n]*Intake[^\n]*Bestätigung[^\n]*Workflow-Status[^\n]*getrennt protokollieren[\s\S]{0,900}?vollständige native Envelope[^\n]*16\.384 Bytes \(16 KiB\)[^\n]*recipient_unavailable[^\n]*Principal-Ziele[^\n]*Durable Store-and-Forward/,
+  'durable=64 KiB, native=16 KiB, and separate lifecycle facts in the German collaboration narrative',
+);
 const packageJsonText = read('package.json');
 for (const token of ['">=22.13.0"', 'check-agent-message-sync.mjs', 'test:packaged']) {
   if (!packageJsonText.includes(token)) missing.push(`package.json (missing ${JSON.stringify(token)})`);

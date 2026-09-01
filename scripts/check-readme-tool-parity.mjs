@@ -18,7 +18,7 @@ if (!contract) {
   process.exit(1);
 }
 
-const tools = [...contract.matchAll(/^\s{4}name:\s*'([^']+)',\n\s{4}(?:\/\/[^\n]*\n\s{4})*description:\s*(?:\n\s{6})?(['"])([\s\S]*?)\2,\n\s{4}inputSchema:/gm)]
+const tools = [...contract.matchAll(/^\s{4}name:\s*'([^']+)',\n\s{4}(?:\/\/[^\n]*\n\s{4})*description:\s*(?:\n\s{6})?(['"`])([\s\S]*?)\2,\n\s{4}inputSchema:/gm)]
   .map(match => ({ name: match[1], description: match[3].trim() }));
 const names = tools.map(tool => tool.name);
 const nameSet = new Set(names);

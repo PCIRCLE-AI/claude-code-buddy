@@ -3402,6 +3402,16 @@ describe('Claude Channel registration diagnostic', () => {
     return path.join(root, name);
   }
 
+  async function withPlatform<T>(platform: NodeJS.Platform, run: () => Promise<T>): Promise<T> {
+    const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')!;
+    Object.defineProperty(process, 'platform', { ...descriptor, value: platform });
+    try {
+      return await run();
+    } finally {
+      Object.defineProperty(process, 'platform', descriptor);
+    }
+  }
+
   it('WARNs when the opt-in channel is absent and does not leak paths', async () => {
     const result = await runChannelCase({ mcpServers: {} });
     const row = channelRow(result)!;
@@ -3439,12 +3449,28 @@ describe('Claude Channel registration diagnostic', () => {
     expect(channelRow(result)?.summary).not.toContain(target);
   });
 
-  it('reports a coherent registration as CONFIGURED without claiming admission', async () => {
+  it('WARNs a coherent registration on Windows because live notification cannot be established', async () => {
     const target = channelTarget('configured.json');
-    const result = await runChannelCase({ mcpServers: { 'memesh-channel': { command: 'memesh-host-claude', args: ['--config', target] } } }, { path: target });
-    expect(channelRow(result)).toMatchObject({ status: 'pass', informational: true });
-    expect(channelRow(result)?.summary).toMatch(/CONFIGURED/);
-    expect(channelRow(result)?.summary).toMatch(/admission.*not verified/i);
+    const result = await withPlatform('win32', () => runChannelCase(
+      { mcpServers: { 'memesh-channel': { command: 'memesh-host-claude', args: ['--config', target] } } }, { path: target },
+    ));
+    const row = channelRow(result)!;
+    expect(row).toMatchObject({ status: 'warn' });
+    expect(row.informational).not.toBe(true);
+    expect(row.summary).toMatch(/missing, insecure, malformed, or incomplete/i);
+    expect(row.summary).toMatch(/notification is not established/i);
+    expect(row.summary).not.toContain(target);
+  });
+
+  it('reports a coherent registration as CONFIGURED on a supported platform', async () => {
+    const target = channelTarget('configured.json');
+    const result = await withPlatform('darwin', () => runChannelCase(
+      { mcpServers: { 'memesh-channel': { command: 'memesh-host-claude', args: ['--config', target] } } }, { path: target },
+    ));
+    const row = channelRow(result)!;
+    expect(row).toMatchObject({ status: 'pass', informational: true });
+    expect(row.summary).toMatch(/CONFIGURED/);
+    expect(row.summary).toMatch(/admission.*not verified/i);
   });
 
   it('WARNs when the declared target content is malformed or incomplete', async () => {

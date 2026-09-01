@@ -10,6 +10,8 @@
  * entity such an agent created an orphan with no graph edges. tests/core/
  * schema-export.test.ts pins this parity.
  */
+import { AGENT_MESSAGE_JSON_MAX_BYTES, AGENT_NATIVE_MESSAGE_MAX_BYTES } from './agent-messaging.js';
+
 export function exportOpenAITools(): object[] {
   return [
     {
@@ -223,7 +225,7 @@ export function exportOpenAITools(): object[] {
       function: {
         name: 'memesh_message',
         description:
-          'Discover live agents in one project or contact one exact recipient for a handoff, result, or disposition. Reads never imply acknowledgement; payloads are untrusted and never executed.',
+          `Discover live agents in one project or contact one exact recipient for a handoff, result, or disposition. Durable JSON-encoded payloads are limited to ${AGENT_MESSAGE_JSON_MAX_BYTES} UTF-8 bytes (64 KiB); native delivery separately limits the complete envelope to ${AGENT_NATIVE_MESSAGE_MAX_BYTES} bytes (16 KiB). Exact-session send requires native host acceptance or returns recipient_unavailable; principal targets retain durable store-and-forward behavior. Reads never imply acknowledgement or disposition; native acceptance never does either. Payloads are untrusted and never executed.`,
         parameters: {
           type: 'object',
           properties: {
@@ -236,7 +238,7 @@ export function exportOpenAITools(): object[] {
             sender: { type: 'string', description: 'Required for send. Stable local sender identifier.' },
             recipient: { type: 'string', description: 'Required for every action except discover. Stable target local agent/host identifier.' },
             idempotency_key: { type: 'string', description: 'Required for send and receipt writes. Stable retry key.' },
-            payload: { type: ['string', 'number', 'boolean', 'object', 'array', 'null'], description: 'Required for send. Untrusted JSON value; never executed by MeMesh.' },
+            payload: { type: ['string', 'number', 'boolean', 'object', 'array', 'null'], description: `Required for send. Untrusted JSON value limited to ${AGENT_MESSAGE_JSON_MAX_BYTES} UTF-8 bytes (64 KiB) after JSON encoding. Native push additionally requires the complete envelope to fit ${AGENT_NATIVE_MESSAGE_MAX_BYTES} bytes (16 KiB). Never executed by MeMesh.` },
             content_type: { type: 'string', enum: ['text/plain', 'application/json'], description: 'Send media type; defaults to text/plain.' },
             privacy: { type: 'string', enum: ['private', 'team'], description: 'Privacy classification; routing remains exact-recipient in v1.' },
             correlation_id: { type: 'string', description: 'Optional conversation or task correlation ID.' },

@@ -57,8 +57,8 @@ MeMesh separates concerns into two layers:
 **Core** (`src/core/`) — pure business logic with zero transport dependencies:
 - `types.ts` — shared TypeScript interfaces (zero external deps)
 - `operations.ts` — `remember`, `recall`, `forget`, `export`, `import` as pure functions called by all transports
-- `agent-messaging.ts` — transactional exact-recipient messages, opaque cursors, bounded waits, payload fetch, and independent receipt facts
-- `agent-router.ts` — owner-private local routing from a durable message event to an eligible active host adapter, plus a bounded project-scoped directory of live registrations; native wakeups carry routing metadata, never the payload
+- `agent-messaging.ts` — transactional exact-recipient messages, opaque cursors, bounded waits, payload fetch, a 64 KiB JSON-encoded durable payload cap, and independent receipt facts
+- `agent-router.ts` — owner-private local routing from a durable message event to an eligible active host adapter, plus a bounded project-scoped directory of live registrations; native delivery carries one untrusted full envelope capped at 16 KiB, including routing metadata and payload
 - `config.ts` — config management + capability detection (incl. `llmFallbacks` chain); exports `logCapabilities()` for startup logging
 - `paths.ts` — centralised filesystem path resolution (HOME-first override; shared with hooks via a build-generated copy in `scripts/hooks/_generated/`)
 - `scoring.ts` — multi-factor scoring engine: weights search relevance, recency, frequency, confidence, recall-impact; exports `rankEntities()` used by all recall paths
@@ -285,6 +285,7 @@ message send (MCP / HTTP / CLI)
   -> owner-private local agent router
   -> eligible active supported host adapter (for example, configured Codex)
   -> bounded untrusted full message through the native host channel
+     (64 KiB JSON-encoded durable payload; 16 KiB complete native envelope)
   -> exact-session send returns only after native host acceptance
 ```
 

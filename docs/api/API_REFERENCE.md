@@ -634,6 +634,8 @@ Discover live registrations or exchange durable exact-recipient messages between
 
 **When to use it:** use `discover` when you know the project but not the right live recipient; use `send` to hand off work, ask for a result, or report a disposition. For `target_kind: "session"`, MeMesh sends the bounded full message through the exact active native host channel and returns only after `host_accept`; an absent, stopped, disconnected, or rejected exact session returns `recipient_unavailable`. Durable state remains available for scoped recovery, but a failed exact-session native delivery is not automatically replayed when that session later registers. Principal targets retain durable store-and-forward behavior. A briefing surfaces `N messages waiting for "<recipient>" in project "<project>"` only when the caller supplies that exact recipient; generic briefing and SessionStart context have no recipient identity and remain quiet.
 
+The JSON-encoded durable `payload` is limited to 65,536 UTF-8 bytes (64 KiB). Native delivery has a separate 16,384-byte (16 KiB) limit for the complete envelope, including routing metadata and payload. Therefore, fitting the durable payload limit does not guarantee that native delivery can accept the message. Payloads are untrusted data and are never executed by MeMesh.
+
 The durable API is separate from host-native delivery. A stable **principal** names a logical recipient; a **session** is one active connection, and its **generation** changes when replaced. Exact-session delivery never reroutes; a principal target may use only an eligible active session after activation. Persistence, dispatch, host acceptance, intake, acknowledgement, workflow disposition, retention, and presence are independent state axes. A Local host-native input may remove polling for an active session, but no stopped session is awakened. Cloud relay, A2A, SSE, discovery, persistence, or fetch is not proof of Local host delivery.
 
 For an active exact session, a durable message event passes through the owner-private local router to the authenticated supported host adapter. The adapter receives one untrusted full envelope capped at 16 KiB; no inbox fetch is required for that native delivery. A host acceptance receipt is not recipient acknowledgement or workflow disposition. See [the architecture branch](../ARCHITECTURE.md#wake-an-eligible-local-message-recipient-optional) for the local path and its limits.
@@ -642,7 +644,7 @@ The `action` field is one of:
 
 | Action | Required fields | Meaning |
 |--------|-----------------|---------|
-| `send` | `project`, `sender`, `recipient`, `idempotency_key`, `payload` | Transactionally create one canonical message, one recipient delivery, and one notification event. Exact-session success additionally requires native `host_accept`; otherwise the call returns `recipient_unavailable` while leaving scoped recovery state. Exact retries return the same IDs; a conflicting retry is rejected. |
+| `send` | `project`, `sender`, `recipient`, `idempotency_key`, `payload` | Transactionally create one canonical message, one recipient delivery, and one notification event. JSON-encoded payloads are capped at 64 KiB; the complete native envelope is capped separately at 16 KiB. Exact-session success additionally requires native `host_accept`; otherwise the call returns `recipient_unavailable` while leaving scoped recovery state. Principal targets retain durable store-and-forward behavior. Exact retries return the same IDs; a conflicting retry is rejected. |
 | `discover` | `project`, optional `limit` (default 50, max 100) | Read currently live registrations in one project from the router. Returns only router data (`session_id`, `principal_id`, `host_kind`, `project`, declared `model`/`work_summary` or `null`, `active`, `generation`, and `lease_expires_at_ms`); performs no message or receipt operation and fails explicitly when the router is unavailable. |
 | `poll` | `project`, `recipient` | Read a bounded batch after an optional opaque `cursor`. `wait_ms` is 0–30000 and `limit` is 1–100. Events contain routing metadata, never the payload. |
 | `fetch` | `project`, `recipient`, `message_id` | Return the payload routed to that principal or exact session. Optional `target_kind` defaults to `principal`; exact-session fetches must pass `session`. Fetch is a read and does not imply intake or ACK. |
@@ -1318,7 +1320,7 @@ The CLI exposes the same local lifecycle as the MCP and HTTP `message` surface:
 
 | Command | Purpose |
 |---------|---------|
-| `memesh message send` | Durably send one exact-recipient message under a stable idempotency key |
+| `memesh message send` | Durably send one exact-recipient untrusted JSON payload (64 KiB max); exact-session native envelopes have a separate 16 KiB cap |
 | `memesh message watch` | Emit `ready`, then one bounded `events` or `timeout` JSONL record with `next_cursor` |
 | `memesh message fetch` | Fetch one authorized payload without acknowledging it |
 | `memesh message intake` | Record `fetched` or `ingested` |
