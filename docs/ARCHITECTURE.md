@@ -293,7 +293,7 @@ Implementation anchors: `src/core/agent-messaging.ts`, `src/core/agent-router.ts
 `src/transports/agent-messaging.ts`, `src/host-adapters/`, `src/host-runtime/`, and
 `docs/platforms/agent-messaging.md`.
 
-This branch is optional and local-only: unavailable, stopped, disconnected, or unsupported exact sessions return `recipient_unavailable` and are not resumed or replaced. A host queue acceptance is a host receipt, not recipient acknowledgement or workflow disposition. See the [`message` API contract](api/API_REFERENCE.md#message) and the [Local Agent Messaging Guide](platforms/agent-messaging.md) for the lifecycle and supported-host limits.
+This branch is optional and local-only: an oversized full envelope returns `native_message_too_large`; unavailable, stopped, disconnected, or unsupported exact sessions return `recipient_unavailable` and are not resumed or replaced. A host queue acceptance is a host receipt, not recipient acknowledgement or workflow disposition. See the [`message` API contract](api/API_REFERENCE.md#message) and the [Local Agent Messaging Guide](platforms/agent-messaging.md) for the lifecycle and supported-host limits.
 
 Before sending, `message discover` can read the router's live registrations for
 one exact project. It returns session/principal routing identity, host kind,

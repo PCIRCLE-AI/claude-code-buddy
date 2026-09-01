@@ -211,6 +211,63 @@ describe('agent message transport', () => {
     })).rejects.toThrow(/not available/);
   });
 
+  it('reports native_message_too_large when the exact-session adapter rejects the full envelope', async () => {
+    await expect(executeAgentMessageAction(getDatabase(), {
+      action: 'send',
+      project: 'transport-session-size',
+      sender: 'sender',
+      recipient: 'session-instance-large',
+      target_kind: 'session',
+      idempotency_key: 'exact-session-too-large',
+      payload: 'fits durable storage but not the native envelope',
+    }, {
+      transport: 'cli',
+      sourceHost: 'test-host',
+    }, {
+      sendRouterRequest: async (_socketPath, request) => {
+        if (request.type !== 'notify') throw new Error('expected notify request');
+        const connectionId = randomUUID();
+        getDatabase().prepare(`
+          INSERT INTO agent_principals (project, principal_id, activation_event_sequence)
+          VALUES (?, ?, 0)
+        `).run('transport-session-size', 'session-instance-large');
+        getDatabase().prepare(`
+          INSERT INTO agent_session_instances (
+            project, session_instance_id, principal_id, adapter_kind
+          ) VALUES (?, ?, ?, 'codex-cli-queue')
+        `).run('transport-session-size', 'session-instance-large', 'session-instance-large');
+        getDatabase().prepare(`
+          INSERT INTO agent_session_connections (
+            connection_id, project, principal_id, session_instance_id, generation,
+            adapter_kind, router_instance_id, lease_expires_at_ms
+          ) VALUES (?, ?, ?, ?, 1, 'codex-cli-queue', 'test-router', ?)
+        `).run(
+          connectionId,
+          'transport-session-size',
+          'session-instance-large',
+          'session-instance-large',
+          Date.now() + 60_000,
+        );
+        getDatabase().prepare(`
+          INSERT INTO agent_dispatch_attempts (
+            attempt_id, delivery_id, project, principal_id, session_instance_id,
+            connection_id, generation, router_instance_id, attempt_number,
+            result, failure_code, completed_at
+          ) VALUES (?, ?, ?, ?, ?, ?, 1, 'test-router', 1,
+            'adapter_rejected', 'native_message_too_large', CURRENT_TIMESTAMP)
+        `).run(
+          randomUUID(),
+          request.delivery_id,
+          'transport-session-size',
+          'session-instance-large',
+          'session-instance-large',
+          connectionId,
+        );
+        return { delivered: false };
+      },
+    })).rejects.toMatchObject({ code: 'native_message_too_large' });
+  });
+
   it('returns native_accepted only after exact-session host acceptance is read back', async () => {
     const result = await executeAgentMessageAction(getDatabase(), {
       action: 'send',

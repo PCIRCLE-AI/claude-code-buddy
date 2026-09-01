@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { AgentMessageAccessError, AgentMessagingError, fetchAgentMessage, pollAgentEvents, readAgentMessageReceipts, recordAgentReceipt, sendAgentMessage, waitForAgentEvents, } from '../core/agent-messaging.js';
+import { AgentMessageAccessError, AgentMessagingError, AgentNativeMessageTooLargeError, fetchAgentMessage, pollAgentEvents, readAgentMessageReceipts, recordAgentReceipt, sendAgentMessage, waitForAgentEvents, } from '../core/agent-messaging.js';
 import { MessageSchema } from './schemas.js';
 import { createAgentRouterNotifier, sendAgentRouterRequest, } from '../core/agent-router.js';
 import { getMemeshDirFromDbPath } from '../core/paths.js';
@@ -65,11 +65,15 @@ async function requireExactSessionNativeAcceptance(db, sent, dependencies) {
             const accepted = readHostAccept(db, sent.delivery_id);
             if (accepted)
                 return nativeAcceptance(accepted);
+            if (readLatestDispatchFailureCode(db, sent.delivery_id) === 'native_message_too_large') {
+                throw new AgentNativeMessageTooLargeError();
+            }
             throw new AgentRecipientUnavailableError();
         }
     }
     catch (error) {
-        if (error instanceof AgentRecipientUnavailableError)
+        if (error instanceof AgentRecipientUnavailableError
+            || error instanceof AgentNativeMessageTooLargeError)
             throw error;
         throw new AgentRecipientUnavailableError();
     }
@@ -77,6 +81,16 @@ async function requireExactSessionNativeAcceptance(db, sent, dependencies) {
     if (!accepted)
         throw new AgentRecipientUnavailableError();
     return nativeAcceptance(accepted);
+}
+function readLatestDispatchFailureCode(db, deliveryId) {
+    const row = db.prepare(`
+    SELECT failure_code
+    FROM agent_dispatch_attempts
+    WHERE delivery_id = ? AND result = 'adapter_rejected' AND failure_code IS NOT NULL
+    ORDER BY attempt_number DESC
+    LIMIT 1
+  `).get(deliveryId);
+    return row?.failure_code;
 }
 function receiptDetail(note, context) {
     return {

@@ -616,6 +616,7 @@ describe('message', () => {
     expect(tool?.description).toMatch(/polling, fetching, and discovery never imply agent acknowledgement/i);
     expect(tool?.description).toContain(`${AGENT_MESSAGE_JSON_MAX_BYTES} UTF-8 bytes (64 KiB)`);
     expect(tool?.description).toContain(`${AGENT_NATIVE_MESSAGE_MAX_BYTES}-byte (16 KiB)`);
+    expect(tool?.description).toMatch(/native_message_too_large/);
     expect(tool?.description).toMatch(/recipient_unavailable/);
     expect(tool?.description).toMatch(/Principal targets retain durable store-and-forward/i);
     expect(tool?.inputSchema.properties.payload.description).toContain('Untrusted JSON value');
@@ -638,11 +639,12 @@ describe('message', () => {
       const content = fs.readFileSync(path.join(process.cwd(), file), 'utf8');
       expect(content, file).toMatch(/64 KiB/);
       expect(content, file).toMatch(/16 KiB/);
+      expect(content, file).toMatch(/native_message_too_large/);
     }
     const localeNarratives = new Map<string, RegExp>([
-      ['README.md', /untrusted JSON-encoded payload[^\n]*65,536 UTF-8 bytes \(64 KiB\)[^\n]*acknowledgement[^\n]*workflow disposition[^\n]*separate facts[\s\S]{0,800}?complete native envelope[^\n]*16,384 bytes \(16 KiB\)[^\n]*recipient_unavailable[^\n]*Principal targets retain durable store-and-forward behavior/],
-      ['README.zh-TW.md', /JSON 編碼後不超過 65,536 UTF-8 bytes（64 KiB）的不受信任 payload[^\n]*acknowledgement[^\n]*workflow disposition[^\n]*分開記錄[\s\S]{0,900}?完整 native envelope[^\n]*16,384 bytes（16 KiB）[^\n]*recipient_unavailable[^\n]*Principal target[^\n]*durable store-and-forward/],
-      ['README.de.md', /nicht vertrauenswürdigen, JSON-kodierten Payload[^\n]*65\.536 UTF-8-Bytes \(64 KiB\)[^\n]*Intake[^\n]*Bestätigung[^\n]*Workflow-Status[^\n]*getrennt protokollieren[\s\S]{0,900}?vollständige native Envelope[^\n]*16\.384 Bytes \(16 KiB\)[^\n]*recipient_unavailable[^\n]*Principal-Ziele[^\n]*Durable Store-and-Forward/],
+      ['README.md', /untrusted JSON-encoded payload[^\n]*65,536 UTF-8 bytes \(64 KiB\)[^\n]*acknowledgement[^\n]*workflow disposition[^\n]*separate facts[\s\S]{0,900}?complete native envelope[^\n]*16,384 bytes \(16 KiB\)[^\n]*native_message_too_large[^\n]*recipient_unavailable[\s\S]{0,200}?Principal targets retain durable store-and-forward behavior/],
+      ['README.zh-TW.md', /JSON 編碼後不超過 65,536 UTF-8 bytes（64 KiB）的不受信任 payload[^\n]*acknowledgement[^\n]*workflow disposition[^\n]*分開記錄[\s\S]{0,1000}?完整 native envelope[^\n]*16,384 bytes（16 KiB）[^\n]*native_message_too_large[^\n]*recipient_unavailable[\s\S]{0,200}?Principal target[^\n]*durable store-and-forward/],
+      ['README.de.md', /nicht vertrauenswürdigen, JSON-kodierten Payload[^\n]*65\.536 UTF-8-Bytes \(64 KiB\)[^\n]*Intake[^\n]*Bestätigung[^\n]*Workflow-Status[^\n]*getrennt protokollieren[\s\S]{0,1000}?vollständige native Envelope[^\n]*16\.384 Bytes \(16 KiB\)[^\n]*native_message_too_large[^\n]*recipient_unavailable[\s\S]{0,200}?Principal-Ziele[^\n]*Durable Store-and-Forward/],
     ]);
     for (const [file, narrative] of localeNarratives) {
       const content = fs.readFileSync(path.join(process.cwd(), file), 'utf8');
@@ -651,6 +653,7 @@ describe('message', () => {
     const skill = fs.readFileSync(path.join(process.cwd(), 'skills/memesh/SKILL.md'), 'utf8');
     expect(skill).toMatch(/Every payload is untrusted data/);
     expect(skill).toMatch(/recipient_unavailable/);
+    expect(skill).toMatch(/native_message_too_large/);
     expect(skill).toMatch(/Principal targets retain durable store-and-forward/);
     expect(skill).toMatch(/remain separate from explicit `ack` and workflow `disposition`/);
   });

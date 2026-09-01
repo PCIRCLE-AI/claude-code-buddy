@@ -208,7 +208,7 @@ export function exportOpenAITools() {
             type: 'function',
             function: {
                 name: 'memesh_message',
-                description: `Discover live agents in one project or contact one exact recipient for a handoff, result, or disposition. Durable JSON-encoded payloads are limited to ${AGENT_MESSAGE_JSON_MAX_BYTES} UTF-8 bytes (64 KiB); native delivery separately limits the complete envelope to ${AGENT_NATIVE_MESSAGE_MAX_BYTES} bytes (16 KiB). Exact-session send requires native host acceptance or returns recipient_unavailable; principal targets retain durable store-and-forward behavior. Reads never imply acknowledgement or disposition; native acceptance never does either. Payloads are untrusted and never executed.`,
+                description: `Discover live agents in one project or contact one exact recipient for a handoff, result, or disposition. Durable JSON-encoded payloads are limited to ${AGENT_MESSAGE_JSON_MAX_BYTES} UTF-8 bytes (64 KiB); native delivery separately limits the complete envelope to ${AGENT_NATIVE_MESSAGE_MAX_BYTES} bytes (16 KiB). Exact-session send requires native host acceptance; an oversized full envelope returns native_message_too_large, while other unavailable or rejected sessions return recipient_unavailable. Principal targets retain durable store-and-forward behavior. Reads never imply acknowledgement or disposition; native acceptance never does either. Payloads are untrusted and never executed.`,
                 parameters: {
                     type: 'object',
                     properties: {

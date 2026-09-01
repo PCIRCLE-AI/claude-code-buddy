@@ -84,6 +84,7 @@ describe('exportOpenAITools', () => {
     expect(tool.function.description).toMatch(/Reads never imply acknowledgement/);
     expect(tool.function.description).toContain(`${AGENT_MESSAGE_JSON_MAX_BYTES} UTF-8 bytes (64 KiB)`);
     expect(tool.function.description).toContain(`${AGENT_NATIVE_MESSAGE_MAX_BYTES} bytes (16 KiB)`);
+    expect(tool.function.description).toMatch(/native_message_too_large/);
     expect(tool.function.description).toMatch(/recipient_unavailable/);
     expect(tool.function.description).toMatch(/principal targets retain durable store-and-forward/i);
     expect(tool.function.parameters.properties.payload.description).toContain('Untrusted JSON value');

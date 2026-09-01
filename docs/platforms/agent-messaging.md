@@ -24,14 +24,18 @@ result reports only that recipient's unfetched deliveries and tells it to
 The messaging path keeps durable store-and-forward compatibility. For an
 exact active local Codex or Claude session, MeMesh sends one bounded full
 message through the authenticated native host channel and waits for native
-acceptance; no marker-to-fetch step is required. An unavailable exact session
-returns `recipient_unavailable` while scoped recovery data remains durable.
+acceptance; no marker-to-fetch step is required. An oversized full envelope
+returns `native_message_too_large`; other unavailable or rejected exact sessions
+return `recipient_unavailable` while scoped recovery data remains durable.
 Principal targets retain asynchronous store-and-forward semantics.
 The JSON-encoded durable payload is limited to 65,536 UTF-8 bytes (64 KiB).
 Native delivery separately limits the complete envelope, including routing
 metadata and payload, to 16,384 bytes (16 KiB). Fitting the durable limit does
 not guarantee that a native envelope fits; exact-session messages should stay
 comfortably below the native cap.
+The size failure is permanent for that exact envelope and is reported as
+`native_message_too_large`, so callers do not retry it as transient session
+unavailability.
 `poll`/`watch` are compatibility and diagnostic APIs. A queue admission or
 `host_accept` is not proof that an agent read the payload, acknowledged it, or
 accepted the work.
@@ -193,7 +197,7 @@ for active Codex-session delivery.
 ## What Works Today
 
 - MCP, HTTP, and CLI use the same message lifecycle and SQLite system of record.
-- `send` creates one canonical message, recipient delivery, and payload-free notification event under an idempotency key. Exact-session success additionally requires native host acceptance; otherwise it returns `recipient_unavailable` while preserving recovery state.
+- `send` creates one canonical message, recipient delivery, and payload-free notification event under an idempotency key. Exact-session success additionally requires native host acceptance; an oversized envelope returns `native_message_too_large`, while other unavailable or rejected sessions return `recipient_unavailable`, with recovery state preserved.
 - `poll` and `memesh message watch` return only events for the exact project and recipient. They are compatibility and diagnostic paths; the opaque cursor can be persisted and reused after a timeout, dropped hint, duplicate delivery, or process restart.
 - `fetch` returns the payload only to the named recipient and matching `target_kind` in the named project. Exact-session messages require `target_kind=session`; polling and fetching do not acknowledge the message.
 - `intake`, `ack`, `disposition`, and `activation` are explicit, separate, idempotent receipt facts. Inbox/MCP ACK is valid without a host-native acceptance; host-native ACK remains bound to its `host_accept`. `receipts` returns one ordered projection and identifies each underlying fact source. For example, `manual_resume_required` does not imply ACK, acceptance, rejection, cancellation, or completion.
@@ -206,7 +210,8 @@ A **principal** is the stable logical recipient. A **session** is one live host 
 Persistence, dispatch attempt, host acceptance, intake, acknowledgement,
 workflow disposition, retention, and presence are independent state axes. An
 active configured exact session receives a bounded full message without
-polling or an inbox fetch. A stopped, missing, busy beyond its queue limit,
+polling or an inbox fetch. An oversized full envelope returns
+`native_message_too_large`. A stopped, missing, busy beyond its queue limit,
 disconnected, or unsupported session returns `recipient_unavailable` and is
 not awakened, resumed, or replaced; durable state remains available for audit
 and recovery, subject to exact-session and activation-checkpoint rules.
@@ -271,7 +276,7 @@ reply, or a stopped-session wake-up.
 
 | Participant | Current path | Status today | Notes |
 |---|---|---|---|
-| Ordinary Codex CLI | `codex-session` owner-private opt-in | bounded full-message native delivery while active | Exact workspace, principal, and SessionStart identity must match; stopped or disconnected exact sessions return `recipient_unavailable` |
+| Ordinary Codex CLI | `codex-session` owner-private opt-in | bounded full-message native delivery while active | Exact workspace, principal, and SessionStart identity must match; oversized envelopes return `native_message_too_large`, while stopped or disconnected sessions return `recipient_unavailable` |
 | MeMesh-managed Codex app-server | `memesh-host-codex` | separate managed path | It creates its own Codex thread; it does not attach to an ordinary session |
 | Claude channel | `memesh-host-claude` | separate channel path | Requires the documented Channel opt-in; no stopped-session resume |
 | Other local MCP clients | MCP, HTTP, or CLI message operations | durable messaging only | Use `poll`/`watch` and scoped fetch where their own host loop supports it; this guide makes no native-wakeup claim |

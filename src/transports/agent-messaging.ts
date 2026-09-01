@@ -5,6 +5,7 @@ import type { MemeshDatabase } from '../storage/sqlite.js';
 import {
   AgentMessageAccessError,
   AgentMessagingError,
+  AgentNativeMessageTooLargeError,
   fetchAgentMessage,
   pollAgentEvents,
   readAgentMessageReceipts,
@@ -155,16 +156,36 @@ async function requireExactSessionNativeAcceptance(
     if (result.delivered !== true) {
       const accepted = readHostAccept(db, sent.delivery_id);
       if (accepted) return nativeAcceptance(accepted);
+      if (readLatestDispatchFailureCode(db, sent.delivery_id) === 'native_message_too_large') {
+        throw new AgentNativeMessageTooLargeError();
+      }
       throw new AgentRecipientUnavailableError();
     }
   } catch (error) {
-    if (error instanceof AgentRecipientUnavailableError) throw error;
+    if (
+      error instanceof AgentRecipientUnavailableError
+      || error instanceof AgentNativeMessageTooLargeError
+    ) throw error;
     throw new AgentRecipientUnavailableError();
   }
 
   const accepted = readHostAccept(db, sent.delivery_id);
   if (!accepted) throw new AgentRecipientUnavailableError();
   return nativeAcceptance(accepted);
+}
+
+function readLatestDispatchFailureCode(
+  db: MemeshDatabase,
+  deliveryId: string,
+): string | undefined {
+  const row = db.prepare(`
+    SELECT failure_code
+    FROM agent_dispatch_attempts
+    WHERE delivery_id = ? AND result = 'adapter_rejected' AND failure_code IS NOT NULL
+    ORDER BY attempt_number DESC
+    LIMIT 1
+  `).get(deliveryId) as { failure_code: string } | undefined;
+  return row?.failure_code;
 }
 
 function receiptDetail(
