@@ -3360,7 +3360,8 @@ describe('Claude Channel registration diagnostic', () => {
       if (target) {
         fs.mkdirSync(path.dirname(target.path), { recursive: true });
         const content = target.content ?? JSON.stringify({
-          router_socket: '/tmp/memesh-router.sock', token_file: '/tmp/memesh-router.token',
+          router_socket: path.join(path.dirname(target.path), 'memesh-router.sock'),
+          token_file: path.join(path.dirname(target.path), 'memesh-router.token'),
           project: 'fixture', principal_id: 'claude-reviewer', server_name: 'memesh-channel',
         });
         if (target.symlinkTo) {
