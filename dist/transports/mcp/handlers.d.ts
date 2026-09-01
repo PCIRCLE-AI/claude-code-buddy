@@ -226,6 +226,10 @@ export declare const TOOL_DEFINITIONS: readonly [{
                 readonly type: "string";
                 readonly description: "Project name. Omit to use the current working directory’s project.";
             };
+            readonly recipient: {
+                readonly type: "string";
+                readonly description: "Exact logical recipient. Required to surface actionable unread messages; omit for generic context.";
+            };
         };
         readonly additionalProperties: false;
     };
@@ -306,14 +310,14 @@ export declare const TOOL_DEFINITIONS: readonly [{
     };
 }, {
     readonly name: "message";
-    readonly description: "Use this to contact another local agent — hand off work, ask for a result, report a disposition — and send here FIRST: the durable inbox is the record, host push is only the delivery. Exchange durable local agent messages on one MeMesh instance. send creates one message/delivery/wakeup event idempotently; poll waits or catches up with an opaque cursor; fetch reads the payload; intake, ack, disposition, and activation record separate explicit facts. Polling or fetching never acknowledges a message, and no action executes payload content.";
+    readonly description: "Use this to contact or discover another local agent on the same MeMesh instance. discover is a bounded, project-scoped live-directory read of active leases and returns only the router result; it performs no send, fetch, ACK, replay, or receipt work. send durably stores one untrusted JSON-encoded payload of at most 65536 UTF-8 bytes (64 KiB) idempotently. Native delivery has a separate 16384-byte (16 KiB) cap for the complete envelope, including routing metadata and payload. For target_kind=session, success requires the exact active native host to accept that full envelope. An oversized envelope returns native_message_too_large; other unavailable or rejected sessions return recipient_unavailable while preserving scoped recovery data. Principal targets retain durable store-and-forward behavior even when native delivery is unavailable. poll/fetch remain compatibility and recovery reads; intake, ack, disposition, and activation are separate explicit facts. Native acceptance, polling, fetching, and discovery never imply agent acknowledgement or workflow completion.";
     readonly inputSchema: {
         readonly type: "object";
         readonly properties: {
             readonly action: {
                 readonly type: "string";
-                readonly enum: readonly ["send", "poll", "fetch", "intake", "ack", "disposition", "activation", "receipts"];
-                readonly description: "Lifecycle action. Each action validates only its documented fields and rejects unknown fields.";
+                readonly enum: readonly ["send", "poll", "discover", "fetch", "intake", "ack", "disposition", "activation", "receipts"];
+                readonly description: "Message lifecycle or live-directory action. Each action validates only its documented fields and rejects unknown fields.";
             };
             readonly project: {
                 readonly type: "string";
@@ -325,7 +329,7 @@ export declare const TOOL_DEFINITIONS: readonly [{
             };
             readonly recipient: {
                 readonly type: "string";
-                readonly description: "Stable target local agent/host identifier.";
+                readonly description: "Required for every action except discover. Stable target local agent/host identifier.";
             };
             readonly target_kind: {
                 readonly type: "string";
@@ -338,7 +342,7 @@ export declare const TOOL_DEFINITIONS: readonly [{
             };
             readonly payload: {
                 readonly type: readonly ["string", "number", "boolean", "object", "array", "null"];
-                readonly description: "Required for send. JSON value treated as untrusted data and never executed by MeMesh.";
+                readonly description: "Required for send. Untrusted JSON value, limited to 65536 UTF-8 bytes (64 KiB) after JSON encoding. Native push additionally requires the complete envelope to fit 16384 bytes (16 KiB). MeMesh never executes the payload.";
             };
             readonly content_type: {
                 readonly type: "string";
@@ -368,7 +372,7 @@ export declare const TOOL_DEFINITIONS: readonly [{
             };
             readonly limit: {
                 readonly type: "number";
-                readonly description: "Maximum poll events, 1-100. Defaults to 20.";
+                readonly description: "Maximum poll or discovery rows, 1-100. Defaults to 20 for poll and 50 for discover.";
             };
             readonly message_id: {
                 readonly type: "string";

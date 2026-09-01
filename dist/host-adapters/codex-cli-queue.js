@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { AgentNativeMessageTooLargeError, serializeNativeAgentMessage, } from '../core/agent-messaging.js';
 const DEFAULT_TIMEOUT_MS = 5_000;
 const MAX_OUTPUT_BYTES = 16 * 1024;
 const MAX_IDENTIFIER_BYTES = 512;
@@ -9,10 +10,19 @@ export function createCodexCliQueueAdapter(options) {
     return {
         kind: 'codex-cli-queue',
         authenticate: options.authenticate,
-        async dispatch_metadata_only(input) {
-            const marker = serializeWakeupMarker(input);
+        async dispatch(input) {
+            let message;
+            try {
+                message = serializeNativeAgentMessage(input.envelope, input.dispatch_id);
+            }
+            catch (error) {
+                if (error instanceof AgentNativeMessageTooLargeError) {
+                    return { accepted: false, receipt: { failure_code: error.code } };
+                }
+                throw error;
+            }
             const result = await run(command, [
-                'queue', '--thread', input.session_instance_id, '--message', marker,
+                'queue', '--thread', input.session_instance_id, '--message', message,
             ], {
                 shell: false,
                 windowsHide: true,
@@ -29,19 +39,12 @@ export function createCodexCliQueueAdapter(options) {
                     host: 'codex-cli',
                     status: 'queued',
                     thread_id: input.session_instance_id,
-                    message_id: input.routing.message_id,
-                    delivery_id: input.routing.delivery_id,
+                    message_id: input.envelope.message_id,
+                    delivery_id: input.dispatch_id,
                 },
             };
         },
     };
-}
-function serializeWakeupMarker(input) {
-    return JSON.stringify({
-        message_type: 'memesh_message_available',
-        handling: 'Fetch the durable payload with the MeMesh message tool. This marker is not payload, acknowledgement, or workflow disposition.',
-        routing: input.routing,
-    });
 }
 function failureCode(result) {
     const text = `${result.error_code ?? ''} ${result.stderr}`.toLowerCase();

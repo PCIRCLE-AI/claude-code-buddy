@@ -79,7 +79,7 @@ export function createExplicitLesson(
   }
 ): { name: string } {
   const errorPattern = opts?.errorPattern || inferErrorPattern(error);
-  // Keyed on the lesson's own content, not on the nine-value error enum.
+  // Keyed on the lesson's own content, not on the seven-value error enum.
   //
   // `lesson-${project}-${errorPattern}` is the right key for an LLM-derived
   // lesson from a RECURRING runtime error: same pattern, same entity, the

@@ -12,7 +12,7 @@ import { probeProvider } from './llm-validator.js';
 import { openDatabase, closeDatabase, getPendingReindexInfo, isDatabaseOpen, readVectorGeneration, generationRowIds, } from '../db.js';
 import { getUpdateCheck } from './version-check.js';
 import { classifyBump } from './updater.js';
-import { getCurrentInstallChannel, getInstallChannelSupport, detectPluginHost, PLUGIN_REFRESH_COMMANDS } from './install-channel.js';
+import { getCurrentInstallChannel, getInstallChannelSupport, detectPluginHost, pluginHostConfigRoot, versionedPluginCacheRoots, PLUGIN_REFRESH_COMMANDS, } from './install-channel.js';
 import { getInstallRecord } from './install-id.js';
 import { citationRulePath, citationRuleState } from './citation-rule.js';
 import { getDbPath, getMemeshDirFromDbPath, homeDir, memeshDir, getProjectName } from './paths.js';
@@ -27,6 +27,7 @@ import { parseSqliteUtcMs } from './time-utils.js';
 import { autoCaptureDecision } from './capture-flag.js';
 import { guardFromMetadata } from './guards.js';
 import { getAgentMessageStorageReport } from './agent-message-storage.js';
+import { readHostConfigFile } from '../host-runtime/config.js';
 const EMBEDDING_PROBE_TIMEOUT_MS = 15000;
 const EXPECTED_HOOK_TYPES = ['PreToolUse', 'SessionStart', 'PostToolUse', 'Stop', 'PreCompact'];
 const AGENT_MESSAGE_STORAGE_QUOTA_ENV = 'MEMESH_AGENT_MESSAGE_STORAGE_QUOTA_BYTES';
@@ -147,6 +148,15 @@ function inspectAgentMessageStorage(db, databasePath, policy) {
         return undefined;
     }
 }
+function inspectCodexSessionSetup(codexPluginCacheDetected, existsSyncImpl) {
+    if (!codexPluginCacheDetected)
+        return null;
+    const configPath = path.join(getMemeshDirFromDbPath(), 'hosts', 'codex-session.json');
+    if (existsSyncImpl(configPath)) {
+        return createCheck('codex-session-setup', 'Codex ordinary-session notification setup', 'pass', 'A Codex plugin cache copy was detected, but this proves only that cached source exists, not that the plugin is enabled or registered. The explicit opt-in ordinary-session notification setup is present; durable inbox remains available, and MeMesh will not auto-attach.');
+    }
+    return createCheck('codex-session-setup', 'Codex ordinary-session notification setup', 'warn', 'A Codex plugin cache copy was detected, but this proves only that cached source exists, not that the plugin is enabled or registered. Durable inbox remains available, but live ordinary-session wakeup is inactive. Setup is explicit opt-in; MeMesh will not auto-attach.', 'Run `memesh agent setup codex-session --project <project> --principal <principal> --workspace <exact-workspace>`, then restart Codex.', { code: 'codex-session.config-missing' });
+}
 function configuredAgentMessageStoragePolicy(explicit) {
     if (explicit !== undefined)
         return explicit;
@@ -235,8 +245,12 @@ function extractHookScriptPaths(hooksConfig, packageRoot) {
         return [];
     const scripts = new Set();
     for (const entries of Object.values(hooks)) {
-        for (const entry of entries ?? []) {
-            for (const hook of entry.hooks ?? []) {
+        if (!Array.isArray(entries))
+            continue;
+        for (const entry of entries) {
+            if (!Array.isArray(entry.hooks))
+                continue;
+            for (const hook of entry.hooks) {
                 if (typeof hook.command !== 'string')
                     continue;
                 const command = hook.command.replace('${CLAUDE_PLUGIN_ROOT}/', '');
@@ -259,7 +273,10 @@ function inspectHooksConfig(packageRoot, platform, existsSyncImpl, readFileSyncI
             createCheck('hooks-config', 'Hooks config', 'fail', 'hooks/hooks.json is not valid JSON.', `Fix ${hooksPath} so Claude Code can load the hook definitions.`, { code: 'hooks-config.invalid-json', params: { path: hooksPath } }),
         ];
     }
-    const hookTypes = Object.keys(parsed.value.hooks ?? {});
+    const parsedHooks = parsed.value.hooks;
+    const hookTypes = parsedHooks && typeof parsedHooks === 'object' && !Array.isArray(parsedHooks)
+        ? Object.keys(parsedHooks)
+        : [];
     const missingTypes = EXPECTED_HOOK_TYPES.filter((type) => !hookTypes.includes(type));
     const configCheck = missingTypes.length > 0
         ? createCheck('hooks-config', 'Hooks config', 'fail', `hooks/hooks.json is missing expected hook types: ${missingTypes.join(', ')}.`, 'Restore the shipped hook configuration or reinstall MeMesh.', { code: 'hooks-config.missing-types', params: { types: missingTypes.join(', ') } })
@@ -625,10 +642,10 @@ function inspectShellCli(installChannel, packageRoot, resolveShellMemeshImpl) {
 }
 function defaultMarketplaceHeadSha(host) {
     if (host === 'codex') {
-        const codexHome = process.env.CODEX_HOME || path.join(homeDir(), '.codex');
+        const codexHome = pluginHostConfigRoot('codex');
         return readCodexInstallRevision(path.join(codexHome, '.tmp', 'marketplaces', 'pcircle-memesh'), fs.readFileSync);
     }
-    const dir = path.join(homeDir(), '.claude', 'plugins', 'marketplaces', 'pcircle-memesh');
+    const dir = path.join(pluginHostConfigRoot('claude-code'), 'plugins', 'marketplaces', 'pcircle-memesh');
     try {
         const out = execFileSync('git', ['-C', dir, 'rev-parse', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
         return /^[0-9a-f]{40}$/.test(out) ? out : null;
@@ -644,7 +661,106 @@ function readCodexInstallRevision(root, readFileSyncImpl) {
     const rev = parsed.value.revision;
     return typeof rev === 'string' && /^[0-9a-f]{40}$/.test(rev) ? rev : null;
 }
-function inspectPluginCacheCurrency(installChannel, pluginHost, packageRoot, installedPluginsPath, readFileSyncImpl, marketplaceHeadShaImpl) {
+function pluginCacheUnverifiable(host, missing) {
+    const hostLabel = host === 'codex' ? 'Codex' : 'Claude Code';
+    const command = PLUGIN_REFRESH_COMMANDS[host];
+    return createCheck('plugin-cache', `Plugin cache source record is current (${hostLabel})`, 'warn', `Could not tell whether the plugin cache matches the marketplace: ${missing}. The version alone cannot answer this — two builds can carry the same version.`, `Run \`${command}\` — it re-stages the cache from the marketplace and records the commit, after which this check can answer.`, { code: 'plugin-cache.unverifiable', params: { host: hostLabel, command } });
+}
+function readClaudePluginEntries(registryPath, readFileSyncImpl, existsSyncImpl) {
+    if (!existsSyncImpl(registryPath)) {
+        return { exists: false, readable: false, defined: false, malformed: false, entries: [] };
+    }
+    const parsed = parseJsonFile(registryPath, readFileSyncImpl);
+    if (!parsed.ok)
+        return { exists: true, readable: false, defined: false, malformed: false, entries: [] };
+    const raw = parsed.value?.plugins?.['memesh@pcircle-memesh'];
+    const entries = Array.isArray(raw)
+        ? raw.filter((entry) => !!entry && typeof entry === 'object')
+        : [];
+    return {
+        exists: true,
+        readable: true,
+        defined: raw !== undefined,
+        malformed: raw !== undefined && (!Array.isArray(raw) || entries.length !== raw.length),
+        entries,
+    };
+}
+function defaultPluginCacheDiscovery(readFileSyncImpl, existsSyncImpl) {
+    const discovered = [];
+    const claudeConfigRoot = pluginHostConfigRoot('claude-code');
+    const claudeRegistry = path.join(claudeConfigRoot, 'plugins', 'installed_plugins.json');
+    const claudeCacheRoot = path.join(claudeConfigRoot, 'plugins', 'cache', 'pcircle-memesh', 'memesh');
+    const registry = readClaudePluginEntries(claudeRegistry, readFileSyncImpl, existsSyncImpl);
+    const entries = registry.entries;
+    if (registry.malformed) {
+        discovered.push({
+            host: 'claude-code',
+            packageRoot: claudeCacheRoot,
+            installedPluginsPath: claudeRegistry,
+            unverifiableReason: 'installed_plugins.json has a malformed memesh entry',
+        });
+    }
+    else if (entries.length > 0) {
+        const cachesByRoot = new Map();
+        for (const entry of entries) {
+            const recordedInstallPath = typeof entry.installPath === 'string' && entry.installPath.length > 0
+                ? entry.installPath
+                : null;
+            const installPath = recordedInstallPath ?? claudeCacheRoot;
+            const cache = {
+                host: 'claude-code', packageRoot: installPath, installedPluginsPath: claudeRegistry,
+                ...(!recordedInstallPath ? { unverifiableReason: 'an installed_plugins.json entry has no usable installPath' }
+                    : !existsSyncImpl(installPath) ? { unverifiableReason: `the recorded plugin cache does not exist at ${installPath}` } : {}),
+            };
+            const rootKey = path.resolve(installPath);
+            const existing = cachesByRoot.get(rootKey);
+            if (!existing)
+                cachesByRoot.set(rootKey, cache);
+            else if (!existing.unverifiableReason && cache.unverifiableReason) {
+                existing.unverifiableReason = cache.unverifiableReason;
+            }
+        }
+        discovered.push(...cachesByRoot.values());
+    }
+    else if (registry.defined) {
+        const cachedRoots = versionedPluginCacheRoots(claudeCacheRoot);
+        if (cachedRoots.length > 0) {
+            discovered.push({
+                host: 'claude-code',
+                packageRoot: cachedRoots[cachedRoots.length - 1],
+                installedPluginsPath: claudeRegistry,
+                unverifiableReason: 'installed_plugins.json records no active memesh install while a versioned plugin cache still exists',
+            });
+        }
+    }
+    else if (!registry.readable) {
+        const cachedRoots = versionedPluginCacheRoots(claudeCacheRoot);
+        const cachedRoot = cachedRoots[cachedRoots.length - 1];
+        if (cachedRoot) {
+            discovered.push({
+                host: 'claude-code', packageRoot: cachedRoot, installedPluginsPath: claudeRegistry,
+                unverifiableReason: registry.exists
+                    ? 'installed_plugins.json could not be read or parsed'
+                    : 'installed_plugins.json does not exist while a versioned plugin cache still exists',
+            });
+        }
+    }
+    const codexHome = pluginHostConfigRoot('codex');
+    const codexCacheRoot = path.join(codexHome, 'plugins', 'cache', 'pcircle-memesh', 'memesh');
+    const codexRoots = versionedPluginCacheRoots(codexCacheRoot);
+    if (codexRoots.length === 1) {
+        discovered.push({ host: 'codex', packageRoot: codexRoots[0] });
+    }
+    else if (codexRoots.length > 1) {
+        discovered.push({
+            host: 'codex',
+            packageRoot: codexRoots[codexRoots.length - 1],
+            unverifiableReason: `several versioned Codex plugin cache directories exist under ${codexCacheRoot}`,
+        });
+    }
+    return discovered;
+}
+function inspectPluginCacheCurrency(installChannel, pluginHost, packageRoot, installedPluginsPath, readFileSyncImpl, existsSyncImpl, marketplaceHeadShaImpl) {
     if (installChannel !== 'plugin-marketplace')
         return null;
     const host = pluginHost === 'codex' ? 'codex' : 'claude-code';
@@ -657,28 +773,121 @@ function inspectPluginCacheCurrency(installChannel, pluginHost, packageRoot, ins
         installedMissing = 'the plugin cache carries no readable .codex-marketplace-install.json revision';
     }
     else {
-        const registryPath = installedPluginsPath ?? path.join(homeDir(), '.claude', 'plugins', 'installed_plugins.json');
-        const parsed = parseJsonFile(registryPath, readFileSyncImpl);
-        const entries = parsed.ok
-            ? (parsed.value?.plugins?.['memesh@pcircle-memesh'] ?? [])
-            : [];
+        const registryPath = installedPluginsPath ?? path.join(pluginHostConfigRoot('claude-code'), 'plugins', 'installed_plugins.json');
+        const registry = readClaudePluginEntries(registryPath, readFileSyncImpl, existsSyncImpl);
+        const entries = registry.entries;
         const here = path.resolve(packageRoot);
         const matching = entries.filter(e => typeof e?.installPath === 'string' && path.resolve(e.installPath) === here);
-        const entry = matching[0] ?? (entries.length === 1 ? entries[0] : undefined);
-        installedSha = typeof entry?.gitCommitSha === 'string' ? entry.gitCommitSha : null;
-        installedMissing = entries.length > 1 && matching.length === 0
-            ? `installed_plugins.json lists ${entries.length} memesh entries and none of them is this install (${packageRoot})`
-            : 'installed_plugins.json does not record the commit this plugin was installed from';
+        const soleEntry = entries.length === 1 ? entries[0] : undefined;
+        const soleEntryHasPath = typeof soleEntry?.installPath === 'string' && soleEntry.installPath.length > 0;
+        const entry = matching.length === 1 ? matching[0] : undefined;
+        installedSha = !registry.malformed
+            && typeof entry?.gitCommitSha === 'string'
+            && /^[0-9a-f]{40}$/.test(entry.gitCommitSha)
+            ? entry.gitCommitSha
+            : null;
+        if (!registry.exists) {
+            installedMissing = `installed_plugins.json does not exist at ${registryPath}`;
+        }
+        else if (!registry.readable) {
+            installedMissing = 'installed_plugins.json could not be read or parsed';
+        }
+        else if (registry.malformed) {
+            installedMissing = 'installed_plugins.json has a malformed memesh entry';
+        }
+        else if (!registry.defined) {
+            installedMissing = 'installed_plugins.json has no memesh@pcircle-memesh entry';
+        }
+        else if (entries.length === 0) {
+            installedMissing = 'installed_plugins.json records no active memesh install for this cache';
+        }
+        else if (matching.length > 1) {
+            installedMissing = `installed_plugins.json lists ${matching.length} memesh entries for this install (${packageRoot})`;
+        }
+        else if (matching.length === 0 && soleEntryHasPath) {
+            installedMissing = `the only memesh entry in installed_plugins.json names another install, not this one (${packageRoot})`;
+        }
+        else if (matching.length === 0 && soleEntry) {
+            installedMissing = 'the only memesh entry in installed_plugins.json has no usable installPath to identify this cache';
+        }
+        else if (entries.length > 1 && matching.length === 0) {
+            installedMissing = `installed_plugins.json lists ${entries.length} memesh entries and none of them is this install (${packageRoot})`;
+        }
+        else {
+            installedMissing = 'installed_plugins.json does not record the commit this plugin was installed from';
+        }
     }
     const marketplaceSha = marketplaceHeadShaImpl(host);
     if (!installedSha || !marketplaceSha) {
         const missing = !installedSha ? installedMissing : `the ${hostLabel} marketplace snapshot has no readable commit`;
-        return createCheck('plugin-cache', 'Plugin code is current', 'warn', `Could not tell whether the plugin cache matches the marketplace: ${missing}. The version alone cannot answer this — two builds can carry the same version.`, `Run \`${command}\` — it re-stages the cache from the marketplace and records the commit, after which this check can answer.`, { code: 'plugin-cache.unverifiable', params: { host: hostLabel, command } });
+        return pluginCacheUnverifiable(host, missing);
     }
     if (installedSha === marketplaceSha) {
-        return createCheck('plugin-cache', 'Plugin code is current', 'pass', `The plugin cache was staged from the commit the marketplace has (${marketplaceSha.slice(0, 8)}).`);
+        return createCheck('plugin-cache', `Plugin cache source record is current (${hostLabel})`, 'pass', `The plugin cache records marketplace commit ${marketplaceSha.slice(0, 8)}, which matches the current marketplace snapshot.`);
     }
-    return createCheck('plugin-cache', 'Plugin code is current', 'warn', `The plugin cache was built from commit ${installedSha.slice(0, 8)}, but the marketplace has moved to ${marketplaceSha.slice(0, 8)} under the same version — ${hostLabel} does not refresh a cache whose version did not change, so the MCP server and hooks are running older code than the marketplace has.`, `Run \`${command}\` to refresh the cache in place, then restart ${hostLabel}.`, { code: 'plugin-cache.stale', params: { installed: installedSha.slice(0, 8), marketplace: marketplaceSha.slice(0, 8), host: hostLabel, command } });
+    return createCheck('plugin-cache', `Plugin cache source record is current (${hostLabel})`, 'warn', `The plugin cache records commit ${installedSha.slice(0, 8)}, but the marketplace has moved to ${marketplaceSha.slice(0, 8)} under the same version — ${hostLabel} does not normally refresh a cache whose version did not change, so refresh the cache before relying on the newer marketplace code.`, `Run \`${command}\` to refresh the cache in place, then restart ${hostLabel}.`, { code: 'plugin-cache.stale', params: { installed: installedSha.slice(0, 8), marketplace: marketplaceSha.slice(0, 8), host: hostLabel, command } });
+}
+function inspectClaudeChannelRegistration(existsSyncImpl, readFileSyncImpl) {
+    const configPath = path.join(homeDir(), '.claude.json');
+    let parsed = null;
+    if (existsSyncImpl(configPath)) {
+        try {
+            const value = JSON.parse(readFileSyncImpl(configPath, 'utf8'));
+            if (!value || typeof value !== 'object' || Array.isArray(value))
+                throw new Error('not an object');
+            parsed = value;
+        }
+        catch {
+            return createCheck('claude-channel', 'Claude Channel registration', 'warn', 'The canonical Claude user config could not be read as JSON, so the memesh-channel registration is malformed or unverifiable.', 'Repair the owner-controlled Claude config with `claude mcp remove memesh-channel` and re-run `memesh agent setup claude` to obtain a fresh registration command.');
+        }
+    }
+    const servers = parsed?.mcpServers;
+    const server = servers && typeof servers === 'object' && !Array.isArray(servers)
+        ? servers['memesh-channel']
+        : undefined;
+    if (server === undefined) {
+        return createCheck('claude-channel', 'Claude Channel registration', 'warn', 'No user-scoped memesh-channel registration was found. Durable MCP/inbox messaging can still work, but live Claude Channel notification is inactive. The upstream research-preview channel remains opt-in.', 'If you want the opt-in channel, run `memesh agent setup claude` and then register the printed user-scoped MCP command.');
+    }
+    const record = server && typeof server === 'object' && !Array.isArray(server)
+        ? server
+        : null;
+    const command = record?.command;
+    const rawArgs = record?.args;
+    const args = Array.isArray(rawArgs) ? rawArgs : null;
+    const configIndex = args?.indexOf('--config') ?? -1;
+    const target = args && configIndex >= 0 && typeof args[configIndex + 1] === 'string'
+        ? args[configIndex + 1]
+        : null;
+    let targetConfigValid = false;
+    if (target) {
+        try {
+            const config = readHostConfigFile(target);
+            const required = ['router_socket', 'token_file', 'project', 'principal_id'];
+            targetConfigValid = config.server_name === 'memesh-channel'
+                && required.every((key) => {
+                    const value = config[key];
+                    return typeof value === 'string'
+                        && value.length > 0
+                        && Buffer.byteLength(value) <= 4096;
+                });
+        }
+        catch {
+            targetConfigValid = false;
+        }
+    }
+    const coherent = command === 'memesh-host-claude'
+        && args !== null
+        && args.length === 2
+        && configIndex === 0
+        && target !== null
+        && targetConfigValid;
+    if (!coherent) {
+        const reason = command !== 'memesh-host-claude' || args === null || configIndex !== 0 || target === null
+            ? 'the command or --config declaration is malformed'
+            : 'the declared owner config target is missing, insecure, malformed, or incomplete';
+        return createCheck('claude-channel', 'Claude Channel registration', 'warn', `The user-scoped memesh-channel registration is present but ${reason}. Live Claude Channel notification is not established.`, 'Remove and re-register the owner-controlled memesh-channel entry with `memesh agent setup claude`; keep its generated config file owner-private.');
+    }
+    return createInfo('claude-channel', 'Claude Channel registration', 'The user-scoped memesh-channel registration and owner-private config target are coherent (CONFIGURED). Development-channel admission and agent surfacing are not verified; durable MCP/inbox messaging remains a separate path.');
 }
 function inspectDashboardArtifact(packageRoot, existsSyncImpl) {
     const dashboardPath = path.join(packageRoot, 'dashboard', 'dist', 'index.html');
@@ -799,7 +1008,7 @@ function verifySkillsManifest(packageRoot, existsSyncImpl, readFileSyncImpl, ins
     catch (err) {
         return createCheck('skills-manifest', 'Skills + hooks integrity', 'fail', `skills-manifest.json is unreadable (${err instanceof Error ? err.message : 'parse error'}).`, `Reinstall the package: ${reinstall} If the problem persists open an issue.`, { code: 'skills-manifest.unreadable', params: { detail: err instanceof Error ? err.message : 'parse error' } });
     }
-    const entries = manifest.entries ?? [];
+    const entries = Array.isArray(manifest.entries) ? manifest.entries : [];
     if (entries.length === 0) {
         return createCheck('skills-manifest', 'Skills + hooks integrity', 'fail', 'skills-manifest.json contains zero entries.', `Reinstall the package: ${reinstall}`, { code: 'skills-manifest.empty' });
     }
@@ -863,7 +1072,7 @@ function probeInstalledMessageCapability(packageRoot) {
         const tool = (await client.listTools()).tools.find((candidate) => candidate.name === 'message');
         assert.ok(tool, 'installed MCP did not advertise message');
         const actions = tool.inputSchema?.properties?.action?.enum;
-        assert.deepEqual(actions, ['send', 'poll', 'fetch', 'intake', 'ack', 'disposition', 'activation', 'receipts']);
+        assert.deepEqual(actions, ['send', 'poll', 'discover', 'fetch', 'intake', 'ack', 'disposition', 'activation', 'receipts']);
       } finally { await client.close(); }
     `], {
             cwd: packageRoot,
@@ -882,11 +1091,11 @@ function probeInstalledMessageCapability(packageRoot) {
 }
 function inspectMessageCapability(packageRoot, enabled, probe) {
     if (!enabled) {
-        return createInfo('message-capability', 'Message adapter imports', 'Not verified (opt-in). Set MEMESH_DOCTOR_PROBE_MESSAGE_CAPABILITY=1 to start this installed MCP and verify its eight-action message schema plus bundled host-adapter imports. This does not check a live router socket or host registration.');
+        return createInfo('message-capability', 'Message adapter imports', 'Not verified (opt-in). Set MEMESH_DOCTOR_PROBE_MESSAGE_CAPABILITY=1 to start this installed MCP and verify its nine-action message schema plus bundled host-adapter imports. This does not check a live router socket or host registration.');
     }
     const result = probe(packageRoot);
     if (result.ok)
-        return createCheck('message-capability', 'Message adapter imports', 'pass', 'This installed MCP advertised the eight-action message schema and all bundled host adapters imported successfully. No live router socket, host registration, or host acceptance was verified.');
+        return createCheck('message-capability', 'Message adapter imports', 'pass', 'This installed MCP advertised the nine-action message schema and all bundled host adapters imported successfully. No live router socket, host registration, or host acceptance was verified.');
     return createCheck('message-capability', 'Message adapter imports', 'fail', `Installed message capability probe failed: ${result.message}.`, 'Reinstall or rebuild this package, then retry with MEMESH_DOCTOR_PROBE_MESSAGE_CAPABILITY=1.', { code: 'message-capability.probe-failed', params: { detail: result.message } });
 }
 async function defaultMessageRouterStatusProbe() {
@@ -995,7 +1204,7 @@ function summarizeOverallStatus(checks) {
     return 'PASS';
 }
 export async function runDoctor(options) {
-    const { packageRoot, packageVersion, probeHttp = false, probeCapabilities = false, embedTextImpl = embedText, probeProviderImpl = probeProvider, httpBaseUrl = 'http://127.0.0.1:3737', platform = process.platform, openDatabaseImpl = openDatabase, closeDatabaseImpl = closeDatabase, isDatabaseOpenImpl = isDatabaseOpen, detectCapabilitiesImpl = detectCapabilities, getConfigPathImpl = getConfigPath, getUpdateCheckImpl = getUpdateCheck, getCurrentInstallChannelImpl = getCurrentInstallChannel, installedPluginsPathImpl, marketplaceHeadShaImpl = defaultMarketplaceHeadSha, getInstallChannelSupportImpl = getInstallChannelSupport, existsSyncImpl = fs.existsSync, readFileSyncImpl = fs.readFileSync, statSyncImpl = fs.statSync, fetchImpl = fetch, agentMessageStoragePolicy, nativeBindingProbeImpl, resolveShellMemeshImpl = defaultResolveShellMemesh, probeMessageCapability = process.env.MEMESH_DOCTOR_PROBE_MESSAGE_CAPABILITY === '1', messageCapabilityProbeImpl = probeInstalledMessageCapability, probeMessageRouterStatus = process.env.MEMESH_DOCTOR_PROBE_MESSAGE_ROUTER === '1', messageRouterStatusProbeImpl = defaultMessageRouterStatusProbe, } = options;
+    const { packageRoot, packageVersion, probeHttp = false, probeCapabilities = false, embedTextImpl = embedText, probeProviderImpl = probeProvider, httpBaseUrl = 'http://127.0.0.1:3737', platform = process.platform, openDatabaseImpl = openDatabase, closeDatabaseImpl = closeDatabase, isDatabaseOpenImpl = isDatabaseOpen, detectCapabilitiesImpl = detectCapabilities, getConfigPathImpl = getConfigPath, getUpdateCheckImpl = getUpdateCheck, getCurrentInstallChannelImpl = getCurrentInstallChannel, installedPluginsPathImpl, marketplaceHeadShaImpl = defaultMarketplaceHeadSha, pluginCacheDiscoveryImpl, getInstallChannelSupportImpl = getInstallChannelSupport, existsSyncImpl = fs.existsSync, readFileSyncImpl = fs.readFileSync, statSyncImpl = fs.statSync, fetchImpl = fetch, agentMessageStoragePolicy, nativeBindingProbeImpl, resolveShellMemeshImpl = defaultResolveShellMemesh, probeMessageCapability = process.env.MEMESH_DOCTOR_PROBE_MESSAGE_CAPABILITY === '1', messageCapabilityProbeImpl = probeInstalledMessageCapability, probeMessageRouterStatus = process.env.MEMESH_DOCTOR_PROBE_MESSAGE_ROUTER === '1', messageRouterStatusProbeImpl = defaultMessageRouterStatusProbe, } = options;
     const wasDbOpenBeforeUs = isDatabaseOpenImpl();
     const safeCloseDatabaseImpl = wasDbOpenBeforeUs
         ? () => undefined
@@ -1200,11 +1409,41 @@ export async function runDoctor(options) {
     checks.push(inspectConfigFile(existsSyncImpl, readFileSyncImpl, getConfigPathImpl, detectCapabilitiesImpl().llm));
     checks.push(inspectMcpConfig(packageRoot, existsSyncImpl, readFileSyncImpl));
     checks.push(...inspectHooksConfig(packageRoot, platform, existsSyncImpl, readFileSyncImpl, statSyncImpl));
-    const wiring = inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir(), install, installedPluginsPathImpl, detectPluginHost(packageRoot));
-    const pluginCache = inspectPluginCacheCurrency(install, detectPluginHost(packageRoot), packageRoot, installedPluginsPathImpl, readFileSyncImpl, marketplaceHeadShaImpl);
+    const pluginHost = detectPluginHost(packageRoot);
+    let codexPluginCacheDetected = pluginHost === 'codex';
+    let claudePluginCacheDetected = pluginHost === 'claude-code';
+    const wiring = inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir(), install, installedPluginsPathImpl, pluginHost);
+    const pluginCache = inspectPluginCacheCurrency(install, pluginHost, packageRoot, installedPluginsPathImpl, readFileSyncImpl, existsSyncImpl, marketplaceHeadShaImpl);
     if (pluginCache)
         checks.push(pluginCache);
+    if (install === 'npm-global') {
+        const discoveredCounts = new Map();
+        const discoveredPluginCaches = pluginCacheDiscoveryImpl
+            ? pluginCacheDiscoveryImpl()
+            : defaultPluginCacheDiscovery(readFileSyncImpl, existsSyncImpl);
+        for (const discovered of discoveredPluginCaches) {
+            if (discovered.host === 'codex')
+                codexPluginCacheDetected = true;
+            if (discovered.host === 'claude-code')
+                claudePluginCacheDetected = true;
+            const check = discovered.unverifiableReason
+                ? pluginCacheUnverifiable(discovered.host, discovered.unverifiableReason)
+                : inspectPluginCacheCurrency('plugin-marketplace', discovered.host, discovered.packageRoot, discovered.installedPluginsPath, readFileSyncImpl, existsSyncImpl, marketplaceHeadShaImpl);
+            if (check) {
+                const hostName = discovered.host;
+                const index = (discoveredCounts.get(discovered.host) ?? 0) + 1;
+                discoveredCounts.set(discovered.host, index);
+                checks.push({ ...check, id: `plugin-cache-${hostName}${index === 1 ? '' : `-${index}`}` });
+            }
+        }
+    }
     checks.push(wiring);
+    if (claudePluginCacheDetected) {
+        checks.push(inspectClaudeChannelRegistration(existsSyncImpl, readFileSyncImpl));
+    }
+    const codexSessionSetup = inspectCodexSessionSetup(codexPluginCacheDetected, existsSyncImpl);
+    if (codexSessionSetup)
+        checks.push(codexSessionSetup);
     const captureWired = wiring.status === 'pass'
         && (wiring.params === undefined || wiring.params.captureWired === 1);
     checks.push(inspectHookActivity(openDatabaseImpl, safeCloseDatabaseImpl, existsSyncImpl, statSyncImpl, captureWired));

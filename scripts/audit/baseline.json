@@ -76,6 +76,16 @@
       "reason": "bounded developer and independent-review replay for the MCP documentation, CODEMAP, and schema-export parity tests; the authoritative release gate is check:surface-parity, which verify:release invokes directly",
       "triaged": "2026-08-28 pre-release surface parity"
     },
+    "C3 npm:test:issue-241": {
+      "class": "SAFE",
+      "reason": "bounded regression runner for issue #241 only; it executes the three focused tests covering slugging, repair rerun semantics, and the read-only invariant detector",
+      "triaged": "2026-08-31 issue-241 focused regression"
+    },
+    "C3 npm:test:issue-242": {
+      "class": "SAFE",
+      "reason": "bounded issue-specific replay for the owned briefing, work-topology, and session-start surfaces; it proves the targeted regression without claiming release-wide coverage",
+      "triaged": "2026-08-30 issue-242 bounded replay"
+    },
     "C3 scripts/calibrate-transcript-dedup.mjs": {
       "class": "NOT-A-GATE",
       "reason": "manual calibration harness a human runs once to derive TRANSCRIPT_DEDUP_MAX_DISTANCE (its output is cited in the constant's comment); it measures and prints, it is not an automated gate with a CI caller",
@@ -206,10 +216,10 @@
       "reason": "provenance spread identity; trust written unconditionally",
       "triaged": "2026-08-04; re-keyed 2026-08-24 (R3 export/import batch shifted lines; statements byte-identical, classification unchanged); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged)"
     },
-    "C5 src/core/llm-client.ts:125": {
+    "C5 src/core/llm-client.ts:126": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "chain identity; all-providers-failed still throws",
-      "triaged": "2026-08-04; re-keyed 2026-08-13 rev3 +1 (the private redactSecrets was replaced by an import from core/paths; same statement, classification unchanged)"
+      "triaged": "2026-08-04; re-keyed 2026-08-13 rev3 +1 (the private redactSecrets was replaced by an import from core/paths; same statement, classification unchanged); re-keyed 2026-08-30 +1 (shared Ollama host-policy import shifted the same chain statement)"
     },
     "C6 tests/verify-retired.test.ts": {
       "class": "WIRING-PIN",
@@ -251,11 +261,6 @@
       "reason": "Same shape as the sibling file: `changed` is asserted `[]` for a no-op write and `['blocked']` when a clear actually happens, and `expect(row).toBeUndefined()` for the no-op is pinned by four other tests that read the row back and assert its tag, title and observations. Not vacuous; the pin is just not in a shape the regex matches.",
       "triaged": "2026-08-16 (A1b task-state)"
     },
-    "C1 tests/cli/upgrade-plugin.test.ts": {
-      "class": "DETECTOR-HEURISTIC",
-      "reason": "the `.toBe(0)` occurrences assert child-process EXIT CODES (success), not empty collections; the file also asserts non-empty stderr/stdout content on every failure path and pins a semver comparison (4.10.0 beats 4.9.0), so nothing is vacuously empty. The detector's regex cannot tell an exit-code zero from an empty-set zero.",
-      "triaged": "2026-08-16 (P6 upgrade-plugin)"
-    },
     "C1 tests/core/setup.test.ts": {
       "class": "DETECTOR-HEURISTIC",
       "reason": "the `toEqual([])` assertions on `actions` are each pinned by non-empty counterparts asserting exact action kinds and arg arrays; emptiness is the positive claim (nothing to prescribe on a wired host), not vacuity.",
@@ -286,10 +291,10 @@
       "reason": "display fallbacks; empty renders an explicit notice",
       "triaged": "2026-08-16 (tab consolidation: statement moved verbatim from the retired LessonsTab/BrowseTab; original triage 2026-08-04)"
     },
-    "C5 src/core/work-topology.ts:417": {
+    "C5 src/core/work-topology.ts:447": {
       "class": "SAFE-BY-CONSTRUCTION",
       "reason": "`line.match(/`+/g) ?? []` in buildReferenceContext, moved verbatim from scripts/hooks/_shared.js (which the C5 scan does not cover) so the MCP briefing surface shares the hook's fence. match() returns null when a line contains no backtick run; the empty list truthfully means 'no backticks', and the fence floor Math.max(3, longestRun + 1) still applies. Pinned by tests/hooks/reference-context-fence.test.ts, which feeds lines WITH backtick runs and asserts the fence outruns them.",
-      "triaged": "2026-08-16 (A1c briefing); re-keyed 2026-08-16 (assembleTopologyBlock + budget consts added above; same match statement — verified); re-keyed 2026-08-16 (citation-handle additions above shifted the line 386->416; same statement verified)"
+      "triaged": "2026-08-16 (A1c briefing); re-keyed 2026-08-16 (assembleTopologyBlock + budget consts added above; same match statement — verified); re-keyed 2026-08-16 (citation-handle additions above shifted the line 386->416; same statement verified); re-keyed 2026-08-30 (issue-242 global-section additions shifted the line 417->447; same match statement verified)"
     },
     "C1 tests/hooks/guard-check.test.ts": {
       "class": "SAFE",
@@ -421,55 +426,55 @@
       "reason": "The decision itself is behavioural: checkReleasePreconditions is a pure function and 21 tests in the same file drive both directions through it. What is read as text is scripts/finish-release.mjs, and only to pin five wiring properties whose happy path cannot be run — cutting the release creates a public GitHub Release and publishes to npm. The regression guarded is someone splitting the single `gh release create --target` back into `git tag` + `git push` + `gh release create`, whose middle leaves a pushed tag with no release: nothing publishes, and the coherence gate now sees the tag and reports ok. Break-tested 2026-08-23: 7/7 mutants killed, including both directions of this pin.",
       "triaged": "2026-08-23"
     },
-    "C7 README.md:374": {
+    "C7 README.md:377": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
       "triaged": "2026-08-04; re-keyed 2026-08-15 21→271 (merge main shifted lines +250; same statement — verified); re-keyed 2026-08-16 (+48: Install first-screen section and See-what-it-remembered/Your-data subsections added above; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (+2: agent-install pointer added in the Install section; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main — NOTE C7 339 slid onto a colliding key, whole set re-verified)"
     },
-    "C7 README.md:380": {
+    "C7 README.md:383": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
       "triaged": "2026-08-04; re-keyed 2026-08-15 27→277 (merge main shifted lines +250; same statement — verified); re-keyed 2026-08-16 (+48: Install first-screen section and See-what-it-remembered/Your-data subsections added above; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (+2: agent-install pointer added in the Install section; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main — NOTE C7 339 slid onto a colliding key, whole set re-verified)"
     },
-    "C7 README.md:398": {
+    "C7 README.md:401": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
       "triaged": "2026-08-04 (re-keyed 273->294: the Codex/Gemini MCP setup section added to Get Started shifted this line down 21; same auto-capture table row verified before re-keying); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-15 293→295 (merge main shifted lines +2; same statement — verified); re-keyed 2026-08-16 (+48: Install first-screen section and See-what-it-remembered/Your-data subsections added above; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (+2: agent-install pointer added in the Install section; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main — NOTE C7 339 slid onto a colliding key, whole set re-verified)"
     },
-    "C7 README.md:471": {
+    "C7 README.md:474": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
       "triaged": "2026-08-04 (re-keyed 346->348->369: the Codex/Gemini MCP setup section shifted this line down 21 more; same testimonial figure verified before re-keying); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-15 367→369 (merge main shifted lines +2; same statement — verified); re-keyed 2026-08-16 (+48: Install first-screen section and See-what-it-remembered/Your-data subsections added above; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (+2: agent-install pointer added in the Install section; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main — NOTE C7 339 slid onto a colliding key, whole set re-verified); re-keyed 2026-08-16 (tab table 8 rows -> 5 shifted lines -3; same content verified); re-keyed 2026-08-16 (G1 guard additions shifted lines; same content verified)"
     },
-    "C7 README.md:530": {
+    "C7 README.md:533": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
       "triaged": "2026-08-04 (re-keyed 353->355->376: the Codex/Gemini MCP setup section shifted this line down 21 more; same 95.60% R@5 out-of-the-box figure verified before re-keying); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-14 374->426 (the Recipes section added above; same statement — verified); re-keyed 2026-08-15 426→428 (merge main shifted lines +2; same statement — verified); re-keyed 2026-08-16 (+48: Install first-screen section and See-what-it-remembered/Your-data subsections added above; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (+2: agent-install pointer added in the Install section; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main — NOTE C7 339 slid onto a colliding key, whole set re-verified); re-keyed 2026-08-16 (tab table 8 rows -> 5 shifted lines -3; same content verified); re-keyed 2026-08-16 (G1 guard additions shifted lines; same content verified)"
     },
-    "C7 README.md:561": {
+    "C7 README.md:564": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
       "triaged": "2026-08-04 (re-keyed 379->382->386->407: the Codex/Gemini MCP setup section shifted this line down 21 more; same 95.60% R@5 comparison-table figure verified before re-keying); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-14 405->457 (the Recipes section added above; same statement — verified); re-keyed 2026-08-15 457→459 (merge main shifted lines +2; same statement — verified); re-keyed 2026-08-16 (+48: Install first-screen section and See-what-it-remembered/Your-data subsections added above; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (+2: agent-install pointer added in the Install section; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main — NOTE C7 339 slid onto a colliding key, whole set re-verified); re-keyed 2026-08-16 (tab table 8 rows -> 5 shifted lines -3; same content verified); re-keyed 2026-08-16 (G1 guard additions shifted lines; same content verified)"
     },
-    "C5 src/core/install-hooks.ts:65": {
+    "C5 src/core/install-hooks.ts:66": {
       "class": "SAFE-BY-CONSTRUCTION",
       "reason": "`parsed.hooks ?? {}` in hasMemeshHookMarker: an absent hooks key truthfully means no memesh marker, and the function fails toward 'not wired' — the caller then PRESCRIBES wiring rather than reporting success.",
-      "triaged": "2026-08-16 (P1 memesh setup; re-applied after merge took main baseline); moved 2026-08-16: the walker itself moved into install-hooks.ts settingsHaveMemeshHooks (release-prep dedup) — same statement, same conservative fail-toward-not-wired policy"
+      "triaged": "2026-08-16 (P1 memesh setup; re-applied after merge took main baseline); moved 2026-08-16: the walker itself moved into install-hooks.ts settingsHaveMemeshHooks (release-prep dedup) — same statement, same conservative fail-toward-not-wired policy; re-keyed 2026-08-30 65→66 after the install-channel import shifted the unchanged statement"
     },
-    "C5 src/core/install-hooks.ts:68": {
+    "C5 src/core/install-hooks.ts:69": {
       "class": "SAFE-BY-CONSTRUCTION",
       "reason": "`entry.hooks ?? []` in the same marker walk: a malformed entry contributes nothing, and the result degrades to 'not wired' (conservative), pinned by the non-memesh-hooks test.",
-      "triaged": "2026-08-16 (P1 memesh setup; re-applied after merge took main baseline); moved 2026-08-16: the walker itself moved into install-hooks.ts settingsHaveMemeshHooks (release-prep dedup) — same statement, same conservative fail-toward-not-wired policy"
+      "triaged": "2026-08-16 (P1 memesh setup; re-applied after merge took main baseline); moved 2026-08-16: the walker itself moved into install-hooks.ts settingsHaveMemeshHooks (release-prep dedup) — same statement, same conservative fail-toward-not-wired policy; re-keyed 2026-08-30 68→69 after the install-channel import shifted the unchanged statement"
     },
-    "C5 src/core/install-hooks.ts:308": {
+    "C5 src/core/install-hooks.ts:309": {
       "class": "SAFE-GUARDED",
       "reason": "readSettings throws on unparseable input; absent hooks truthfully means none wired",
-      "triaged": "2026-08-04; re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main — NOTE C7 339 slid onto a colliding key, whole set re-verified); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD)"
+      "triaged": "2026-08-04; re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main — NOTE C7 339 slid onto a colliding key, whole set re-verified); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD); re-keyed 2026-08-30 308→305 after install-hooks relocation comments changed above; statement byte-identical; re-keyed 2026-08-30 305→309 after mixed-registry plugin detection added four lines above; statement byte-identical"
     },
-    "C5 src/core/install-hooks.ts:454": {
+    "C5 src/core/install-hooks.ts:455": {
       "class": "SAFE-GUARDED",
       "reason": "readSettings throws on unparseable input; absent hooks truthfully means none wired",
-      "triaged": "2026-08-04; re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main — NOTE C7 339 slid onto a colliding key, whole set re-verified); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD); re-keyed 2026-08-24 (uninstallHooks parses settings before deleting the rule file; same statement, classification unchanged)"
+      "triaged": "2026-08-04; re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main — NOTE C7 339 slid onto a colliding key, whole set re-verified); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD); re-keyed 2026-08-24 (uninstallHooks parses settings before deleting the rule file; same statement, classification unchanged); re-keyed 2026-08-30 454→451 after install-hooks relocation comments changed above; statement byte-identical; re-keyed 2026-08-30 451→455 after mixed-registry plugin detection added four lines above; statement byte-identical"
     },
     "C5 src/knowledge-graph.ts:683": {
       "class": "SAFE-ACCUMULATOR",
@@ -531,19 +536,14 @@
       "reason": "entity.observations can be genuinely undefined for a raw import bundle — describeInvalidEntity (this file) explicitly permits the field to be absent, only rejecting it if present-and-not-an-array. The ?? [] covers that documented-optional case, not a hidden failure.",
       "triaged": "2026-08-24"
     },
-    "C5 src/core/agent-router.ts:800": {
+    "C5 src/core/agent-router.ts:837": {
       "class": "SAFE-BY-CONSTRUCTION",
       "reason": "A host adapter may accept a delivery without optional transport metadata. The empty receipt is still validated and persisted as an explicit host_accept fact; accepted itself is required and no ACK, read, or workflow state is inferred from the missing receipt.",
-      "triaged": "2026-08-27 host-native push release audit; re-keyed 2026-08-28 after bounded backlog drain and the Windows fail-closed guard moved the unchanged statement"
+      "triaged": "2026-08-27 host-native push release audit; re-keyed 2026-08-28 after bounded backlog drain and the Windows fail-closed guard moved the unchanged statement; re-keyed 2026-09-01 after live-directory code shifted the unchanged statement"
     },
     "C5 src/host-adapters/acp-client.ts:771": {
       "class": "SAFE-BY-CONSTRUCTION",
       "reason": "ACP child argv is optional by API contract; absence truthfully means launch the configured executable with zero arguments. Every supplied argument and the aggregate argv are independently bounded before spawn.",
-      "triaged": "2026-08-27 host-native push release audit"
-    },
-    "C6 tests/host-adapters/claude-channel.test.ts": {
-      "class": "SECURITY-STATIC-GUARD",
-      "reason": "The text scan is intentionally a narrow negative security pin: the one-way adapter must not acquire direct console or process argv/stdout/stderr sinks that could expose private channel content. Functional tests in the same file independently exercise delivery, bounds, routing, and failure behavior.",
       "triaged": "2026-08-27 host-native push release audit"
     },
     "C5 dashboard/src/components/AnalyticsTab.tsx:204": {
@@ -606,15 +606,25 @@
       "reason": "upstream filter requires non-empty arrays before these run (the (p.evidence ?? []) statement; re-keyed +1 from :672 when the B3 embedder import shifted the line; classification unchanged) (re-keyed 1228→1236 on 2026-08-29; line shift only, classification unchanged)",
       "triaged": "2026-08-05; re-keyed 2026-08-10 (review pass 4); re-keyed 2026-08-12 +14 from :1175 (NothingToClaimError and the missing-source counter shifted the line); re-keyed 2026-08-14 +3 from :1189 (PROTECTED_TYPES export comment shifted the file; statement verified); re-keyed 2026-08-14 +4 from :1192 (kind != 'relation' guards on the two pending-proposal scans; statement verified); re-keyed 2026-08-16 (G1 guard additions shifted lines; same content verified); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged)"
     },
-    "C5 src/core/llm-validator.ts:220": {
+    "C5 src/core/llm-validator.ts:221": {
       "class": "SAFE-GUARDED",
-      "reason": "models.length === 0 now returns valid:false for all three providers (PR #112) (re-keyed 186→220 on 2026-08-29; line shift only, classification unchanged)",
+      "reason": "models.length === 0 now returns valid:false for all three providers (PR #112) (re-keyed 186→220 on 2026-08-29; line shift only, classification unchanged) (re-keyed 220→221 on 2026-08-30; shared resolver import shifted the same statement)",
       "triaged": "2026-08-04"
     },
-    "C5 src/core/llm-validator.ts:253": {
+    "C5 src/core/llm-validator.ts:254": {
       "class": "SAFE-GUARDED",
-      "reason": "models.length === 0 now returns valid:false for all three providers (PR #112) (re-keyed 219→253 on 2026-08-29; line shift only, classification unchanged)",
+      "reason": "models.length === 0 now returns valid:false for all three providers (PR #112) (re-keyed 219→253 on 2026-08-29; line shift only, classification unchanged) (re-keyed 253→254 on 2026-08-30; shared resolver import shifted the same statement)",
       "triaged": "2026-08-04"
+    },
+    "C1 tests/cli/briefing-recipient.test.ts": {
+      "class": "SAFE-HEURISTIC-FALSE-POSITIVE",
+      "reason": "The detector's `.toBe(0)` matches successful CLI exit-status assertions, not empty collections. The test separately pins generic briefing suppression, exact recipient/project output, and exclusion of the other recipient.",
+      "triaged": "2026-08-31 issue #267 audit"
+    },
+    "C3 npm:test:issue-267": {
+      "class": "SAFE",
+      "reason": "Per-issue focused runner for the completion-gate review contract, which accepts an exact declared `npm run test:*` argv. Nothing in CI references it by design: all four test files it names are already inside the default test run, so the script adds a bounded replay entry point rather than separate coverage.",
+      "triaged": "2026-08-31 issue #267 audit"
     },
     "C3 npm:test:issue-224": {
       "class": "SAFE",
@@ -651,9 +661,9 @@
       "reason": "Per-issue focused runner for the completion-gate review contract, which only accepts an exact declared `npm run test:*` argv. Nothing in CI references it by design: every test file it names is already inside the default `tests/` run, so the script adds a bounded replay entry point, not coverage. All 9 referenced files were confirmed present on 2026-08-29.",
       "triaged": "2026-08-29 v4.8.2 dashboard issue sweep"
     },
-    "C5 src/core/llm-validator.ts:310": {
+    "C5 src/core/llm-validator.ts:293": {
       "class": "SAFE-GUARDED",
-      "reason": "models.length === 0 now returns valid:false for all three providers (PR #112) (re-keyed 273→303 on 2026-08-29; line shift only, classification unchanged) (re-keyed 303→310 on 2026-08-29; line shift only, classification unchanged)",
+      "reason": "models.length === 0 now returns valid:false for all three providers (PR #112) (re-keyed 273→303 on 2026-08-29; line shift only, classification unchanged) (re-keyed 303→310 on 2026-08-29; line shift only, classification unchanged) (re-keyed 310→293 on 2026-08-30; the duplicated Ollama host guard moved to the shared resolver, while this empty-model statement stayed unchanged)",
       "triaged": "2026-08-04"
     },
     "C3 npm:audit:memory": {
@@ -670,36 +680,6 @@
       "class": "WIRING-PIN",
       "reason": "One test reads src/core/lesson-slug.ts and scripts/audit/memory-invariants.mjs and compares the two lessonSlug bodies: the .mjs cannot import TypeScript, so the function is mirrored, and this pin is what keeps the mirror honest (a comment is not a gate). The slug BEHAVIOUR is tested separately (lesson-engine.test.ts, and the shared-slug case in this file). The .toContain calls the detector saw are stdout assertions on the audit script's report, not source text.",
       "triaged": "2026-08-30 v4.8.2 graph repair"
-    },
-    "C5 src/core/doctor.ts:627": {
-      "class": "SAFE-GUARDED",
-      "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
-      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (the InstallChannel import and hook-wiring rewrite shifted it +2; same statement, classification unchanged); re-keyed 2026-08-13 421->425 (the DatabaseLike all/run widening added 4 lines above; verified byte-identical statement before re-keying); re-keyed 2026-08-13 rev3 +4 (createCheck gained a 4-line comment about optional codes; same statement, classification unchanged); re-keyed 2026-08-16 (-6: LOCALE_README_FILES list shrank; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (doctor --fix on merged tree: fixId field + registry consult added above; byte-identical vs origin/main) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position) re-keyed 2026-08-23 (+12, doctor Config-check comment; statement matched by TEXT against HEAD~1) re-keyed 2026-08-23 (+3, F1 comment; statement matched by TEXT against HEAD~1); re-keyed 2026-08-24 (two imports added for the measured vector count; statements byte-identical, classification unchanged); re-keyed 2026-08-24 (R11 batch); sibling entry restored 2026-08-24 (lost to a re-key collision in the same batch; identical statement, same loop, same classification); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged); re-keyed 2026-08-24 (M-08/M-09/M-10 batch: locale-parity anyLocalePresent guard, isFreshInstall() and its two call sites added above; statements byte-identical, classification unchanged) (re-keyed 2026-08-30: the plugin-cache check added to doctor.ts shifted these lines; same code)"
-    },
-    "C5 src/core/doctor.ts:628": {
-      "class": "SAFE-GUARDED",
-      "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
-      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (the InstallChannel import and hook-wiring rewrite shifted it +2; same statement, classification unchanged); re-keyed 2026-08-13 421->425 (the DatabaseLike all/run widening added 4 lines above; verified byte-identical statement before re-keying); re-keyed 2026-08-13 rev3 +4 (createCheck gained a 4-line comment about optional codes; same statement, classification unchanged); re-keyed 2026-08-16 (-6: LOCALE_README_FILES list shrank; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (doctor --fix on merged tree: fixId field + registry consult added above; byte-identical vs origin/main) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position) re-keyed 2026-08-23 (+12, doctor Config-check comment; statement matched by TEXT against HEAD~1) re-keyed 2026-08-23 (+3, F1 comment; statement matched by TEXT against HEAD~1); re-keyed 2026-08-24 (two imports added for the measured vector count; statements byte-identical, classification unchanged); re-keyed 2026-08-24 (R11 batch); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged); re-keyed 2026-08-24 (M-08/M-09/M-10 batch: locale-parity anyLocalePresent guard, isFreshInstall() and its two call sites added above; statements byte-identical, classification unchanged) (re-keyed 2026-08-30: the plugin-cache check added to doctor.ts shifted these lines; same code)"
-    },
-    "C5 src/core/doctor.ts:673": {
-      "class": "SAFE-GUARDED",
-      "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
-      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (the InstallChannel import and hook-wiring rewrite shifted it +1; same statement, classification unchanged); re-keyed 2026-08-13 466->470 (the DatabaseLike all/run widening added 4 lines above; verified byte-identical statement before re-keying); re-keyed 2026-08-13 rev3 +4 (createCheck gained a 4-line comment about optional codes; same statement, classification unchanged); re-keyed 2026-08-16 (-6: LOCALE_README_FILES list shrank; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (doctor --fix on merged tree: fixId field + registry consult added above; byte-identical vs origin/main) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position) re-keyed 2026-08-23 (+12, doctor Config-check comment; statement matched by TEXT against HEAD~1) re-keyed 2026-08-23 (+3, F1 comment; statement matched by TEXT against HEAD~1); re-keyed 2026-08-24 (two imports added for the measured vector count; statements byte-identical, classification unchanged); re-keyed 2026-08-24 (R11 batch shifted lines; statements byte-identical, classification unchanged); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged); re-keyed 2026-08-24 (M-08/M-09/M-10 batch: locale-parity anyLocalePresent guard, isFreshInstall() and its two call sites added above; statements byte-identical, classification unchanged) (re-keyed 2026-08-30: the plugin-cache check added to doctor.ts shifted these lines; same code)"
-    },
-    "C1 tests/cli/upgrade-plugin-same-version.test.ts": {
-      "class": "DETECTOR-HEURISTIC",
-      "reason": "the `.toBe(0)` occurrences assert the real upgrade-plugin.sh EXIT CODE (success), not empty collections; every test also asserts stdout content (refreshing / nothing to do), the post-bump file reaching the cache, and the registry's gitCommitSha equalling the marketplace HEAD.",
-      "triaged": "2026-08-30 plugin-cache same-version fix"
-    },
-    "C5 src/core/doctor.ts:1725": {
-      "class": "SAFE-GUARDED",
-      "reason": "inspectPluginCacheCurrency: `?? []` when the registry has no memesh entries makes `entry` undefined, installedSha null, and the check reports WARN plugin-cache.unverifiable — absence surfaces as a warning, never as a pass; pinned by the doctor test 'WARNs \"could not tell\" rather than PASS when the registry carries no commit'.",
-      "triaged": "2026-08-30 plugin-cache same-version fix (re-keyed 2026-08-30 review round: multi-scope entry selection shifted the line)"
-    },
-    "C5 src/core/doctor.ts:2087": {
-      "class": "SAFE-GUARDED",
-      "reason": "verifySkillsManifest: entries ?? [] is followed by entries.length === 0 -> fail (skills-manifest.empty); the ?? cannot convert absence into a pass",
-      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (the InstallChannel import and hook-wiring rewrite shifted it +6; same statement, classification unchanged); re-keyed 2026-08-12 +56 (the hook-activity rewrite and hoursSince); re-keyed 2026-08-13 1446->1560 (the review round's inspectHookActivity per-hook rewrite, isAutoCaptureOff and hoursSince round-trip added 114 lines above; verified byte-identical statement before re-keying); re-keyed 2026-08-13 1560->1616 (rev2: source_host corroboration, stop-silent/never-ran-legacy branches and the staleUnknown/stale helpers added 56 lines above; verified byte-identical statement before re-keying); re-keyed 2026-08-13 rev3 1616->1686 (foreign-row exclusion, read-only table probe, stale-unconfirmed/disabled-env branches and the legacy-window query added 70 lines above; verified byte-identical statement before re-keying); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-16 (-6: LOCALE_README_FILES list shrank; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (doctor --fix on merged tree: fixId field + registry consult added above; byte-identical vs origin/main) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position) re-keyed 2026-08-23 (+12, doctor Config-check comment; statement matched by TEXT against HEAD~1) re-keyed 2026-08-23 (+3, F1 comment; statement matched by TEXT against HEAD~1); re-keyed 2026-08-24 (two imports added for the measured vector count; statements byte-identical, classification unchanged); re-keyed 2026-08-24 (R11 batch shifted lines; statements byte-identical, classification unchanged); re-keyed 2026-08-24 (M-08/M-09/M-10 batch: locale-parity anyLocalePresent guard, isFreshInstall() and its two call sites added above; statements byte-identical, classification unchanged); re-keyed 2026-08-24 1847->1854 after merging main (the Codex plugin-host branch adds 7 lines above in inspectHookWiring/inspectShellCli; statement verified byte-identical against origin/main before re-keying) (re-keyed 2026-08-30: the plugin-cache check added to doctor.ts shifted these lines; same code) (re-keyed 2026-08-30 review round: multi-scope entry selection shifted the line)"
     }
   }
 }

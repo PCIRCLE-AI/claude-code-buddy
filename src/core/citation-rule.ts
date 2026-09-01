@@ -68,9 +68,10 @@
 //
 // WHERE IT WRITES
 // ───────────────
-// `.claude/rules/memesh-citations.md` — its own file, never the user's
-// `CLAUDE.md`. A separate file has no merge conflict, needs no parsing of
-// someone else's prose, and uninstalls by deleting one path.
+// `<Claude config root>/rules/memesh-citations.md` — its own file, never the
+// user's `CLAUDE.md`. The default config root is `~/.claude`; a relocated
+// `CLAUDE_CONFIG_DIR` is authoritative. A separate file has no merge conflict,
+// needs no parsing of someone else's prose, and uninstalls by deleting one path.
 
 import fs from 'fs';
 import path from 'path';
@@ -111,14 +112,19 @@ export type CitationRuleScope = 'user' | 'project';
  * Where the rule lives.
  *
  * `home` is a parameter rather than a `homeDir()` call so this module imports
- * nothing but node builtins. That is the condition `generate-hook-core.mjs`
- * requires to mirror a compiled module into `scripts/hooks/_generated/`, and
- * the hooks need this code: a plugin install never runs `install-hooks`, so
- * without a hook-side copy the contract would only ever reach npm users.
+ * nothing but node builtins. User scope still checks `CLAUDE_CONFIG_DIR` here,
+ * in the one implementation shared by install-hooks, doctor, uninstall, and
+ * the generated SessionStart hook. That is the condition
+ * `generate-hook-core.mjs` requires to mirror this module into
+ * `scripts/hooks/_generated/`, and the hooks need this code: a plugin install
+ * never runs `install-hooks`, so without a hook-side copy the contract would
+ * only ever reach npm users.
  */
 export function citationRuleDir(scope: CitationRuleScope, home: string, cwd: string): string {
-  const base = scope === 'user' ? home : cwd;
-  return path.join(base, '.claude', 'rules');
+  if (scope === 'project') return path.join(cwd, '.claude', 'rules');
+  const relocated = process.env.CLAUDE_CONFIG_DIR;
+  const configRoot = relocated ? path.resolve(relocated) : path.join(home, '.claude');
+  return path.join(configRoot, 'rules');
 }
 
 export function citationRulePath(scope: CitationRuleScope, home: string, cwd: string): string {

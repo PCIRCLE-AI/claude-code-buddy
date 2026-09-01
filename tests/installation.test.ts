@@ -39,6 +39,19 @@ describe('Installation Verification', () => {
       expect(fs.existsSync('.mcp.json')).toBe(true);
     });
 
+    it('should have a native Codex plugin manifest for the packaged MCP server', () => {
+      const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+      const plugin = JSON.parse(fs.readFileSync('.codex-plugin/plugin.json', 'utf8'));
+      const mcp = JSON.parse(fs.readFileSync('.codex-plugin/mcp.json', 'utf8'));
+      expect(plugin.version).toBe(pkg.version);
+      expect(plugin.mcpServers).toBe('./.codex-plugin/mcp.json');
+      expect(mcp.memesh).toEqual({
+        command: 'node',
+        args: ['./dist/mcp/server.js'],
+        cwd: '.',
+      });
+    });
+
     it('hooks.json declares the canonical Claude Code hook event types and references real script files', () => {
       // Asserts shape and integrity, NOT a hardcoded count. Hardcoded
       // counts drift silently when a new hook is added (this test

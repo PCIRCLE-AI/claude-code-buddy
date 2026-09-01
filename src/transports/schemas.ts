@@ -6,6 +6,7 @@
 import { z } from 'zod';
 import { NAMESPACES } from '../core/types.js';
 import { TITLE_MAX_LENGTH } from '../core/title.js';
+import { AGENT_MESSAGE_JSON_MAX_BYTES, AGENT_NATIVE_MESSAGE_MAX_BYTES } from '../core/agent-messaging.js';
 
 const sanitizeName = (s: string) => s.replace(/[\r\n\t]+/g, ' ').trim();
 const nameField = z.string().min(1).max(255).transform(sanitizeName).refine(s => s.length > 0, {
@@ -161,6 +162,7 @@ export const TaskStateSchema = z.object({
 
 export const BriefingSchema = z.object({
   project: z.string().min(1).max(200).optional(),
+  recipient: z.string().trim().min(1).max(200).optional(),
 }).strict();
 
 // `why` deliberately takes commit HASHES, not a repo path: the server never
@@ -231,8 +233,10 @@ export const MessageSchema = z.discriminatedUnion('action', [
     target_kind: z.enum(['principal', 'session']).default('principal'),
     idempotency_key: messageIdempotencyKey,
     payload: z.json().refine(
-      (value) => new TextEncoder().encode(JSON.stringify(value)).byteLength <= 65_536,
-      { message: 'payload must be at most 65536 UTF-8 bytes when encoded as JSON' },
+      (value) => new TextEncoder().encode(JSON.stringify(value)).byteLength <= AGENT_MESSAGE_JSON_MAX_BYTES,
+      { message: `payload must be at most ${AGENT_MESSAGE_JSON_MAX_BYTES} UTF-8 bytes when encoded as JSON` },
+    ).describe(
+      `Untrusted JSON value. The encoded payload is limited to ${AGENT_MESSAGE_JSON_MAX_BYTES} bytes (64 KiB); native delivery additionally requires the complete envelope to fit ${AGENT_NATIVE_MESSAGE_MAX_BYTES} bytes (16 KiB).`,
     ),
     content_type: z.enum(['text/plain', 'application/json']).default('text/plain'),
     privacy: z.enum(['private', 'team']).default('private'),
@@ -246,6 +250,11 @@ export const MessageSchema = z.discriminatedUnion('action', [
     cursor: messageCursor.optional(),
     wait_ms: z.number().int().min(0).max(30_000).default(0),
     limit: z.number().int().min(1).max(100).default(20),
+  }).strict(),
+  z.object({
+    action: z.literal('discover'),
+    project: messageProject,
+    limit: z.number().int().min(1).max(100).default(50),
   }).strict(),
   z.object({
     action: z.literal('fetch'),

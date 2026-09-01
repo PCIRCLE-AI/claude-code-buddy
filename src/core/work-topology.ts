@@ -113,6 +113,9 @@ export interface TopologyEntity {
   /** metadata.signal_score. Null for hook-captured rows, which never get
    *  scored (hooks are cheap always-on capture by design). */
   signalScore?: number | null;
+  /** Applies to every project. Global memories render in their own bounded
+   *  section so they cannot consume a project's section or character budget. */
+  global?: boolean;
   /** True when this memory belongs to a DIFFERENT project than the one being
    *  described. It still earns a place — a lesson learned elsewhere is often
    *  the one that saves you — but it must not be filed under a heading that
@@ -211,6 +214,7 @@ export function groupTopology(entities: TopologyEntity[], projectName: string): 
   const lessons: TopologyEntity[] = [];
   const knowledge: TopologyEntity[] = [];
   const evidence: TopologyEntity[] = [];
+  const global: TopologyEntity[] = [];
   const foreign: TopologyEntity[] = [];
 
   for (const e of entities) {
@@ -222,6 +226,7 @@ export function groupTopology(entities: TopologyEntity[], projectName: string): 
     // left behind by a project rename, would otherwise render its goal
     // under "Decisions and direction" as though it were a decision.
     if (e.type === 'task-state') continue;
+    if (e.global) { global.push(e); continue; }
     // Scope is checked before layer: a memory from another project must never
     // land under a heading that names this one, whatever its type.
     if (e.foreign) { foreign.push(e); continue; }
@@ -232,13 +237,14 @@ export function groupTopology(entities: TopologyEntity[], projectName: string): 
     else decisions.push(e);
   }
 
-  for (const list of [decisions, lessons, knowledge, evidence, foreign]) list.sort(bySignal);
+  for (const list of [decisions, lessons, knowledge, evidence, global, foreign]) list.sort(bySignal);
 
   const sections: TopologySection[] = [];
   if (decisions.length) sections.push({ heading: `Decisions and direction for "${projectName}":`, entities: decisions });
   if (lessons.length) sections.push({ heading: `Lessons from "${projectName}" — do not repeat these:`, entities: lessons });
   if (knowledge.length) sections.push({ heading: `What is known about "${projectName}":`, entities: knowledge });
   if (evidence.length) sections.push({ heading: `Recent activity in "${projectName}":`, entities: evidence });
+  if (global.length) sections.push({ heading: 'Global memory — applies across projects:', entities: global });
   if (foreign.length) sections.push({ heading: 'From your other projects (may or may not apply here):', entities: foreign });
   return sections;
 }
@@ -263,6 +269,14 @@ const MAX_PER_SECTION = 8;
 export const DEFAULT_TOPOLOGY_BUDGET: Readonly<Required<TopologyBudget>> = {
   maxChars: 4000,
   maxLineChars: 160,
+};
+/** Global context is additive: it has its own small selection window and
+ *  render budget, so neither a crowded project nor global rules can starve
+ *  the other. Both injection surfaces share these through this assembler. */
+export const GLOBAL_TOPOLOGY_LIMIT = 3;
+const GLOBAL_TOPOLOGY_BUDGET: Readonly<Required<TopologyBudget>> = {
+  maxChars: 640,
+  maxLineChars: DEFAULT_TOPOLOGY_BUDGET.maxLineChars,
 };
 export const TOPOLOGY_CANDIDATE_CAP = 400;
 /** Fetch snippets a few line-widths long, so clip() still finds a word
@@ -311,6 +325,8 @@ export interface TopologyPool {
   entities: TopologyEntity[];
   /** True when this pool is NOT scoped to the current project. */
   foreign: boolean;
+  /** True when this pool applies to every project. */
+  global?: boolean;
 }
 
 /**
@@ -326,8 +342,14 @@ export interface TopologyPool {
  *
  * `stateLines` is the already-rendered task-state block (taskStateLines) —
  * taken as lines, not as state, so this leaf keeps its no-imports charter.
- * It is charged against the same budget as everything else: the stated block
- * leads, and whatever it uses the ranked sections no longer have.
+ * It is charged against the project topology budget: the stated block leads,
+ * and whatever it uses the ranked project/foreign sections no longer have.
+ * Global context has the independent additive budget described below.
+ *
+ * The project/foreign topology uses `budget`; global context is additive and
+ * uses `GLOBAL_TOPOLOGY_BUDGET`. That separation is the enforcement behind
+ * #242's promise that global rules neither displace project memory nor get
+ * starved by it.
  *
  * Pools are claimed in order — an entity present in an earlier pool is not
  * re-added by a later one, which is how a project-scoped row avoids being
@@ -342,11 +364,16 @@ export function assembleTopologyBlock(
 ): string[] {
   const seen = new Set<string>();
   const candidates: TopologyEntity[] = [];
+  const globalCandidates: TopologyEntity[] = [];
   for (const pool of pools) {
     for (const e of pool.entities) {
       if (seen.has(e.name)) continue;
       seen.add(e.name);
-      candidates.push(pool.foreign && !e.foreign ? { ...e, foreign: true } : e);
+      if (pool.global) {
+        globalCandidates.push(e.global ? e : { ...e, global: true });
+      } else {
+        candidates.push(pool.foreign && !e.foreign ? { ...e, foreign: true } : e);
+      }
     }
   }
 
@@ -361,9 +388,12 @@ export function assembleTopologyBlock(
   const topologyLines = remaining > 0
     ? buildTopologyLines(candidates, projectName, { ...budget, maxChars: remaining })
     : [];
-  // The spacer exists only between the two blocks — never as a dangling tail.
+  const globalLines = buildTopologyLines(globalCandidates, projectName, GLOBAL_TOPOLOGY_BUDGET);
+  // Spacers exist only between non-empty blocks — never at either edge.
   if (lines.length > 0 && topologyLines.length > 0) lines.push('');
   lines.push(...topologyLines);
+  if (lines.length > 0 && globalLines.length > 0) lines.push('');
+  lines.push(...globalLines);
   return lines;
 }
 

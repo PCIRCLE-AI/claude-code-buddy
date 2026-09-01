@@ -23,22 +23,24 @@ function fixture() {
       project: 'project-a',
       principal_id: 'principal-a',
       workspace: dir,
+      model: 'gpt-5.6-sol',
+      work_summary: 'review MeMesh delivery',
     },
     hook: { hook_event_name: 'SessionStart', session_id: threadId, cwd: dir, source: 'startup' },
   };
 }
 
 describe('ordinary Codex session companion', () => {
-  it.skipIf(process.platform === 'win32')('registers the actual Codex thread and keeps payload delivery out of the companion', async () => {
+  it.skipIf(process.platform === 'win32')('registers the hook session without CODEX_THREAD_ID and keeps payload delivery out of the companion', async () => {
     const { config, hook } = fixture();
     const close = vi.fn(async () => undefined);
     const connect = vi.fn(async (input) => {
-      await expect(input.deliver({} as never)).rejects.toThrow('metadata-only');
+      await expect(input.deliver({} as never)).rejects.toThrow('owned by the router adapter');
       return { connection_id: 'connection-a', generation: 1, close };
     });
 
     await expect(startCodexSessionCompanion(
-      config, hook, { CODEX_THREAD_ID: threadId }, { connect: connect as never },
+      config, hook, { PLUGIN_ROOT: '/plugin' }, { connect: connect as never },
     )).resolves.toMatchObject({ connection_id: 'connection-a', generation: 1 });
 
     expect(connect).toHaveBeenCalledWith(expect.objectContaining({
@@ -47,19 +49,22 @@ describe('ordinary Codex session companion', () => {
       identity: {
         project: 'project-a', principal_id: 'principal-a',
         session_instance_id: threadId, adapter_kind: 'codex-cli-queue',
+        model: 'gpt-5.6-sol', work_summary: 'review MeMesh delivery',
       },
     }));
   });
 
   it.each([
-    ['no Codex runtime identity', {}, undefined],
-    ['mismatched hook identity', { session_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' }, threadId],
-    ['compact lifecycle', { source: 'compact' }, threadId],
-  ])('fails closed without a registration for %s', async (_label, hookOverride, envThread) => {
+    ['no hook identity', { session_id: undefined }, { PLUGIN_ROOT: '/plugin' }],
+    ['invalid hook identity', { session_id: 'not-a-uuid' }, { PLUGIN_ROOT: '/plugin' }],
+    ['compact lifecycle', { source: 'compact' }, { PLUGIN_ROOT: '/plugin' }],
+    ['missing Codex plugin marker', {}, {}],
+    ['empty Codex plugin marker', {}, { PLUGIN_ROOT: '' }],
+  ])('fails closed without a registration for %s', async (_label, hookOverride, environment) => {
     const { config, hook } = fixture();
     const connect = vi.fn();
     await expect(startCodexSessionCompanion(
-      config, { ...hook, ...hookOverride }, { CODEX_THREAD_ID: envThread }, { connect: connect as never },
+      config, { ...hook, ...hookOverride }, environment, { connect: connect as never },
     )).resolves.toBeNull();
     expect(connect).not.toHaveBeenCalled();
   });
@@ -70,7 +75,7 @@ describe('ordinary Codex session companion', () => {
     tempDirs.push(other);
     const connect = vi.fn();
     await expect(startCodexSessionCompanion(
-      config, { ...hook, cwd: other }, { CODEX_THREAD_ID: threadId }, { connect: connect as never },
+      config, { ...hook, cwd: other }, { PLUGIN_ROOT: '/plugin' }, { connect: connect as never },
     )).resolves.toBeNull();
     expect(connect).not.toHaveBeenCalled();
   });
@@ -80,7 +85,7 @@ describe('ordinary Codex session companion', () => {
     const connect = vi.fn();
 
     await expect(startCodexSessionCompanion(
-      config, hook, { CODEX_THREAD_ID: threadId }, { connect },
+      config, hook, { PLUGIN_ROOT: '/plugin' }, { connect },
     )).rejects.toThrow(/secure local host runtime is not supported on Windows/i);
 
     expect(connect).not.toHaveBeenCalled();

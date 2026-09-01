@@ -298,6 +298,7 @@ export function InsightsTab({
         validate: mode === 'validate',
       });
       window.dispatchEvent(new Event('memesh:data-changed'));
+      await refresh();
       const providerErrors = result.skipped.filter((entry) => entry.code === 'provider_error');
       if (providerErrors.length > 0) {
         setError(t('insights.runProviderError', {
@@ -313,7 +314,7 @@ export function InsightsTab({
     } finally {
       setDreamRunning(null);
     }
-  }, []);
+  }, [refresh]);
 
   const pendingCount = allProposals.filter(p => p.status === 'pending').length;
   const appliedCount = allProposals.filter(p => p.status === 'applied').length;

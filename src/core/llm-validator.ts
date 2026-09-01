@@ -11,6 +11,7 @@
 // no DB / no transport coupling. Never persists secrets.
 
 import { callLLM } from './llm-client.js';
+import { resolveOllamaHost, UNSAFE_OLLAMA_HOST_ERROR } from './ollama-host.js';
 import { redactSecrets } from './paths.js';
 import { sanitizeForPrompt } from './prompt-safety.js';
 
@@ -267,25 +268,6 @@ export async function probeOpenAI(apiKey: string): Promise<ValidationResult> {
   }
 }
 
-/**
- * Allowed Ollama hostnames. Caller-supplied `host` is restricted to these to
- * prevent the server from being used as an SSRF probe against arbitrary
- * internal addresses. Operators who genuinely run Ollama on a non-loopback
- * host should set the `OLLAMA_HOST` environment variable on the server side
- * — that path is privileged (operator-controlled), not user-supplied.
- */
-const OLLAMA_LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '0.0.0.0', '::1', '[::1]']);
-
-function isSafeOllamaHost(url: string): boolean {
-  try {
-    const u = new URL(url);
-    if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
-    return OLLAMA_LOOPBACK_HOSTS.has(u.hostname);
-  } catch {
-    return false;
-  }
-}
-
 export async function probeOllama(host?: string): Promise<ValidationResult> {
   // A caller-supplied host is ALWAYS validated. The guard used to read
   // `!envBase && host && !isSafeOllamaHost(host)`, so setting `OLLAMA_HOST`
@@ -297,14 +279,15 @@ export async function probeOllama(host?: string): Promise<ValidationResult> {
   // Env stays the privileged escape hatch for a genuinely remote Ollama, and
   // it is never validated because it is set server-side by the operator, not
   // by whoever is talking to the HTTP surface.
-  const envBase = process.env.OLLAMA_HOST;
-  if (host && !isSafeOllamaHost(host)) {
-    return fail('bad_host', 'Ollama host must be loopback (localhost / 127.0.0.1). For non-local Ollama, set the OLLAMA_HOST environment variable on the server.');
+  let base: string;
+  try {
+    base = resolveOllamaHost(host);
+  } catch {
+    return fail('bad_host', UNSAFE_OLLAMA_HOST_ERROR);
   }
-  const base = host || envBase || 'http://localhost:11434';
   try {
     const data = await fetchJson<{ models: Array<{ name: string; modified_at?: string }> }>(
-      `${base.replace(/\/$/, '')}/api/tags`,
+      `${base}/api/tags`,
       { method: 'GET' },
     );
     const models: ModelInfo[] = (data.models ?? []).map((m) => ({

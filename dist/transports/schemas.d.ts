@@ -106,6 +106,7 @@ export declare const TaskStateSchema: z.ZodObject<{
 }, z.core.$strict>;
 export declare const BriefingSchema: z.ZodObject<{
     project: z.ZodOptional<z.ZodString>;
+    recipient: z.ZodOptional<z.ZodString>;
 }, z.core.$strict>;
 export declare const WhySchema: z.ZodObject<{
     file: z.ZodString;
@@ -168,6 +169,10 @@ export declare const MessageSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
     recipient: z.ZodString;
     cursor: z.ZodOptional<z.ZodString>;
     wait_ms: z.ZodDefault<z.ZodNumber>;
+    limit: z.ZodDefault<z.ZodNumber>;
+}, z.core.$strict>, z.ZodObject<{
+    action: z.ZodLiteral<"discover">;
+    project: z.ZodString;
     limit: z.ZodDefault<z.ZodNumber>;
 }, z.core.$strict>, z.ZodObject<{
     action: z.ZodLiteral<"fetch">;

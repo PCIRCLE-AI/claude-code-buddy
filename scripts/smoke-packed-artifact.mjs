@@ -70,6 +70,8 @@ const requiredFiles = [
   // Core
   'package.json',
   '.claude-plugin/plugin.json',
+  '.codex-plugin/plugin.json',
+  '.codex-plugin/mcp.json',
   '.mcp.json',
   'hooks/hooks.json',
   // Dist — core engine
@@ -171,6 +173,16 @@ const packagedJson = JSON.parse(
 );
 assert.equal(packagedJson.name, '@pcircle/memesh');
 assert.equal(packagedJson.version, JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8')).version);
+
+const codexPlugin = JSON.parse(fs.readFileSync(path.join(packageDir, '.codex-plugin', 'plugin.json'), 'utf8'));
+assert.equal(codexPlugin.version, packagedJson.version);
+assert.equal(codexPlugin.mcpServers, './.codex-plugin/mcp.json');
+const codexMcp = JSON.parse(fs.readFileSync(path.join(packageDir, '.codex-plugin', 'mcp.json'), 'utf8'));
+assert.deepEqual(codexMcp.memesh, {
+  command: 'node',
+  args: ['./dist/mcp/server.js'],
+  cwd: '.',
+}, 'Codex plugin manifest must start the packaged MCP server from its plugin root');
 
 // Install the way a consumer does — production deps only, scripts ON so the
 // native bindings actually build — into a project that has no relationship to
@@ -375,12 +387,17 @@ try {
 // source import or a direct AgentRouter test. It starts the `memesh-router`
 // binary npm installed for this consumer, connects a controlled host through
 // the installed router-client module, and sends through the installed `memesh`
-// CLI with a payload on stdin. Neither delivery assertion below uses poll or
-// watch: the only readback is the router's persisted host_accept row.
+// CLI with a payload on stdin. This verifies the installed-artifact
+// router-to-adapter full-message contract using a controlled host and a fake
+// queue; it does not create or observe a real Codex task or user-visible
+// notification. The contract is exercised without poll/watch: exact-session
+// send returns only after the router persists native host acceptance.
 //
 // Windows does not provide the owner-private Unix-domain-socket contract this
-// Local runner implements, so a Windows package still gets the manifest and
-// MCP checks above but cannot truthfully run this POSIX host-native proof.
+// local runner implements, so a Windows package still gets the manifest and
+// MCP checks above but cannot run this POSIX router-to-adapter contract. No
+// result from this harness, on any platform, is evidence of a real Codex task
+// or a user-visible notification.
 async function waitFor(condition, description, timeoutMs = 5_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -408,6 +425,18 @@ function readHostAcceptance(databasePath, deliveryId) {
   return JSON.parse(result);
 }
 
+function readDeliveryId(databasePath, messageId) {
+  const result = execFileSync(process.execPath, ['--input-type=module', '-e', `
+    import { DatabaseSync } from 'node:sqlite';
+    const db = new DatabaseSync(${JSON.stringify(databasePath)}, { readOnly: true });
+    try {
+      const row = db.prepare('SELECT delivery_id FROM agent_message_deliveries WHERE message_id = ?').get(${JSON.stringify(messageId)});
+      process.stdout.write(JSON.stringify(row ?? null));
+    } finally { db.close(); }
+  `], { encoding: 'utf8', env: { ...process.env } });
+  return JSON.parse(result)?.delivery_id ?? null;
+}
+
 if (process.platform !== 'win32') {
   // The router deliberately rejects socket paths over 103 bytes. macOS's
   // per-user temporary root is already long, and nesting this under smokeDir
@@ -427,7 +456,7 @@ if (args[0] !== 'queue' || args[1] !== '--thread' || args[3] !== '--message' || 
   process.stderr.write('unexpected codex queue arguments\\n');
   process.exit(2);
 }
-fs.writeFileSync(process.env.MEMESH_CODEX_QUEUE_CAPTURE, JSON.stringify({ thread_id: args[2], marker: JSON.parse(args[4]) }));
+fs.writeFileSync(process.env.MEMESH_CODEX_QUEUE_CAPTURE, JSON.stringify({ thread_id: args[2], message: JSON.parse(args[4]) }));
 `, { mode: 0o700 });
   const nativeEnv = {
     ...process.env,
@@ -478,7 +507,7 @@ fs.writeFileSync(process.env.MEMESH_CODEX_QUEUE_CAPTURE, JSON.stringify({ thread
         },
         async deliver(delivery) {
           process.stdout.write(JSON.stringify({ type: 'unexpected-payload-delivery', delivery_id: delivery.delivery_id }) + '\\n');
-          throw new Error('codex-cli-queue must remain metadata-only');
+          throw new Error('codex-cli-queue delivery is owned by the router adapter');
         },
       });
       process.stdout.write(JSON.stringify({ type: 'registered', connection_id: connection.connection_id, generation: connection.generation }) + '\\n');
@@ -509,7 +538,8 @@ fs.writeFileSync(process.env.MEMESH_CODEX_QUEUE_CAPTURE, JSON.stringify({ thread
       'message', 'send',
       '--project', 'packaged-native-smoke',
       '--sender', 'installed-cli-sender',
-      '--recipient', 'installed-active-host',
+      '--recipient', '01a041b4-5c67-75b3-9505-4e33d7942b8e',
+      '--target-kind', 'session',
       '--idempotency-key', 'installed-native-delivery-1',
       '--content-type', 'application/json',
       '--payload-stdin',
@@ -521,30 +551,41 @@ fs.writeFileSync(process.env.MEMESH_CODEX_QUEUE_CAPTURE, JSON.stringify({ thread
     }));
     await waitFor(
       () => fs.existsSync(queueCapture) || hostExit !== null,
-      'metadata-only native queue admission',
+      'installed-artifact router-to-adapter full-message dispatch to the fake queue',
     );
-    assert.equal(hostExit, null, `installed host stub exited during native delivery: ${hostStderr}`);
-    assert.equal(hostOutput.includes('"unexpected-payload-delivery"'), false, 'router sent the durable payload to the metadata-only companion');
+    assert.equal(hostExit, null, `controlled host exited during router-to-adapter dispatch: ${hostStderr}`);
+    assert.equal(hostOutput.includes('"unexpected-payload-delivery"'), false, 'router bypassed the Codex native adapter');
     const queued = JSON.parse(fs.readFileSync(queueCapture, 'utf8'));
     assert.equal(queued.thread_id, '01a041b4-5c67-75b3-9505-4e33d7942b8e');
-    assert.equal(queued.marker.message_type, 'memesh_message_available');
-    assert.deepEqual(queued.marker.routing, {
+    assert.equal(queued.message.message_type, 'memesh_message');
+    assert.equal(queued.message.delivery_id, send.delivery_id);
+    assert.deepEqual(queued.message.envelope, {
       project: 'packaged-native-smoke',
-      recipient: 'installed-active-host',
-      target_kind: 'principal',
       message_id: send.message_id,
-      delivery_id: send.delivery_id,
+      sender: 'installed-cli-sender',
+      sender_host: 'cli',
+      recipient: '01a041b4-5c67-75b3-9505-4e33d7942b8e',
+      target_kind: 'session',
+      content_type: 'application/json',
+      correlation_id: null,
+      reply_to: null,
+      privacy: 'private',
+      created_at: send.created_at,
+      payload: { marker: 'installed-native-stdin' },
+      provenance: { transport: 'cli', source_host: 'cli' },
     });
-    assert.equal(JSON.stringify(queued).includes('installed-native-stdin'), false, 'native wakeup marker leaked durable payload bytes');
+    assert.equal(send.native_delivery.status, 'native_accepted', 'exact-session send returned before native acceptance');
+    assert.equal(JSON.stringify(queued).includes('installed-native-stdin'), true, 'native message omitted the full payload');
     const accepted = readHostAcceptance(path.join(nativeDir, 'knowledge-graph.db'), send.delivery_id);
-    assert.equal(accepted.attempts, 1, 'native delivery did not persist exactly one dispatch attempt');
-    assert.equal(accepted.acceptance?.adapter_kind, 'codex-cli-queue', 'native delivery did not persist host_accept');
+    assert.equal(accepted.attempts, 1, 'router-to-adapter dispatch did not persist exactly one dispatch attempt');
+    assert.equal(accepted.acceptance?.adapter_kind, 'codex-cli-queue', 'router-to-adapter dispatch did not persist host_accept');
     assert.equal(JSON.parse(accepted.acceptance.receipt_json).host, 'codex-cli');
 
     const fetched = JSON.parse(execFileSync(installedBin('memesh'), [
       'message', 'fetch',
       '--project', 'packaged-native-smoke',
-      '--recipient', 'installed-active-host',
+      '--recipient', '01a041b4-5c67-75b3-9505-4e33d7942b8e',
+      '--target-kind', 'session',
       '--message-id', send.message_id,
     ], { cwd: consumerDir, env: nativeEnv, encoding: 'utf8' }));
     assert.equal(fetched.message_id, send.message_id, 'scoped fetch returned a different message');
@@ -553,33 +594,50 @@ fs.writeFileSync(process.env.MEMESH_CODEX_QUEUE_CAPTURE, JSON.stringify({ thread
     const receipts = JSON.parse(execFileSync(installedBin('memesh'), [
       'message', 'receipts',
       '--project', 'packaged-native-smoke',
-      '--recipient', 'installed-active-host',
+      '--recipient', '01a041b4-5c67-75b3-9505-4e33d7942b8e',
       '--message-id', send.message_id,
     ], { cwd: consumerDir, env: nativeEnv, encoding: 'utf8' }));
-    assert.ok(receipts.some((receipt) => receipt.receipt_kind === 'host_accept'), 'native queue acceptance was absent from receipt readback');
-    assert.equal(receipts.some((receipt) => receipt.receipt_kind === 'ack'), false, 'fetch or native wakeup implicitly acknowledged the message');
-    assert.equal(receipts.some((receipt) => receipt.receipt_kind === 'disposition'), false, 'fetch or native wakeup implicitly set workflow disposition');
+    assert.ok(receipts.some((receipt) => receipt.receipt_kind === 'host_accept'), 'fake queue acceptance was absent from receipt readback');
+    assert.equal(receipts.some((receipt) => receipt.receipt_kind === 'ack'), false, 'fetch or native dispatch implicitly acknowledged the message');
+    assert.equal(receipts.some((receipt) => receipt.receipt_kind === 'disposition'), false, 'fetch or native dispatch implicitly set workflow disposition');
 
-    // No host is registered for this principal. The sender still persists the
-    // durable message, but the router must neither wake the active unrelated
-    // stub nor create a dispatch/host_accept record for a stopped/no-host
-    // target. Poll/watch is deliberately absent from this negative path.
-    const noHost = JSON.parse(execFileSync(installedBin('memesh'), [
-      'message', 'send',
+    // No host is registered for this exact session. The sender reports the
+    // unavailable native boundary while preserving only scoped recovery data;
+    // it must not reroute to the active unrelated session.
+    let noHostFailure;
+    try {
+      execFileSync(installedBin('memesh'), [
+        'message', 'send',
+        '--project', 'packaged-native-smoke',
+        '--sender', 'installed-cli-sender',
+        '--recipient', 'stopped-or-missing-session',
+        '--target-kind', 'session',
+        '--idempotency-key', 'installed-no-host-1',
+        '--content-type', 'application/json',
+        '--payload-stdin',
+      ], {
+        cwd: consumerDir,
+        env: nativeEnv,
+        encoding: 'utf8',
+        input: JSON.stringify({ marker: 'no-host-must-not-wake' }),
+      });
+    } catch (error) {
+      noHostFailure = error;
+    }
+    assert.ok(noHostFailure, 'unregistered exact-session send unexpectedly succeeded');
+    assert.match(String(noHostFailure.stderr), /recipient_unavailable/);
+    const recoveryOutput = execFileSync(installedBin('memesh'), [
+      'message', 'watch',
       '--project', 'packaged-native-smoke',
-      '--sender', 'installed-cli-sender',
-      '--recipient', 'stopped-or-missing-host',
-      '--idempotency-key', 'installed-no-host-1',
-      '--content-type', 'application/json',
-      '--payload-stdin',
-    ], {
-      cwd: consumerDir,
-      env: nativeEnv,
-      encoding: 'utf8',
-      input: JSON.stringify({ marker: 'no-host-must-not-wake' }),
-    }));
+      '--recipient', 'stopped-or-missing-session',
+      '--wait-ms', '0',
+    ], { cwd: consumerDir, env: nativeEnv, encoding: 'utf8' });
+    const recovery = recoveryOutput.trim().split('\n').map(line => JSON.parse(line)).at(-1);
+    const noHostMessage = recovery.events[0];
+    const noHostDeliveryId = readDeliveryId(path.join(nativeDir, 'knowledge-graph.db'), noHostMessage.message_id);
+    assert.ok(noHostDeliveryId, 'unavailable exact-session send did not preserve scoped recovery data');
     await new Promise((resolve) => setTimeout(resolve, 100));
-    const absent = readHostAcceptance(path.join(nativeDir, 'knowledge-graph.db'), noHost.delivery_id);
+    const absent = readHostAcceptance(path.join(nativeDir, 'knowledge-graph.db'), noHostDeliveryId);
     assert.equal(absent.attempts, 0, 'a stopped/no-host target unexpectedly received a dispatch attempt');
     assert.equal(absent.acceptance, null, 'a stopped/no-host target unexpectedly persisted host_accept');
     assert.equal(fs.readFileSync(queueCapture, 'utf8'), JSON.stringify(queued), 'the active host received a wakeup for another principal');
@@ -641,4 +699,4 @@ fs.rmSync(smokeDir, { recursive: true, force: true });
 // Say something on success. A check that prints nothing when it passes is
 // indistinguishable from one that did not run — the exact failure mode this
 // repo has spent several releases removing from its own code.
-console.log('✅ Packaged artifact smoke test passed — tarball installs outside the repo, completes MCP lifecycle exchanges, and proves one installed message without poll/watch across metadata-only Codex wakeup → scoped durable fetch → persisted host_accept with no implicit ACK/disposition');
+console.log('✅ Packaged artifact smoke test passed — tarball installs outside the repo, completes MCP lifecycle exchanges, and verifies the installed-artifact router-to-adapter full-message contract via a controlled host and fake queue → synchronous native_accepted readback → persisted host_accept with no implicit ACK/disposition');

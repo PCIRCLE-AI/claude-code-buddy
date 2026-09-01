@@ -3,9 +3,9 @@ import {
   createCodexCliQueueAdapter,
   type RunCodexCliQueue,
 } from '../../src/host-adapters/codex-cli-queue.js';
-import type { AgentHostMetadataDispatchInput } from '../../src/core/agent-router.js';
+import type { AgentHostDispatchInput } from '../../src/core/agent-router.js';
 
-function dispatchInput(): AgentHostMetadataDispatchInput {
+function dispatchInput(): AgentHostDispatchInput {
   return {
     dispatch_id: 'delivery-1',
     attempt_id: 'attempt-1',
@@ -15,24 +15,33 @@ function dispatchInput(): AgentHostMetadataDispatchInput {
     connection_id: 'connection-1',
     generation: 1,
     hops: 1,
-    routing: {
-      project: 'project-1',
-      recipient: 'principal-1',
-      target_kind: 'principal',
+    untrusted_payload: true,
+    envelope: {
       message_id: 'message-1',
-      delivery_id: 'delivery-1',
+      project: 'project-1',
+      sender: 'sender-1',
+      sender_host: 'claude-code',
+      recipient: 'principal-1',
+      target_kind: 'session',
+      content_type: 'application/json',
+      correlation_id: 'correlation-1',
+      reply_to: null,
+      privacy: 'private',
+      created_at: '2026-08-31T00:00:00.000Z',
+      payload: { text: 'payload-reaches-native-thread' },
+      provenance: { transport: 'mcp' },
     },
   };
 }
 
 describe('Codex CLI queue adapter', () => {
-  it('queues only durable identifiers with shell disabled', async () => {
+  it('queues one bounded full message with shell disabled', async () => {
     const run = vi.fn<RunCodexCliQueue>(async () => ({
       status: 0, stdout: 'Queued message queue-id\n', stderr: '',
     }));
     const adapter = createCodexCliQueueAdapter({ authenticate: () => true, run });
 
-    await expect(adapter.dispatch_metadata_only!(dispatchInput())).resolves.toEqual({
+    await expect(adapter.dispatch!(dispatchInput())).resolves.toEqual({
       accepted: true,
       receipt: {
         host: 'codex-cli', status: 'queued',
@@ -48,12 +57,13 @@ describe('Codex CLI queue adapter', () => {
     ]);
     expect(options).toMatchObject({ shell: false, timeout: 5_000 });
     expect(JSON.parse(args[4])).toEqual({
-      message_type: 'memesh_message_available',
-      handling: expect.stringContaining('Fetch the durable payload'),
-      routing: dispatchInput().routing,
+      message_type: 'memesh_message',
+      handling: expect.stringContaining('No inbox fetch is required'),
+      delivery_id: 'delivery-1',
+      envelope: dispatchInput().envelope,
     });
-    expect(args[4]).not.toContain('sender');
-    expect(args[4]).not.toContain('payload-must-stay-in-memesh');
+    expect(args[4]).toContain('sender-1');
+    expect(args[4]).toContain('payload-reaches-native-thread');
   });
 
   it.each([
@@ -66,9 +76,22 @@ describe('Codex CLI queue adapter', () => {
       authenticate: () => true,
       run: async () => result,
     });
-    await expect(adapter.dispatch_metadata_only!(dispatchInput())).resolves.toEqual({
+    await expect(adapter.dispatch!(dispatchInput())).resolves.toEqual({
       accepted: false,
       receipt: { failure_code: failureCode },
     });
+  });
+
+  it('rejects an oversized native message before invoking Codex', async () => {
+    const run = vi.fn<RunCodexCliQueue>();
+    const adapter = createCodexCliQueueAdapter({ authenticate: () => true, run });
+    const input = dispatchInput();
+    input.envelope.payload = 'x'.repeat(17 * 1024);
+
+    await expect(adapter.dispatch!(input)).resolves.toEqual({
+      accepted: false,
+      receipt: { failure_code: 'native_message_too_large' },
+    });
+    expect(run).not.toHaveBeenCalled();
   });
 });

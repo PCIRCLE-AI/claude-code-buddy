@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { executeAgentMessageAction } from '../../src/transports/agent-messaging.js';
 import { getDatabase } from '../../src/db.js';
+import { MessageSchema } from '../../src/transports/schemas.js';
+import { AGENT_MESSAGE_JSON_MAX_BYTES } from '../../src/core/agent-messaging.js';
 import { useTestDatabase } from '../helpers/db-fixture.js';
 
 useTestDatabase('memesh-agent-message-transport-');
@@ -66,6 +68,72 @@ function seedHostAccept(message: PublicSentMessage): string {
 }
 
 describe('agent message transport', () => {
+  it('accepts exactly the durable JSON payload limit and rejects one byte over it', () => {
+    const base = {
+      action: 'send' as const,
+      project: 'limits',
+      sender: 'sender',
+      recipient: 'recipient',
+      idempotency_key: 'limit-check',
+    };
+    expect(MessageSchema.safeParse({
+      ...base,
+      payload: 'x'.repeat(AGENT_MESSAGE_JSON_MAX_BYTES - 2),
+    }).success).toBe(true);
+    const over = MessageSchema.safeParse({
+      ...base,
+      payload: 'x'.repeat(AGENT_MESSAGE_JSON_MAX_BYTES - 1),
+    });
+    expect(over.success).toBe(false);
+    if (!over.success) expect(over.error.issues[0]?.message).toContain(`${AGENT_MESSAGE_JSON_MAX_BYTES}`);
+  });
+
+  it('validates discover scope and bounded defaults', () => {
+    expect(MessageSchema.parse({ action: 'discover', project: 'directory' })).toEqual({
+      action: 'discover', project: 'directory', limit: 50,
+    });
+    expect(MessageSchema.safeParse({ action: 'discover' }).success).toBe(false);
+    expect(MessageSchema.safeParse({ action: 'discover', project: 'directory', extra: true }).success).toBe(false);
+    expect(MessageSchema.safeParse({ action: 'discover', project: 'directory', limit: 0 }).success).toBe(false);
+    expect(MessageSchema.safeParse({ action: 'discover', project: 'directory', limit: 101 }).success).toBe(false);
+  });
+
+  it('returns the router discovery result unchanged without message or receipt effects', async () => {
+    const beforeMessages = getDatabase().prepare('SELECT COUNT(*) AS count FROM agent_messages').get();
+    const beforeReceipts = getDatabase().prepare('SELECT COUNT(*) AS count FROM agent_message_receipts').get();
+    const calls: unknown[] = [];
+    const routerResult = {
+      cards: [{
+        session_id: 'session-1', principal_id: 'principal-1', host_kind: 'codex',
+        project: 'directory', model: null, work_summary: null, active: true,
+        generation: 1, lease_expires_at_ms: 123,
+      }],
+    };
+    const result = await executeAgentMessageAction(getDatabase(), {
+      action: 'discover', project: 'directory',
+    }, { transport: 'cli', sourceHost: 'cli' }, {
+      sendRouterRequest: async (socketPath, request) => {
+        calls.push({ socketPath, request });
+        return routerResult;
+      },
+    });
+    expect(result).toBe(routerResult);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ request: {
+      version: 1, type: 'discover', project: 'directory', limit: 50, hops: 0,
+    } });
+    expect(getDatabase().prepare('SELECT COUNT(*) AS count FROM agent_messages').get()).toEqual(beforeMessages);
+    expect(getDatabase().prepare('SELECT COUNT(*) AS count FROM agent_message_receipts').get()).toEqual(beforeReceipts);
+  });
+
+  it('propagates router discovery errors instead of returning an empty directory', async () => {
+    await expect(executeAgentMessageAction(getDatabase(), {
+      action: 'discover', project: 'directory', limit: 1,
+    }, { transport: 'mcp', sourceHost: 'mcp' }, {
+      sendRouterRequest: async () => { throw new Error('router unavailable'); },
+    })).rejects.toThrow('router unavailable');
+  });
+
   it('commits a durable send when the optional router hint path is unusable', async () => {
     process.env.MEMESH_ROUTER_SOCKET = `/${'nested/'.repeat(20)}agent-router.sock`;
 
@@ -89,8 +157,8 @@ describe('agent message transport', () => {
     ).toEqual({ count: 1 });
   });
 
-  it('passes an exact-session target through the public send schema to durable core state', async () => {
-    const sent = await executeAgentMessageAction(getDatabase(), {
+  it('keeps the exact-session payload durable but reports recipient_unavailable without native acceptance', async () => {
+    await expect(executeAgentMessageAction(getDatabase(), {
       action: 'send',
       project: 'transport-session',
       sender: 'sender',
@@ -101,14 +169,16 @@ describe('agent message transport', () => {
     }, {
       transport: 'http',
       sourceHost: 'test-host',
-    }) as { message_id: string; target_kind: string };
+    }, {
+      sendRouterRequest: async () => ({ delivered: false }),
+    })).rejects.toMatchObject({ code: 'recipient_unavailable' });
 
-    expect(sent.target_kind).toBe('session');
-    expect(getDatabase().prepare(`
-      SELECT recipient, target_kind
-      FROM agent_message_deliveries
-      WHERE message_id = ?
-    `).get(sent.message_id)).toEqual({
+    const stored = getDatabase().prepare(`
+      SELECT d.message_id, d.recipient, d.target_kind
+      FROM agent_message_deliveries d
+    `).get() as { message_id: string; recipient: string; target_kind: string };
+    expect(stored).toEqual({
+      message_id: expect.any(String),
       recipient: 'session-instance-7',
       target_kind: 'session',
     });
@@ -118,13 +188,13 @@ describe('agent message transport', () => {
       project: 'transport-session',
       recipient: 'session-instance-7',
       target_kind: 'session',
-      message_id: sent.message_id,
+      message_id: stored.message_id,
     }, {
       transport: 'mcp',
       sourceHost: 'test-host',
     }) as { message_id: string; target_kind: string; payload: string };
     expect(fetched).toMatchObject({
-      message_id: sent.message_id,
+      message_id: stored.message_id,
       target_kind: 'session',
       payload: 'review this model feedback',
     });
@@ -134,11 +204,125 @@ describe('agent message transport', () => {
       project: 'transport-session',
       recipient: 'session-instance-7',
       target_kind: 'principal',
-      message_id: sent.message_id,
+      message_id: stored.message_id,
     }, {
       transport: 'mcp',
       sourceHost: 'test-host',
     })).rejects.toThrow(/not available/);
+  });
+
+  it('reports native_message_too_large when the exact-session adapter rejects the full envelope', async () => {
+    await expect(executeAgentMessageAction(getDatabase(), {
+      action: 'send',
+      project: 'transport-session-size',
+      sender: 'sender',
+      recipient: 'session-instance-large',
+      target_kind: 'session',
+      idempotency_key: 'exact-session-too-large',
+      payload: 'fits durable storage but not the native envelope',
+    }, {
+      transport: 'cli',
+      sourceHost: 'test-host',
+    }, {
+      sendRouterRequest: async (_socketPath, request) => {
+        if (request.type !== 'notify') throw new Error('expected notify request');
+        const connectionId = randomUUID();
+        getDatabase().prepare(`
+          INSERT INTO agent_principals (project, principal_id, activation_event_sequence)
+          VALUES (?, ?, 0)
+        `).run('transport-session-size', 'session-instance-large');
+        getDatabase().prepare(`
+          INSERT INTO agent_session_instances (
+            project, session_instance_id, principal_id, adapter_kind
+          ) VALUES (?, ?, ?, 'codex-cli-queue')
+        `).run('transport-session-size', 'session-instance-large', 'session-instance-large');
+        getDatabase().prepare(`
+          INSERT INTO agent_session_connections (
+            connection_id, project, principal_id, session_instance_id, generation,
+            adapter_kind, router_instance_id, lease_expires_at_ms
+          ) VALUES (?, ?, ?, ?, 1, 'codex-cli-queue', 'test-router', ?)
+        `).run(
+          connectionId,
+          'transport-session-size',
+          'session-instance-large',
+          'session-instance-large',
+          Date.now() + 60_000,
+        );
+        getDatabase().prepare(`
+          INSERT INTO agent_dispatch_attempts (
+            attempt_id, delivery_id, project, principal_id, session_instance_id,
+            connection_id, generation, router_instance_id, attempt_number,
+            result, failure_code, completed_at
+          ) VALUES (?, ?, ?, ?, ?, ?, 1, 'test-router', 1,
+            'adapter_rejected', 'native_message_too_large', CURRENT_TIMESTAMP)
+        `).run(
+          randomUUID(),
+          request.delivery_id,
+          'transport-session-size',
+          'session-instance-large',
+          'session-instance-large',
+          connectionId,
+        );
+        return { delivered: false };
+      },
+    })).rejects.toMatchObject({ code: 'native_message_too_large' });
+  });
+
+  it('returns native_accepted only after exact-session host acceptance is read back', async () => {
+    const result = await executeAgentMessageAction(getDatabase(), {
+      action: 'send',
+      project: 'transport-session',
+      sender: 'sender',
+      recipient: 'session-instance-8',
+      target_kind: 'session',
+      idempotency_key: 'exact-session-accepted',
+      payload: { text: 'native content' },
+      content_type: 'application/json',
+    }, {
+      transport: 'mcp',
+      sourceHost: 'test-host',
+    }, {
+      sendRouterRequest: async (_socketPath, request) => {
+        if (request.type !== 'notify') throw new Error('expected one notify request');
+        const message = getDatabase().prepare(`
+          SELECT d.delivery_id, d.message_id, d.project, d.recipient
+          FROM agent_message_deliveries d
+          WHERE d.delivery_id = ?
+        `).get(request.delivery_id) as PublicSentMessage;
+        seedHostAccept(message);
+        return { delivered: true };
+      },
+    }) as PublicSentMessage & {
+      native_delivery: { status: string; adapter_kind: string; receipt: Record<string, unknown> };
+    };
+
+    expect(result.native_delivery).toMatchObject({
+      status: 'native_accepted',
+      adapter_kind: 'test-adapter',
+      receipt: { channel: 'test' },
+    });
+
+    const replay = await executeAgentMessageAction(getDatabase(), {
+      action: 'send',
+      project: 'transport-session',
+      sender: 'sender',
+      recipient: 'session-instance-8',
+      target_kind: 'session',
+      idempotency_key: 'exact-session-accepted',
+      payload: { text: 'native content' },
+      content_type: 'application/json',
+    }, {
+      transport: 'mcp',
+      sourceHost: 'test-host',
+    }, {
+      sendRouterRequest: async () => {
+        throw new Error('accepted replay must not dispatch twice');
+      },
+    }) as { message_id: string; native_delivery: { status: string } };
+    expect(replay).toMatchObject({
+      message_id: result.message_id,
+      native_delivery: { status: 'native_accepted' },
+    });
   });
 
   it('rejects target kinds outside the public principal-or-session contract', async () => {

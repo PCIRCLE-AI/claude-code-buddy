@@ -4,6 +4,8 @@ export interface RouterHostIdentity {
     principal_id: string;
     session_instance_id: string;
     adapter_kind: string;
+    model?: string;
+    work_summary?: string;
 }
 export interface RouterDelivery {
     attempt_id: string;

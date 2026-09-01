@@ -12,10 +12,10 @@ export async function startCodexSessionCompanion(config, hookInput, environment,
         return null;
     if (hookInput.source === 'compact')
         return null;
-    const threadId = environment.CODEX_THREAD_ID;
-    if (!threadId || !CODEX_THREAD_ID.test(threadId))
+    if (typeof environment.PLUGIN_ROOT !== 'string' || environment.PLUGIN_ROOT.length === 0)
         return null;
-    if (hookInput.session_id !== undefined && hookInput.session_id !== threadId)
+    const threadId = hookInput.session_id;
+    if (typeof threadId !== 'string' || !CODEX_THREAD_ID.test(threadId))
         return null;
     const realpath = dependencies.realpath ?? fs.realpathSync;
     const workspace = realpath(requiredAbsolutePath(config.workspace, 'workspace'));
@@ -30,9 +30,11 @@ export async function startCodexSessionCompanion(config, hookInput, environment,
             principal_id: requiredString(config.principal_id, 'principal_id'),
             session_instance_id: threadId,
             adapter_kind: 'codex-cli-queue',
+            ...(config.model == null ? {} : { model: requiredString(config.model, 'model') }),
+            ...(config.work_summary == null ? {} : { work_summary: requiredString(config.work_summary, 'work_summary') }),
         },
         async deliver() {
-            throw new Error('Codex CLI queue delivery must remain metadata-only inside the router.');
+            throw new Error('Codex CLI queue delivery is owned by the router adapter.');
         },
     });
 }
@@ -62,7 +64,7 @@ async function main() {
     if (!fs.existsSync(configPath))
         return;
     const input = await readHookInput();
-    const connection = await startCodexSessionCompanion(readHostConfigFile(configPath), input, { CODEX_THREAD_ID: process.env.CODEX_THREAD_ID });
+    const connection = await startCodexSessionCompanion(readHostConfigFile(configPath), input, { PLUGIN_ROOT: process.env.PLUGIN_ROOT });
     if (!connection)
         return;
     let closing = false;

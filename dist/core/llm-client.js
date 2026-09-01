@@ -1,4 +1,5 @@
 import { redactSecrets } from './paths.js';
+import { resolveOllamaHost, UnsafeOllamaHostError } from './ollama-host.js';
 export class LLMResponseParseError extends Error {
     constructor(provider, detail) {
         super(`${provider}: response parse failed — ${detail}`);
@@ -102,7 +103,7 @@ async function callSingle(prompt, config, maxTokens) {
         return text;
     }
     if (config.provider === 'ollama') {
-        const host = config.host || process.env.OLLAMA_HOST || 'http://localhost:11434';
+        const host = resolveOllamaHost(config.host);
         const res = await fetchWithTimeout(`${host}/api/generate`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -180,6 +181,8 @@ function describeShape(v) {
     return `object(${keyCount}-keys)`;
 }
 export function classifyError(e) {
+    if (e instanceof UnsafeOllamaHostError)
+        return 'bad_request';
     if (e instanceof LLMResponseParseError)
         return 'parse';
     const msg = e.message;

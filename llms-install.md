@@ -129,14 +129,15 @@ memesh agent setup codex-session --project my-project --principal codex-recipien
 This stores the configured workspace realpath and principal in
 `~/.memesh/hosts/codex-session.json`. On `SessionStart` (`startup` or
 `resume`), an asynchronous companion registers only when its Codex thread ID,
-hook session ID, and workspace realpath match that config. It receives no
-message payload. Instead, an active registered session receives a
-metadata-only `memesh_message_available` queue marker with routing identifiers,
-then uses the scoped `message` `fetch` operation to read the durable payload.
+hook session ID, and workspace realpath match that config. The authenticated
+router sends the active exact session one bounded full message through native
+`codex queue`; no second `message fetch` is required for that live delivery.
 
-`host_accept` records only that the local Codex queue accepted that marker. It
+`host_accept` records only that the local Codex queue accepted that message. It
 does not prove an agent read the payload, acknowledged it, or accepted the
-work. If the session is stopped, missing, disconnected, or in another
+work. Codex exposes message text through its `--message` process argument, so
+same-user process inspection may observe it while the queue command runs; do
+not send secrets through the native path. If the session is stopped, missing, disconnected, or in another
 workspace, MeMesh neither starts nor replaces it; the durable inbox remains
 available to scoped fetch, cursor recovery, `poll`, and `memesh message watch`
 for audit and diagnosis.
@@ -206,6 +207,28 @@ codex mcp list
 ```
 
 Expected: `memesh` is listed as enabled.
+
+### Optional: Codex plugin marketplace
+
+Current Codex CLI versions can install the repository's plugin marketplace
+directly. For a fresh install:
+
+```
+codex plugin marketplace add PCIRCLE-AI/memesh
+codex plugin add memesh@pcircle-memesh
+```
+
+If the configured marketplace snapshot is stale, refresh it and reinstall the
+plugin:
+
+```
+codex plugin marketplace upgrade pcircle-memesh
+codex plugin remove memesh
+codex plugin add memesh@pcircle-memesh
+```
+
+These commands are separate from the MCP registration above; keep the MCP
+path when a host needs `memesh-mcp` directly.
 
 | Failure | Remedy |
 |---|---|

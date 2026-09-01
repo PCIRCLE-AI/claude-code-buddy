@@ -1,6 +1,6 @@
 # MeMesh Plugin Architecture
 
-**Version**: 4.8.2
+**Version**: 4.8.3
 
 > Looking for "which file do I change for X?" — see [CODEMAP.md](../CODEMAP.md).
 
@@ -8,7 +8,7 @@
 
 ## Overview
 
-MeMesh is the local agentic-memory and governed-collaboration layer for individual AI coding agents, including Claude Code, Codex, Gemini, Cursor, and other MCP-compatible clients. It provides 11 MCP tools (`remember`, `recall`, `forget`, `export`, `import`, `learn`, `task_state`, `briefing`, `user_patterns`, `improvement`, `message`) backed by SQLite with FTS5 full-text search and optional sqlite-vec vector embeddings. Memory and durable exact-recipient messaging are available through CLI, HTTP REST, and MCP; `improvement` stages proposals through MCP while the existing CLI/HTTP review surfaces retain human accept/reject authority.
+MeMesh is the local agentic-memory and governed-collaboration layer for individual AI coding agents, including Claude Code, Codex, Gemini, Cursor, and other MCP-compatible clients. It provides 11 MCP tools (`remember`, `recall`, `forget`, `export`, `import`, `learn`, `task_state`, `briefing`, `user_patterns`, `improvement`, `message`) backed by SQLite with FTS5 full-text search and optional sqlite-vec vector embeddings. Memory, bounded discovery of live project registrations, and durable exact-recipient messaging are available through CLI, HTTP REST, and MCP; `improvement` stages proposals through MCP while the existing CLI/HTTP review surfaces retain human accept/reject authority. Generic briefing and SessionStart context has no recipient identity and stays quiet; `briefing(project, recipient)` reports only that exact recipient's unfetched deliveries and directs the caller to poll before fetching.
 
 The package is intentionally local-first and inspectable:
 - one SQLite database under the user's control
@@ -57,12 +57,13 @@ MeMesh separates concerns into two layers:
 **Core** (`src/core/`) — pure business logic with zero transport dependencies:
 - `types.ts` — shared TypeScript interfaces (zero external deps)
 - `operations.ts` — `remember`, `recall`, `forget`, `export`, `import` as pure functions called by all transports
-- `agent-messaging.ts` — transactional exact-recipient messages, opaque cursors, bounded waits, payload fetch, and independent receipt facts
-- `agent-router.ts` — owner-private local routing from a durable message event to an eligible active host adapter; native wakeups carry routing metadata, never the payload
+- `agent-messaging.ts` — transactional exact-recipient messages, opaque cursors, bounded waits, payload fetch, a 64 KiB JSON-encoded durable payload cap, and independent receipt facts
+- `agent-router.ts` — owner-private local routing from a durable message event to an eligible active host adapter, plus a bounded project-scoped directory of live registrations; native delivery carries one untrusted full envelope capped at 16 KiB, including routing metadata and payload
 - `config.ts` — config management + capability detection (incl. `llmFallbacks` chain); exports `logCapabilities()` for startup logging
 - `paths.ts` — centralised filesystem path resolution (HOME-first override; shared with hooks via a build-generated copy in `scripts/hooks/_generated/`)
 - `scoring.ts` — multi-factor scoring engine: weights search relevance, recency, frequency, confidence, recall-impact; exports `rankEntities()` used by all recall paths
 - `llm-client.ts` — single dispatch for anthropic / openai / ollama with cross-provider failover, error classification, and per-attempt telemetry callback
+- `ollama-host.ts` — one trust policy for configured Ollama hosts: persisted/request values stay loopback-only while operator `OLLAMA_HOST` remains the explicit remote override
 - `llm-telemetry.ts` — `llm_telemetry` SQLite table + `recordTelemetry()` + `summariseTelemetry()` + `pruneTelemetry()` retention
 - `dreamer.ts` — LLM cluster compactor + pattern detector with propose/accept/reject lifecycle; auto-trigger from Stop hook; also the entry point for the `--from-transcripts` transcript-mining source.
   Clusters are formed from `entities_vec` embedding distance (L2 cut-off `0.55`, measured — see the constant), with the project a hard partition. Candidates with no vector are grouped by ISO week instead of being dropped, and a graph with no vectors at all falls back to week buckets entirely; `DreamerResult.clusteringMode` reports which rule was used, because a week bucket can mix unrelated work. `cluster_key` is a display label, not the grouping rule — a proposal is identified by its source ids.
@@ -104,6 +105,7 @@ src/
 │   ├── embedder.ts        # Neural embeddings via Ollama (768-dim) / OpenAI (1536-dim); keyword-only FTS5 fallback when none configured
 │   ├── auto-tagger.ts     # LLM-powered auto-tag generation (fire-and-forget)
 │   ├── llm-client.ts      # Single dispatch for anthropic/openai/ollama + cross-provider failover + secret redaction
+│   ├── ollama-host.ts     # Shared configured-host trust policy for Ollama
 │   ├── llm-telemetry.ts   # llm_telemetry table + recordTelemetry + summariseTelemetry + pruneTelemetry
 │   ├── llm-validator.ts   # Provider+model capability detection (list models, byte-capped fetch)
 │   ├── prompt-safety.ts   # F7 prompt-injection hardening (sanitizeForPrompt for 3 call sites)
@@ -161,7 +163,7 @@ Session-start hook ranking is a SQL-only subset (no FTS query, no impact pass) t
 
 **failure-analyzer.ts** — LLM-powered failure analysis (Level 1). `analyzeFailure()` takes session errors and files edited, sends them to the configured LLM, and returns a `StructuredLesson` with error, root cause, fix, prevention, error/fix patterns, and severity. Used by the Stop hook to automatically create lessons from session failures.
 
-**lesson-engine.ts** — Structured lesson management. `createLesson()` stores a `StructuredLesson` as a `lesson_learned` entity with upsert-safe naming (`lesson-{project}-{errorPattern}`). Same error pattern in different sessions updates the existing lesson. `createExplicitLesson()` supports the `learn` MCP tool; an explicit lesson with no caller-supplied `errorPattern` is keyed on a slug of its own error text (`lesson-{project}-{first-eight-words}`), so two unrelated lessons stay two entities while a resubmitted one still appends — the nine-value pattern enum is for recurring runtime errors, and keying explicit lessons on it fused everything outside those categories into one `-other` bucket per project. `findProjectLessons()` queries lessons for proactive warnings.
+**lesson-engine.ts** — Structured lesson management. `createLesson()` stores a `StructuredLesson` as a `lesson_learned` entity with upsert-safe naming (`lesson-{project}-{errorPattern}`). Same error pattern in different sessions updates the existing lesson. `createExplicitLesson()` supports the `learn` MCP tool; an explicit lesson with no caller-supplied `errorPattern` is keyed on a human-readable prefix plus a short digest of its complete normalised error (`lesson-{project}-{readable-prefix}-{digest}`), so lessons that share their first eight significant words still remain distinct while a resubmitted lesson appends — the seven-value `inferErrorPattern()` set is a coarse classifier, and keying explicit lessons on it fused everything outside those categories into one `-other` bucket per project. `findProjectLessons()` queries lessons for proactive warnings.
 
 **patterns.ts** — User work patterns computation (shared by MCP `user_patterns` tool and HTTP `GET /v1/patterns`). `computePatterns()` queries the database for work schedule (hour/day distribution), tool preferences, focus areas, workflow metrics, strengths, and learning areas. Accepts optional `categories` filter array.
 
@@ -282,15 +284,22 @@ message send (MCP / HTTP / CLI)
   -> durable exact-recipient message + notification event in SQLite
   -> owner-private local agent router
   -> eligible active supported host adapter (for example, configured Codex)
-  -> routing-metadata marker only
-  -> recipient explicitly fetches the durable payload with message fetch
+  -> bounded untrusted full message through the native host channel
+     (64 KiB JSON-encoded durable payload; 16 KiB complete native envelope)
+  -> exact-session send returns only after native host acceptance
 ```
 
 Implementation anchors: `src/core/agent-messaging.ts`, `src/core/agent-router.ts`,
 `src/transports/agent-messaging.ts`, `src/host-adapters/`, `src/host-runtime/`, and
 `docs/platforms/agent-messaging.md`.
 
-This branch is optional and local-only: unavailable, stopped, disconnected, or unsupported sessions are not resumed or replaced. A host queue acceptance is a host receipt, not recipient acknowledgement or workflow disposition. See the [`message` API contract](api/API_REFERENCE.md#message) and the [Local Agent Messaging Guide](platforms/agent-messaging.md) for the lifecycle and supported-host limits.
+This branch is optional and local-only: an oversized full envelope returns `native_message_too_large`; unavailable, stopped, disconnected, or unsupported exact sessions return `recipient_unavailable` and are not resumed or replaced. A host queue acceptance is a host receipt, not recipient acknowledgement or workflow disposition. See the [`message` API contract](api/API_REFERENCE.md#message) and the [Local Agent Messaging Guide](platforms/agent-messaging.md) for the lifecycle and supported-host limits.
+
+Before sending, `message discover` can read the router's live registrations for
+one exact project. It returns session/principal routing identity, host kind,
+declared model and work summary, generation, and authoritative lease expiry.
+The directory is in-memory presence joined to the current connection row; it is
+not a second durable registry, and the read creates no message or receipt facts.
 
 ### Search knowledge (recall)
 
@@ -376,7 +385,7 @@ Hooks are defined in `hooks/hooks.json` and executed by Claude Code at specific 
 | pre-compact.js | PreCompact | Save knowledge before compaction |
 | user-prompt-intent.js | UserPromptSubmit | Detect "remember" intent (5 languages: en, es, fr, pt, zh-TW) and remind Claude to use mcp__memesh__remember |
 | guard-check.js | PreToolUse (Bash) | Fire accepted lesson-guards against the command about to run (warn-only; fires counted) |
-| codex-session.js | SessionStart (startup/resume, async) | Register the exact configured live Codex thread for metadata-only message wakeups; no-op without Codex thread identity |
+| codex-session.js | SessionStart (startup/resume, async) | Register the exact configured live Codex thread for bounded full-message native delivery; no-op without Codex thread identity |
 
 ### Pre-Edit Recall (`scripts/hooks/pre-edit-recall.js`)
 

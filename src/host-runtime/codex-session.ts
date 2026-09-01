@@ -16,6 +16,8 @@ export interface CodexSessionHostConfig extends Record<string, unknown> {
   project: unknown;
   principal_id: unknown;
   workspace: unknown;
+  model?: unknown;
+  work_summary?: unknown;
 }
 
 export interface CodexSessionStartInput {
@@ -33,20 +35,21 @@ export interface CodexSessionCompanionDependencies {
 /**
  * Bind one living Codex hook process to the router for the lifetime of the
  * ordinary CLI session. The router invokes native queue locally; this process
- * supplies presence/heartbeats and never receives the durable payload.
+ * supplies authenticated presence and heartbeats while the adapter receives
+ * the bounded full message.
  */
 export async function startCodexSessionCompanion(
   config: CodexSessionHostConfig,
   hookInput: CodexSessionStartInput,
-  environment: { CODEX_THREAD_ID?: string },
+  environment: { PLUGIN_ROOT?: string },
   dependencies: CodexSessionCompanionDependencies = {},
 ): Promise<RouterHostConnection | null> {
   if (hookInput.hook_event_name !== undefined && hookInput.hook_event_name !== 'SessionStart') return null;
   if (hookInput.source === 'compact') return null;
+  if (typeof environment.PLUGIN_ROOT !== 'string' || environment.PLUGIN_ROOT.length === 0) return null;
 
-  const threadId = environment.CODEX_THREAD_ID;
-  if (!threadId || !CODEX_THREAD_ID.test(threadId)) return null;
-  if (hookInput.session_id !== undefined && hookInput.session_id !== threadId) return null;
+  const threadId = hookInput.session_id;
+  if (typeof threadId !== 'string' || !CODEX_THREAD_ID.test(threadId)) return null;
 
   const realpath = dependencies.realpath ?? fs.realpathSync;
   const workspace = realpath(requiredAbsolutePath(config.workspace, 'workspace'));
@@ -61,9 +64,11 @@ export async function startCodexSessionCompanion(
       principal_id: requiredString(config.principal_id, 'principal_id'),
       session_instance_id: threadId,
       adapter_kind: 'codex-cli-queue',
+      ...(config.model == null ? {} : { model: requiredString(config.model, 'model') }),
+      ...(config.work_summary == null ? {} : { work_summary: requiredString(config.work_summary, 'work_summary') }),
     },
     async deliver() {
-      throw new Error('Codex CLI queue delivery must remain metadata-only inside the router.');
+      throw new Error('Codex CLI queue delivery is owned by the router adapter.');
     },
   });
 }
@@ -97,7 +102,7 @@ async function main(): Promise<void> {
   const connection = await startCodexSessionCompanion(
     readHostConfigFile<CodexSessionHostConfig>(configPath),
     input,
-    { CODEX_THREAD_ID: process.env.CODEX_THREAD_ID },
+    { PLUGIN_ROOT: process.env.PLUGIN_ROOT },
   );
   if (!connection) return;
   let closing = false;

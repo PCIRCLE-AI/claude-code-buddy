@@ -24,11 +24,16 @@ host is recallable from all of them. Not installed yet? Follow
 3. **"What do you remember?"** — call `briefing` and relay its content. Do
    not answer from your own conversation context.
 4. **When you need another agent** — to hand off, to ask, to report back —
-   send a `message` before anything else. The host's own push tool (Claude
+   first use `message discover` with the exact project when you do not already
+   know the recipient. It lists only live registrations and their routing IDs,
+   host kind, declared model/current work, generation, and lease; missing
+   declarations remain unknown. Then send a `message`. The host's own push tool (Claude
    Code's `SendMessage`, a Codex queue) delivers a wakeup; it is not the
    record, and it cannot reach an agent on a different host or one that is
-   not running. `briefing` and SessionStart tell you when something is
-   waiting for you: `N messages waiting for "<project>" — fetch them`.
+   not running. Generic `briefing` and SessionStart context has no recipient
+   identity and stays quiet. Check an inbox with the exact `project` and
+   `recipient`; poll first, then fetch each returned `message_id`. Fetching
+   does not acknowledge.
 
 ## All 11 MCP tools
 
@@ -41,10 +46,10 @@ host is recallable from all of them. Not installed yet? Follow
 | `import` | Import a JSON export; `merge_strategy` (required): skip / append / overwrite |
 | `learn` | Record a structured lesson: error, root cause, fix, prevention |
 | `task_state` | Read or update where the work stands: goal / next / blocked / done |
-| `briefing` | The assembled work topology for a project — call once at session start |
+| `briefing` | The assembled work topology; exact `project` + `recipient` can surface only that recipient's unfetched deliveries |
 | `user_patterns` | Analyze work schedule, tool preferences, and focus areas from memory |
 | `improvement` | Propose an evidence-linked product improvement or read its status; only a human may accept/reject it |
-| `message` | **Contact another local agent** — hand off work, ask for a result, report a disposition. Send here first: the durable inbox is the record, host push is only delivery. Polling/fetching never implies acknowledgement |
+| `message` | Discover live agents, then exchange exact-recipient untrusted messages: durable JSON payload max 64 KiB; complete native envelope max 16 KiB with distinct `native_message_too_large` and `recipient_unavailable` errors; delivery reads/acceptance never imply ACK or disposition |
 
 ## Memory hygiene
 

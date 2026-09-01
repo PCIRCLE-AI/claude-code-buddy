@@ -15,7 +15,7 @@ If your goal is cross-agent collaboration rather than memory alone, start with t
 | **Other MCP coding agents (Cursor, Cline…)** | MCP Server | Point the client at `memesh-mcp` | See root [README](../../README.md) |
 | **Local agent messaging across hosts** | MCP / HTTP / CLI; bridge where required | Explicit exact-recipient local messaging today; host push/resume remains adapter work | [agent-messaging.md](./agent-messaging.md) |
 | **Hermes Agent (NousResearch)** | Native `MemoryProvider` plugin | Drop `plugins/memory/memesh/` into a Hermes Agent checkout; `hermes memory setup memesh` | [hermes-agent.md](./hermes-agent.md) |
-| **OpenClaw** | Native memory plugin | `openclaw plugins install <package>` or drop into OpenClaw checkout; configure `plugins.slots.memory` | [openclaw.md](./openclaw.md) |
+| **OpenClaw** | Native memory plugin (source; not live-tested or published) | `openclaw plugins install @pcircle/openclaw-memory-memesh` when published, or drop into OpenClaw checkout; configure `plugins.slots.memory` | [openclaw.md](./openclaw.md) |
 | **Custom apps / scripts** | HTTP API | Run `memesh serve` and call `/v1/*` | [universal.md](./universal.md) |
 | **ChatGPT / Custom GPT experiments** | HTTP API | Use a local connector/proxy that can reach localhost | [chatgpt.md](./chatgpt.md) |
 | **Gemini web / AI Studio experiments** | HTTP API | Use a local connector/proxy that can reach localhost (the Gemini **CLI** uses MCP above instead) | [gemini.md](./gemini.md) |

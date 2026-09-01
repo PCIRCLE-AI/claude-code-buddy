@@ -9,7 +9,7 @@
   <p align="center">
     <a href="https://www.npmjs.com/package/@pcircle/memesh"><img src="https://img.shields.io/npm/v/@pcircle/memesh?style=flat-square&color=3b82f6&label=npm" alt="npm" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" alt="MIT" /></a>
-    <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D22-22c55e?style=flat-square" alt="Node" /></a>
+    <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D22.13.0-22c55e?style=flat-square" alt="Node" /></a>
     <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP-compatible-a855f7?style=flat-square" alt="MCP" /></a>
   </p>
 </p>
@@ -21,6 +21,7 @@
 ### 新的協作入口
 
 - `message` 讓本機 agent 擁有可恢復 cursor、可明確記錄 receipt 的單一收件人耐久化 inbox，MCP、HTTP、CLI 三個 surface 都可用。
+- `message discover` 提供有界、限定 project 的活動 agent directory，回傳 session、principal、host kind、宣告的 model/work（或明確 unknown）與 active lease；不會進行訊息或 receipt 操作。
 - `improvement` 讓 active memories 直接進入有證據連結的產品工作提案；agent 能發起與查狀態，但只有人類能接受或拒絕。
 
 ## 安裝
@@ -32,7 +33,7 @@
 /plugin install memesh@pcircle-memesh
 ```
 
-重開 Claude Code。下一個 session 開頭出現 `◉ MeMesh` 狀態列，就代表它在記了。
+重開 Claude Code。下一個 session 開頭出現 `◉ MeMesh` 狀態列，代表 SessionStart hook 已輸出狀態列。
 
 **在終端機裡** — `memesh` CLI、儀表板，以及給 Codex / Cursor 與相容本機 MCP 用戶端用的 `memesh-mcp` server（需要 [Node 22.13+](https://nodejs.org)）：
 
@@ -73,9 +74,9 @@ MeMesh 有一個很強的跨代理優勢：凡是連到同一個本機 MeMesh in
 
 可選的安全 host-native 喚醒 runtime 目前支援 macOS 與 Linux。Windows 仍可使用 MeMesh 核心記憶、耐久化 message storage 與 MCP tools；Windows host-native 喚醒目前尚未支援。
 
-- 今天就能做的：MCP、HTTP 或 CLI sender 可把訊息耐久化送給一個指定的本機 recipient。接收端可另行擷取 payload、在重啟後用 opaque cursor 補收，並把 intake、acknowledgement、workflow disposition 與 host activation 分開記錄。
-- 啟用 MeMesh Codex plugin 並完成 owner-private 的 `memesh agent setup codex-session` opt-in 後，位於**確切設定本機 workspace** 的活動中 Codex session 可在沒有輪詢或人工提醒下收到原生 `memesh_message_available` 喚醒。marker 只含 routing metadata；Codex 接著以 scope 相符的 `message` tool 擷取耐久化 payload。
-- 成功的 queue admission（`host_accept`）只代表本機 Codex queue 接受了 marker；它不代表 agent 已讀 payload、已確認收到，或接受了工作。
+- 今天就能做的：MCP、HTTP 或 CLI sender 可把一份 JSON 編碼後不超過 65,536 UTF-8 bytes（64 KiB）的不受信任 payload 耐久化送給一個指定的本機 recipient。接收端可另行擷取、在重啟後用 opaque cursor 補收，並把 intake、acknowledgement、workflow disposition 與 host activation 分開記錄。
+- 啟用 MeMesh Codex plugin 並完成 owner-private 的 `memesh agent setup codex-session` opt-in 後，確切活動中的 Codex session 可在沒有輪詢或人工提醒下透過原生 queue 收到一則完整訊息，也不需要再次 fetch inbox。包含 routing metadata 與 payload 的完整 native envelope 另有 16,384 bytes（16 KiB）上限。exact-session send 只有在原生 queue 接受後才成功；完整 envelope 過大時回報 `native_message_too_large`，其他無法使用或拒絕的 session 則回報 `recipient_unavailable`。scope 相符的 recovery data 仍會保留，Principal target 在無法原生傳遞時仍保有 durable store-and-forward。
+- 成功的原生 admission（`host_accept`）只代表本機 Codex queue 接受了這則有界訊息；它不代表 agent 已讀、已確認收到，或接受了工作。Codex 目前只提供 `--message` 參數傳入文字，因此同一使用者的 process inspection 可能在 queue command 執行期間看到內容；原生訊息不要放 secrets。
 - Durable message storage 由 owner policy 控制，不會偷偷刪除未解決訊息：`memesh message storage report` 會顯示 logical payload、protected rows、可重用 SQLite pages 與 WAL 大小；bounded prune 預設只 dry-run，且只 tombstone 舊的 terminal payload。可選的 `MEMESH_AGENT_MESSAGE_STORAGE_QUOTA_BYTES` 會在交易內原子拒絕超額 send。詳見 [bounded storage and audit retention](docs/platforms/agent-messaging.md#bounded-storage-and-audit-retention)。
 - 已停止、缺失或斷線的 Codex session 不會被喚醒或取代。它的耐久化 inbox 仍可供稽核與復原；`poll` 與 `memesh message watch` 是相容與診斷路徑。原生傳遞不會自動恢復已停止的模型 session、不會執行 payload，也不代表已確認收到。
 - 協作式信任邊界：recipient 名稱只是邏輯 routing ID，不是每個 agent 各自登入的身分或 ACL。能存取同一本機 MeMesh instance 的 caller 都必須視為受信任的 workspace participant；host adapter 仍需自行落實權限與人工核准規則。
@@ -163,7 +164,7 @@ npm install -g @pcircle/memesh
 
 Claude Code 會自動接好 hooks、skills 和 MCP server。你會獲得對話內自動擷取、主動回憶、可在 Claude Code 對話中使用的 `/memesh` skill（remember / recall / learn / forget），以及代理可呼叫的 `remember` / `recall` / `forget` / `learn` MCP 工具。
 
-**驗證方式：**重開 Claude Code、開任何 session。開頭出現像 `◉ MeMesh ready · no memories for "your-project" yet` 的狀態列 — 那一行就是外掛在運作的證明，不需要另外跑指令。（有記憶之後會改顯示數量。）CLI 與本地儀表板無需任何額外的全域安裝就能完整使用 — `npx @pcircle/memesh <command>` 可執行所有 CLI 指令，`npx @pcircle/memesh` 可在 `localhost:3737` 啟動儀表板。MCP server 直接從外掛內建的編譯產物啟動 — 不需要 `npx` 查找、不需要 `npm install -g`、不需要本地建置步驟。memesh 透過 Node 內建的 `node:sqlite`（22.13+）存放資料，所以升級 Node 不會留下一個為錯誤 runtime 編譯的二進位檔。
+**驗證方式：**重開 Claude Code、開任何 session。開頭出現像 `◉ MeMesh ready · no memories for "your-project" yet` 的狀態列 — 這直接驗證 SessionStart hook 有輸出；單憑這一行不能證明後續 capture 或 recall 已運作。（有記憶之後會改顯示數量。）CLI 與本地儀表板無需任何額外的全域安裝就能完整使用 — `npx @pcircle/memesh <command>` 可執行所有 CLI 指令，`npx @pcircle/memesh` 可在 `localhost:3737` 啟動儀表板。MCP server 直接從外掛內建的編譯產物啟動 — 不需要 `npx` 查找、不需要 `npm install -g`、不需要本地建置步驟。memesh 透過 Node 內建的 `node:sqlite`（22.13+）存放資料，所以升級 Node 不會留下一個為錯誤 runtime 編譯的二進位檔。
 
 ### 選項 B — npm 全域安裝（可選最佳化）
 
@@ -236,6 +237,8 @@ codex mcp list       # memesh 應顯示為 enabled
 
 **與 Hermes 的關鍵差異**：OpenClaw 的自動擷取有門檻控制（觸發時每輪最多 3 筆記憶），而非每一輪都擷取。整合對應到 MeMesh 的 HTTP API（`/v1/recall`、`/v1/remember`、`/v1/forget`）。完整 TypeScript 外掛合約、設定形狀與陷阱：**[docs/platforms/openclaw.md](docs/platforms/openclaw.md)**
 
+目前狀態：source plugin 已存在於 `extensions/memory-memesh/`，但尚未發布，也尚未在真實 OpenClaw runtime 驗證。
+
 ### 第二步：保存一個決策
 
 > 下方的 bash 範例假設 `memesh` 已在 `PATH` 上（選項 B）。選項 A（純外掛）使用者有兩條等價路徑：在 Claude Code 對話中發問（`/memesh` skill 與 MCP 工具涵蓋同樣的流程），或將任何 shell 中的 `memesh` 替換為 `npx @pcircle/memesh` — 旗標相同，不需要全域安裝。
@@ -300,7 +303,7 @@ Decisions and direction for "your-project":
 - [decision] Use FTS5 as the retrieval baseline
 ```
 
-Claude Code 在 session 開始時自動收到的就是同一個區塊，其他 MCP 用戶端呼叫 `briefing` 工具也拿到同一份 — 代理一開場就有方向，不用重讀整個 repo，你也不用再重講上禮拜的事。儀表板（`memesh serve`）是完整的視覺化版本。
+Claude Code 在 session 開始時自動收到的就是同一個區塊，其他 MCP 用戶端呼叫 `briefing` 工具也拿到同一份 — 代理一開場就有方向，不用重讀整個 repo，你也不用再重講上禮拜的事。儀表板（`memesh serve`）是完整的視覺化版本。一般 `briefing` 與 SessionStart 情境不帶 recipient 身分，因此不會顯示未讀訊息。要檢查收件匣，請提供確切的 `project` 與 `recipient`；MeMesh 只回報該 recipient 尚未擷取的訊息，並要求先 poll，再逐筆 fetch。
 
 ### 你的資料
 
@@ -406,7 +409,7 @@ MeMesh 的檢索引擎**只用 FTS5**（熱路徑上不使用 LLM、不使用嵌
 | **Claude 停止時** | 擷取已編輯的檔案、已修復的錯誤，並從失敗自動產生結構化教訓 |
 | **上下文壓縮前** | 在知識被上下文限制丟掉之前先保存 |
 | **危險指令與編輯前** | 觸發你接受過的教訓守衛——在記錄過的錯誤即將重演的那一刻發出警告 |
-| **已 opt-in 的 Codex session 啟動或恢復時** | 註冊該確切活動 thread 以接收 metadata-only MeMesh 訊息喚醒；其他 workspace 與已停止 session 不會被附掛 |
+| **已 opt-in 的 Codex session 啟動或恢復時** | 註冊該確切活動 thread 以接收有界完整訊息的原生傳遞；其他 workspace 與已停止 session 不會被附掛 |
 
 > **隨時退出：** `export MEMESH_AUTO_CAPTURE=false`
 
@@ -569,10 +572,10 @@ memesh config set embedder.provider openai          # or: ollama
 | `import` | 匯入記憶，包含合併策略（跳過 / 覆寫 / 追加） |
 | `learn` | 記錄來自錯誤的結構化教訓（錯誤、根本原因、修復、預防） |
 | `task_state` | 讀取或記下工作進度——目標、下一步、卡住的地方、剛完成的事 |
-| `briefing` | 組合好的工作拓撲——Claude Code 在 session 開始拿到的那個區塊，任何 MCP client 都拿得到 |
+| `briefing` | 提供給任何 MCP client 的工作拓撲；一般情境不顯示未讀訊息，確切的 `project` + `recipient` 才會顯示該收件者尚未擷取的訊息 |
 | `user_patterns` | 分析你的工作模式——時間表、工具、優勢、學習領域 |
 | `improvement` | 將有證據來源的產品改善送交人類審核，或讀取其狀態；agent 不能自行接受或拒絕 |
-| `message` | 要聯絡另一個本機 agent（交接工作、請求結果、回報處置）先送到這裡：耐久收件匣才是紀錄，host push 只是通知。輪詢、擷取、確認收到是分開記錄的事實 |
+| `message` | 先找出活動 agent，再交換確切收件者的不受信任訊息。Durable JSON payload 上限 64 KiB；完整 native envelope 上限 16 KiB，並區分 `native_message_too_large` 與 `recipient_unavailable`。原生接受、探索、輪詢與擷取都不代表 ACK 或 workflow disposition |
 
 ---
 
@@ -623,7 +626,16 @@ bash "$(npm prefix -g)/lib/node_modules/@pcircle/memesh/scripts/upgrade-plugin.s
 
 腳本會 fast-forward marketplace cache、把新版本放進 `~/.claude/plugins/cache/`、安裝 runtime deps，然後把 `installed_plugins.json` 重指向新版本。執行完請重啟 Claude Code 讓 MCP server 重連。
 
-**npm-global 安裝**（`npm install -g @pcircle/memesh`）可以直接 `memesh update` 自動更新。Source checkouts：`git pull && npm install && npm run build`。
+**npm-global 安裝**（`npm install -g @pcircle/memesh`）可以直接 `memesh update` 自動更新。Source checkout 請先安裝 npm，再執行 `git pull && npm install && npm run build`。
+
+**Codex plugin marketplace 安裝**（使用 Codex CLI）：
+
+```bash
+codex plugin marketplace add PCIRCLE-AI/memesh
+codex plugin add memesh@pcircle-memesh
+```
+
+若 marketplace snapshot 已過期，先執行 `codex plugin marketplace upgrade pcircle-memesh`，再用 `codex plugin remove memesh` 後重新執行 `codex plugin add memesh@pcircle-memesh`。
 
 Session 開始時，有新版本可下載時會跳一行 banner（每版本每 24 小時節流一次），`memesh doctor` 會回報升級目標版本與對應指令。
 

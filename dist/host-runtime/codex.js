@@ -59,6 +59,8 @@ export async function startManagedCodexHost(config, dependencies = {}) {
                 principal_id: normalized.principalId,
                 session_instance_id: normalized.sessionInstanceId,
                 adapter_kind: 'codex-app-server',
+                ...(normalized.model === undefined ? {} : { model: normalized.model }),
+                ...(normalized.workSummary === undefined ? {} : { work_summary: normalized.workSummary }),
             },
             async deliver(delivery) {
                 const receipt = await adapter.queue({
@@ -141,6 +143,8 @@ function normalizeConfig(config) {
         workspace,
         codexCommand: requiredString(config.codex_command ?? 'codex', 'codex_command'),
         startupTimeoutMs: boundedStartupTimeout(config.startup_timeout_ms ?? DEFAULT_STARTUP_TIMEOUT_MS),
+        model: config.model === undefined ? undefined : requiredString(config.model, 'model'),
+        workSummary: config.work_summary === undefined ? undefined : requiredString(config.work_summary, 'work_summary'),
     };
 }
 function requiredAbsolutePath(value, field) {

@@ -26,6 +26,7 @@ import path from 'path';
 import { MemeshDatabase as Database } from '../../src/storage/sqlite.js';
 import { closeDatabase, openDatabase } from '../../src/db.js';
 import { KnowledgeGraph } from '../../src/knowledge-graph.js';
+import { CITATION_RULE_BODY, CITATION_RULE_FILENAME } from '../../src/core/citation-rule.js';
 
 const CLI_PATH = path.join(__dirname, '..', '..', 'dist', 'transports', 'cli', 'cli.js');
 
@@ -53,8 +54,11 @@ describe('doctor: the memory-citation rate is reported, not left to be found', (
     fs.rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
-  function run(args: string[]): { status: number; stdout: string; stderr: string } {
-    const env: NodeJS.ProcessEnv = { ...process.env, HOME: home, USERPROFILE: home };
+  function run(
+    args: string[],
+    envOverride: NodeJS.ProcessEnv = {},
+  ): { status: number; stdout: string; stderr: string } {
+    const env: NodeJS.ProcessEnv = { ...process.env, HOME: home, USERPROFILE: home, ...envOverride };
     for (const key of ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'OLLAMA_HOST', 'MEMESH_DIR', 'MEMESH_DB_PATH']) {
       delete env[key];
     }
@@ -66,8 +70,8 @@ describe('doctor: the memory-citation rate is reported, not left to be found', (
     }
   }
 
-  function doctorChecks(): DoctorCheck[] {
-    const r = run(['doctor', '--json']);
+  function doctorChecks(envOverride: NodeJS.ProcessEnv = {}): DoctorCheck[] {
+    const r = run(['doctor', '--json'], envOverride);
     let report: { checks?: DoctorCheck[] };
     try {
       report = JSON.parse(r.stdout) as { checks?: DoctorCheck[] };
@@ -107,8 +111,8 @@ describe('doctor: the memory-citation rate is reported, not left to be found', (
     db.close();
   }
 
-  function row(): DoctorCheck | undefined {
-    const checks = doctorChecks();
+  function row(envOverride: NodeJS.ProcessEnv = {}): DoctorCheck | undefined {
+    const checks = doctorChecks(envOverride);
     // Anti-vacuity: every assertion below reads a FILTER of this array, so an
     // empty report would satisfy "no citation row" and "no warning" alike.
     // Doctor emits well over a dozen rows on any real database; six is a
@@ -180,5 +184,19 @@ describe('doctor: the memory-citation rate is reported, not left to be found', (
     const check = row();
     expect(check?.fix, 'a zero rate was reported with no remedy').toBeTruthy();
     expect(check?.fix).toMatch(/memesh-citations\.md|install-hooks/);
+  });
+
+  it('reads the citation contract from a relocated CLAUDE_CONFIG_DIR', () => {
+    seedDatabase();
+    seedCounters('2', '0');
+    const relocated = path.join(home, 'relocated-claude');
+    const rulePath = path.join(relocated, 'rules', CITATION_RULE_FILENAME);
+    fs.mkdirSync(path.dirname(rulePath), { recursive: true });
+    fs.writeFileSync(rulePath, CITATION_RULE_BODY);
+
+    const check = row({ CLAUDE_CONFIG_DIR: relocated });
+    expect(check?.fix).toContain(rulePath);
+    expect(check?.fix).toMatch(/installed/i);
+    expect(check?.fix).not.toContain(path.join(home, '.claude', 'rules'));
   });
 });

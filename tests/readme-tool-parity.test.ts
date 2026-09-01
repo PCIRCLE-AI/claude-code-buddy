@@ -36,7 +36,7 @@ function fixture(): string {
   dirs.push(root);
   const contract = [
     'export const TOOL_DEFINITIONS = [',
-    ...names.map(name => `  {\n    name: '${name}',\n    description: '${name} canonical description',\n    inputSchema: { type: 'object' as const },\n  },`),
+    ...names.map(name => `  {\n    name: '${name}',\n    description: \`${name} canonical description\`,\n    inputSchema: { type: 'object' as const },\n  },`),
     '] as const;',
   ].join('\n');
   write(root, 'src/transports/mcp/handlers.ts', contract);

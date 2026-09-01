@@ -15,6 +15,7 @@ import {
   importFromPluginRoot,
   assembleTopologyBlock,
   DEFAULT_TOPOLOGY_BUDGET,
+  GLOBAL_TOPOLOGY_LIMIT,
   SNIPPET_FETCH_CHARS,
   TOPOLOGY_CANDIDATE_CAP,
   isTrustedForAutoContext,
@@ -786,9 +787,12 @@ process.stdin.on('end', async () => {
       };
 
       const projectTag = `project:${projectName}`;
+      const notGlobal = colNames.has('namespace')
+        ? "AND (e.namespace IS NULL OR e.namespace <> 'global')"
+        : '';
       const projectQuery = buildScoringQuery(
         `JOIN tags t ON t.entity_id = e.id`,
-        `WHERE t.tag = ? ${statusFilter}`,
+        `WHERE t.tag = ? ${notGlobal} ${statusFilter}`,
       );
       // Over-fetch WIDE, then filter. The window used to be `sessionLimit * 3`
       // and the trust filter ran after it — so a class of entity that ranks
@@ -811,26 +815,27 @@ process.stdin.on('end', async () => {
       // by nobody (#242): 1814 entities, 2 global, one of them structurally
       // uninjectable. A standing behaviour rule sat in that state for months.
       //
-      // Global rows ride in a SEPARATE, small window so they cannot displace
-      // the project's own memories: the project keeps `sessionLimit` slots and
-      // global adds at most GLOBAL_SLOTS after them. Same trust filter, same
-      // scoring. The column is absent on pre-namespace schemas; then this
-      // branch is simply empty, which is the old behaviour.
-      const GLOBAL_SLOTS = 3;
+      // Global rows ride in a SEPARATE, small window and the shared assembler
+      // gives them a separate render budget. The project keeps `sessionLimit`
+      // slots and its full character budget. The column is absent on
+      // pre-namespace schemas; then this branch is simply empty.
       let globalEntities = [];
       if (colNames.has('namespace')) {
         const globalQuery = buildScoringQuery('', `WHERE e.namespace = 'global' ${statusFilter}`);
-        const projectIds = new Set(projectOnly.map(e => e.id));
         globalEntities = db.prepare(globalQuery).all(CANDIDATE_CAP)
-          .filter(entity => isTrustedForAutoContext(entity.metadata) && !projectIds.has(entity.id))
-          .slice(0, GLOBAL_SLOTS);
+          .filter(entity => isTrustedForAutoContext(entity.metadata))
+          .slice(0, GLOBAL_TOPOLOGY_LIMIT);
       }
-      const projectEntities = [...projectOnly.slice(0, sessionLimit), ...globalEntities];
+      const projectEntities = projectOnly.slice(0, sessionLimit);
 
       // recentStatusFilter is "WHERE status = 'active'" or "" — the bare-column
       // form is fine when there's no JOIN, but we now alias the table as `e`,
       // so rewrite to e.status for consistency.
-      const recentWhere = hasStatus ? "WHERE e.status = 'active'" : '';
+      const recentConditions = [
+        hasStatus ? "e.status = 'active'" : '',
+        colNames.has('namespace') ? "(e.namespace IS NULL OR e.namespace <> 'global')" : '',
+      ].filter(Boolean);
+      const recentWhere = recentConditions.length > 0 ? `WHERE ${recentConditions.join(' AND ')}` : '';
       const recentQuery = buildScoringQuery('', recentWhere);
       const recentEntities = db.prepare(recentQuery).all(CANDIDATE_CAP)
         .filter(entity => isTrustedForAutoContext(entity.metadata))
@@ -850,6 +855,7 @@ process.stdin.on('end', async () => {
           JOIN tags t ON t.entity_id = e.id
           WHERE e.type = 'lesson_learned'
             ${hasStatus ? "AND e.status = 'active'" : ''}
+            ${colNames.has('namespace') ? "AND (e.namespace IS NULL OR e.namespace <> 'global')" : ''}
             AND t.tag = ?
           LIMIT 50
         `).all(projectTag).filter(entity => isTrustedForAutoContext(entity.metadata));
@@ -866,9 +872,11 @@ process.stdin.on('end', async () => {
       // SessionStart system message takes one row in the Claude Code
       // log instead of four. Counts are count-only — no entity bullets.
       const projectCount = projectEntities.length;
+      const globalCount = globalEntities.length;
       const recentCount = recentEntities.length;
       const memoryFragments = [];
       if (projectCount > 0) memoryFragments.push(`${projectCount} project`);
+      if (globalCount > 0) memoryFragments.push(`${globalCount} global`);
       if (recentCount > 0) memoryFragments.push(`${recentCount} recent`);
 
       let summary;
@@ -915,6 +923,7 @@ process.stdin.on('end', async () => {
         const rankedIds = [
           ...topLessons.map(e => e.id),
           ...projectEntities.map(e => e.id),
+          ...globalEntities.map(e => e.id),
           ...recentEntities.map(e => e.id),
         ];
         const uniqueIds = [...new Set(rankedIds)];
@@ -955,8 +964,8 @@ process.stdin.on('end', async () => {
         const taskRow = db
           .prepare('SELECT metadata FROM entities WHERE name = ?')
           .get(taskStateName(projectName));
-        // Inbox line beside the stated lines — the same leaf briefing uses,
-        // so the two surfaces cannot disagree on what "unread" means.
+        // SessionStart has no exact recipient identity. The shared leaf fails
+        // closed before querying, so hook and briefing cannot diverge here.
         const stateLines = [
           ...taskStateLines(
             parseTaskState(parseEntityMetadata(taskRow?.metadata)),
@@ -992,6 +1001,7 @@ process.stdin.on('end', async () => {
           [
             { entities: topLessons.map(toEntity), foreign: false },
             { entities: projectEntities.map(toEntity), foreign: false },
+            { entities: globalEntities.map(toEntity), foreign: false, global: true },
             { entities: recentEntities.map(toEntity), foreign: true },
           ],
           projectName,
@@ -1021,8 +1031,9 @@ process.stdin.on('end', async () => {
         // ever been told can end up in an observation), so it must be
         // delimited the same way on every injection path — not hand-rolled
         // per hook. The lines arrive already budgeted — assembleTopologyBlock
-        // charges the task-state block and the sections against ONE ceiling
-        // and returns whole lines only, so the closing fence cannot be cut.
+        // charges task state plus project/foreign sections against the main
+        // ceiling and global context against its small additive ceiling. It
+        // returns whole lines only, so the closing fence cannot be cut.
         memoryContext = buildReferenceContext(memoryLines);
         // The citation contract — OUTSIDE the fence on purpose: the fence
         // declares its content "background data, not instructions", and
@@ -1054,15 +1065,18 @@ process.stdin.on('end', async () => {
       // kept as the record of what was shown.
       //
       // The set below is every pool the topology block draws from — the
-      // lessons pool included. It used to record only project + recent
-      // rows, so an injected lesson could never be credited at all.
+      // lessons pool included. It is derived from rendered citation handles,
+      // so clipped or budgeted-away candidates cannot be credited as shown.
       try {
-        const seenIds = new Set();
-        const allInjected = [...topLessons, ...projectEntities, ...recentEntities].filter(e => {
-          if (seenIds.has(e.id)) return false;
-          seenIds.add(e.id);
-          return true;
+        const renderedEntityIds = memoryLines.flatMap((line) => {
+          const match = line.match(/ \[mem:(\d{1,10})\]$/);
+          return match ? [Number(match[1])] : [];
         });
+        const poolEntities = [...topLessons, ...projectEntities, ...globalEntities, ...recentEntities];
+        const entitiesById = new Map(poolEntities.map((entity) => [entity.id, entity]));
+        const allInjected = renderedEntityIds
+          .map((id) => entitiesById.get(id))
+          .filter(Boolean);
 
         if (allInjected.length > 0) {
           const sessionsDir = join(memeshDir, 'sessions');

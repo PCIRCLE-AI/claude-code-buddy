@@ -32,6 +32,19 @@ function readOwnerPrivateRegularFile(filePath: string): string {
 }
 
 describe('CLI durable-message ingress', () => {
+  it('documents the separate durable payload and complete native envelope limits', () => {
+    const result = spawnSync(process.execPath, cliArgs('message', 'send', '--help'), {
+      encoding: 'utf8',
+      env: { ...process.env, MEMESH_AUTO_CAPTURE: 'false' },
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain('payload 64 KiB');
+    expect(result.stdout).toMatch(/complete native\s+envelope 16 KiB/);
+    expect(result.stdout).toContain('65536 UTF-8 bytes');
+    expect(result.stdout).toContain('16384');
+    expect(result.stdout).toContain('untrusted');
+  });
+
   it('accepts JSON from stdin through the current source CLI', () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-cli-message-'));
     const payload = JSON.stringify({ kind: 'stdin-happy-path', value: 7 });
@@ -58,7 +71,35 @@ describe('CLI durable-message ingress', () => {
     }
   });
 
-  it('sends to one exact session through --target-kind', () => {
+  it('enforces the durable limit after JSON encoding for plain text', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-cli-message-limit-'));
+    try {
+      const accepted = spawnSync(process.execPath, cliArgs(
+        'message', 'send', '--project', 'test', '--sender', 'sender',
+        '--recipient', 'recipient', '--idempotency-key', 'plain-limit-accepted', '--payload-stdin',
+      ), {
+        encoding: 'utf8',
+        input: 'x'.repeat(65_534),
+        env: { ...process.env, HOME: home, MEMESH_AUTO_CAPTURE: 'false' },
+      });
+      expect(accepted.status, accepted.stderr).toBe(0);
+
+      const rejected = spawnSync(process.execPath, cliArgs(
+        'message', 'send', '--project', 'test', '--sender', 'sender',
+        '--recipient', 'recipient', '--idempotency-key', 'plain-limit-rejected', '--payload-stdin',
+      ), {
+        encoding: 'utf8',
+        input: 'x'.repeat(65_535),
+        env: { ...process.env, HOME: home, MEMESH_AUTO_CAPTURE: 'false' },
+      });
+      expect(rejected.status).not.toBe(0);
+      expect(rejected.stderr).toContain('payload must be at most 65536 UTF-8 bytes when encoded as JSON');
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('reports recipient_unavailable for an unregistered exact session while preserving scoped recovery', () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-cli-message-'));
     try {
       const result = spawnSync(process.execPath, cliArgs(
@@ -70,13 +111,22 @@ describe('CLI durable-message ingress', () => {
         input: 'exact session only',
         env: { ...process.env, HOME: home, MEMESH_AUTO_CAPTURE: 'false' },
       });
-      expect(result.status, result.stderr).toBe(0);
-      expect(JSON.parse(result.stdout)).toMatchObject({
-        project: 'test',
-        recipient: 'session-instance-9',
-        target_kind: 'session',
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain('recipient_unavailable');
+      expect(result.stdout).toBe('');
+
+      const polled = spawnSync(process.execPath, cliArgs(
+        'message', 'watch', '--project', 'test', '--recipient', 'session-instance-9',
+        '--wait-ms', '0',
+      ), {
+        encoding: 'utf8',
+        env: { ...process.env, HOME: home, MEMESH_AUTO_CAPTURE: 'false' },
       });
-      const messageId = (JSON.parse(result.stdout) as { message_id: string }).message_id;
+      expect(polled.status, polled.stderr).toBe(0);
+      const lines = polled.stdout.trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>);
+      const eventBatch = lines.at(-1) as { events: Array<{ message_id: string; target_kind: string }> };
+      expect(eventBatch.events[0]).toMatchObject({ target_kind: 'session' });
+      const messageId = eventBatch.events[0].message_id;
 
       const fetched = spawnSync(process.execPath, cliArgs(
         'message', 'fetch', '--project', 'test', '--recipient', 'session-instance-9',
@@ -187,7 +237,8 @@ describe('CLI durable-message ingress', () => {
     try {
       const setup = spawnSync(process.execPath, cliArgs(
         'agent', 'setup', 'codex', '--project', 'test', '--principal', 'reviewer',
-        '--workspace', home, '--json',
+        '--workspace', home, '--model', 'gpt-5.6-luna',
+        '--work-summary', 'review agent directory', '--json',
       ), {
         encoding: 'utf8',
         env: { ...process.env, HOME: home, MEMESH_AUTO_CAPTURE: 'false' },
@@ -207,7 +258,10 @@ describe('CLI durable-message ingress', () => {
         launch_command: expect.stringContaining('memesh-host-codex'),
       });
       const config = JSON.parse(readOwnerPrivateRegularFile(result.config_path)) as Record<string, unknown>;
-      expect(config).toMatchObject({ project: 'test', principal_id: 'reviewer', workspace: home });
+      expect(config).toMatchObject({
+        project: 'test', principal_id: 'reviewer', workspace: home,
+        model: 'gpt-5.6-luna', work_summary: 'review agent directory',
+      });
       expect(config).not.toHaveProperty('session_instance_id');
       expect(config).not.toHaveProperty('thread_id');
 
@@ -221,6 +275,24 @@ describe('CLI durable-message ingress', () => {
       expect(repeat.status).not.toBe(0);
       expect(repeat.stderr).toContain('was not overwritten');
       expect(JSON.parse(readOwnerPrivateRegularFile(result.config_path))).toMatchObject({ principal_id: 'reviewer' });
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(process.platform === 'win32')('rejects an overlong agent discovery declaration before writing config', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-cli-agent-metadata-'));
+    try {
+      const setup = spawnSync(process.execPath, cliArgs(
+        'agent', 'setup', 'codex', '--project', 'test', '--principal', 'reviewer',
+        '--workspace', home, '--work-summary', 'x'.repeat(201), '--json',
+      ), {
+        encoding: 'utf8',
+        env: { ...process.env, HOME: home, MEMESH_AUTO_CAPTURE: 'false' },
+      });
+      expect(setup.status).not.toBe(0);
+      expect(setup.stderr).toContain('--work-summary must be a non-empty string of at most 200 characters');
+      expect(fs.existsSync(path.join(home, '.memesh', 'hosts', 'codex.json'))).toBe(false);
     } finally {
       fs.rmSync(home, { recursive: true, force: true });
     }

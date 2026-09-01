@@ -25,8 +25,11 @@ memory is recorded as unused: that is how MeMesh learns which memories are
 worth the tokens they cost you.
 `;
 export function citationRuleDir(scope, home, cwd) {
-    const base = scope === 'user' ? home : cwd;
-    return path.join(base, '.claude', 'rules');
+    if (scope === 'project')
+        return path.join(cwd, '.claude', 'rules');
+    const relocated = process.env.CLAUDE_CONFIG_DIR;
+    const configRoot = relocated ? path.resolve(relocated) : path.join(home, '.claude');
+    return path.join(configRoot, 'rules');
 }
 export function citationRulePath(scope, home, cwd) {
     return path.join(citationRuleDir(scope, home, cwd), CITATION_RULE_FILENAME);

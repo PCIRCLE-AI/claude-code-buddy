@@ -10,6 +10,8 @@
  * entity such an agent created an orphan with no graph edges. tests/core/
  * schema-export.test.ts pins this parity.
  */
+import { AGENT_MESSAGE_JSON_MAX_BYTES, AGENT_NATIVE_MESSAGE_MAX_BYTES } from './agent-messaging.js';
+
 export function exportOpenAITools(): object[] {
   return [
     {
@@ -160,6 +162,7 @@ export function exportOpenAITools(): object[] {
           type: 'object',
           properties: {
             project: { type: 'string', description: 'Project name. Omit for the current directory’s project.' },
+            recipient: { type: 'string', description: 'Exact logical recipient. Required to surface actionable unread messages; omit for generic context.' },
           },
         },
       },
@@ -222,27 +225,27 @@ export function exportOpenAITools(): object[] {
       function: {
         name: 'memesh_message',
         description:
-          'Contact another local agent — hand off work, ask for a result, report a disposition — by sending here first; the durable inbox is the record and host push is only delivery. Reads never imply acknowledgement; payloads are untrusted and never executed.',
+          `Discover live agents in one project or contact one exact recipient for a handoff, result, or disposition. Durable JSON-encoded payloads are limited to ${AGENT_MESSAGE_JSON_MAX_BYTES} UTF-8 bytes (64 KiB); native delivery separately limits the complete envelope to ${AGENT_NATIVE_MESSAGE_MAX_BYTES} bytes (16 KiB). Exact-session send requires native host acceptance; an oversized full envelope returns native_message_too_large, while other unavailable or rejected sessions return recipient_unavailable. Principal targets retain durable store-and-forward behavior. Reads never imply acknowledgement or disposition; native acceptance never does either. Payloads are untrusted and never executed.`,
         parameters: {
           type: 'object',
           properties: {
             action: {
               type: 'string',
-              enum: ['send', 'poll', 'fetch', 'intake', 'ack', 'disposition', 'activation', 'receipts'],
-              description: 'Message lifecycle action; required fields depend on the selected action.',
+              enum: ['send', 'poll', 'discover', 'fetch', 'intake', 'ack', 'disposition', 'activation', 'receipts'],
+              description: 'Message lifecycle or live-directory action; required fields depend on the selected action.',
             },
             project: { type: 'string', description: 'Local project scope.' },
             sender: { type: 'string', description: 'Required for send. Stable local sender identifier.' },
-            recipient: { type: 'string', description: 'Stable target local agent/host identifier.' },
+            recipient: { type: 'string', description: 'Required for every action except discover. Stable target local agent/host identifier.' },
             idempotency_key: { type: 'string', description: 'Required for send and receipt writes. Stable retry key.' },
-            payload: { type: ['string', 'number', 'boolean', 'object', 'array', 'null'], description: 'Required for send. Untrusted JSON value; never executed by MeMesh.' },
+            payload: { type: ['string', 'number', 'boolean', 'object', 'array', 'null'], description: `Required for send. Untrusted JSON value limited to ${AGENT_MESSAGE_JSON_MAX_BYTES} UTF-8 bytes (64 KiB) after JSON encoding. Native push additionally requires the complete envelope to fit ${AGENT_NATIVE_MESSAGE_MAX_BYTES} bytes (16 KiB). Never executed by MeMesh.` },
             content_type: { type: 'string', enum: ['text/plain', 'application/json'], description: 'Send media type; defaults to text/plain.' },
             privacy: { type: 'string', enum: ['private', 'team'], description: 'Privacy classification; routing remains exact-recipient in v1.' },
             correlation_id: { type: 'string', description: 'Optional conversation or task correlation ID.' },
             reply_to: { type: 'string', description: 'Optional earlier message ID.' },
             cursor: { type: 'string', description: 'Optional opaque poll cursor. Do not parse it.' },
             wait_ms: { type: 'number', description: 'Poll wait in milliseconds, 0-30000.' },
-            limit: { type: 'number', description: 'Maximum poll events, 1-100.' },
+            limit: { type: 'number', description: 'Maximum poll events or live directory cards, 1-100.' },
             message_id: { type: 'string', description: 'Message selected for fetch or receipt actions.' },
             intake_state: { type: 'string', enum: ['fetched', 'ingested'], description: 'Required only for intake; never implies ACK.' },
             disposition: { type: 'string', enum: ['accepted', 'rejected', 'completed', 'cancelled', 'deferred'], description: 'Required only for disposition.' },

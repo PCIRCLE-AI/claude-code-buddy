@@ -7,6 +7,8 @@ export interface CodexSessionHostConfig extends Record<string, unknown> {
     project: unknown;
     principal_id: unknown;
     workspace: unknown;
+    model?: unknown;
+    work_summary?: unknown;
 }
 export interface CodexSessionStartInput {
     hook_event_name?: unknown;
@@ -19,6 +21,6 @@ export interface CodexSessionCompanionDependencies {
     realpath?: typeof fs.realpathSync;
 }
 export declare function startCodexSessionCompanion(config: CodexSessionHostConfig, hookInput: CodexSessionStartInput, environment: {
-    CODEX_THREAD_ID?: string;
+    PLUGIN_ROOT?: string;
 }, dependencies?: CodexSessionCompanionDependencies): Promise<RouterHostConnection | null>;
 //# sourceMappingURL=codex-session.d.ts.map

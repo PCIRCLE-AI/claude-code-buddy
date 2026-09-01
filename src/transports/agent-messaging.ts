@@ -1,8 +1,11 @@
 import { z } from 'zod';
+import { randomUUID } from 'node:crypto';
+import path from 'node:path';
 import type { MemeshDatabase } from '../storage/sqlite.js';
 import {
   AgentMessageAccessError,
   AgentMessagingError,
+  AgentNativeMessageTooLargeError,
   fetchAgentMessage,
   pollAgentEvents,
   readAgentMessageReceipts,
@@ -15,9 +18,13 @@ import {
   type AgentWorkflowFact,
 } from '../core/agent-messaging.js';
 import { MessageSchema } from './schemas.js';
-import { createAgentRouterNotifier } from '../core/agent-router.js';
+import {
+  createAgentRouterNotifier,
+  sendAgentRouterRequest,
+  type AgentRouterNotifyRequest,
+  type AgentRouterDiscoverRequest,
+} from '../core/agent-router.js';
 import { getMemeshDirFromDbPath } from '../core/paths.js';
-import path from 'node:path';
 
 export type AgentMessageActionInput = z.infer<typeof MessageSchema>;
 
@@ -27,7 +34,20 @@ export interface AgentMessageTransportContext {
   signal?: AbortSignal;
 }
 
+export interface AgentMessageTransportDependencies {
+  sendRouterRequest?: typeof sendAgentRouterRequest;
+}
+
+export class AgentRecipientUnavailableError extends AgentMessagingError {
+  readonly code = 'recipient_unavailable';
+
+  constructor() {
+    super('recipient_unavailable: the exact active session did not accept the native message.');
+  }
+}
+
 const AGENT_MESSAGE_STORAGE_QUOTA_ENV = 'MEMESH_AGENT_MESSAGE_STORAGE_QUOTA_BYTES';
+const EXACT_SESSION_NATIVE_TIMEOUT_MS = 12_000;
 const PUBLIC_DISPOSITIONS = new Set(['accepted', 'rejected', 'completed', 'cancelled', 'deferred']);
 
 type CanonicalDeliveryScope = {
@@ -84,12 +104,14 @@ function configuredAgentMessageStorageQuotaBytes(): number | undefined {
   return parsed;
 }
 
+function routerSocketPath(): string {
+  return process.env.MEMESH_ROUTER_SOCKET
+    ?? path.join(getMemeshDirFromDbPath(), 'agent-router.sock');
+}
+
 function optionalRouterNotifier(): AgentMessagePostCommitNotifier | undefined {
   try {
-    return createAgentRouterNotifier(
-      process.env.MEMESH_ROUTER_SOCKET
-        ?? path.join(getMemeshDirFromDbPath(), 'agent-router.sock'),
-    );
+    return createAgentRouterNotifier(routerSocketPath());
   } catch {
     // The message transaction is the source of truth. An unusable optional
     // hint path (including an overlong Unix-domain socket path in a nested
@@ -97,6 +119,73 @@ function optionalRouterNotifier(): AgentMessagePostCommitNotifier | undefined {
     // drains committed deliveries when a host registers or reconnects.
     return undefined;
   }
+}
+
+function nativeAcceptance(row: HostAcceptRow): AgentJsonObject {
+  return {
+    status: 'native_accepted',
+    delivery_id: row.delivery_id,
+    adapter_kind: row.adapter_kind,
+    receipt: parseStoredObject(row.receipt_json, 'agent_host_accepts.receipt_json'),
+    accepted_at: row.created_at,
+  };
+}
+
+async function requireExactSessionNativeAcceptance(
+  db: MemeshDatabase,
+  sent: { delivery_id: string; project: string },
+  dependencies: AgentMessageTransportDependencies,
+): Promise<AgentJsonObject> {
+  const existing = readHostAccept(db, sent.delivery_id);
+  if (existing) return nativeAcceptance(existing);
+
+  const request: AgentRouterNotifyRequest = {
+    version: 1,
+    type: 'notify',
+    request_id: randomUUID(),
+    project: sent.project,
+    delivery_id: sent.delivery_id,
+    hops: 0,
+  };
+  try {
+    const result = await (dependencies.sendRouterRequest ?? sendAgentRouterRequest)(
+      routerSocketPath(),
+      request,
+      EXACT_SESSION_NATIVE_TIMEOUT_MS,
+    );
+    if (result.delivered !== true) {
+      const accepted = readHostAccept(db, sent.delivery_id);
+      if (accepted) return nativeAcceptance(accepted);
+      if (readLatestDispatchFailureCode(db, sent.delivery_id) === 'native_message_too_large') {
+        throw new AgentNativeMessageTooLargeError();
+      }
+      throw new AgentRecipientUnavailableError();
+    }
+  } catch (error) {
+    if (
+      error instanceof AgentRecipientUnavailableError
+      || error instanceof AgentNativeMessageTooLargeError
+    ) throw error;
+    throw new AgentRecipientUnavailableError();
+  }
+
+  const accepted = readHostAccept(db, sent.delivery_id);
+  if (!accepted) throw new AgentRecipientUnavailableError();
+  return nativeAcceptance(accepted);
+}
+
+function readLatestDispatchFailureCode(
+  db: MemeshDatabase,
+  deliveryId: string,
+): string | undefined {
+  const row = db.prepare(`
+    SELECT failure_code
+    FROM agent_dispatch_attempts
+    WHERE delivery_id = ? AND result = 'adapter_rejected' AND failure_code IS NOT NULL
+    ORDER BY attempt_number DESC
+    LIMIT 1
+  `).get(deliveryId) as { failure_code: string } | undefined;
+  return row?.failure_code;
 }
 
 function receiptDetail(
@@ -323,12 +412,13 @@ export async function executeAgentMessageAction(
   db: MemeshDatabase,
   rawInput: unknown,
   context: AgentMessageTransportContext,
+  dependencies: AgentMessageTransportDependencies = {},
 ): Promise<unknown> {
   const input = MessageSchema.parse(rawInput);
 
   switch (input.action) {
-    case 'send':
-      return sendAgentMessage(db, {
+    case 'send': {
+      const sent = sendAgentMessage(db, {
         project: input.project,
         sender: input.sender,
         sender_host: context.sourceHost,
@@ -345,9 +435,15 @@ export async function executeAgentMessageAction(
           source_host: context.sourceHost,
         },
       }, {
-        notifier: optionalRouterNotifier(),
+        notifier: input.target_kind === 'session' ? undefined : optionalRouterNotifier(),
         storage_quota_bytes: configuredAgentMessageStorageQuotaBytes(),
       });
+      if (sent.target_kind !== 'session') return sent;
+      return {
+        ...sent,
+        native_delivery: await requireExactSessionNativeAcceptance(db, sent, dependencies),
+      };
+    }
     case 'poll': {
       const query = {
         project: input.project,
@@ -358,6 +454,22 @@ export async function executeAgentMessageAction(
       return input.wait_ms > 0
         ? waitForAgentEvents(db, { ...query, wait_ms: input.wait_ms }, context.signal)
         : pollAgentEvents(db, query);
+    }
+    case 'discover': {
+      const request: AgentRouterDiscoverRequest = {
+        version: 1,
+        type: 'discover',
+        request_id: randomUUID(),
+        project: input.project,
+        limit: input.limit,
+        hops: 0,
+      };
+      // Discovery is deliberately router-only: it neither reads nor writes
+      // durable message state, and router failures remain explicit errors.
+      return await (dependencies.sendRouterRequest ?? sendAgentRouterRequest)(
+        routerSocketPath(),
+        request,
+      );
     }
     case 'fetch':
       return fetchAgentMessage(db, input);

@@ -2,6 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { createHash } from 'crypto';
+import { execFileSync } from 'child_process';
 import { afterEach, describe, expect, it } from 'vitest';
 import { formatDoctorReport, hoursSince, runDoctor as runDoctorImpl } from '../../src/core/doctor.js';
 import type { UpdateCheck } from '../../src/core/version-check.js';
@@ -22,7 +23,7 @@ const stubEmbedText = async (): Promise<Float32Array> => new Float32Array(768);
  * its own `embedTextImpl` — the spread means it wins.
  */
 function runDoctor(options: Parameters<typeof runDoctorImpl>[0]) {
-  return runDoctorImpl({ embedTextImpl: stubEmbedText, ...options });
+  return runDoctorImpl({ embedTextImpl: stubEmbedText, pluginCacheDiscoveryImpl: () => [], ...options });
 }
 
 function makeUpdateCheck(overrides: Partial<UpdateCheck> = {}): UpdateCheck {
@@ -48,9 +49,7 @@ function writeJson(filePath: string, value: unknown): void {
   fs.writeFileSync(filePath, JSON.stringify(value, null, 2));
 }
 
-function createPackageRoot(): string {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-doctor-'));
-
+function createPackageRoot(root = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-doctor-'))): string {
   writeJson(path.join(root, '.mcp.json'), {
     mcpServers: {
       memesh: {
@@ -2660,7 +2659,7 @@ describe('shell CLI on PATH check (plugin-without-global gotcha)', () => {
       fs.writeFileSync(registry, JSON.stringify({ plugins: { 'memesh@pcircle-memesh': [entry] } }));
       return registry;
     }
-    async function run(packageRoot: string, registry: string, marketplaceSha: string | null, channel: 'plugin-marketplace' | 'npm-global' = 'plugin-marketplace') {
+    async function run(packageRoot: string, registry: string, marketplaceSha: string | null, channel: 'plugin-marketplace' | 'npm-global' = 'plugin-marketplace', discovery: Array<{ host: 'claude-code' | 'codex'; packageRoot: string; installedPluginsPath?: string }> = [], codexMarketplaceSha: string | null = marketplaceSha) {
       return runDoctor({
         packageRoot,
         packageVersion: '4.8.2',
@@ -2672,16 +2671,58 @@ describe('shell CLI on PATH check (plugin-without-global gotcha)', () => {
         getCurrentInstallChannelImpl: () => channel,
         getInstallChannelSupportImpl: () => PLUGIN_SUPPORT,
         installedPluginsPathImpl: registry,
-        marketplaceHeadShaImpl: () => marketplaceSha,
+        marketplaceHeadShaImpl: (host) => host === 'codex' ? codexMarketplaceSha : marketplaceSha,
+        pluginCacheDiscoveryImpl: () => discovery,
         nativeBindingProbeImpl: () => ({ ok: true }),
         resolveShellMemeshImpl: () => null,
       });
+    }
+    async function runWithDefaultDiscovery(
+      packageRoot: string,
+      marketplaceSha?: string | null,
+      codexMarketplaceSha: string | null | undefined = marketplaceSha,
+    ) {
+      return runDoctor({
+        packageRoot,
+        packageVersion: '4.8.2',
+        openDatabaseImpl: () => makeDatabase(1) as never,
+        closeDatabaseImpl: () => undefined,
+        detectCapabilitiesImpl: () => caps({ searchLevel: 1, embeddings: 'ollama' }),
+        getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+        getUpdateCheckImpl: async () => makeUpdateCheck(),
+        getCurrentInstallChannelImpl: () => 'npm-global',
+        getInstallChannelSupportImpl: () => ({ channel: 'npm-global', label: 'npm global', canSelfUpdate: true, recommendedCommand: 'memesh update', guidance: '' }),
+        marketplaceHeadShaImpl: marketplaceSha === undefined
+          ? undefined
+          : (host) => host === 'codex' ? (codexMarketplaceSha ?? null) : marketplaceSha,
+        nativeBindingProbeImpl: () => ({ ok: true }),
+        resolveShellMemeshImpl: () => null,
+        pluginCacheDiscoveryImpl: undefined,
+      });
+    }
+    async function withIsolatedPluginHome(body: (isolatedHome: string, codexHome: string) => Promise<void>) {
+      const previousHome = process.env.HOME;
+      const previousCodexHome = process.env.CODEX_HOME;
+      const previousClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
+      const isolatedHome = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-doctor-home-'));
+      const codexHome = path.join(isolatedHome, 'codex-home');
+      tempRoots.push(isolatedHome);
+      try {
+        process.env.HOME = isolatedHome;
+        process.env.CODEX_HOME = codexHome;
+        delete process.env.CLAUDE_CONFIG_DIR;
+        await body(isolatedHome, codexHome);
+      } finally {
+        if (previousHome === undefined) delete process.env.HOME; else process.env.HOME = previousHome;
+        if (previousCodexHome === undefined) delete process.env.CODEX_HOME; else process.env.CODEX_HOME = previousCodexHome;
+        if (previousClaudeConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = previousClaudeConfigDir;
+      }
     }
 
     it('WARNs when the cache was staged from an older commit than the marketplace has, same version', async () => {
       const packageRoot = createPackageRoot();
       tempRoots.push(packageRoot);
-      const registry = registryWith(packageRoot, { installPath: '/x', version: '4.8.2', gitCommitSha: 'a'.repeat(40) });
+      const registry = registryWith(packageRoot, { installPath: packageRoot, version: '4.8.2', gitCommitSha: 'a'.repeat(40) });
       const result = await run(packageRoot, registry, 'b'.repeat(40));
       const check = result.checks.find((c) => c.id === 'plugin-cache');
       expect(check?.status).toBe('warn');
@@ -2694,11 +2735,108 @@ describe('shell CLI on PATH check (plugin-without-global gotcha)', () => {
     it('PASSes when the registry commit is the marketplace HEAD', async () => {
       const packageRoot = createPackageRoot();
       tempRoots.push(packageRoot);
-      const registry = registryWith(packageRoot, { installPath: '/x', version: '4.8.2', gitCommitSha: 'a'.repeat(40) });
+      const registry = registryWith(packageRoot, { installPath: packageRoot, version: '4.8.2', gitCommitSha: 'a'.repeat(40) });
       const result = await run(packageRoot, registry, 'a'.repeat(40));
       const check = result.checks.find((c) => c.id === 'plugin-cache');
       expect(check?.status).toBe('pass');
       expect(check?.code).toBeUndefined();
+    });
+
+    it('reads the real default Claude marketplace HEAD in an isolated HOME', async () => {
+      await withIsolatedPluginHome(async (isolatedHome) => {
+        const marketplace = path.join(isolatedHome, '.claude', 'plugins', 'marketplaces', 'pcircle-memesh');
+        fs.mkdirSync(marketplace, { recursive: true });
+        const git = (...args: string[]) => execFileSync('git', args, { cwd: marketplace, encoding: 'utf8' }).trim();
+        git('init', '-q');
+        fs.writeFileSync(path.join(marketplace, 'fixture.txt'), 'marketplace fixture\n');
+        git('add', 'fixture.txt');
+        git('-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-q', '-m', 'fixture');
+        const marketplaceSha = git('rev-parse', 'HEAD');
+
+        const packageRoot = createPackageRoot();
+        tempRoots.push(packageRoot);
+        const registry = registryWith(packageRoot, {
+          installPath: packageRoot,
+          version: '4.8.2',
+          gitCommitSha: marketplaceSha,
+        });
+        const result = await runDoctor({
+          packageRoot,
+          packageVersion: '4.8.2',
+          openDatabaseImpl: () => makeDatabase(1) as never,
+          closeDatabaseImpl: () => undefined,
+          detectCapabilitiesImpl: () => caps({ searchLevel: 1, embeddings: 'ollama' }),
+          getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+          getUpdateCheckImpl: async () => makeUpdateCheck(),
+          getCurrentInstallChannelImpl: () => 'plugin-marketplace',
+          getInstallChannelSupportImpl: () => PLUGIN_SUPPORT,
+          installedPluginsPathImpl: registry,
+          nativeBindingProbeImpl: () => ({ ok: true }),
+          resolveShellMemeshImpl: () => null,
+        });
+
+        const check = result.checks.find((c) => c.id === 'plugin-cache');
+        expect(check?.status).toBe('pass');
+        expect(check?.summary).toContain(marketplaceSha.slice(0, 8));
+      });
+    });
+
+    it('honors CLAUDE_CONFIG_DIR for default Claude discovery and marketplace lookup', async () => {
+      await withIsolatedPluginHome(async (isolatedHome) => {
+        const claudeConfig = path.join(isolatedHome, 'relocated-claude-config');
+        process.env.CLAUDE_CONFIG_DIR = claudeConfig;
+        const marketplace = path.join(claudeConfig, 'plugins', 'marketplaces', 'pcircle-memesh');
+        fs.mkdirSync(marketplace, { recursive: true });
+        const git = (...args: string[]) => execFileSync('git', args, { cwd: marketplace, encoding: 'utf8' }).trim();
+        git('init', '-q');
+        fs.writeFileSync(path.join(marketplace, 'fixture.txt'), 'relocated marketplace fixture\n');
+        git('add', 'fixture.txt');
+        git('-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-q', '-m', 'fixture');
+        const marketplaceSha = git('rev-parse', 'HEAD');
+
+        const claudeRoot = path.join(claudeConfig, 'plugins', 'cache', 'pcircle-memesh', 'memesh', '4.8.2');
+        fs.mkdirSync(claudeRoot, { recursive: true });
+        writeJson(path.join(claudeConfig, 'plugins', 'installed_plugins.json'), {
+          plugins: { 'memesh@pcircle-memesh': [{ installPath: claudeRoot, gitCommitSha: marketplaceSha }] },
+        });
+        const packageRoot = createPackageRoot();
+        tempRoots.push(packageRoot);
+
+        const result = await runWithDefaultDiscovery(packageRoot);
+        const check = result.checks.find(c => c.id === 'plugin-cache-claude-code');
+        expect(check, JSON.stringify(result.checks.map(c => c.id))).toBeDefined();
+        expect(check?.status).toBe('pass');
+        expect(check?.summary).toContain(marketplaceSha.slice(0, 8));
+        const wiring = result.checks.find(c => c.id === 'hook-wiring');
+        expect(wiring?.status).toBe('pass');
+        expect(wiring?.summary).toMatch(/plugin runtime/i);
+      });
+    });
+
+    it('WARNs instead of using a sole registry entry that names another install', async () => {
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      const registry = registryWith(packageRoot, {
+        installPath: '/another/plugin/cache/4.8.2',
+        version: '4.8.2',
+        gitCommitSha: 'a'.repeat(40),
+      });
+      const result = await run(packageRoot, registry, 'a'.repeat(40));
+      const check = result.checks.find((c) => c.id === 'plugin-cache');
+      expect(check?.status).toBe('warn');
+      expect(check?.code).toBe('plugin-cache.unverifiable');
+      expect(check?.summary).toMatch(/only memesh entry.*another install/i);
+    });
+
+    it('WARNs when a sole legacy registry entry has no installPath to bind it to this cache', async () => {
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      const registry = registryWith(packageRoot, { version: '4.8.2', gitCommitSha: 'a'.repeat(40) });
+      const result = await run(packageRoot, registry, 'a'.repeat(40));
+      const check = result.checks.find((c) => c.id === 'plugin-cache');
+      expect(check?.status).toBe('warn');
+      expect(check?.code).toBe('plugin-cache.unverifiable');
+      expect(check?.summary).toMatch(/no usable installPath/i);
     });
 
     it('WARNs "could not tell" rather than PASS when the registry carries no commit', async () => {
@@ -2706,11 +2844,84 @@ describe('shell CLI on PATH check (plugin-without-global gotcha)', () => {
       // (or by hand) has no gitCommitSha, and "unknown" must not read as current.
       const packageRoot = createPackageRoot();
       tempRoots.push(packageRoot);
-      const registry = registryWith(packageRoot, { installPath: '/x', version: '4.8.2' });
+      const registry = registryWith(packageRoot, { installPath: packageRoot, version: '4.8.2' });
       const result = await run(packageRoot, registry, 'a'.repeat(40));
       const check = result.checks.find((c) => c.id === 'plugin-cache');
       expect(check?.status).toBe('warn');
       expect(check?.code).toBe('plugin-cache.unverifiable');
+    });
+
+    it('names an unreadable installed_plugins.json instead of saying only that its commit is missing', async () => {
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      const registry = path.join(packageRoot, 'installed_plugins.json');
+      fs.writeFileSync(registry, '{broken');
+      const result = await run(packageRoot, registry, 'a'.repeat(40));
+      const check = result.checks.find((c) => c.id === 'plugin-cache');
+      expect(check?.status).toBe('warn');
+      expect(check?.summary).toMatch(/installed_plugins\.json could not be read or parsed/i);
+    });
+
+    it('names a missing installed_plugins.json precisely', async () => {
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      const missingRegistry = path.join(packageRoot, 'missing-installed-plugins.json');
+      const result = await run(packageRoot, missingRegistry, 'a'.repeat(40));
+      const check = result.checks.find((c) => c.id === 'plugin-cache');
+      expect(check?.status).toBe('warn');
+      expect(check?.summary).toMatch(/installed_plugins\.json does not exist/i);
+      expect(check?.summary).toContain(missingRegistry);
+    });
+
+    it('names a readable Claude registry with no MeMesh key precisely', async () => {
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      const registry = path.join(packageRoot, 'installed_plugins.json');
+      fs.writeFileSync(registry, JSON.stringify({ plugins: { 'other@marketplace': [] } }));
+      const result = await run(packageRoot, registry, 'a'.repeat(40));
+      const check = result.checks.find((c) => c.id === 'plugin-cache');
+      expect(check?.status).toBe('warn');
+      expect(check?.summary).toMatch(/has no memesh@pcircle-memesh entry/i);
+    });
+
+    it('WARNs instead of throwing when the Claude registry contains a non-array MeMesh entry', async () => {
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      const registry = path.join(packageRoot, 'installed_plugins.json');
+      fs.writeFileSync(registry, JSON.stringify({
+        plugins: { 'memesh@pcircle-memesh': { installPath: packageRoot, gitCommitSha: 'a'.repeat(40) } },
+      }));
+      const result = await run(packageRoot, registry, 'a'.repeat(40));
+      const check = result.checks.find((c) => c.id === 'plugin-cache');
+      expect(check?.status).toBe('warn');
+      expect(check?.code).toBe('plugin-cache.unverifiable');
+      expect(check?.summary).toMatch(/malformed memesh entry/i);
+    });
+
+    it('names an empty Claude registry entry as no active install', async () => {
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      const registry = path.join(packageRoot, 'installed_plugins.json');
+      fs.writeFileSync(registry, JSON.stringify({ plugins: { 'memesh@pcircle-memesh': [] } }));
+      const result = await run(packageRoot, registry, 'a'.repeat(40));
+      const check = result.checks.find((c) => c.id === 'plugin-cache');
+      expect(check?.status).toBe('warn');
+      expect(check?.summary).toMatch(/records no active memesh install/i);
+    });
+
+    it('WARNs instead of passing when a valid Claude entry is mixed with malformed data', async () => {
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      const registry = path.join(packageRoot, 'installed_plugins.json');
+      fs.writeFileSync(registry, JSON.stringify({ plugins: { 'memesh@pcircle-memesh': [
+        { installPath: packageRoot, version: '4.8.2', gitCommitSha: 'a'.repeat(40) },
+        null,
+      ] } }));
+      const result = await run(packageRoot, registry, 'a'.repeat(40));
+      const check = result.checks.find((c) => c.id === 'plugin-cache');
+      expect(check?.status).toBe('warn');
+      expect(check?.code).toBe('plugin-cache.unverifiable');
+      expect(check?.summary).toMatch(/malformed memesh entry/i);
     });
 
     it('Codex: WARNs from the .codex-marketplace-install.json revision, and the fix is upgrade + add', async () => {
@@ -2752,6 +2963,28 @@ describe('shell CLI on PATH check (plugin-without-global gotcha)', () => {
       expect(check?.params).toMatchObject({ host: 'Codex', installed: 'aaaaaaaa', marketplace: 'bbbbbbbb' });
     });
 
+    it('reads the real default Codex marketplace revision without an injected reader', async () => {
+      await withIsolatedPluginHome(async (_isolatedHome, codexHome) => {
+        const packageRoot = createPackageRoot();
+        tempRoots.push(packageRoot);
+        const codexRoot = path.join(codexHome, 'plugins', 'cache', 'pcircle-memesh', 'memesh', '4.8.2');
+        const marketplaceRoot = path.join(codexHome, '.tmp', 'marketplaces', 'pcircle-memesh');
+        fs.mkdirSync(codexRoot, { recursive: true });
+        fs.mkdirSync(marketplaceRoot, { recursive: true });
+        writeJson(path.join(codexRoot, '.codex-marketplace-install.json'), { revision: 'a'.repeat(40) });
+        writeJson(path.join(marketplaceRoot, '.codex-marketplace-install.json'), { revision: 'b'.repeat(40) });
+
+        const result = await runWithDefaultDiscovery(packageRoot);
+        const check = result.checks.find(c => c.id === 'plugin-cache-codex');
+        expect(check, JSON.stringify(result.checks.map(c => c.id))).toBeDefined();
+        expect(check?.status).toBe('warn');
+        expect(check?.code).toBe('plugin-cache.stale');
+        expect(check?.summary).toContain('aaaaaaaa');
+        expect(check?.summary).toContain('bbbbbbbb');
+        expect(check?.fix).toContain('codex plugin marketplace upgrade pcircle-memesh');
+      });
+    });
+
     it('reads the registry entry for THIS install when several scopes are listed', async () => {
       // Claude Code keeps one entry per scope (user / project / local).
       // entries[0] on a two-scope machine is another cache: here it is stale
@@ -2766,6 +2999,24 @@ describe('shell CLI on PATH check (plugin-without-global gotcha)', () => {
       const result = await run(packageRoot, registry, 'a'.repeat(40));
       const check = result.checks.find((c) => c.id === 'plugin-cache');
       expect(check?.status).toBe('pass');
+    });
+
+    it('WARNs instead of passing when duplicate entries name the same install path', async () => {
+      // A duplicated registry row is not two independently valid scopes: both
+      // claim to be the identity for this exact cache. Picking matching[0]
+      // would let a current first row hide a stale or corrupted duplicate.
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      const registry = path.join(packageRoot, 'installed_plugins.json');
+      fs.writeFileSync(registry, JSON.stringify({ plugins: { 'memesh@pcircle-memesh': [
+        { installPath: packageRoot, version: '4.8.2', scope: 'user', gitCommitSha: 'a'.repeat(40) },
+        { installPath: packageRoot, version: '4.8.2', scope: 'project', gitCommitSha: 'b'.repeat(40) },
+      ] } }));
+      const result = await run(packageRoot, registry, 'a'.repeat(40));
+      const check = result.checks.find((c) => c.id === 'plugin-cache');
+      expect(check?.status).toBe('warn');
+      expect(check?.code).toBe('plugin-cache.unverifiable');
+      expect(check?.summary).toMatch(/2 memesh entries.*this install/i);
     });
 
     it('WARNs "could not tell" when several entries are listed and none is this install', async () => {
@@ -2783,12 +3034,240 @@ describe('shell CLI on PATH check (plugin-without-global gotcha)', () => {
       expect(check?.summary).toContain('none of them is this install');
     });
 
-    it('is not reported at all on an npm-global install', async () => {
+    it('reports distinct Claude PASS and Codex stale WARN checks from npm-global', async () => {
       const packageRoot = createPackageRoot();
       tempRoots.push(packageRoot);
-      const registry = registryWith(packageRoot, { installPath: '/x', version: '4.8.2', gitCommitSha: 'a'.repeat(40) });
-      const result = await run(packageRoot, registry, 'b'.repeat(40), 'npm-global');
-      expect(result.checks.find((c) => c.id === 'plugin-cache')).toBeUndefined();
+      const claudeRoot = createPackageRoot();
+      const codexRoot = createPackageRoot();
+      tempRoots.push(claudeRoot, codexRoot);
+      const registry = registryWith(claudeRoot, { installPath: claudeRoot, version: '4.8.2', gitCommitSha: 'a'.repeat(40) });
+      const codexMarker = path.join(codexRoot, '.codex-marketplace-install.json');
+      fs.writeFileSync(codexMarker, JSON.stringify({ revision: 'a'.repeat(40) }));
+      const result = await run(packageRoot, registry, 'a'.repeat(40), 'npm-global', [
+        { host: 'claude-code', packageRoot: claudeRoot, installedPluginsPath: registry },
+        { host: 'codex', packageRoot: codexRoot },
+      ], 'b'.repeat(40));
+      expect(result.checks.find((c) => c.id === 'plugin-cache-claude-code')?.status).toBe('pass');
+      expect(result.checks.find((c) => c.id === 'plugin-cache-codex')?.status).toBe('warn');
+      expect(result.checks.find((c) => c.id === 'plugin-cache-codex')?.code).toBe('plugin-cache.stale');
+      expect(result.checks.find((c) => c.id === 'plugin-cache-codex')?.fix).toContain('codex plugin marketplace upgrade pcircle-memesh');
+    });
+
+    it('WARNs an installed host when either revision is unverifiable', async () => {
+      const packageRoot = createPackageRoot();
+      const claudeRoot = createPackageRoot();
+      tempRoots.push(packageRoot, claudeRoot);
+      const registry = registryWith(claudeRoot, { installPath: claudeRoot, version: '4.8.2', gitCommitSha: 'not-a-revision' });
+      const result = await run(packageRoot, registry, 'a'.repeat(40), 'npm-global', [
+        { host: 'claude-code', packageRoot: claudeRoot, installedPluginsPath: registry },
+      ]);
+      const check = result.checks.find((c) => c.id === 'plugin-cache-claude-code');
+      expect(check?.status).toBe('warn');
+      expect(check?.code).toBe('plugin-cache.unverifiable');
+    });
+
+    it('omits plugin cache checks when no host is installed', async () => {
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      const result = await run(packageRoot, path.join(packageRoot, 'missing.json'), 'b'.repeat(40), 'npm-global');
+      expect(result.checks.some((c) => c.id.startsWith('plugin-cache-'))).toBe(false);
+    });
+
+    it('default discovery omits Claude when its valid registry has no MeMesh install', async () => {
+      await withIsolatedPluginHome(async (isolatedHome) => {
+        const packageRoot = createPackageRoot();
+        tempRoots.push(packageRoot);
+        // A leftover MeMesh cache is not an active Claude install when the
+        // host-owned registry truthfully lists only another plugin.
+        fs.mkdirSync(path.join(isolatedHome, '.claude', 'plugins', 'cache', 'pcircle-memesh', 'memesh', '4.8.1'), { recursive: true });
+        writeJson(path.join(isolatedHome, '.claude', 'plugins', 'installed_plugins.json'), {
+          plugins: { 'other@marketplace': [{ installPath: '/tmp/other' }] },
+        });
+        const result = await runWithDefaultDiscovery(packageRoot, 'a'.repeat(40));
+        expect(result.checks.some(c => c.id.startsWith('plugin-cache-claude-code'))).toBe(false);
+      });
+    });
+
+    it('default discovery treats an empty Claude MeMesh registry array as absent unless a cache remains', async () => {
+      await withIsolatedPluginHome(async (isolatedHome) => {
+        const packageRoot = createPackageRoot();
+        tempRoots.push(packageRoot);
+        writeJson(path.join(isolatedHome, '.claude', 'plugins', 'installed_plugins.json'), {
+          plugins: { 'memesh@pcircle-memesh': [] },
+        });
+
+        const withoutCache = await runWithDefaultDiscovery(packageRoot, 'a'.repeat(40));
+        expect(withoutCache.checks.some(c => c.id.startsWith('plugin-cache-claude-code'))).toBe(false);
+
+        fs.mkdirSync(path.join(isolatedHome, '.claude', 'plugins', 'cache', 'pcircle-memesh', 'memesh', '4.8.2'), { recursive: true });
+        const withCache = await runWithDefaultDiscovery(packageRoot, 'a'.repeat(40));
+        const check = withCache.checks.find(c => c.id.startsWith('plugin-cache-claude-code'));
+        expect(check?.status).toBe('warn');
+        expect(check?.code).toBe('plugin-cache.unverifiable');
+        expect(check?.summary).toMatch(/records no active memesh install/i);
+      });
+    });
+
+    it('default discovery never passes a valid Claude entry mixed with malformed data', async () => {
+      await withIsolatedPluginHome(async (isolatedHome) => {
+        const packageRoot = createPackageRoot();
+        tempRoots.push(packageRoot);
+        const claudeRoot = path.join(isolatedHome, '.claude', 'plugins', 'cache', 'pcircle-memesh', 'memesh', '4.8.2');
+        fs.mkdirSync(claudeRoot, { recursive: true });
+        writeJson(path.join(isolatedHome, '.claude', 'plugins', 'installed_plugins.json'), {
+          plugins: { 'memesh@pcircle-memesh': [
+            { installPath: claudeRoot, version: '4.8.2', gitCommitSha: 'a'.repeat(40) },
+            null,
+          ] },
+        });
+
+        const result = await runWithDefaultDiscovery(packageRoot, 'a'.repeat(40));
+        const checks = result.checks.filter(c => c.id.startsWith('plugin-cache-claude-code'));
+        expect(checks).toHaveLength(1);
+        expect(checks[0]?.status).toBe('warn');
+        expect(checks[0]?.code).toBe('plugin-cache.unverifiable');
+        expect(checks[0]?.summary).toMatch(/malformed memesh entry/i);
+      });
+    });
+
+    it('default discovery warns for an unreadable Claude registry only when a MeMesh cache exists', async () => {
+      await withIsolatedPluginHome(async (isolatedHome) => {
+        const packageRoot = createPackageRoot();
+        tempRoots.push(packageRoot);
+        const registry = path.join(isolatedHome, '.claude', 'plugins', 'installed_plugins.json');
+        fs.mkdirSync(path.dirname(registry), { recursive: true });
+        fs.writeFileSync(registry, '{broken');
+
+        const withoutCache = await runWithDefaultDiscovery(packageRoot, 'a'.repeat(40));
+        expect(withoutCache.checks.some(c => c.id.startsWith('plugin-cache-claude-code'))).toBe(false);
+
+        fs.mkdirSync(path.join(isolatedHome, '.claude', 'plugins', 'cache', 'pcircle-memesh', 'memesh', '4.8.2'), { recursive: true });
+        const withCache = await runWithDefaultDiscovery(packageRoot, 'a'.repeat(40));
+        const check = withCache.checks.find(c => c.id.startsWith('plugin-cache-claude-code'));
+        expect(check?.status).toBe('warn');
+        expect(check?.code).toBe('plugin-cache.unverifiable');
+      });
+    });
+
+    it('default discovery warns when the Claude registry is missing but a MeMesh cache exists', async () => {
+      await withIsolatedPluginHome(async (isolatedHome) => {
+        const packageRoot = createPackageRoot();
+        tempRoots.push(packageRoot);
+        fs.mkdirSync(path.join(isolatedHome, '.claude', 'plugins', 'cache', 'pcircle-memesh', 'memesh', '4.8.2'), { recursive: true });
+
+        const result = await runWithDefaultDiscovery(packageRoot, 'a'.repeat(40));
+        const check = result.checks.find(c => c.id.startsWith('plugin-cache-claude-code'));
+        expect(check?.status).toBe('warn');
+        expect(check?.code).toBe('plugin-cache.unverifiable');
+        expect(check?.summary).toMatch(/installed_plugins\.json does not exist/i);
+      });
+    });
+
+    it('discovers both hosts from an isolated HOME by default', async () => {
+      await withIsolatedPluginHome(async (isolatedHome, codexHome) => {
+        const packageRoot = createPackageRoot();
+        tempRoots.push(packageRoot);
+        const claudeRoot = path.join(isolatedHome, '.claude', 'plugins', 'cache', 'pcircle-memesh', 'memesh', '4.8.2');
+        const codexRoot = path.join(codexHome, 'plugins', 'cache', 'pcircle-memesh', 'memesh', '4.8.2');
+        fs.mkdirSync(claudeRoot, { recursive: true });
+        fs.mkdirSync(codexRoot, { recursive: true });
+        writeJson(path.join(isolatedHome, '.claude', 'plugins', 'installed_plugins.json'), {
+          plugins: { 'memesh@pcircle-memesh': [{ installPath: claudeRoot, gitCommitSha: 'a'.repeat(40) }] },
+        });
+        writeJson(path.join(codexRoot, '.codex-marketplace-install.json'), { revision: 'a'.repeat(40) });
+        const result = await runWithDefaultDiscovery(packageRoot, 'a'.repeat(40));
+        const claudeCheck = result.checks.find(c => c.id === 'plugin-cache-claude-code');
+        const codexCheck = result.checks.find(c => c.id === 'plugin-cache-codex');
+        expect(claudeCheck?.status).toBe('pass');
+        expect(codexCheck?.status).toBe('pass');
+        expect(claudeCheck?.label).toContain('Claude Code');
+        expect(codexCheck?.label).toContain('Codex');
+        const report = formatDoctorReport(result, '4.8.2').join('\n');
+        expect(report).toContain('Plugin cache source record is current (Claude Code)');
+        expect(report).toContain('Plugin cache source record is current (Codex)');
+      });
+    });
+
+    it('default discovery warns instead of guessing when several Codex cache versions exist', async () => {
+      await withIsolatedPluginHome(async (_isolatedHome, codexHome) => {
+        const packageRoot = createPackageRoot();
+        tempRoots.push(packageRoot);
+        const cacheRoot = path.join(codexHome, 'plugins', 'cache', 'pcircle-memesh', 'memesh');
+        const olderRoot = path.join(cacheRoot, '4.8.1');
+        const newerRoot = path.join(cacheRoot, '4.8.2');
+        fs.mkdirSync(olderRoot, { recursive: true });
+        fs.mkdirSync(newerRoot, { recursive: true });
+        writeJson(path.join(olderRoot, '.codex-marketplace-install.json'), { revision: 'a'.repeat(40) });
+        writeJson(path.join(newerRoot, '.codex-marketplace-install.json'), { revision: 'b'.repeat(40) });
+
+        const result = await runWithDefaultDiscovery(packageRoot, 'a'.repeat(40), 'b'.repeat(40));
+        const checks = result.checks.filter(c => c.id.startsWith('plugin-cache-codex'));
+        expect(checks).toHaveLength(1);
+        expect(checks[0]?.status).toBe('warn');
+        expect(checks[0]?.code).toBe('plugin-cache.unverifiable');
+        expect(checks[0]?.summary).toMatch(/several versioned Codex plugin cache directories/i);
+      });
+    });
+
+    it('default discovery emits one warning for duplicate rows naming one Claude cache', async () => {
+      await withIsolatedPluginHome(async (isolatedHome) => {
+        const packageRoot = createPackageRoot();
+        tempRoots.push(packageRoot);
+        const claudeRoot = path.join(isolatedHome, '.claude', 'plugins', 'cache', 'pcircle-memesh', 'memesh', '4.8.2');
+        fs.mkdirSync(claudeRoot, { recursive: true });
+        writeJson(path.join(isolatedHome, '.claude', 'plugins', 'installed_plugins.json'), {
+          plugins: { 'memesh@pcircle-memesh': [
+            { installPath: claudeRoot, gitCommitSha: 'a'.repeat(40) },
+            { installPath: claudeRoot, gitCommitSha: 'b'.repeat(40) },
+          ] },
+        });
+        const result = await runWithDefaultDiscovery(packageRoot, 'a'.repeat(40));
+        const checks = result.checks.filter(c => c.id.startsWith('plugin-cache-claude-code'));
+        expect(checks).toHaveLength(1);
+        expect(checks[0]?.status).toBe('warn');
+        expect(checks[0]?.code).toBe('plugin-cache.unverifiable');
+        expect(checks[0]?.summary).toMatch(/2 memesh entries.*this install/i);
+      });
+    });
+
+    it('checks every Claude scope instead of collapsing registry entries', async () => {
+      const packageRoot = createPackageRoot();
+      const first = createPackageRoot();
+      const second = createPackageRoot();
+      tempRoots.push(packageRoot, first, second);
+      const registry = path.join(packageRoot, 'installed_plugins.json');
+      fs.writeFileSync(registry, JSON.stringify({ plugins: { 'memesh@pcircle-memesh': [
+        { installPath: first, gitCommitSha: 'a'.repeat(40) },
+        { installPath: second, gitCommitSha: 'b'.repeat(40) },
+      ] } }));
+      const result = await run(packageRoot, registry, 'a'.repeat(40), 'npm-global', [
+        { host: 'claude-code', packageRoot: first, installedPluginsPath: registry },
+        { host: 'claude-code', packageRoot: second, installedPluginsPath: registry },
+      ]);
+      expect(result.checks.find(c => c.id === 'plugin-cache-claude-code')?.status).toBe('pass');
+      expect(result.checks.find(c => c.id === 'plugin-cache-claude-code-2')?.status).toBe('warn');
+    });
+
+    it('default discovery warns for a missing cache and mixed invalid scope', async () => {
+      await withIsolatedPluginHome(async (isolatedHome) => {
+        const packageRoot = createPackageRoot();
+        tempRoots.push(packageRoot);
+        const validRoot = path.join(isolatedHome, '.claude', 'plugins', 'cache', 'pcircle-memesh', 'memesh', '4.8.2');
+        fs.mkdirSync(validRoot, { recursive: true });
+        const missingRoot = path.join(isolatedHome, '.claude', 'plugins', 'cache', 'pcircle-memesh', 'memesh', '4.8.3');
+        writeJson(path.join(isolatedHome, '.claude', 'plugins', 'installed_plugins.json'), {
+          plugins: { 'memesh@pcircle-memesh': [
+            { installPath: validRoot, gitCommitSha: 'a'.repeat(40) },
+            { installPath: missingRoot, gitCommitSha: 'a'.repeat(40) },
+            { gitCommitSha: 'a'.repeat(40) },
+          ] },
+        });
+        const result = await runWithDefaultDiscovery(packageRoot, 'a'.repeat(40));
+        expect(result.checks.find(c => c.id === 'plugin-cache-claude-code')?.status).toBe('pass');
+        expect(result.checks.find(c => c.id === 'plugin-cache-claude-code-2')?.code).toBe('plugin-cache.unverifiable');
+        expect(result.checks.find(c => c.id === 'plugin-cache-claude-code-3')?.code).toBe('plugin-cache.unverifiable');
+        expect(result.checks.find(c => c.id === 'plugin-cache-claude-code-2')?.fix).toContain('memesh upgrade-plugin');
+      });
     });
   });
 
@@ -2867,6 +3346,164 @@ describe('shell CLI on PATH check (plugin-without-global gotcha)', () => {
     const cliCheck = result.checks.find((c) => c.id === 'shell-cli');
     expect(cliCheck?.status).toBe('pass');
     expect(cliCheck?.summary).toContain('informational');
+  });
+});
+
+describe('Claude Channel registration diagnostic', () => {
+  async function runChannelCase(server: unknown, target?: { path: string; mode?: number; content?: string; symlinkTo?: string }) {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-claude-channel-'));
+    tempRoots.push(home);
+    const packageRoot = createPackageRoot(path.join(home, '.claude', 'plugins', 'cache', 'pcircle-memesh', 'memesh', '4.8.2'));
+    const previousHome = process.env.HOME;
+    process.env.HOME = home;
+    try {
+      if (target) {
+        fs.mkdirSync(path.dirname(target.path), { recursive: true });
+        const content = target.content ?? JSON.stringify({
+          router_socket: path.join(path.dirname(target.path), 'memesh-router.sock'),
+          token_file: path.join(path.dirname(target.path), 'memesh-router.token'),
+          project: 'fixture', principal_id: 'claude-reviewer', server_name: 'memesh-channel',
+        });
+        if (target.symlinkTo) {
+          fs.writeFileSync(target.symlinkTo, content);
+          fs.symlinkSync(target.symlinkTo, target.path);
+        } else {
+          fs.writeFileSync(target.path, content);
+          fs.chmodSync(target.path, target.mode ?? 0o600);
+        }
+      }
+      writeJson(path.join(home, '.claude.json'), server);
+      return await runDoctor({
+        packageRoot,
+        packageVersion: '4.8.2',
+        openDatabaseImpl: () => makeDatabase(1) as never,
+        closeDatabaseImpl: () => undefined,
+        detectCapabilitiesImpl: () => caps({ searchLevel: 1, embeddings: 'ollama' }),
+        getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+        getUpdateCheckImpl: async () => makeUpdateCheck(),
+        getCurrentInstallChannelImpl: () => 'plugin-marketplace' as const,
+        getInstallChannelSupportImpl: () => ({ channel: 'plugin-marketplace' as const, label: 'Claude Code plugin marketplace', canSelfUpdate: false, recommendedCommand: 'memesh upgrade-plugin', guidance: '' }),
+        installedPluginsPathImpl: path.join(packageRoot, 'missing-registry.json'),
+        marketplaceHeadShaImpl: () => null,
+        nativeBindingProbeImpl: () => ({ ok: true }),
+        resolveShellMemeshImpl: () => null,
+      });
+    } finally {
+      if (previousHome === undefined) delete process.env.HOME; else process.env.HOME = previousHome;
+    }
+  }
+
+  function channelRow(result: Awaited<ReturnType<typeof runDoctorImpl>>) {
+    return result.checks.find(check => check.id === 'claude-channel');
+  }
+
+  function channelTarget(name: string) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-claude-channel-target-'));
+    tempRoots.push(root);
+    return path.join(root, name);
+  }
+
+  async function withPlatform<T>(platform: NodeJS.Platform, run: () => Promise<T>): Promise<T> {
+    const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')!;
+    Object.defineProperty(process, 'platform', { ...descriptor, value: platform });
+    try {
+      return await run();
+    } finally {
+      Object.defineProperty(process, 'platform', descriptor);
+    }
+  }
+
+  it('WARNs when the opt-in channel is absent and does not leak paths', async () => {
+    const result = await runChannelCase({ mcpServers: {} });
+    const row = channelRow(result)!;
+    expect(row.status).toBe('warn');
+    expect(row.informational).not.toBe(true);
+    expect(row.summary).toMatch(/durable MCP\/inbox.*inactive/i);
+    expect(row.summary).not.toMatch(/\/private\/|\/Users\/|memesh-claude-channel-/);
+    expect(result.status).toBe('PASS_WITH_CONCERNS');
+    const report = formatDoctorReport(result, '4.8.2').join('\n');
+    expect(report).toContain('Overall: PASS_WITH_CONCERNS');
+    expect(report).toContain('[WARN] Claude Channel registration');
+  });
+
+  it('WARNs when a registration points to a missing target', async () => {
+    const missing = channelTarget('missing.json');
+    const result = await runChannelCase({ mcpServers: { 'memesh-channel': { command: 'memesh-host-claude', args: ['--config', missing] } } });
+    expect(channelRow(result)).toMatchObject({ status: 'warn' });
+    expect(channelRow(result)?.summary).toMatch(/missing, insecure, malformed, or incomplete/i);
+    expect(channelRow(result)?.summary).not.toContain(missing);
+  });
+
+  it('WARNs malformed registrations', async () => {
+    const target = channelTarget('malformed-registration.json');
+    const result = await runChannelCase({ mcpServers: { 'memesh-channel': { command: 'other', args: ['--config', target] } } }, { path: target, mode: 0o644 });
+    expect(channelRow(result)).toMatchObject({ status: 'warn' });
+    expect(channelRow(result)?.summary).toMatch(/malformed/i);
+    expect(channelRow(result)?.summary).not.toContain(target);
+  });
+
+  it('WARNs an insecure owner config target', async () => {
+    const target = channelTarget('insecure.json');
+    const result = await runChannelCase({ mcpServers: { 'memesh-channel': { command: 'memesh-host-claude', args: ['--config', target] } } }, { path: target, mode: 0o644 });
+    expect(channelRow(result)).toMatchObject({ status: 'warn' });
+    expect(channelRow(result)?.summary).toMatch(/missing, insecure, malformed, or incomplete/i);
+    expect(channelRow(result)?.summary).not.toContain(target);
+  });
+
+  it('WARNs a coherent registration on Windows because live notification cannot be established', async () => {
+    const target = channelTarget('configured.json');
+    const result = await withPlatform('win32', () => runChannelCase(
+      { mcpServers: { 'memesh-channel': { command: 'memesh-host-claude', args: ['--config', target] } } }, { path: target },
+    ));
+    const row = channelRow(result)!;
+    expect(row).toMatchObject({ status: 'warn' });
+    expect(row.informational).not.toBe(true);
+    expect(row.summary).toMatch(/missing, insecure, malformed, or incomplete/i);
+    expect(row.summary).toMatch(/notification is not established/i);
+    expect(row.summary).not.toContain(target);
+  });
+
+  it.skipIf(process.platform === 'win32')('reports a coherent registration as CONFIGURED on a supported platform', async () => {
+    const target = channelTarget('configured.json');
+    const result = await runChannelCase(
+      { mcpServers: { 'memesh-channel': { command: 'memesh-host-claude', args: ['--config', target] } } }, { path: target },
+    );
+    const row = channelRow(result)!;
+    expect(row).toMatchObject({ status: 'pass', informational: true });
+    expect(row.summary).toMatch(/CONFIGURED/);
+    expect(row.summary).toMatch(/admission.*not verified/i);
+  });
+
+  it('WARNs when the declared target content is malformed or incomplete', async () => {
+    const target = channelTarget('malformed-content.json');
+    const result = await runChannelCase({ mcpServers: { 'memesh-channel': { command: 'memesh-host-claude', args: ['--config', target] } } }, { path: target, content: '{broken' });
+    expect(channelRow(result)).toMatchObject({ status: 'warn' });
+    expect(channelRow(result)?.summary).toMatch(/missing, insecure, malformed, or incomplete/i);
+    expect(channelRow(result)?.summary).not.toContain(target);
+  });
+
+  it('WARNs when the declared target is a symlink', async () => {
+    const target = channelTarget('link.json');
+    const realTarget = path.join(path.dirname(target), 'real.json');
+    const result = await runChannelCase({ mcpServers: { 'memesh-channel': { command: 'memesh-host-claude', args: ['--config', target] } } }, { path: target, symlinkTo: realTarget });
+    expect(channelRow(result)).toMatchObject({ status: 'warn' });
+    expect(channelRow(result)?.summary).toMatch(/missing, insecure, malformed, or incomplete/i);
+    expect(channelRow(result)?.summary).not.toContain(realTarget);
+  });
+
+  it('does not add a Claude row for a Codex plugin cache', async () => {
+    const packageRoot = createPackageRoot(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-codex-')), '.codex', 'plugins', 'cache', 'pcircle-memesh', 'memesh', '4.8.2'));
+    tempRoots.push(path.dirname(path.dirname(path.dirname(path.dirname(packageRoot)))));
+    const result = await runDoctor({
+      packageRoot, packageVersion: '4.8.2', openDatabaseImpl: () => makeDatabase(1) as never,
+      closeDatabaseImpl: () => undefined, detectCapabilitiesImpl: () => caps({ searchLevel: 1 }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'), getUpdateCheckImpl: async () => makeUpdateCheck(),
+      getCurrentInstallChannelImpl: () => 'plugin-marketplace' as const,
+      getInstallChannelSupportImpl: () => ({ channel: 'plugin-marketplace' as const, label: 'Codex plugin', canSelfUpdate: false, recommendedCommand: '', guidance: '' }),
+      installedPluginsPathImpl: path.join(packageRoot, 'missing.json'), marketplaceHeadShaImpl: () => null,
+      nativeBindingProbeImpl: () => ({ ok: true }), resolveShellMemeshImpl: () => null,
+    });
+    expect(channelRow(result)).toBeUndefined();
   });
 });
 
@@ -3160,6 +3797,36 @@ describe('doctor rows that had no assertion', () => {
       expect(check.summary).toContain('SessionStart');
       expect(check.summary, 'a type that IS present was reported missing').not.toContain('PreToolUse');
     });
+
+    it('fails closed when hooks is a JSON-valid array', async () => {
+      isolateMemeshDir();
+      const packageRoot = rootWithHooks(JSON.stringify({ hooks: [] }));
+      const result = await runDoctorImpl(options(packageRoot));
+
+      const config = row(result, 'hooks-config');
+      expect(config.status).toBe('fail');
+      expect(config.code).toBe('hooks-config.missing-types');
+
+      const scripts = row(result, 'hook-scripts');
+      expect(scripts.status).toBe('fail');
+      expect(scripts.code).toBe('hook-scripts.none');
+      expect(scripts.summary).not.toContain('All 0 hook scripts are present and executable');
+    });
+
+    it('fails closed when a hook type has a malformed hooks object', async () => {
+      isolateMemeshDir();
+      const packageRoot = rootWithHooks(JSON.stringify({ hooks: { PreToolUse: [{ hooks: {} }] } }));
+      const result = await runDoctorImpl(options(packageRoot));
+
+      const config = row(result, 'hooks-config');
+      expect(config.status).toBe('fail');
+      expect(config.code).toBe('hooks-config.missing-types');
+
+      const scripts = row(result, 'hook-scripts');
+      expect(scripts.status).toBe('fail');
+      expect(scripts.code).toBe('hook-scripts.none');
+      expect(scripts.summary).not.toContain('All 0 hook scripts are present and executable');
+    });
   });
 
   describe('llm_probe', () => {
@@ -3314,6 +3981,105 @@ describe('doctor rows that had no assertion', () => {
     });
   });
 
+  describe('Codex ordinary-session notification setup', () => {
+    function codexPackageRoot(): string {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-doctor-.codex-plugins-cache-'));
+      tempRoots.push(root);
+      const packageRoot = path.join(root, '.codex', 'plugins', 'cache', 'pcircle-memesh', 'memesh', '4.8.2');
+      fs.mkdirSync(packageRoot, { recursive: true });
+      createPackageRoot(packageRoot);
+      return packageRoot;
+    }
+
+    function codexOptions(packageRoot: string, overrides: Record<string, unknown> = {}) {
+      return options(packageRoot, {
+        getCurrentInstallChannelImpl: () => 'plugin-marketplace',
+        getInstallChannelSupportImpl: () => ({
+          channel: 'plugin-marketplace', label: 'Codex plugin marketplace', canSelfUpdate: false,
+          recommendedCommand: 'codex plugin add memesh@pcircle-memesh', guidance: '',
+        }),
+        ...overrides,
+      });
+    }
+
+    it('passes when the explicit session setup config exists', async () => {
+      const packageRoot = codexPackageRoot();
+      const memeshDir = isolateMemeshDir();
+      const configPath = path.join(memeshDir, 'hosts', 'codex-session.json');
+      writeJson(configPath, { project: 'ignored', principal: 'ignored', workspace: 'ignored' });
+
+      const result = await runDoctorImpl(codexOptions(packageRoot));
+      const check = row(result, 'codex-session-setup');
+      expect(check.status).toBe('pass');
+      expect(check.label).toBe('Codex ordinary-session notification setup');
+      expect(check.summary.toLowerCase()).toContain('durable inbox remains available');
+      expect(check.summary).toContain('will not auto-attach');
+    });
+
+    it('warns when the session setup config is missing', async () => {
+      const packageRoot = codexPackageRoot();
+      isolateMemeshDir();
+
+      const result = await runDoctorImpl(codexOptions(packageRoot));
+      const check = row(result, 'codex-session-setup');
+      expect(check.status).toBe('warn');
+      expect(check.code).toBe('codex-session.config-missing');
+      expect(check.summary.toLowerCase()).toContain('durable inbox remains available');
+      expect(check.summary).toContain('live ordinary-session wakeup is inactive');
+      expect(check.summary).toContain('explicit opt-in');
+      expect(check.summary).toContain('will not auto-attach');
+      expect(check.fix).toBe('Run `memesh agent setup codex-session --project <project> --principal <principal> --workspace <exact-workspace>`, then restart Codex.');
+      expect(result.status).toBe('PASS_WITH_CONCERNS');
+    });
+
+    it('does not add a row for a non-Codex plugin host', async () => {
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      isolateMemeshDir();
+
+      const result = await runDoctorImpl(codexOptions(packageRoot));
+      expect(result.checks.some(check => check.id === 'codex-session-setup')).toBe(false);
+    });
+
+    it('reports a discovered Codex cache for an npm-global install', async () => {
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      isolateMemeshDir();
+      const discoveredCodexRoot = codexPackageRoot();
+
+      const result = await runDoctorImpl(options(packageRoot, {
+        pluginCacheDiscoveryImpl: () => [{ host: 'codex', packageRoot: discoveredCodexRoot }],
+      }));
+      const check = row(result, 'codex-session-setup');
+      expect(check.status).toBe('warn');
+      expect(check.code).toBe('codex-session.config-missing');
+    });
+
+    it('uses only existsSync for setup detection and does not probe a router', async () => {
+      const packageRoot = codexPackageRoot();
+      const memeshDir = isolateMemeshDir();
+      const configPath = path.join(memeshDir, 'hosts', 'codex-session.json');
+      const readPaths: string[] = [];
+      let routerCalls = 0;
+
+      const result = await runDoctorImpl(codexOptions(packageRoot, {
+        existsSyncImpl: (candidate: fs.PathLike) => fs.existsSync(candidate),
+        readFileSyncImpl: ((candidate: fs.PathOrFileDescriptor, ...args: any[]) => {
+          if (String(candidate) === configPath) readPaths.push(configPath);
+          return (fs.readFileSync as any)(candidate, ...args);
+        }) as typeof fs.readFileSync,
+        messageRouterStatusProbeImpl: async () => {
+          routerCalls++;
+          return { socket_path: '/tmp/unused.sock', socket: 'missing' as const };
+        },
+      }));
+
+      expect(result.checks.find(check => check.id === 'codex-session-setup')?.status).toBe('warn');
+      expect(readPaths).toEqual([]);
+      expect(routerCalls).toBe(0);
+    });
+  });
+
   describe('message-capability probe', () => {
     it('is opt-in information and does not invoke a subprocess probe ordinarily', async () => {
       const packageRoot = createPackageRoot();
@@ -3344,7 +4110,7 @@ describe('doctor rows that had no assertion', () => {
 
       expect(check.status).toBe('pass');
       expect(check.informational).toBeFalsy();
-      expect(check.summary).toContain('eight-action message schema');
+      expect(check.summary).toContain('nine-action message schema');
       expect(check.summary).toContain('No live router socket');
     });
 

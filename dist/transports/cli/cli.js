@@ -16,9 +16,11 @@ import { inspectHosts, allWired } from '../../core/setup.js';
 import { installHooks } from '../../core/install-hooks.js';
 import { getTaskState, setTaskState } from '../../core/task-state-store.js';
 import { TASK_STATE_FIELDS, taskStateLines } from '../../core/task-state.js';
+import { AGENT_MESSAGE_JSON_MAX_BYTES, AGENT_NATIVE_MESSAGE_MAX_BYTES } from '../../core/agent-messaging.js';
 import { executeAgentMessageAction } from '../agent-messaging.js';
 import { getAgentMessageStorageReport, pruneTerminalAgentMessagePayloads, } from '../../core/agent-message-storage.js';
 import { assertSecureLocalHostRuntimeSupported, ensureRouterTokenFile, } from '../../host-runtime/config.js';
+import { pluginHostConfigRoot, versionedPluginCacheRoots } from '../../core/install-channel.js';
 async function withDatabase(fn) {
     try {
         openDatabase();
@@ -518,7 +520,7 @@ program
 });
 const messageCmd = program
     .command('message')
-    .description('Send, wait for, fetch, and explicitly receipt durable local agent messages');
+    .description('Send, discover, wait for, fetch, and explicitly receipt local agent messages');
 function parseCliMessagePayload(raw, contentType) {
     if (contentType !== 'application/json')
         return raw;
@@ -529,22 +531,33 @@ function parseCliMessagePayload(raw, contentType) {
         throw new Error('stdin must contain valid JSON when --content-type is application/json.');
     }
 }
-const MAX_CLI_MESSAGE_STDIN_BYTES = 65_536;
+function boundedCliDeclaration(value, option, maxCharacters) {
+    const normalized = value.trim();
+    if (normalized.length === 0 || normalized.length > maxCharacters) {
+        throw new Error(`${option} must be a non-empty string of at most ${maxCharacters} characters.`);
+    }
+    return normalized;
+}
 async function readCliMessagePayloadFromStdin(contentType) {
     let raw = '';
     let bytes = 0;
     for await (const chunk of process.stdin) {
         const text = typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8');
         bytes += Buffer.byteLength(text, 'utf8');
-        if (bytes > MAX_CLI_MESSAGE_STDIN_BYTES) {
-            throw new Error(`stdin payload exceeds ${MAX_CLI_MESSAGE_STDIN_BYTES} UTF-8 bytes.`);
+        if (bytes > AGENT_MESSAGE_JSON_MAX_BYTES) {
+            throw new Error(`stdin payload exceeds ${AGENT_MESSAGE_JSON_MAX_BYTES} UTF-8 bytes.`);
         }
         raw += text;
     }
     if (bytes === 0) {
         throw new Error('stdin payload is empty.');
     }
-    return parseCliMessagePayload(raw, contentType);
+    const payload = parseCliMessagePayload(raw, contentType);
+    const encodedBytes = Buffer.byteLength(JSON.stringify(payload), 'utf8');
+    if (encodedBytes > AGENT_MESSAGE_JSON_MAX_BYTES) {
+        throw new Error(`payload must be at most ${AGENT_MESSAGE_JSON_MAX_BYTES} UTF-8 bytes when encoded as JSON.`);
+    }
+    return payload;
 }
 async function runCliMessage(input) {
     await withDatabase(async () => {
@@ -568,14 +581,22 @@ function isAgentPollResult(value) {
     return Array.isArray(candidate.events) && typeof candidate.next_cursor === 'string';
 }
 messageCmd
+    .command('discover')
+    .description('Discover active leased agents in one project without sending or acknowledging messages')
+    .requiredOption('--project <name>', 'Project scope')
+    .option('--limit <n>', 'Maximum live agents, 1-100', wholeNumber('--limit'), 50)
+    .action((opts) => runCliMessage({
+    action: 'discover', project: opts.project, limit: opts.limit,
+}));
+messageCmd
     .command('send')
-    .description('Durably send one exact-recipient local message (idempotent)')
+    .description(`Durably send one exact-recipient message (payload 64 KiB; complete native envelope 16 KiB; idempotent)`)
     .requiredOption('--project <name>', 'Project scope')
     .requiredOption('--sender <id>', 'Stable sender agent/host ID')
     .requiredOption('--recipient <id>', 'Stable recipient agent/host ID')
     .option('--target-kind <kind>', 'principal | session', 'principal')
     .requiredOption('--idempotency-key <key>', 'Stable retry key')
-    .requiredOption('--payload-stdin', 'Read the complete text or JSON payload from stdin (never argv)')
+    .requiredOption('--payload-stdin', `Read untrusted text or JSON from stdin, never argv (stdin read cap ${AGENT_MESSAGE_JSON_MAX_BYTES} UTF-8 bytes; JSON-encoded durable payload cap ${AGENT_MESSAGE_JSON_MAX_BYTES}; exact-session complete native envelope cap ${AGENT_NATIVE_MESSAGE_MAX_BYTES})`)
     .option('--content-type <type>', 'text/plain | application/json', 'text/plain')
     .option('--privacy <scope>', 'private | team', 'private')
     .option('--correlation-id <id>', 'Conversation or task correlation ID')
@@ -783,6 +804,8 @@ agentCmd
     .requiredOption('--project <name>', 'Project scope used for exact routing')
     .requiredOption('--principal <id>', 'Stable logical recipient ID')
     .option('--workspace <path>', 'Managed Codex/Gemini workspace', process.cwd())
+    .option('--model <id>', 'Optional declared model identifier')
+    .option('--work-summary <text>', 'Optional declared current work summary')
     .option('--json', 'Output machine-readable setup result')
     .action((host, opts) => {
     requireOneOf(host, ['codex-session', 'codex', 'claude', 'gemini'], '<host>');
@@ -803,6 +826,8 @@ agentCmd
         token_file: routerTokenFile,
         project: opts.project,
         principal_id: opts.principal,
+        ...(opts.model === undefined ? {} : { model: boundedCliDeclaration(opts.model, '--model', 200) }),
+        ...(opts.workSummary === undefined ? {} : { work_summary: boundedCliDeclaration(opts.workSummary, '--work-summary', 200) }),
     };
     const config = host === 'codex-session'
         ? { ...common, workspace: fs.realpathSync(path.resolve(opts.workspace)) }
@@ -845,10 +870,11 @@ program
     .command('briefing')
     .description('The assembled work topology for a project — task state, decisions, lessons, knowledge, recent activity')
     .option('--project <name>', 'Project name (default: the current directory’s project)')
+    .option('--recipient <id>', 'Exact recipient; enables recipient-scoped unread message guidance')
     .option('--json', 'Output as JSON')
     .action(async (opts) => {
     await withDatabase(() => {
-        const result = assembleBriefing(opts.project);
+        const result = assembleBriefing(opts.project, opts.recipient);
         if (opts.json) {
             console.log(JSON.stringify(result));
             return;
@@ -1362,29 +1388,38 @@ program
         process.exit(1);
     }
 });
+export function resolveUpgradePluginScript(packageRootPath, pluginCacheRoot, pluginRegistryPath) {
+    const roots = versionedPluginCacheRoots(pluginCacheRoot);
+    const newestRoot = roots[roots.length - 1];
+    const bundled = path.join(packageRootPath, 'scripts', 'upgrade-plugin.sh');
+    const hasRepairTarget = Boolean(newestRoot || (pluginRegistryPath && fs.existsSync(pluginRegistryPath)));
+    if (fs.existsSync(bundled) && hasRepairTarget) {
+        return { script: bundled, newest: newestRoot ? path.basename(newestRoot) : null };
+    }
+    if (!newestRoot)
+        return null;
+    const newest = path.basename(newestRoot);
+    const script = path.join(newestRoot, 'scripts', 'upgrade-plugin.sh');
+    return { script, newest };
+}
 program
     .command('upgrade-plugin')
     .description('Upgrade the Claude Code plugin install (finds and runs its bundled upgrade script)')
     .action(async () => {
     const { spawnSync } = await import('child_process');
-    const cacheRoot = path.join(homeDir(), '.claude', 'plugins', 'cache', 'pcircle-memesh', 'memesh');
-    let versions = [];
-    try {
-        versions = fs.readdirSync(cacheRoot, { withFileTypes: true })
-            .filter((entry) => entry.isDirectory() && /^\d+\.\d+\.\d+/.test(entry.name))
-            .map((entry) => entry.name);
-    }
-    catch { }
-    if (versions.length === 0) {
-        console.error('No Claude Code plugin install found (looked in ~/.claude/plugins/cache/pcircle-memesh).');
+    const configRoot = pluginHostConfigRoot('claude-code');
+    const cacheRoot = path.join(configRoot, 'plugins', 'cache', 'pcircle-memesh', 'memesh');
+    const registryPath = path.join(configRoot, 'plugins', 'installed_plugins.json');
+    const resolved = resolveUpgradePluginScript(packageRoot, cacheRoot, registryPath);
+    if (!resolved) {
+        console.error(`No Claude Code plugin install found (looked in ${cacheRoot}).`);
         console.error('If you installed via npm, upgrade with: memesh update');
+        console.error('If you installed through Codex, run `memesh doctor` for the Codex refresh command.');
         process.exit(1);
     }
-    versions.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-    const newest = versions[versions.length - 1];
-    const script = path.join(cacheRoot, newest, 'scripts', 'upgrade-plugin.sh');
+    const { script, newest } = resolved;
     if (!fs.existsSync(script)) {
-        console.error(`Plugin install found (v${newest}), but it has no scripts/upgrade-plugin.sh — plugin versions before 4.2.5 shipped without it.`);
+        console.error(`Plugin install found${newest ? ` (v${newest})` : ''}, but it has no scripts/upgrade-plugin.sh — plugin versions before 4.2.5 shipped without it.`);
         console.error('Reinstall once from the Claude Code /plugin UI, or run the npm-global copy directly:');
         console.error('  bash "$(npm prefix -g)/lib/node_modules/@pcircle/memesh/scripts/upgrade-plugin.sh"');
         process.exit(1);
@@ -1392,7 +1427,8 @@ program
     const installHints = {
         node: 'node is required by the upgrade script. Install Node.js from https://nodejs.org',
         npm: 'npm is required by the upgrade script. It ships with Node.js — reinstall from https://nodejs.org',
-        rsync: 'rsync is required by the upgrade script. macOS: already installed; Debian/Ubuntu: sudo apt install rsync',
+        git: 'git is required by the upgrade script. macOS: xcode-select --install; Debian/Ubuntu: sudo apt install git',
+        tar: 'tar is required by the upgrade script. macOS: already installed; Debian/Ubuntu: sudo apt install tar',
     };
     const missing = Object.keys(installHints).filter((tool) => !isOnPath(tool));
     if (missing.length > 0) {
@@ -1400,7 +1436,10 @@ program
             console.error(installHints[tool]);
         process.exit(1);
     }
-    const run = spawnSync('bash', [script], { stdio: 'inherit' });
+    const run = spawnSync('bash', [script], {
+        stdio: 'inherit',
+        env: { ...process.env, CLAUDE_CONFIG_DIR: configRoot },
+    });
     if (run.error) {
         console.error(`Could not run the upgrade script: ${run.error.message}`);
         console.error('bash is required to run it. If bash is available under another name, run it yourself:');
@@ -2118,7 +2157,7 @@ dreamCmd
 });
 program
     .command('install-hooks')
-    .description('Wire memesh\'s session hooks into Claude Code (~/.claude/settings.json)')
+    .description('Wire memesh\'s session hooks into Claude Code user settings')
     .option('--scope <scope>', 'user (default) or project — project writes to ./.claude/settings.json', 'user')
     .option('--dry-run', 'Show what would change without modifying any file')
     .option('--force-over-plugin', 'Write user-level hooks even when Claude Code\'s plugin runtime already wires them. Causes double-firing — only use if you genuinely want both surfaces.')
@@ -2139,7 +2178,7 @@ program
             console.log('');
             console.log('Hooks are active. Verify with: memesh doctor');
             console.log('');
-            console.log('If you really want a second copy in ~/.claude/settings.json on top of the plugin, re-run with --force-over-plugin. (Not recommended — every session-start / Stop / PreToolUse event will fire memesh\'s hooks twice.)');
+            console.log(`If you really want a second copy in ${result.settingsPath} on top of the plugin, re-run with --force-over-plugin. (Not recommended — every session-start / Stop / PreToolUse event will fire memesh's hooks twice.)`);
             if (result.citationRule.action === 'foreign-file') {
                 console.log('');
                 console.log(`WARNING: the citation contract was NOT installed — a file memesh did not write already exists at ${result.citationRule.path}.`);

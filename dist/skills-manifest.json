@@ -3,8 +3,18 @@
   "entries": [
     {
       "path": ".claude-plugin/plugin.json",
-      "sha256": "3af9a5e8c6a08ef45c179f98040b79b46efb73d1c5696825dc3bb49cdcc0fd8e",
+      "sha256": "020f5b9ae58b24ed237093453889ad4795ff9d06fa33455b48b1aeda0aaf6e4a",
       "bytes": 527
+    },
+    {
+      "path": ".codex-plugin/mcp.json",
+      "sha256": "a6c6dd58b6ab5a3dd16fd776bdadb43e94f8140d970f1eca2d2294812321c80f",
+      "bytes": 98
+    },
+    {
+      "path": ".codex-plugin/plugin.json",
+      "sha256": "4a31bc9ce1ef62f7203ed9b3a9d4a9aa4b9a95a19f37f60cf4cfbdffa0ca95d8",
+      "bytes": 154
     },
     {
       "path": ".mcp.json",
@@ -18,8 +28,8 @@
     },
     {
       "path": "scripts/hooks/_generated/agent-message-inbox.js",
-      "sha256": "32eefdac2b8699bf33ed0b111fad5e374cc64dba0f17b95d4475f30243cef290",
-      "bytes": 1394
+      "sha256": "5c08c513f42ae103d0f07fda2b86dba98d3b75abe4033f6cd8c72456b984e41a",
+      "bytes": 1734
     },
     {
       "path": "scripts/hooks/_generated/capture-flag.js",
@@ -28,8 +38,8 @@
     },
     {
       "path": "scripts/hooks/_generated/citation-rule.js",
-      "sha256": "213a3c779ed646cecc4008236b8ac93d4f6e6322392b8bdc28352601746b5fb6",
-      "bytes": 3574
+      "sha256": "754903707c63a2c9ad0e8307055a1c3abee2fccbd122c973d8177b22552b8fff",
+      "bytes": 3743
     },
     {
       "path": "scripts/hooks/_generated/core-paths.js",
@@ -78,13 +88,13 @@
     },
     {
       "path": "scripts/hooks/_generated/work-topology.js",
-      "sha256": "166f6cf01468327184401bb3e75ecd26c4ca80b603f34c22c466cc651a4f63ed",
-      "bytes": 7102
+      "sha256": "3196a80c0d039d77ef5fef4911be54ec600035595e69e6915cfe237447fca526",
+      "bytes": 7891
     },
     {
       "path": "scripts/hooks/_shared.js",
-      "sha256": "d49e993b35aa449744b8e52bd3e47788f9418ef47204b01f3ce99582b883b5df",
-      "bytes": 40871
+      "sha256": "df8b1b69fc7b6ee93232515957ee8d2a2e67fe49a28ba55dbbcedd6c32887af7",
+      "bytes": 40894
     },
     {
       "path": "scripts/hooks/guard-check.js",
@@ -108,8 +118,8 @@
     },
     {
       "path": "scripts/hooks/session-start.js",
-      "sha256": "9dd8010551deb8a4016d2963f83a1699313f40302bd714b082b5ec82aa71c467",
-      "bytes": 60042
+      "sha256": "64fb72cf4a273ea74faf4467d6d9b0b4f9e3085e5f6cc992377da04bb23a4cbb",
+      "bytes": 60929
     },
     {
       "path": "scripts/hooks/session-summary.js",
@@ -128,8 +138,8 @@
     },
     {
       "path": "skills/memesh/SKILL.md",
-      "sha256": "56f4a8352f75526a57fc3aa3b58bbd7ba1ef63c289a150cc842c182a055b3d2d",
-      "bytes": 15089
+      "sha256": "b1e749dfca38904ffd6be1e1b78d5ce5860832f2f37c5fb2f53b1dc4b49d245d",
+      "bytes": 17342
     }
   ]
 }

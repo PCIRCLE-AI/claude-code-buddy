@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { exportOpenAITools } from '../../src/core/schema-export.js';
-import { MessageSchema, RememberSchema, RecallSchema } from '../../src/transports/schemas.js';
+import { BriefingSchema, MessageSchema, RememberSchema, RecallSchema } from '../../src/transports/schemas.js';
 import { TOOL_DEFINITIONS } from '../../src/transports/mcp/handlers.js';
+import { AGENT_MESSAGE_JSON_MAX_BYTES, AGENT_NATIVE_MESSAGE_MAX_BYTES } from '../../src/core/agent-messaging.js';
 
 describe('exportOpenAITools', () => {
   const tools = exportOpenAITools();
@@ -78,13 +79,28 @@ describe('exportOpenAITools', () => {
     const tool = tools.find((t: any) => t.function.name === 'memesh_message') as any;
     expect(tool.function.parameters.required).toEqual(['action']);
     expect(tool.function.parameters.properties.action.enum).toEqual([
-      'send', 'poll', 'fetch', 'intake', 'ack', 'disposition', 'activation', 'receipts',
+      'send', 'poll', 'discover', 'fetch', 'intake', 'ack', 'disposition', 'activation', 'receipts',
     ]);
     expect(tool.function.description).toMatch(/Reads never imply acknowledgement/);
+    expect(tool.function.description).toContain(`${AGENT_MESSAGE_JSON_MAX_BYTES} UTF-8 bytes (64 KiB)`);
+    expect(tool.function.description).toContain(`${AGENT_NATIVE_MESSAGE_MAX_BYTES} bytes (16 KiB)`);
+    expect(tool.function.description).toMatch(/native_message_too_large/);
+    expect(tool.function.description).toMatch(/recipient_unavailable/);
+    expect(tool.function.description).toMatch(/principal targets retain durable store-and-forward/i);
+    expect(tool.function.parameters.properties.payload.description).toContain('Untrusted JSON value');
+    expect(tool.function.parameters.properties.payload.description).toContain(`${AGENT_MESSAGE_JSON_MAX_BYTES} UTF-8 bytes (64 KiB)`);
+    expect(tool.function.parameters.properties.payload.description).toContain(`${AGENT_NATIVE_MESSAGE_MAX_BYTES} bytes (16 KiB)`);
+    expect(tool.function.parameters.properties.recipient.description).toMatch(/except discover/i);
+    const mcpMessage = TOOL_DEFINITIONS.find((definition) => definition.name === 'message') as any;
+    expect(tool.function.parameters.properties.recipient.description)
+      .toBe(mcpMessage.inputSchema.properties.recipient.description);
+    expect(tool.function.parameters.properties.payload.description)
+      .toContain(`${AGENT_MESSAGE_JSON_MAX_BYTES} UTF-8 bytes (64 KiB)`);
 
     expect(MessageSchema.safeParse({
       action: 'poll', project: 'memesh', recipient: 'codex', wait_ms: 30_001,
     }).success).toBe(false);
+    expect(MessageSchema.safeParse({ action: 'poll', project: 'memesh' }).success).toBe(false);
     expect(MessageSchema.safeParse({
       action: 'ack', project: 'memesh', recipient: 'codex', message_id: 'm-1', idempotency_key: 'ack-1', disposition: 'completed',
     }).success).toBe(false);
@@ -118,6 +134,17 @@ describe('exportOpenAITools', () => {
     expect(exported).toContain('include_archived');
     expect(exported).toContain('cross_project');
     expect(exported).toContain('namespace');
+  });
+
+  it('memesh_briefing exposes the optional exact recipient scope', () => {
+    const tool = tools.find((t: any) => t.function.name === 'memesh_briefing') as any;
+    const exported = Object.keys(tool.function.parameters.properties);
+    expect(exported).toEqual(Object.keys(BriefingSchema.shape));
+    expect(tool.function.parameters.properties.recipient.description).toMatch(/exact logical recipient/i);
+
+    const mcp = TOOL_DEFINITIONS.find((definition) => definition.name === 'briefing')!;
+    expect(Object.keys(mcp.inputSchema.properties)).toEqual(Object.keys(BriefingSchema.shape));
+    expect(mcp.inputSchema.properties.recipient.description).toMatch(/exact logical recipient/i);
   });
 
   it('the relations field is shaped as an array of {to, type} objects', () => {

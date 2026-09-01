@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { homeDir, memeshDir } from './paths.js';
 import { citationRulePath, removeCitationRule, writeCitationRule } from './citation-rule.js';
+import { pluginHostConfigRoot } from './install-channel.js';
 export function settingsHaveMemeshHooks(settingsPath) {
     try {
         const parsed = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
@@ -21,7 +22,7 @@ export function settingsHaveMemeshHooks(settingsPath) {
 }
 const MARKER_FILE = 'install-hooks.json';
 export function detectPluginRuntime(installedPluginsPathImpl) {
-    const defaultPath = path.join(homeDir(), '.claude', 'plugins', 'installed_plugins.json');
+    const defaultPath = path.join(pluginHostConfigRoot('claude-code'), 'plugins', 'installed_plugins.json');
     const targetPath = installedPluginsPathImpl ?? defaultPath;
     if (!fs.existsSync(targetPath))
         return null;
@@ -31,12 +32,15 @@ export function detectPluginRuntime(installedPluginsPathImpl) {
         const entries = j?.plugins?.['memesh@pcircle-memesh'];
         if (!Array.isArray(entries) || entries.length === 0)
             return null;
-        const first = entries[0];
-        if (!first || typeof first.installPath !== 'string')
+        const active = entries.find((entry) => typeof entry === 'object'
+            && entry !== null
+            && typeof entry.installPath === 'string'
+            && entry.installPath.length > 0);
+        if (!active)
             return null;
         return {
-            installPath: first.installPath,
-            version: typeof first.version === 'string' ? first.version : 'unknown',
+            installPath: active.installPath,
+            version: typeof active.version === 'string' ? active.version : 'unknown',
         };
     }
     catch {
@@ -47,7 +51,7 @@ function settingsPathFor(scope, cwd) {
     if (scope === 'project') {
         return path.join(cwd, '.claude', 'settings.json');
     }
-    return path.join(homeDir(), '.claude', 'settings.json');
+    return path.join(pluginHostConfigRoot('claude-code'), 'settings.json');
 }
 function writeSettingsSync(targetPath, data) {
     fs.writeFileSync(targetPath, data, 'utf8');

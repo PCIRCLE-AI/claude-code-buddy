@@ -17,6 +17,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { openDatabase, closeDatabase } from '../../src/db.js';
 import { removeTempDir } from '../helpers/temp-dir.js';
+import { createExplicitLesson } from '../../src/core/lesson-engine.js';
 import { KnowledgeGraph } from '../../src/knowledge-graph.js';
 import {
   FUSED_LESSON_SPLIT_KEY,
@@ -242,7 +243,7 @@ describe('#241 — lessons fused into one -other bucket are split apart', () => 
     // Search follows the move: the bucket no longer answers for C's words, C does.
     const kg = new KnowledgeGraph(db);
     expect(kg.search('zebra').map((e) => e.name)).toEqual([nameC]);
-    expect(db.prepare('SELECT value FROM memesh_metadata WHERE key = ?').get(FUSED_LESSON_SPLIT_KEY)).toEqual({ value: '1' });
+    expect(db.prepare('SELECT value FROM memesh_metadata WHERE key = ?').get(FUSED_LESSON_SPLIT_KEY)).toEqual({ value: '2' });
     // A rebuild is owed whenever anything moved and the graph records a
     // dimension at all (a keyword-only graph owes nothing).
     const dim = db.prepare("SELECT value FROM memesh_metadata WHERE key = 'embedding_dimension'").get() as { value: string } | undefined;
@@ -355,15 +356,14 @@ describe('#241 — lessons fused into one -other bucket are split apart', () => 
     expect(runInvariants().status).toBe(0);
   });
 
-  it('after a project rename, a slug of exactly "other" must not mint a new bucket', () => {
+  it('after a project rename, even a literal "other" lesson gets a digest-named entity', () => {
     seed((db) => {
       // renameProjectTag rewrites tags, never names: the bucket is still
       // lesson-old-other but carries project:new.
       const id = insertEntity(db, 'lesson-old-other', 'lesson_learned', ['project:new', 'source:explicit']);
       const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
       for (const line of ['Error: other', 'Root cause: ?', 'Fix: ?', 'Prevention: ?', ...LESSON_A]) ins.run(id, line);
-      // A second bucket whose only group is skipped moves nothing and must
-      // not be counted in the note.
+      // A second bucket proves the literal text cannot alias any bucket.
       const idle = insertEntity(db, 'lesson-z-other', 'lesson_learned', ['project:z', 'source:explicit']);
       for (const line of ['Error: other', 'Root cause: ?', 'Fix: ?', 'Prevention: ?']) ins.run(idle, line);
     });
@@ -371,18 +371,16 @@ describe('#241 — lessons fused into one -other bucket are split apart', () => 
     const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => { notes.push(String(chunk)); return true; });
     let db: Db;
     try { db = repaired(); } finally { spy.mockRestore(); }
-    expect(notes.join('')).toContain('moved 1 lesson(s) out of 1 "-other" bucket(s)');
+    expect(notes.join('')).toContain('moved 3 lesson(s) out of 2 "-other" bucket(s)');
     expect(db.prepare('SELECT id FROM entities WHERE name = ?').get('lesson-new-other')).toBeUndefined();
-    expect(observations(db, 'lesson-old-other')).toEqual(['Error: other', 'Root cause: ?', 'Fix: ?', 'Prevention: ?']);
-    expect(statusOf(db, 'lesson-old-other')).toBe('active');
+    expect(observations(db, `lesson-new-${lessonSlug('other')}`)).toEqual(['Error: other', 'Root cause: ?', 'Fix: ?', 'Prevention: ?']);
+    expect(statusOf(db, 'lesson-old-other')).toBe('archived');
+    expect(statusOf(db, 'lesson-z-other')).toBe('archived');
     expect(observations(db, `lesson-new-${lessonSlug('fake did not echo the write')}`)).toEqual(LESSON_A);
     closeDatabase();
   });
 
-  it('a bucket-shaped name whose own lesson slugs to itself is not "moved" onto itself', () => {
-    // lessonSlug('the other') === 'the-other', so the target name equals the
-    // bucket's own name. Without the guard this counted as a move, rebuilt FTS
-    // and told the user to run a paid reindex — for nothing.
+  it('the digest prevents a bucket-shaped readable prefix from targeting itself', () => {
     seed((db) => {
       const id = insertEntity(db, 'lesson-proj-the-other', 'lesson_learned', ['project:proj', 'source:explicit']);
       const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
@@ -392,9 +390,122 @@ describe('#241 — lessons fused into one -other bucket are split apart', () => 
     const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => { notes.push(String(chunk)); return true; });
     let db: Db;
     try { db = repaired(); } finally { spy.mockRestore(); }
-    expect(notes.join('')).not.toContain('moved');
-    expect(observations(db, 'lesson-proj-the-other')).toEqual(['Error: the other', 'Root cause: a', 'Fix: b', 'Prevention: c']);
-    expect(db.prepare("SELECT value FROM memesh_metadata WHERE key = 'pending_reindex'").get()).toBeUndefined();
+    expect(notes.join('')).toContain('moved 1 lesson(s)');
+    expect(observations(db, `lesson-proj-${lessonSlug('the other')}`)).toEqual(['Error: the other', 'Root cause: a', 'Fix: b', 'Prevention: c']);
+    expect(statusOf(db, 'lesson-proj-the-other')).toBe('archived');
+    expect(db.prepare("SELECT value FROM memesh_metadata WHERE key = 'pending_reindex'").get()).toBeDefined();
+    closeDatabase();
+  });
+
+  it('reruns once from marker 1, canonicalizes a legacy readable-only lesson, and appends future learns to the digest entity', () => {
+    seed((db) => {
+      const id = insertEntity(db, 'lesson-proj-null-pointer-in-the-auth-path', 'lesson_learned',
+        ['project:proj', 'error-pattern:null-reference', 'severity:major', 'source:explicit']);
+      const ins = db.prepare('INSERT INTO observations (entity_id, content, created_at) VALUES (?, ?, ?)');
+      for (const [i, line] of [
+        'Error: Null pointer in the auth path',
+        'Root cause: original',
+        'Fix: add a null guard',
+        'Prevention: cover the null path',
+      ].entries()) ins.run(id, line, `2026-08-0${1 + Math.floor(i / 4)} 10:00:0${i % 4}`);
+      db.prepare('INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)').run(FUSED_LESSON_SPLIT_KEY, '1');
+    });
+
+    const activeLessonNames = (): string[] => {
+      const db = repaired();
+      const names = (db.prepare(
+        "SELECT name FROM entities WHERE type = 'lesson_learned' AND status = 'active' ORDER BY name",
+      ).all() as Array<{ name: string }>).map((row) => row.name);
+      closeDatabase();
+      return names;
+    };
+
+    const legacyName = 'lesson-proj-null-pointer-in-the-auth-path';
+    const canonicalName = `lesson-proj-${lessonSlug('Null pointer in the auth path')}`;
+    const db = repaired();
+    expect(observations(db, canonicalName)).toEqual([
+      'Error: Null pointer in the auth path',
+      'Root cause: original',
+      'Fix: add a null guard',
+      'Prevention: cover the null path',
+    ]);
+    const firstRow = db.prepare(
+      'SELECT o.id, o.created_at FROM observations o JOIN entities e ON e.id = o.entity_id WHERE e.name = ? ORDER BY o.id LIMIT 1',
+    ).get(canonicalName) as { id: number; created_at: string };
+    expect(firstRow).toEqual({ id: 1, created_at: '2026-08-01 10:00:00' });
+    expect(observations(db, legacyName)).toEqual([]);
+    expect(statusOf(db, legacyName)).toBe('archived');
+    expect(db.prepare('SELECT value FROM memesh_metadata WHERE key = ?').get(FUSED_LESSON_SPLIT_KEY)).toEqual({ value: '2' });
+
+    const learned = createExplicitLesson('Null pointer in the auth path', 'keep the guard and assert it', 'proj');
+    expect(learned.name).toBe(canonicalName);
+    expect(observations(db, canonicalName)).toEqual([
+      'Error: Null pointer in the auth path',
+      'Root cause: original',
+      'Fix: add a null guard',
+      'Prevention: cover the null path',
+      'Error: Null pointer in the auth path',
+      'Root cause: Not specified',
+      'Fix: keep the guard and assert it',
+      'Prevention: Review similar code paths',
+    ]);
+    closeDatabase();
+
+    expect(activeLessonNames()).toEqual([canonicalName]);
+    expect(activeLessonNames()).toEqual([canonicalName]);
+  });
+
+  it('leaves caller-supplied recurring errorPattern identities alone when marker 1 reruns', () => {
+    seed((db) => {
+      const id = insertEntity(db, 'lesson-proj-null-reference', 'lesson_learned',
+        ['project:proj', 'error-pattern:null-reference', 'severity:major', 'source:explicit']);
+      const ins = db.prepare('INSERT INTO observations (entity_id, content, created_at) VALUES (?, ?, ?)');
+      for (const [i, line] of [
+        'Error: Null pointer in the auth path',
+        'Root cause: original',
+        'Fix: add a null guard',
+        'Prevention: cover the null path',
+      ].entries()) ins.run(id, line, `2026-08-0${1 + Math.floor(i / 4)} 10:00:0${i % 4}`);
+      db.prepare('INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)').run(FUSED_LESSON_SPLIT_KEY, '1');
+    });
+
+    const db = repaired();
+    expect(observations(db, 'lesson-proj-null-reference')).toEqual([
+      'Error: Null pointer in the auth path',
+      'Root cause: original',
+      'Fix: add a null guard',
+      'Prevention: cover the null path',
+    ]);
+    expect(statusOf(db, 'lesson-proj-null-reference')).toBe('active');
+    expect(db.prepare('SELECT id FROM entities WHERE name = ?').get(`lesson-proj-${lessonSlug('Null pointer in the auth path')}`)).toBeUndefined();
+    expect(db.prepare('SELECT value FROM memesh_metadata WHERE key = ?').get(FUSED_LESSON_SPLIT_KEY)).toEqual({ value: '2' });
+    closeDatabase();
+  });
+
+  it('does not rewrite a recurring test-failure identity that resembles a legacy readable name', () => {
+    seed((db) => {
+      const id = insertEntity(db, 'lesson-proj-test-failure', 'lesson_learned',
+        ['project:proj', 'error-pattern:test-failure', 'severity:major', 'source:explicit']);
+      const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+      for (const line of [
+        'Error: Test failure',
+        'Root cause: assertion drift',
+        'Fix: restore the expected fixture',
+        'Prevention: run the focused test first',
+      ]) ins.run(id, line);
+      db.prepare('INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)').run(FUSED_LESSON_SPLIT_KEY, '1');
+    });
+
+    const db = repaired();
+    expect(observations(db, 'lesson-proj-test-failure')).toEqual([
+      'Error: Test failure',
+      'Root cause: assertion drift',
+      'Fix: restore the expected fixture',
+      'Prevention: run the focused test first',
+    ]);
+    expect(statusOf(db, 'lesson-proj-test-failure')).toBe('active');
+    expect(db.prepare('SELECT COUNT(*) AS n FROM entities WHERE name LIKE ?').get('lesson-proj-test-failure-%')).toEqual({ n: 0 });
+    expect(db.prepare('SELECT value FROM memesh_metadata WHERE key = ?').get(FUSED_LESSON_SPLIT_KEY)).toEqual({ value: '2' });
     closeDatabase();
   });
 

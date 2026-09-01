@@ -38,7 +38,8 @@ export function trFix(c: DoctorCheck): string | undefined {
   return c.code ? trField(`doctor.msg.${c.code}.fix`, c.fix, c.params) : c.fix;
 }
 export function trLabel(c: DoctorCheck): string {
-  return trField(`doctor.label.${c.id}`, c.label);
+  const id = c.id.startsWith('plugin-cache-') ? 'plugin-cache' : c.id;
+  return trField(`doctor.label.${id}`, c.label);
 }
 
 /**

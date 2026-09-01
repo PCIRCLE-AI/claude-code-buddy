@@ -8,11 +8,11 @@ import { npmSync } from './lib/npm-bin.mjs';
 
 // This is deliberately a narrow upgrade proof, not a second copy of
 // smoke-packed-artifact.mjs. That script validates a fresh consumer install;
-// this one proves that an actual npm-global 4.8.1 install keeps its local
-// data when npm replaces it with the exact packed 4.8.2 candidate.
+// this one proves that an actual npm-global 4.8.2 install keeps its local
+// data when npm replaces it with the exact packed 4.8.3 candidate.
 const repoRoot = process.cwd();
-const expectedPreviousVersion = '4.8.1';
-const expectedCandidateVersion = '4.8.2';
+const expectedPreviousVersion = '4.8.2';
+const expectedCandidateVersion = '4.8.3';
 const npmTimeoutMs = 180_000;
 const processTimeoutMs = 45_000;
 const upgradeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-packed-upgrade-'));
@@ -131,7 +131,7 @@ const fs = require('node:fs');
 const args = process.argv.slice(2);
 fs.appendFileSync(process.env.MEMESH_UPGRADE_NPM_CALLS, args.join(' ') + '\\n');
 if (args[0] === 'install' && process.env.MEMESH_UPGRADE_FORCE_FAILURE === '1') process.exit(42);
-const target = args.indexOf('@pcircle/memesh@4.8.2');
+const target = args.indexOf('@pcircle/memesh@4.8.3');
 if (target >= 0) args[target] = process.env.MEMESH_UPGRADE_TARBALL;
 const child = spawnSync(process.execPath, [process.env.MEMESH_UPGRADE_NPM_CLI, ...args], {
   stdio: 'inherit', env: process.env,
@@ -156,12 +156,12 @@ process.exit(child.status ?? 1);
     killSignal: 'SIGTERM',
   });
   assert.equal(success.status, 0, success.stderr || success.stdout);
-  assert.match(success.stdout, /START target=4\.8\.2/);
-  assert.match(success.stdout, /SUCCESS target=4\.8\.2 installed=4\.8\.2/);
+  assert.match(success.stdout, /START target=4\.8\.3/);
+  assert.match(success.stdout, /SUCCESS target=4\.8\.3 installed=4\.8\.3/);
   assert.doesNotMatch(success.stderr, /FAILED/);
   assert.equal(fs.existsSync(lockPath), false, 'successful auto-update left its lock behind');
   const callLines = fs.readFileSync(calls, 'utf8').trim().split('\n');
-  assert.ok(callLines.includes('install -g @pcircle/memesh@4.8.2'), 'runner did not request the exact candidate version');
+  assert.ok(callLines.includes('install -g @pcircle/memesh@4.8.3'), 'runner did not request the exact candidate version');
   assert.ok(callLines.some(line => line.startsWith('ls -g @pcircle/memesh')), 'runner did not read back the installed version');
   return { runner, runnerEnv, lockPath };
 }
@@ -194,11 +194,11 @@ function runMcp(serverPath, packageRoot, env, mode) {
           arguments: {
             name: 'packed-upgrade-existing-memory',
             type: 'fact',
-            observations: ['This marker was written by the installed v4.8.1 MCP server before upgrade.'],
+            observations: ['This marker was written by the installed v4.8.2 MCP server before upgrade.'],
             tags: ['packed-upgrade'],
           },
         });
-        assert.notEqual(saved.isError, true, 'v4.8.1 MCP remember failed');
+        assert.notEqual(saved.isError, true, 'v4.8.2 MCP remember failed');
       } else {
         const recalled = await client.callTool({
           name: 'recall',
@@ -206,7 +206,7 @@ function runMcp(serverPath, packageRoot, env, mode) {
         });
         assert.notEqual(recalled.isError, true, 'candidate MCP recall failed');
         assert.match(JSON.stringify(recalled), /packed-upgrade-existing-memory/,
-          'candidate MCP could not read the v4.8.1 memory');
+          'candidate MCP could not read the v4.8.2 memory');
       }
     } finally {
       await client.close();
@@ -254,13 +254,13 @@ try {
   npmGlobalInstall(`@pcircle/memesh@${expectedPreviousVersion}`, prefix, env);
   let installed = readInstalledPackage(prefix, env);
   assert.equal(installed.packageJson.version, expectedPreviousVersion,
-    'the isolated baseline is not the public v4.8.1 package');
+    'the isolated baseline is not the public v4.8.2 package');
   const oldCli = installedBin(prefix, 'memesh');
   const oldMcp = installedBin(prefix, 'memesh-mcp');
-  assert.ok(fs.existsSync(oldCli), 'v4.8.1 npm-global CLI is missing');
+  assert.ok(fs.existsSync(oldCli), 'v4.8.2 npm-global CLI is missing');
   assert.equal(installed.packageJson.bin?.['memesh-mcp'], 'dist/mcp/server.js',
-    'public v4.8.1 package does not declare the expected MCP binary');
-  assert.ok(fs.existsSync(oldMcp), 'public v4.8.1 tarball did not install the memesh-mcp binary');
+    'public v4.8.2 package does not declare the expected MCP binary');
+  assert.ok(fs.existsSync(oldMcp), 'public v4.8.2 tarball did not install the memesh-mcp binary');
   const oldCliEntry = installedEntry(installed.packageRoot, 'dist/transports/cli/cli.js');
   const oldMcpEntry = installedEntry(installed.packageRoot, 'dist/mcp/server.js');
   assert.equal(run(process.execPath, [oldCliEntry, '--version'], { cwd: installed.packageRoot, env }).trim(), expectedPreviousVersion);
@@ -272,7 +272,7 @@ try {
     : runCandidateAutoUpdate(candidateTarball, prefix, env);
   installed = readInstalledPackage(prefix, env);
   assert.equal(installed.packageJson.version, expectedCandidateVersion,
-    'npm did not replace the isolated global install with v4.8.2');
+    'npm did not replace the isolated global install with v4.8.3');
   const candidateCli = installedBin(prefix, 'memesh');
   const candidateMcp = installedBin(prefix, 'memesh-mcp');
   assert.ok(fs.existsSync(candidateCli), 'candidate npm-global CLI is missing');
@@ -301,13 +301,13 @@ try {
     env,
   }));
   assert.match(JSON.stringify(recalledByCli), /packed-upgrade-existing-memory/,
-    'candidate CLI could not read the v4.8.1 memory');
+    'candidate CLI could not read the v4.8.2 memory');
   runMcp(candidateMcpEntry, installed.packageRoot, env, 'verify');
   console.log(`upgrade: version=${installed.packageJson.version} package=${installed.packageRoot} data=${memeshDir}`);
 
   // Force the same installed runner's real child-process boundary to fail.
   // It must not print SUCCESS, retain a lock, replace the usable package, or
-  // make the v4.8.1-era data unreadable.
+  // make the v4.8.2-era data unreadable.
   if (autoUpdate) {
     const failed = spawnSync(process.execPath, [
       autoUpdate.runner, expectedCandidateVersion, autoUpdate.lockPath,
@@ -320,22 +320,22 @@ try {
     });
     assert.equal(failed.status, 1, failed.stderr || failed.stdout);
     assert.doesNotMatch(failed.stdout, /SUCCESS/);
-    assert.match(failed.stderr, /FAILED target=4\.8\.2 stage=install-or-readback/);
+    assert.match(failed.stderr, /FAILED target=4\.8\.3 stage=install-or-readback/);
     assert.equal(fs.existsSync(autoUpdate.lockPath), false, 'failed auto-update left its lock behind');
   } else {
-    npmGlobalInstall(path.join(upgradeRoot, 'not-a-memesh-v4.8.2-candidate.tgz'), prefix, env, true);
+    npmGlobalInstall(path.join(upgradeRoot, 'not-a-memesh-v4.8.3-candidate.tgz'), prefix, env, true);
   }
   installed = readInstalledPackage(prefix, env);
   assert.equal(installed.packageJson.version, expectedCandidateVersion,
-    'failed upgrade changed the existing v4.8.2 package');
+    'failed upgrade changed the existing v4.8.3 package');
   const afterFailure = JSON.parse(run(process.execPath, [candidateCliEntry, 'recall', 'packed-upgrade-existing-memory', '--json'], {
     cwd: installed.packageRoot,
     env,
   }));
   assert.match(JSON.stringify(afterFailure), /packed-upgrade-existing-memory/,
     'failed upgrade made pre-existing data unreadable');
-  console.log('failure-path: auto-update install failure was reported without SUCCESS; v4.8.2 CLI and pre-existing data remain readable');
-  console.log('✅ Packaged upgrade smoke passed — public v4.8.1 npm-global data survived the packed v4.8.2 auto-update runner and its exact installed-version readback.');
+  console.log('failure-path: auto-update install failure was reported without SUCCESS; v4.8.3 CLI and pre-existing data remain readable');
+  console.log('✅ Packaged upgrade smoke passed — public v4.8.2 npm-global data survived the packed v4.8.3 auto-update runner and its exact installed-version readback.');
 } finally {
   fs.rmSync(upgradeRoot, { recursive: true, force: true });
 }

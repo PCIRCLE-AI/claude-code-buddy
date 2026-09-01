@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { openDatabase, closeDatabase } from '../../src/db.js';
+import { lessonSlug } from '../../src/core/lesson-slug.js';
 
 /**
  * scripts/audit/memory-invariants.mjs is the check that would have caught
@@ -205,11 +206,11 @@ describe('memory-invariants: read-only detector over a real graph', () => {
     }
   });
 
-  it('#241 — a re-learned lesson with no project tag whose name ends in "-other" is not a bucket', () => {
+  it('#241 — a re-learned lesson with no project tag uses its digest name, not a bucket', () => {
     const { dir, dbPath } = freshGraph();
     try {
       withRawDb(dbPath, (db) => {
-        const id = insertEntity(db, 'lesson-q-could-not-reach-the-other', 'lesson_learned');
+        const id = insertEntity(db, `lesson-q-${lessonSlug('could not reach the other')}`, 'lesson_learned');
         db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(id, 'source:explicit');
         const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
         for (const line of ['Error: could not reach the other', 'Root cause: x', 'Fix: y', 'Prevention: z', 'Error: could not reach the other']) ins.run(id, line);
@@ -220,13 +221,11 @@ describe('memory-invariants: read-only detector over a real graph', () => {
     }
   });
 
-  it('#241 — two different error texts sharing one slug are ONE lesson, not a fused bucket', () => {
+  it('#241 — two errors sharing eight opening words are distinct lessons when fused into a bucket', () => {
     const { dir, dbPath } = freshGraph();
     try {
       withRawDb(dbPath, (db) => {
-        // learn() keys both on the same slug (first eight significant words),
-        // so they live on one entity by contract — and that name ends in "-other".
-        const id = insertEntity(db, 'lesson-proj-the-agent-could-not-talk-to-the-other', 'lesson_learned');
+        const id = insertEntity(db, 'lesson-proj-other', 'lesson_learned');
         db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(id, 'source:explicit');
         const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
         for (const port of [3000, 4000]) {
@@ -235,7 +234,8 @@ describe('memory-invariants: read-only detector over a real graph', () => {
         }
       });
       const r = run(dbPath);
-      expect(r.status, r.stdout).toBe(0);
+      expect(r.status, r.stdout).toBe(1);
+      expect(r.stdout).toContain('lesson-proj-other  observations=8 (2 lessons)');
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
@@ -260,11 +260,11 @@ describe('memory-invariants: read-only detector over a real graph', () => {
     }
   });
 
-  it('#241 — a lesson whose name merely ends in "-other" is not a bucket', () => {
+  it('#241 — a readable prefix ending in "other" is not mistaken for a bucket', () => {
     const { dir, dbPath } = freshGraph();
     try {
       withRawDb(dbPath, (db) => {
-        const id = insertEntity(db, 'lesson-proj-could-not-reach-the-other', 'lesson_learned');
+        const id = insertEntity(db, `lesson-proj-${lessonSlug('could not reach the other')}`, 'lesson_learned');
         db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(id, 'source:explicit');
         db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(id, 'project:proj');
         const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');

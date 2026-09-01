@@ -7,6 +7,7 @@ import { getTaskState, setTaskState } from '../../core/task-state-store.js';
 import { getProductImprovementStatus, stageProductImprovement, } from '../../core/product-improvements.js';
 import { executeAgentMessageAction } from '../agent-messaging.js';
 import { RememberSchema, RecallSchema, ForgetSchema, BriefingSchema, ExportSchema, ImportSchema, LearnSchema, TaskStateSchema, UserPatternsSchema, ImprovementSchema, MessageSchema, } from '../schemas.js';
+import { AGENT_MESSAGE_JSON_MAX_BYTES, AGENT_NATIVE_MESSAGE_MAX_BYTES } from '../../core/agent-messaging.js';
 export const TOOL_DEFINITIONS = [
     {
         name: 'remember',
@@ -196,6 +197,10 @@ export const TOOL_DEFINITIONS = [
                     type: 'string',
                     description: 'Project name. Omit to use the current working directory’s project.',
                 },
+                recipient: {
+                    type: 'string',
+                    description: 'Exact logical recipient. Required to surface actionable unread messages; omit for generic context.',
+                },
             },
             additionalProperties: false,
         },
@@ -256,32 +261,35 @@ export const TOOL_DEFINITIONS = [
     },
     {
         name: 'message',
-        description: 'Use this to contact another local agent — hand off work, ask for a result, report a disposition — and send here FIRST: the durable inbox is the record, host push is only the delivery. Exchange durable local agent messages on one MeMesh instance. send creates one message/delivery/wakeup event idempotently; poll waits or catches up with an opaque cursor; fetch reads the payload; intake, ack, disposition, and activation record separate explicit facts. Polling or fetching never acknowledges a message, and no action executes payload content.',
+        description: `Use this to contact or discover another local agent on the same MeMesh instance. discover is a bounded, project-scoped live-directory read of active leases and returns only the router result; it performs no send, fetch, ACK, replay, or receipt work. send durably stores one untrusted JSON-encoded payload of at most ${AGENT_MESSAGE_JSON_MAX_BYTES} UTF-8 bytes (64 KiB) idempotently. Native delivery has a separate ${AGENT_NATIVE_MESSAGE_MAX_BYTES}-byte (16 KiB) cap for the complete envelope, including routing metadata and payload. For target_kind=session, success requires the exact active native host to accept that full envelope. An oversized envelope returns native_message_too_large; other unavailable or rejected sessions return recipient_unavailable while preserving scoped recovery data. Principal targets retain durable store-and-forward behavior even when native delivery is unavailable. poll/fetch remain compatibility and recovery reads; intake, ack, disposition, and activation are separate explicit facts. Native acceptance, polling, fetching, and discovery never imply agent acknowledgement or workflow completion.`,
         inputSchema: {
             type: 'object',
             properties: {
                 action: {
                     type: 'string',
-                    enum: ['send', 'poll', 'fetch', 'intake', 'ack', 'disposition', 'activation', 'receipts'],
-                    description: 'Lifecycle action. Each action validates only its documented fields and rejects unknown fields.',
+                    enum: ['send', 'poll', 'discover', 'fetch', 'intake', 'ack', 'disposition', 'activation', 'receipts'],
+                    description: 'Message lifecycle or live-directory action. Each action validates only its documented fields and rejects unknown fields.',
                 },
                 project: { type: 'string', description: 'Local project scope shared by sender and recipient.' },
                 sender: { type: 'string', description: 'Required for send. Stable local sender/agent identifier.' },
-                recipient: { type: 'string', description: 'Stable target local agent/host identifier.' },
+                recipient: { type: 'string', description: 'Required for every action except discover. Stable target local agent/host identifier.' },
                 target_kind: {
                     type: 'string',
                     enum: ['principal', 'session'],
                     description: 'Recipient identity kind for send and fetch. Defaults to principal; exact-session delivery and fetch require session.',
                 },
                 idempotency_key: { type: 'string', description: 'Required for send and receipt writes. Stable retry key.' },
-                payload: { type: ['string', 'number', 'boolean', 'object', 'array', 'null'], description: 'Required for send. JSON value treated as untrusted data and never executed by MeMesh.' },
+                payload: {
+                    type: ['string', 'number', 'boolean', 'object', 'array', 'null'],
+                    description: `Required for send. Untrusted JSON value, limited to ${AGENT_MESSAGE_JSON_MAX_BYTES} UTF-8 bytes (64 KiB) after JSON encoding. Native push additionally requires the complete envelope to fit ${AGENT_NATIVE_MESSAGE_MAX_BYTES} bytes (16 KiB). MeMesh never executes the payload.`,
+                },
                 content_type: { type: 'string', enum: ['text/plain', 'application/json'], description: 'Send payload media type. Defaults to text/plain.' },
                 privacy: { type: 'string', enum: ['private', 'team'], description: 'Send privacy classification. Routing remains exact-recipient in v1.' },
                 correlation_id: { type: 'string', description: 'Optional caller-stable conversation or task correlation ID.' },
                 reply_to: { type: 'string', description: 'Optional earlier message ID this message replies to.' },
                 cursor: { type: 'string', description: 'Optional opaque cursor returned by poll. Clients must not parse it.' },
                 wait_ms: { type: 'number', description: 'Poll wait in milliseconds, 0-30000. Defaults to 0.' },
-                limit: { type: 'number', description: 'Maximum poll events, 1-100. Defaults to 20.' },
+                limit: { type: 'number', description: 'Maximum poll or discovery rows, 1-100. Defaults to 20 for poll and 50 for discover.' },
                 message_id: { type: 'string', description: 'Required for fetch, receipt writes, and receipt readback.' },
                 intake_state: { type: 'string', enum: ['fetched', 'ingested'], description: 'Required only for intake. Neither value implies ACK.' },
                 disposition: { type: 'string', enum: ['accepted', 'rejected', 'completed', 'cancelled', 'deferred'], description: 'Required only for disposition.' },
@@ -298,6 +306,10 @@ function ok(data) {
 }
 function fail(message) {
     return { content: [{ type: 'text', text: message }], isError: true };
+}
+function formatIssue(issue) {
+    const path = issue.path.join('.');
+    return path ? `${path}: ${issue.message}` : issue.message;
 }
 function stripNullProps(value) {
     if (Array.isArray(value))
@@ -320,14 +332,14 @@ function parseOrFail(schema, args) {
         if (unknownKeys.length > 0) {
             return {
                 ok: false,
-                result: fail(unknownKeys.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')),
+                result: fail(unknownKeys.map(formatIssue).join('; ')),
             };
         }
     }
     const parsed = schema.safeParse(stripNullProps(raw));
     if (!parsed.success) {
         const message = parsed.error instanceof z.ZodError
-            ? parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
+            ? parsed.error.issues.map(formatIssue).join('; ')
             : String(parsed.error);
         return { ok: false, result: fail(message) };
     }
@@ -397,7 +409,7 @@ export async function handleTool(name, args, sourceHost, signal) {
             const r = parseOrFail(BriefingSchema, args);
             if (!r.ok)
                 return r.result;
-            return ok(assembleBriefing(r.data.project));
+            return ok(assembleBriefing(r.data.project, r.data.recipient));
         }
         if (name === 'user_patterns') {
             const r = parseOrFail(UserPatternsSchema, args);

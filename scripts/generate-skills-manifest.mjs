@@ -17,7 +17,8 @@
 //   - skills/**/SKILL.md           (loaded as Claude system prompt)
 //   - scripts/hooks/*.js           (run in user's Claude Code process)
 //   - hooks/hooks.json             (declares which hooks are active)
-//   - .mcp.json, .claude-plugin/plugin.json  (Claude Code wiring)
+//   - .mcp.json, .claude-plugin/plugin.json, .codex-plugin/plugin.json
+//     (host wiring)
 //
 // What's NOT covered (out of scope for this manifest):
 //   - dist/**/*.js — Node code path. Tampering there is detected by
@@ -87,7 +88,7 @@ targets.push(...(await walk(join(repoRoot, 'scripts', 'hooks'), true)).filter(p 
 // "Skills + hooks integrity PASS", and says nothing about the package having
 // shipped without its wiring — absence read as success, which is the defect
 // class this release exists to remove.
-for (const f of ['hooks/hooks.json', '.mcp.json', '.claude-plugin/plugin.json']) {
+for (const f of ['hooks/hooks.json', '.mcp.json', '.claude-plugin/plugin.json', '.codex-plugin/plugin.json', '.codex-plugin/mcp.json']) {
   const full = join(repoRoot, f);
   try {
     statSync(full);

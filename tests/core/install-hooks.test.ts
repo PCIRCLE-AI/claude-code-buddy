@@ -37,6 +37,7 @@ describe('install-hooks', () => {
     originalEnv.MEMESH_DIR = process.env.MEMESH_DIR;
     originalEnv.HOME = process.env.HOME;
     originalEnv.USERPROFILE = process.env.USERPROFILE;
+    originalEnv.CLAUDE_CONFIG_DIR = process.env.CLAUDE_CONFIG_DIR;
     process.env.MEMESH_DIR = path.join(tmpDir, 'memesh-state');
     process.env.HOME = path.join(tmpDir, 'home');
     // Windows parity: os.homedir() consults USERPROFILE first on Windows
@@ -44,6 +45,7 @@ describe('install-hooks', () => {
     // override, install-hooks writes to the real user dir and the test's
     // assertion (read from process.env.HOME path) sees an absent file.
     process.env.USERPROFILE = path.join(tmpDir, 'home');
+    delete process.env.CLAUDE_CONFIG_DIR;
     fs.mkdirSync(process.env.HOME, { recursive: true });
     vi.resetModules();
   });
@@ -55,6 +57,8 @@ describe('install-hooks', () => {
     else process.env.HOME = originalEnv.HOME;
     if (originalEnv.USERPROFILE === undefined) delete process.env.USERPROFILE;
     else process.env.USERPROFILE = originalEnv.USERPROFILE;
+    if (originalEnv.CLAUDE_CONFIG_DIR === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = originalEnv.CLAUDE_CONFIG_DIR;
     fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
@@ -320,6 +324,60 @@ describe('install-hooks', () => {
     expect(fs.existsSync(settingsPath)).toBe(false);
   });
 
+  it.each(['first', 'last'] as const)(
+    'finds the active plugin row when it appears %s among mixed registry entries',
+    async (position) => {
+      const installedPluginsPath = path.join(tmpDir, `mixed-installed-plugins-${position}.json`);
+      const active = {
+        installPath: '/Users/test/.claude/plugins/cache/pcircle-memesh/memesh/4.8.2',
+        version: '4.8.2',
+      };
+      const invalid = { version: 'legacy-row-without-an-install-path' };
+      fs.writeFileSync(installedPluginsPath, JSON.stringify({
+        plugins: {
+          'memesh@pcircle-memesh': position === 'first' ? [active, invalid] : [invalid, active],
+        },
+      }));
+
+      const { installHooks } = await freshModule();
+      const result = installHooks({
+        pluginRoot: pluginDir,
+        pluginVersion: '4.8.2',
+        scope: 'user',
+        installedPluginsPathImpl: installedPluginsPath,
+      });
+
+      expect(result.pluginRuntimeDetected).toEqual(active);
+      expect(result.added).toBe(0);
+      expect(fs.existsSync(result.settingsPath)).toBe(false);
+    },
+  );
+
+  it('uses CLAUDE_CONFIG_DIR for default plugin detection and user settings', async () => {
+    const configRoot = path.join(tmpDir, 'relocated-claude');
+    process.env.CLAUDE_CONFIG_DIR = configRoot;
+    const installedPluginsPath = path.join(configRoot, 'plugins', 'installed_plugins.json');
+    fs.mkdirSync(path.dirname(installedPluginsPath), { recursive: true });
+    fs.writeFileSync(installedPluginsPath, JSON.stringify({
+      plugins: {
+        'memesh@pcircle-memesh': [{ installPath: path.join(configRoot, 'plugins', 'cache', 'pcircle-memesh', 'memesh', '4.8.2'), version: '4.8.2' }],
+      },
+    }));
+
+    const { installHooks } = await freshModule();
+    const guarded = installHooks({ pluginRoot: pluginDir, pluginVersion: '4.8.2', scope: 'user' });
+    expect(guarded.pluginRuntimeDetected?.version).toBe('4.8.2');
+    expect(guarded.citationRule.path).toBe(path.join(configRoot, 'rules', 'memesh-citations.md'));
+    expect(fs.existsSync(guarded.citationRule.path)).toBe(true);
+    expect(fs.existsSync(path.join(process.env.HOME!, '.claude', 'rules', 'memesh-citations.md'))).toBe(false);
+    expect(fs.existsSync(path.join(process.env.HOME!, '.claude', 'settings.json'))).toBe(false);
+
+    const forced = installHooks({ pluginRoot: pluginDir, pluginVersion: '4.8.2', scope: 'user', forceOverPlugin: true });
+    expect(forced.settingsPath).toBe(path.join(configRoot, 'settings.json'));
+    expect(forced.citationRule.path).toBe(path.join(configRoot, 'rules', 'memesh-citations.md'));
+    expect(fs.existsSync(forced.settingsPath)).toBe(true);
+  });
+
   it('forceOverPlugin escape hatch writes anyway with the same plugin record present', async () => {
     const installedPluginsPath = path.join(tmpDir, 'fake-installed_plugins.json');
     fs.writeFileSync(installedPluginsPath, JSON.stringify({
@@ -396,7 +454,13 @@ describe('memesh install-hooks (CLI output) — M-11', () => {
     // the real ~/.claude/settings.json from a test.
     const out = execFileSync('node', [cliPath, 'install-hooks', '--scope', 'project'], {
       cwd,
-      env: { ...process.env, MEMESH_DIR: memeshDir },
+      env: {
+        ...process.env,
+        HOME: cwd,
+        USERPROFILE: cwd,
+        CLAUDE_CONFIG_DIR: path.join(cwd, 'claude-config'),
+        MEMESH_DIR: memeshDir,
+      },
       encoding: 'utf8',
     });
     const markerPath = path.join(memeshDir, 'install-hooks.json');

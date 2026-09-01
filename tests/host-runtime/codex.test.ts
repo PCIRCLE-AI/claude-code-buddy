@@ -59,6 +59,8 @@ async function configFor(socketPath: string, directory: string): Promise<Managed
     control_socket: socketPath,
     workspace: process.cwd(),
     codex_command: 'codex',
+    model: 'gpt-5.6-sol',
+    work_summary: 'implement MeMesh runtime',
   };
 }
 
@@ -108,6 +110,7 @@ describe.skipIf(process.platform === 'win32')('managed Codex host runtime', () =
         identity: {
           project: 'project-1', principal_id: 'principal-1',
           session_instance_id: 'session-exact-1', adapter_kind: 'codex-app-server',
+          model: 'gpt-5.6-sol', work_summary: 'implement MeMesh runtime',
         },
       }));
 

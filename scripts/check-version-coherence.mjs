@@ -12,12 +12,13 @@
 // Sources audited:
 //   1. package.json `version`
 //   2. .claude-plugin/plugin.json `version`
-//   3. .claude-plugin/marketplace.json plugins[].version
-//   4. CHANGELOG.md — must contain a `## [X.Y.Z] — YYYY-MM-DD` section
+//   3. .codex-plugin/plugin.json `version`
+//   4. .claude-plugin/marketplace.json plugins[].version
+//   5. CHANGELOG.md — must contain a `## [X.Y.Z] — YYYY-MM-DD` section
 //      matching package.json version
-//   5. docs/ARCHITECTURE.md — `**Version**: X.Y.Z`
-//   6. docs/api/API_REFERENCE.md — `**Version**: X.Y.Z`
-//   7. herdr-plugin.toml `version` — the Herdr marketplace manifest
+//   6. docs/ARCHITECTURE.md — `**Version**: X.Y.Z`
+//   7. docs/api/API_REFERENCE.md — `**Version**: X.Y.Z`
+//   8. herdr-plugin.toml `version` — the Herdr marketplace manifest
 //
 // Exits 0 if all sources agree. Exits 1 with a per-source report on
 // any disagreement.
@@ -56,6 +57,12 @@ const pluginVersion = readJson('.claude-plugin/plugin.json').version;
 findings.push(`.claude-plugin/plugin.json: ${pluginVersion}`);
 if (pluginVersion !== pkgVersion) {
   errors.push(`.claude-plugin/plugin.json (${pluginVersion}) !== package.json (${pkgVersion})`);
+}
+
+const codexPluginVersion = readJson('.codex-plugin/plugin.json').version;
+findings.push(`.codex-plugin/plugin.json: ${codexPluginVersion}`);
+if (codexPluginVersion !== pkgVersion) {
+  errors.push(`.codex-plugin/plugin.json (${codexPluginVersion}) !== package.json (${pkgVersion})`);
 }
 
 // package-lock.json carries the version TWICE and both must agree.

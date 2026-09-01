@@ -9,7 +9,7 @@
   <p align="center">
     <a href="https://www.npmjs.com/package/@pcircle/memesh"><img src="https://img.shields.io/npm/v/@pcircle/memesh?style=flat-square&color=3b82f6&label=npm" alt="npm" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" alt="MIT" /></a>
-    <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D22-22c55e?style=flat-square" alt="Node" /></a>
+    <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D22.13.0-22c55e?style=flat-square" alt="Node" /></a>
     <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP-compatible-a855f7?style=flat-square" alt="MCP" /></a>
   </p>
 </p>
@@ -21,6 +21,7 @@
 ### New collaboration surfaces
 
 - `message` gives local agents a durable exact-recipient inbox with cursor recovery and explicit receipts over MCP, HTTP, and CLI.
+- `message discover` gives agents a bounded, project-scoped live directory with session, principal, host kind, declared model/work (or explicit unknown), and active leases; it performs no message or receipt operation.
 - `improvement` turns active memories into evidence-linked product-work proposals that agents can stage, but only a human can accept or reject.
 
 ## Install
@@ -32,7 +33,7 @@
 /plugin install memesh@pcircle-memesh
 ```
 
-Restart Claude Code. A `◉ MeMesh` status line at the top of your next session means it is capturing.
+Restart Claude Code. A `◉ MeMesh` status line at the top of your next session confirms the SessionStart hook emitted its status output.
 
 **In a terminal** — the `memesh` CLI, the dashboard, and the `memesh-mcp` server for Codex / Cursor and compatible local MCP clients (needs [Node 22.13+](https://nodejs.org)):
 
@@ -64,9 +65,9 @@ MeMesh has a real cross-agent advantage: every host connected to the same local 
 
 The optional secure host-native wakeup runtime currently supports macOS and Linux. Core MeMesh memory, durable message storage, and MCP tools remain available on Windows; Windows host-native wakeup is not yet supported.
 
-- Works today: an MCP, HTTP, or CLI sender can durably send to one named local recipient. A receiver can fetch the payload separately, resume from an opaque cursor after restart, and record intake, acknowledgement, workflow disposition, and host activation as separate facts.
-- With the MeMesh Codex plugin enabled and the owner-private `memesh agent setup codex-session` opt-in, an active Codex session in the exact configured local workspace receives a native `memesh_message_available` wakeup without polling or a human reminder. The marker contains routing metadata only; Codex then fetches the durable payload with the scoped `message` tool.
-- A successful queue admission (`host_accept`) means only that the local Codex queue accepted the marker. It does not mean an agent read the payload, acknowledged it, or accepted the work.
+- Works today: an MCP, HTTP, or CLI sender can durably send one untrusted JSON-encoded payload of at most 65,536 UTF-8 bytes (64 KiB) to one named local recipient. A receiver can fetch it separately, resume from an opaque cursor after restart, and record intake, acknowledgement, workflow disposition, and host activation as separate facts.
+- With the MeMesh Codex plugin enabled and the owner-private `memesh agent setup codex-session` opt-in, an exact active Codex session receives one bounded full message through its native queue without polling or a human reminder, and without a second inbox fetch. The complete native envelope, including routing metadata and payload, is capped separately at 16,384 bytes (16 KiB). An exact-session send returns success only after that native queue accepts it; an oversized full envelope reports `native_message_too_large`, while other unavailable or rejected sessions report `recipient_unavailable`. Scoped recovery data remains durable. Principal targets retain durable store-and-forward behavior.
+- A successful native admission (`host_accept`) means only that the local Codex queue accepted the bounded message. It does not mean an agent read it, acknowledged it, or accepted the work. Codex currently exposes message text only through its `--message` argument, so same-user process inspection may observe it while the queue command runs; keep native messages free of secrets.
 - Durable message storage is bounded by owner policy, not silent deletion: `memesh message storage report` exposes logical payload, protected rows, reusable SQLite pages, and WAL size; bounded prune is dry-run by default and only tombstones old terminal payloads. An optional `MEMESH_AGENT_MESSAGE_STORAGE_QUOTA_BYTES` rejects a send atomically. See [bounded storage and audit retention](docs/platforms/agent-messaging.md#bounded-storage-and-audit-retention).
 - A stopped, missing, or disconnected Codex session is not awakened or replaced. Its durable inbox remains available for audit and recovery; `poll` and `memesh message watch` are compatibility and diagnostic paths. Native delivery never resumes a stopped model session, executes a payload, or implies acknowledgement.
 - Cooperative trust boundary: the recipient name is a logical routing ID, not a per-agent login or ACL. Every caller with access to the same local MeMesh instance must be treated as a trusted workspace participant; host adapters still enforce their own permissions and human-approval rules.
@@ -152,7 +153,7 @@ If you use Claude Code, install MeMesh as a plugin from inside the CLI:
 
 Claude Code wires hooks, skills, and the MCP server automatically. You get in-session auto-capture, proactive recall, the `/memesh` skill (remember / recall / learn / forget) inside the Claude Code conversation, and `remember` / `recall` / `forget` / `learn` available as MCP tools to the agent.
 
-**Verify it:** restart Claude Code and start any session. A status line like `◉ MeMesh ready · no memories for "your-project" yet` appears at the top — that line IS the plugin working; no separate command needed. (Once you have memories, it shows counts instead.)
+**Verify it:** restart Claude Code and start any session. A status line like `◉ MeMesh ready · no memories for "your-project" yet` appears at the top — this directly verifies SessionStart hook output. It does not by itself prove later capture or recall behavior. (Once you have memories, it shows counts instead.)
 
 The MCP server runs directly from the plugin's bundled compiled output — no `npx` lookup, no build step, and nothing to compile. memesh stores its data through `node:sqlite`, which is part of Node itself (22.13+), so a Node upgrade cannot leave it with a binary built for the wrong runtime.
 
@@ -230,6 +231,8 @@ The integration maps Hermes's `prefetch()` and `sync_turn()` hooks directly onto
 
 **Key difference from Hermes**: OpenClaw's auto-capture is threshold-gated (max 3 memories/turn when triggered), not every-turn. The integration maps onto MeMesh's HTTP API (`/v1/recall`, `/v1/remember`, `/v1/forget`). Full TypeScript plugin contract, config shape, and pitfalls: **[docs/platforms/openclaw.md](docs/platforms/openclaw.md)**
 
+Current status: the source plugin is present under `extensions/memory-memesh/`, but it is not published or verified against a live OpenClaw runtime.
+
 ### Step 2: Store a decision
 
 > The bash examples below assume `memesh` is on your `PATH` (Option B). Option A (plugin-only) users have two equivalent paths: ask in the Claude Code conversation (the `/memesh` skill + MCP tools cover the same flows), or replace `memesh` with `npx @pcircle/memesh` in any shell — same flags, no global install needed.
@@ -294,7 +297,7 @@ Decisions and direction for "your-project":
 - [decision] Use FTS5 as the retrieval baseline
 ```
 
-This same block is what Claude Code receives automatically at session start, and what any other MCP client gets from the `briefing` tool — the agent starts oriented instead of re-reading the repository, and you stop re-explaining last week. The dashboard (`memesh serve`) is the full visual view.
+This same block is what Claude Code receives automatically at session start, and what any other MCP client gets from the `briefing` tool — the agent starts oriented instead of re-reading the repository, and you stop re-explaining last week. The dashboard (`memesh serve`) is the full visual view. Generic `briefing` and SessionStart context has no recipient identity, so it does not report unread messages. To check an inbox, supply the exact `project` and `recipient`; MeMesh reports only that recipient's unfetched deliveries and directs the caller to poll before fetching each message.
 
 ### Your data
 
@@ -400,7 +403,7 @@ You don't need to manually remember everything. MeMesh has **8 hooks** that capt
 | **When Claude stops** | Captures files edited, errors fixed, and auto-generates structured lessons from failures |
 | **Before context compaction** | Saves knowledge before it's lost to context limits |
 | **Before risky commands and edits** | Fires the lesson-guards you accepted — a warning at the exact moment a recorded mistake is about to repeat |
-| **When an opted-in Codex session starts or resumes** | Registers that exact live thread for metadata-only MeMesh message wakeups; other workspaces and stopped sessions are not attached |
+| **When an opted-in Codex session starts or resumes** | Registers that exact live thread for bounded full-message native delivery; other workspaces and stopped sessions are not attached |
 
 > **Opt out anytime:** `export MEMESH_AUTO_CAPTURE=false`
 
@@ -578,10 +581,10 @@ If you switch to an embedder with a different dimension (e.g. 768 → 1536), **n
 | `import` | Import memories with merge strategies (skip / overwrite / append) |
 | `learn` | Record structured lessons from mistakes (error, root cause, fix, prevention) |
 | `task_state` | Read or record where the work stands — goal, next step, blocker, what was just finished |
-| `briefing` | The assembled work topology — the same block Claude Code gets at session start, for any MCP client |
+| `briefing` | The assembled work topology for any MCP client; generic context stays quiet, while exact `project` + `recipient` can surface only that recipient's unfetched deliveries |
 | `user_patterns` | Analyze your work patterns — schedule, tools, strengths, learning areas |
 | `improvement` | Stage an evidence-linked product improvement for human review, or read its status; agents cannot accept or reject it |
-| `message` | Contact another local agent — hand off work, ask for a result, report back — by sending here first; the durable inbox is the record, host push is only delivery. Poll, fetch, and receipt are separate facts |
+| `message` | Discover live agents, then exchange exact-recipient untrusted messages. Durable JSON payload max: 64 KiB; complete native envelope max: 16 KiB with distinct `native_message_too_large` and `recipient_unavailable` failures. Native acceptance, discovery, poll, and fetch never imply acknowledgement or disposition |
 
 ---
 
@@ -632,7 +635,16 @@ bash "$(npm prefix -g)/lib/node_modules/@pcircle/memesh/scripts/upgrade-plugin.s
 
 The script fast-forwards the marketplace cache, stages the new version under `~/.claude/plugins/cache/`, installs runtime deps, and re-points `installed_plugins.json`. Restart Claude Code afterwards so the MCP server reconnects.
 
-**npm-global installs** (`npm install -g @pcircle/memesh`) can self-update via `memesh update`. Source checkouts: `git pull && npm install && npm run build`.
+**npm-global installs** (`npm install -g @pcircle/memesh`) can self-update via `memesh update`. For a source checkout, with npm installed, run `git pull && npm install && npm run build`.
+
+**Codex plugin marketplace installs** (using the Codex CLI):
+
+```bash
+codex plugin marketplace add PCIRCLE-AI/memesh
+codex plugin add memesh@pcircle-memesh
+```
+
+For a stale marketplace snapshot, refresh it with `codex plugin marketplace upgrade pcircle-memesh`, then reinstall with `codex plugin remove memesh` followed by `codex plugin add memesh@pcircle-memesh`.
 
 Session start surfaces a one-line banner (throttled to once per 24h per version) when a newer release is available, and `memesh doctor` reports the upgrade target with the channel-specific command.
 

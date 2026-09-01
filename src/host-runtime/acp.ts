@@ -48,6 +48,8 @@ export type ConnectRouterHost = (options: {
     principal_id: string;
     session_instance_id: string;
     adapter_kind: 'acp';
+    model?: string;
+    work_summary?: string;
   };
   deliver: (delivery: RouterDelivery) => Promise<Record<string, unknown>>;
 }) => Promise<RouterHostConnection>;
@@ -306,6 +308,8 @@ export async function startManagedAcpHost(
   const socketPath = requiredString(config.router_socket, 'router_socket');
   const project = requiredString(config.project, 'project');
   const authToken = readTokenFile(config.token_file);
+  const model = config.model === undefined ? undefined : requiredString(config.model, 'model');
+  const workSummary = config.work_summary === undefined ? undefined : requiredString(config.work_summary, 'work_summary');
   const sessionUpdateSink = createAcpSessionUpdateSink(config.session_update_file);
   const connectAcpHost = dependencies.connect_acp_host
     ?? ((options: AcpClientOptions) => AcpClientHostAdapter.connect(options));
@@ -339,6 +343,8 @@ export async function startManagedAcpHost(
               principal_id: registration.principal_id,
               session_instance_id: registration.session_instance_id,
               adapter_kind: 'acp',
+              ...(model === undefined ? {} : { model }),
+              ...(workSummary === undefined ? {} : { work_summary: workSummary }),
             },
             async deliver(delivery) {
               const receipt = await registration.deliver({

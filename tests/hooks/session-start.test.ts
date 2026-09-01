@@ -434,7 +434,7 @@ describe('Feature: Session Start Hook', () => {
     expect(session?.entityNames).toContain('global-item');
   });
 
-  it('Regression: an unread delivery is injected as a fetch instruction; a fetched one is not', async () => {
+  it('Regression: generic SessionStart does not leak unread recipient activity', async () => {
     // A REAL schema and a REAL send. A hand-rolled deliveries row cannot be
     // inserted at all — the schema enforces the FK to agent_messages — so a
     // fixture that fakes the tables proves nothing about this path.
@@ -452,12 +452,17 @@ describe('Feature: Session Start Hook', () => {
         action: 'send', project, sender: 'codex-reviewer', recipient: 'claude-implementer',
         idempotency_key: 'hook-unread-1', payload: { text: 'review done' }, content_type: 'application/json',
       }, { transport: 'mcp', sourceHost: 'test-host' }) as { message_id: string };
+      await executeAgentMessageAction(getDatabase(), {
+        action: 'send', project, sender: 'codex-reviewer', recipient: 'gemini-reviewer',
+        idempotency_key: 'hook-unread-1b', payload: { text: 'another review done' }, content_type: 'application/json',
+      }, { transport: 'mcp', sourceHost: 'test-host' });
       closeDatabase();
 
-      const unread = runHook({ cwd: '/tmp/testproj' });
-      const ctx1 = String((unread.hookSpecificOutput as { additionalContext?: string } | undefined)?.additionalContext ?? '');
-      expect(ctx1).toContain(`1 message waiting for "${project}"`);
-      expect(ctx1).toContain('fetch them with the message tool');
+      const generic = runHook({ cwd: '/tmp/testproj' });
+      const ctx1 = String((generic.hookSpecificOutput as { additionalContext?: string } | undefined)?.additionalContext ?? '');
+      expect(ctx1).not.toContain('message waiting');
+      expect(ctx1).not.toContain('claude-implementer');
+      expect(ctx1).not.toContain('gemini-reviewer');
 
       openDatabase(dbPath);
       await executeAgentMessageAction(getDatabase(), {

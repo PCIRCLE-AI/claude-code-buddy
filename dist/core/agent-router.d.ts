@@ -1,5 +1,5 @@
 import type { MemeshDatabase } from '../storage/sqlite.js';
-import { type AgentJsonObject, type AgentMessagePayload, type AgentMessagePostCommitNotifier, type AgentTargetKind } from './agent-messaging.js';
+import { type AgentJsonObject, type AgentMessagePayload, type AgentMessagePostCommitNotifier } from './agent-messaging.js';
 export declare const AGENT_ROUTER_PROTOCOL_VERSION = 1;
 export declare const AGENT_ROUTER_MAX_FRAME_BYTES: number;
 export declare const AGENT_ROUTER_MAX_HOPS = 4;
@@ -8,6 +8,8 @@ export interface AgentHostRegistration {
     principal_id: string;
     session_instance_id: string;
     adapter_kind: string;
+    model?: string;
+    work_summary?: string;
     auth_token?: string;
 }
 export interface AgentHostDispatchInput {
@@ -22,23 +24,6 @@ export interface AgentHostDispatchInput {
     untrusted_payload: true;
     envelope: AgentMessagePayload;
 }
-export interface AgentHostMetadataDispatchInput {
-    dispatch_id: string;
-    attempt_id: string;
-    project: string;
-    principal_id: string;
-    session_instance_id: string;
-    connection_id: string;
-    generation: number;
-    hops: number;
-    routing: {
-        project: string;
-        recipient: string;
-        target_kind: AgentTargetKind;
-        message_id: string;
-        delivery_id: string;
-    };
-}
 export interface AgentHostDispatchResult {
     accepted: boolean;
     receipt?: AgentJsonObject;
@@ -47,7 +32,6 @@ export interface AgentHostAdapter {
     readonly kind: string;
     authenticate(registration: AgentHostRegistration): boolean | Promise<boolean>;
     dispatch?(input: AgentHostDispatchInput): AgentHostDispatchResult | Promise<AgentHostDispatchResult>;
-    dispatch_metadata_only?(input: AgentHostMetadataDispatchInput): AgentHostDispatchResult | Promise<AgentHostDispatchResult>;
 }
 export interface AgentRouterLimits {
     max_frame_bytes?: number;
@@ -73,7 +57,17 @@ export interface AgentRouterRegisterRequest {
     principal_id: string;
     session_instance_id: string;
     adapter_kind: string;
+    model?: string;
+    work_summary?: string;
     auth_token?: string;
+    hops: number;
+}
+export interface AgentRouterDiscoverRequest {
+    version: 1;
+    type: 'discover';
+    request_id: string;
+    project: string;
+    limit: number;
     hops: number;
 }
 export interface AgentRouterNotifyRequest {
@@ -126,7 +120,7 @@ export interface AgentRouterHostRejectRequest {
     failure_code: string;
     hops: number;
 }
-export type AgentRouterRequest = AgentRouterRegisterRequest | AgentRouterNotifyRequest | AgentRouterHeartbeatRequest | AgentRouterDisconnectRequest | AgentRouterHostAcceptRequest | AgentRouterHostRejectRequest;
+export type AgentRouterRequest = AgentRouterRegisterRequest | AgentRouterDiscoverRequest | AgentRouterNotifyRequest | AgentRouterHeartbeatRequest | AgentRouterDisconnectRequest | AgentRouterHostAcceptRequest | AgentRouterHostRejectRequest;
 export type AgentRouterSuccessResponse = {
     version: 1;
     request_id: string;
@@ -143,6 +137,17 @@ export type AgentRouterErrorResponse = {
     };
 };
 export type AgentRouterResponse = AgentRouterSuccessResponse | AgentRouterErrorResponse;
+export interface AgentSelectionCard {
+    session_id: string;
+    principal_id: string;
+    host_kind: 'codex' | 'claude' | 'gemini' | 'other';
+    project: string;
+    model: string | null;
+    work_summary: string | null;
+    active: true;
+    generation: number;
+    lease_expires_at_ms: number;
+}
 export declare class AgentRouterError extends Error {
     readonly code: string;
     constructor(code: string, message: string);
@@ -162,6 +167,7 @@ export declare class AgentRouter {
     private socketIdentity;
     private readonly sockets;
     private readonly externalConnections;
+    private readonly selectionCards;
     private readonly inFlightDeliveries;
     private readonly pendingExternal;
     constructor(options: AgentRouterOptions);
@@ -175,6 +181,7 @@ export declare class AgentRouter {
     private disconnectSocket;
     private handleHostOutcome;
     private registerConnection;
+    private discover;
     private requireCurrentConnection;
     private insertPresenceFact;
     private drainConnection;

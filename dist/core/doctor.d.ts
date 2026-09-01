@@ -39,6 +39,7 @@ interface DoctorOptions {
     getCurrentInstallChannelImpl?: typeof getCurrentInstallChannel;
     installedPluginsPathImpl?: string;
     marketplaceHeadShaImpl?: (host: import('./install-channel.js').PluginHost) => string | null;
+    pluginCacheDiscoveryImpl?: () => PluginCacheDiscovery[];
     getInstallChannelSupportImpl?: typeof getInstallChannelSupport;
     existsSyncImpl?: typeof fs.existsSync;
     readFileSyncImpl?: typeof fs.readFileSync;
@@ -64,6 +65,12 @@ interface DoctorOptions {
     };
     probeMessageRouterStatus?: boolean;
     messageRouterStatusProbeImpl?: () => Promise<MessageRouterStatusProbe>;
+}
+interface PluginCacheDiscovery {
+    host: import('./install-channel.js').PluginHost;
+    packageRoot: string;
+    installedPluginsPath?: string;
+    unverifiableReason?: string;
 }
 type MessageRouterStatusProbe = {
     socket_path: string;

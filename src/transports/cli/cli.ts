@@ -21,6 +21,7 @@ import { installHooks } from '../../core/install-hooks.js';
 import { getTaskState, setTaskState } from '../../core/task-state-store.js';
 import { TASK_STATE_FIELDS, taskStateLines, type TaskStateField } from '../../core/task-state.js';
 import type { LessonSeverity, MergeStrategy, ExportResult } from '../../core/types.js';
+import { AGENT_MESSAGE_JSON_MAX_BYTES, AGENT_NATIVE_MESSAGE_MAX_BYTES } from '../../core/agent-messaging.js';
 import { executeAgentMessageAction } from '../agent-messaging.js';
 import {
   getAgentMessageStorageReport,
@@ -30,6 +31,7 @@ import {
   assertSecureLocalHostRuntimeSupported,
   ensureRouterTokenFile,
 } from '../../host-runtime/config.js';
+import { pluginHostConfigRoot, versionedPluginCacheRoots } from '../../core/install-channel.js';
 
 // DX: every CLI command that touches the DB used to repeat
 //   openDatabase(); try { ...body... } finally { closeDatabase(); }
@@ -789,7 +791,7 @@ program
 // executes payload content, and read commands never write an ACK.
 const messageCmd = program
   .command('message')
-  .description('Send, wait for, fetch, and explicitly receipt durable local agent messages');
+  .description('Send, discover, wait for, fetch, and explicitly receipt local agent messages');
 
 function parseCliMessagePayload(raw: string, contentType: string): unknown {
   if (contentType !== 'application/json') return raw;
@@ -800,7 +802,13 @@ function parseCliMessagePayload(raw: string, contentType: string): unknown {
   }
 }
 
-const MAX_CLI_MESSAGE_STDIN_BYTES = 65_536;
+function boundedCliDeclaration(value: string, option: string, maxCharacters: number): string {
+  const normalized = value.trim();
+  if (normalized.length === 0 || normalized.length > maxCharacters) {
+    throw new Error(`${option} must be a non-empty string of at most ${maxCharacters} characters.`);
+  }
+  return normalized;
+}
 
 async function readCliMessagePayloadFromStdin(contentType: string): Promise<unknown> {
   let raw = '';
@@ -808,15 +816,20 @@ async function readCliMessagePayloadFromStdin(contentType: string): Promise<unkn
   for await (const chunk of process.stdin) {
     const text = typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8');
     bytes += Buffer.byteLength(text, 'utf8');
-    if (bytes > MAX_CLI_MESSAGE_STDIN_BYTES) {
-      throw new Error(`stdin payload exceeds ${MAX_CLI_MESSAGE_STDIN_BYTES} UTF-8 bytes.`);
+    if (bytes > AGENT_MESSAGE_JSON_MAX_BYTES) {
+      throw new Error(`stdin payload exceeds ${AGENT_MESSAGE_JSON_MAX_BYTES} UTF-8 bytes.`);
     }
     raw += text;
   }
   if (bytes === 0) {
     throw new Error('stdin payload is empty.');
   }
-  return parseCliMessagePayload(raw, contentType);
+  const payload = parseCliMessagePayload(raw, contentType);
+  const encodedBytes = Buffer.byteLength(JSON.stringify(payload), 'utf8');
+  if (encodedBytes > AGENT_MESSAGE_JSON_MAX_BYTES) {
+    throw new Error(`payload must be at most ${AGENT_MESSAGE_JSON_MAX_BYTES} UTF-8 bytes when encoded as JSON.`);
+  }
+  return payload;
 }
 
 async function runCliMessage(input: unknown): Promise<void> {
@@ -841,14 +854,26 @@ function isAgentPollResult(value: unknown): value is { events: unknown[]; next_c
 }
 
 messageCmd
+  .command('discover')
+  .description('Discover active leased agents in one project without sending or acknowledging messages')
+  .requiredOption('--project <name>', 'Project scope')
+  .option('--limit <n>', 'Maximum live agents, 1-100', wholeNumber('--limit'), 50)
+  .action((opts) => runCliMessage({
+    action: 'discover', project: opts.project, limit: opts.limit,
+  }));
+
+messageCmd
   .command('send')
-  .description('Durably send one exact-recipient local message (idempotent)')
+  .description(`Durably send one exact-recipient message (payload 64 KiB; complete native envelope 16 KiB; idempotent)`)
   .requiredOption('--project <name>', 'Project scope')
   .requiredOption('--sender <id>', 'Stable sender agent/host ID')
   .requiredOption('--recipient <id>', 'Stable recipient agent/host ID')
   .option('--target-kind <kind>', 'principal | session', 'principal')
   .requiredOption('--idempotency-key <key>', 'Stable retry key')
-  .requiredOption('--payload-stdin', 'Read the complete text or JSON payload from stdin (never argv)')
+  .requiredOption(
+    '--payload-stdin',
+    `Read untrusted text or JSON from stdin, never argv (stdin read cap ${AGENT_MESSAGE_JSON_MAX_BYTES} UTF-8 bytes; JSON-encoded durable payload cap ${AGENT_MESSAGE_JSON_MAX_BYTES}; exact-session complete native envelope cap ${AGENT_NATIVE_MESSAGE_MAX_BYTES})`,
+  )
   .option('--content-type <type>', 'text/plain | application/json', 'text/plain')
   .option('--privacy <scope>', 'private | team', 'private')
   .option('--correlation-id <id>', 'Conversation or task correlation ID')
@@ -1072,6 +1097,8 @@ agentCmd
   .requiredOption('--project <name>', 'Project scope used for exact routing')
   .requiredOption('--principal <id>', 'Stable logical recipient ID')
   .option('--workspace <path>', 'Managed Codex/Gemini workspace', process.cwd())
+  .option('--model <id>', 'Optional declared model identifier')
+  .option('--work-summary <text>', 'Optional declared current work summary')
   .option('--json', 'Output machine-readable setup result')
   .action((host, opts) => {
     requireOneOf(host, ['codex-session', 'codex', 'claude', 'gemini'], '<host>');
@@ -1093,6 +1120,8 @@ agentCmd
       token_file: routerTokenFile,
       project: opts.project,
       principal_id: opts.principal,
+      ...(opts.model === undefined ? {} : { model: boundedCliDeclaration(opts.model, '--model', 200) }),
+      ...(opts.workSummary === undefined ? {} : { work_summary: boundedCliDeclaration(opts.workSummary, '--work-summary', 200) }),
     };
     const config = host === 'codex-session'
       ? { ...common, workspace: fs.realpathSync(path.resolve(opts.workspace)) }
@@ -1142,10 +1171,11 @@ program
   .command('briefing')
   .description('The assembled work topology for a project — task state, decisions, lessons, knowledge, recent activity')
   .option('--project <name>', 'Project name (default: the current directory’s project)')
+  .option('--recipient <id>', 'Exact recipient; enables recipient-scoped unread message guidance')
   .option('--json', 'Output as JSON')
   .action(async (opts) => {
     await withDatabase(() => {
-      const result = assembleBriefing(opts.project);
+      const result = assembleBriefing(opts.project, opts.recipient);
       if (opts.json) {
         console.log(JSON.stringify(result));
         return;
@@ -1811,50 +1841,59 @@ program
 // reaching it meant hand-substituting the installed version into
 // ~/.claude/plugins/cache/pcircle-memesh/memesh/<version>/scripts/... — a
 // path shape most users get wrong on the first try. This command finds the
-// newest installed plugin version itself, checks the script's prerequisites
-// up front (the script hard-requires node, npm and rsync and would otherwise
+// running MeMesh installation first, then the newest installed plugin version,
+// and checks the script's prerequisites up front (the script requires node,
+// npm, git and tar and would otherwise
 // die partway through), and runs it with the script's own exit code.
+export function resolveUpgradePluginScript(
+  packageRootPath: string,
+  pluginCacheRoot: string,
+  pluginRegistryPath?: string,
+): { script: string; newest: string | null } | null {
+  const roots = versionedPluginCacheRoots(pluginCacheRoot);
+  const newestRoot = roots[roots.length - 1];
+  const bundled = path.join(packageRootPath, 'scripts', 'upgrade-plugin.sh');
+  const hasRepairTarget = Boolean(newestRoot || (pluginRegistryPath && fs.existsSync(pluginRegistryPath)));
+  if (fs.existsSync(bundled) && hasRepairTarget) {
+    return { script: bundled, newest: newestRoot ? path.basename(newestRoot) : null };
+  }
+  if (!newestRoot) return null;
+  const newest = path.basename(newestRoot);
+  const script = path.join(newestRoot, 'scripts', 'upgrade-plugin.sh');
+  return { script, newest };
+}
+
 program
   .command('upgrade-plugin')
   .description('Upgrade the Claude Code plugin install (finds and runs its bundled upgrade script)')
   .action(async () => {
     const { spawnSync } = await import('child_process');
-    const cacheRoot = path.join(homeDir(), '.claude', 'plugins', 'cache', 'pcircle-memesh', 'memesh');
+    const configRoot = pluginHostConfigRoot('claude-code');
+    const cacheRoot = path.join(configRoot, 'plugins', 'cache', 'pcircle-memesh', 'memesh');
+    const registryPath = path.join(configRoot, 'plugins', 'installed_plugins.json');
 
-    // The cache holds one directory per installed version. Only
-    // version-shaped names count, so a stray directory can never win the
-    // sort below.
-    let versions: string[] = [];
-    try {
-      versions = fs.readdirSync(cacheRoot, { withFileTypes: true })
-        .filter((entry) => entry.isDirectory() && /^\d+\.\d+\.\d+/.test(entry.name))
-        .map((entry) => entry.name);
-    } catch { /* ENOENT — no plugin cache at all; the empty list says so below */ }
-
-    if (versions.length === 0) {
-      console.error('No Claude Code plugin install found (looked in ~/.claude/plugins/cache/pcircle-memesh).');
+    const resolved = resolveUpgradePluginScript(packageRoot, cacheRoot, registryPath);
+    if (!resolved) {
+      console.error(`No Claude Code plugin install found (looked in ${cacheRoot}).`);
       console.error('If you installed via npm, upgrade with: memesh update');
+      console.error('If you installed through Codex, run `memesh doctor` for the Codex refresh command.');
       process.exit(1);
     }
 
-    // The highest installed version carries the newest copy of the upgrade
-    // script. `numeric: true` compares dotted segments as numbers, so 4.10.0
-    // sorts above 4.9.0 where a plain string sort would not.
-    versions.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-    const newest = versions[versions.length - 1];
-    const script = path.join(cacheRoot, newest, 'scripts', 'upgrade-plugin.sh');
+    const { script, newest } = resolved;
     if (!fs.existsSync(script)) {
-      console.error(`Plugin install found (v${newest}), but it has no scripts/upgrade-plugin.sh — plugin versions before 4.2.5 shipped without it.`);
+      console.error(`Plugin install found${newest ? ` (v${newest})` : ''}, but it has no scripts/upgrade-plugin.sh — plugin versions before 4.2.5 shipped without it.`);
       console.error('Reinstall once from the Claude Code /plugin UI, or run the npm-global copy directly:');
       console.error('  bash "$(npm prefix -g)/lib/node_modules/@pcircle/memesh/scripts/upgrade-plugin.sh"');
       process.exit(1);
     }
 
-    // Same three tools the script itself demands, checked BEFORE it runs.
+    // The same tools the script itself demands, checked BEFORE it runs.
     const installHints: Record<string, string> = {
       node: 'node is required by the upgrade script. Install Node.js from https://nodejs.org',
       npm: 'npm is required by the upgrade script. It ships with Node.js — reinstall from https://nodejs.org',
-      rsync: 'rsync is required by the upgrade script. macOS: already installed; Debian/Ubuntu: sudo apt install rsync',
+      git: 'git is required by the upgrade script. macOS: xcode-select --install; Debian/Ubuntu: sudo apt install git',
+      tar: 'tar is required by the upgrade script. macOS: already installed; Debian/Ubuntu: sudo apt install tar',
     };
     const missing = Object.keys(installHints).filter((tool) => !isOnPath(tool));
     if (missing.length > 0) {
@@ -1862,7 +1901,14 @@ program
       process.exit(1);
     }
 
-    const run = spawnSync('bash', [script], { stdio: 'inherit' });
+    // Pin the same resolved root the CLI used. If HOME is empty or unset,
+    // homeDir() can still resolve the OS account home, while bash cannot;
+    // letting the script recompute it would make discovery and mutation
+    // disagree about which Claude install is authoritative.
+    const run = spawnSync('bash', [script], {
+      stdio: 'inherit',
+      env: { ...process.env, CLAUDE_CONFIG_DIR: configRoot },
+    });
     if (run.error) {
       console.error(`Could not run the upgrade script: ${run.error.message}`);
       console.error('bash is required to run it. If bash is available under another name, run it yourself:');
@@ -2705,11 +2751,11 @@ dreamCmd
 // memesh ships hooks/hooks.json for Claude Code's plugin runtime,
 // but `npm install -g` only puts the CLI on PATH — the plugin
 // runtime never reads them. Inject the hooks directly into
-// ~/.claude/settings.json so they fire on every Claude Code session,
+// the configured Claude Code user settings so they fire on every session,
 // preserving any user-global hooks the user already wired.
 program
   .command('install-hooks')
-  .description('Wire memesh\'s session hooks into Claude Code (~/.claude/settings.json)')
+  .description('Wire memesh\'s session hooks into Claude Code user settings')
   .option('--scope <scope>', 'user (default) or project — project writes to ./.claude/settings.json', 'user')
   .option('--dry-run', 'Show what would change without modifying any file')
   .option('--force-over-plugin', 'Write user-level hooks even when Claude Code\'s plugin runtime already wires them. Causes double-firing — only use if you genuinely want both surfaces.')
@@ -2730,7 +2776,7 @@ program
         console.log('');
         console.log('Hooks are active. Verify with: memesh doctor');
         console.log('');
-        console.log('If you really want a second copy in ~/.claude/settings.json on top of the plugin, re-run with --force-over-plugin. (Not recommended — every session-start / Stop / PreToolUse event will fire memesh\'s hooks twice.)');
+        console.log(`If you really want a second copy in ${result.settingsPath} on top of the plugin, re-run with --force-over-plugin. (Not recommended — every session-start / Stop / PreToolUse event will fire memesh's hooks twice.)`);
       // The citation contract's fate, reported on BOTH exits. `foreign-file`
       // is the one that matters: a file already sits at that path without
       // memesh's marker, so the contract was NOT installed — and the run

@@ -49,6 +49,8 @@ function managedConfig(overrides: Record<string, unknown> = {}): Record<string, 
     project: 'managed-project',
     principal_id: 'gemini-managed',
     workspace: process.cwd(),
+    model: 'gemini-current',
+    work_summary: 'review ACP boundary',
     ...overrides,
   };
 }
@@ -243,6 +245,8 @@ describe('managed Gemini ACP runtime', () => {
       principal_id: 'gemini-managed',
       session_instance_id: 'generated-managed-session',
       adapter_kind: 'acp',
+      model: 'gemini-current',
+      work_summary: 'review ACP boundary',
     });
     expect(runtime).toMatchObject({
       principal_id: 'gemini-managed',

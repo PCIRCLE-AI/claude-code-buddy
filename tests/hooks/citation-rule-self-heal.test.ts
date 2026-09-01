@@ -55,7 +55,7 @@ function writeMarker(scope: 'user' | 'project'): void {
 }
 
 /** Run the hook the way Claude Code 2.1.241 runs it. */
-function runHook(): number {
+function runHook(envOverride: NodeJS.ProcessEnv = {}): number {
   const transcript = path.join(home, 't.jsonl');
   fs.writeFileSync(transcript, '{}\n');
   const payload = JSON.stringify({
@@ -69,7 +69,7 @@ function runHook(): number {
     execFileSync('node', [HOOK], {
       input: payload,
       encoding: 'utf8',
-      env: { ...process.env, HOME: home, USERPROFILE: home, CLAUDE_PLUGIN_ROOT: project },
+      env: { ...process.env, HOME: home, USERPROFILE: home, CLAUDE_PLUGIN_ROOT: project, ...envOverride },
     });
     return 0;
   } catch (err) {
@@ -106,6 +106,18 @@ describe('the self-heal honours the installed scope', () => {
 
     expect(fs.existsSync(userRule()), 'a user install did not get the contract').toBe(true);
     expect(fs.existsSync(projectRule()), 'a user install wrote into the project tree').toBe(false);
+  });
+
+  it('writes into a relocated CLAUDE_CONFIG_DIR on a user install', () => {
+    const relocated = path.join(home, 'relocated-claude');
+    const relocatedRule = path.join(relocated, 'rules', RULE);
+    writeMarker('user');
+
+    expect(runHook({ CLAUDE_CONFIG_DIR: relocated })).toBe(0);
+
+    expect(fs.existsSync(relocatedRule), 'the relocated Claude config got no citation rule').toBe(true);
+    expect(fs.existsSync(userRule()), 'the rule leaked into the default ~/.claude tree').toBe(false);
+    expect(fs.existsSync(projectRule()), 'a user rule leaked into the project tree').toBe(false);
   });
 
   it('treats a missing marker as a user install — that is what a plugin install looks like', () => {

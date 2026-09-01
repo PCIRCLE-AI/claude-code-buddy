@@ -93,11 +93,22 @@ function groupLessons(rows) {
     }
     return groups;
 }
+function legacyReadableLessonSlug(error) {
+    const words = error
+        .toLowerCase()
+        .replace(/[^a-z0-9\u4e00-\u9fff]+/g, ' ')
+        .trim()
+        .split(/\s+/)
+        .filter((w) => w.length > 1)
+        .slice(0, 8);
+    const slug = words.join('-');
+    return slug.length > 0 ? slug.slice(0, 80) : 'unspecified';
+}
 export function splitFusedLessons(db, deps) {
     let moved = -1;
     runOnceMigration(db, {
         key: FUSED_LESSON_SPLIT_KEY,
-        version: 1,
+        version: 2,
         describe: 'fused lesson split',
         migrate: (conn) => {
             const buckets = conn
@@ -119,16 +130,11 @@ export function splitFusedLessons(db, deps) {
             const archive = conn.prepare(`UPDATE entities SET status = 'archived' WHERE id = ? AND ${emptied}`);
             moved = 0;
             let bucketsTouched = 0;
-            for (const bucket of buckets) {
-                const groups = groupLessons(obsOf.all(bucket.id));
-                if (groups.length === 0)
-                    continue;
-                const tags = tagsOf.all(bucket.id).map((t) => t.tag);
-                const project = tags.find((t) => t.startsWith('project:'))?.slice('project:'.length) ??
-                    bucket.name.slice('lesson-'.length, -'-other'.length);
+            let legacyReadableMoved = 0;
+            const moveLessonGroups = (source, project, groups, tags) => {
                 let inherited = {};
                 try {
-                    const parsed = bucket.metadata ? JSON.parse(bucket.metadata) : {};
+                    const parsed = source.metadata ? JSON.parse(source.metadata) : {};
                     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed))
                         inherited = parsed;
                 }
@@ -139,14 +145,9 @@ export function splitFusedLessons(db, deps) {
                     carried.push(severities[0]);
                 if (!tags.includes('source:auto-learned'))
                     carried.push('source:explicit');
-                let movedFromBucket = 0;
+                let movedFromSource = 0;
                 for (const group of groups) {
-                    const slug = lessonSlug(group.error);
-                    if (slug === 'other')
-                        continue;
-                    const name = `lesson-${project}-${slug}`;
-                    if (name === bucket.name)
-                        continue;
+                    const name = `lesson-${project}-${lessonSlug(group.error)}`;
                     let target = findTarget.get(name);
                     if (target) {
                         if (target.status !== 'active')
@@ -154,11 +155,11 @@ export function splitFusedLessons(db, deps) {
                     }
                     else {
                         const contents = group.rows.map((o) => o.content);
-                        const title = deps.deriveTitle(bucket.type, contents);
+                        const title = deps.deriveTitle(source.type, contents);
                         const metadata = {
                             ...inherited,
-                            split_from: bucket.name,
-                            signal_score: computeSignalScore({ type: bucket.type, name, observations: contents, tags: carried }),
+                            split_from: source.name,
+                            signal_score: computeSignalScore({ type: source.type, name, observations: contents, tags: carried }),
                         };
                         if (title)
                             metadata.title_source = 'heuristic';
@@ -167,7 +168,7 @@ export function splitFusedLessons(db, deps) {
                         delete metadata.guard;
                         delete metadata.evidence_for;
                         delete metadata.previous_namespace;
-                        const inserted = insertEntity.run(name, bucket.type, group.rows[0].created_at, JSON.stringify(metadata), bucket.confidence, bucket.namespace, title);
+                        const inserted = insertEntity.run(name, source.type, group.rows[0].created_at, JSON.stringify(metadata), source.confidence, source.namespace, title);
                         target = { id: Number(inserted.lastInsertRowid), status: 'active' };
                         for (const tag of carried)
                             insertTag.run(target.id, tag);
@@ -175,17 +176,64 @@ export function splitFusedLessons(db, deps) {
                     for (const row of group.rows)
                         moveRow.run(target.id, row.id);
                     moved += 1;
-                    movedFromBucket += 1;
+                    movedFromSource += 1;
                 }
+                return movedFromSource;
+            };
+            for (const bucket of buckets) {
+                const groups = groupLessons(obsOf.all(bucket.id));
+                if (groups.length === 0)
+                    continue;
+                const tags = tagsOf.all(bucket.id).map((t) => t.tag);
+                const project = tags.find((t) => t.startsWith('project:'))?.slice('project:'.length) ??
+                    bucket.name.slice('lesson-'.length, -'-other'.length);
+                const movedFromBucket = moveLessonGroups(bucket, project, groups, tags);
                 dropExplicit.run(bucket.id, bucket.id);
                 archive.run(bucket.id, bucket.id);
                 if (movedFromBucket > 0)
                     bucketsTouched += 1;
             }
+            const legacyReadable = conn
+                .prepare(`SELECT e.id, e.name, e.type, e.namespace, e.confidence, e.metadata
+           FROM entities e
+           WHERE e.status = 'active'
+             AND e.type = 'lesson_learned'
+             AND e.name LIKE 'lesson-%'
+             AND e.name NOT LIKE 'lesson-%-other'
+             AND EXISTS (SELECT 1 FROM tags t WHERE t.entity_id = e.id AND t.tag = 'source:explicit')`)
+                .all();
+            for (const entity of legacyReadable) {
+                const rows = obsOf.all(entity.id);
+                const groups = groupLessons(rows);
+                if (groups.length === 0)
+                    continue;
+                if (groups.reduce((n, group) => n + group.rows.length, 0) !== rows.length)
+                    continue;
+                const tags = tagsOf.all(entity.id).map((t) => t.tag);
+                const project = tags.find((t) => t.startsWith('project:'))?.slice('project:'.length);
+                if (!project)
+                    continue;
+                const suffix = entity.name.slice(`lesson-${project}-`.length);
+                if (tags.includes(`error-pattern:${suffix}`))
+                    continue;
+                if (!groups.every((group) => `lesson-${project}-${legacyReadableLessonSlug(group.error)}` === entity.name))
+                    continue;
+                const movedFromEntity = moveLessonGroups(entity, project, groups, tags);
+                archive.run(entity.id, entity.id);
+                legacyReadableMoved += movedFromEntity;
+            }
             if (moved > 0) {
                 rebuildFtsIndex(conn);
                 deps.markReindexOwed(conn);
-                note(`moved ${moved} lesson(s) out of ${bucketsTouched} "-other" bucket(s) into their own entities; run 'memesh reindex' to refresh their vectors.`);
+                if (legacyReadableMoved === 0) {
+                    note(`moved ${moved} lesson(s) out of ${bucketsTouched} "-other" bucket(s) into their own entities; run 'memesh reindex' to refresh their vectors.`);
+                }
+                else if (bucketsTouched === 0) {
+                    note(`moved ${legacyReadableMoved} legacy readable-only lesson(s) into their canonical digest entities; run 'memesh reindex' to refresh their vectors.`);
+                }
+                else {
+                    note(`moved ${moved - legacyReadableMoved} lesson(s) out of ${bucketsTouched} "-other" bucket(s) and ${legacyReadableMoved} legacy readable-only lesson(s) into their canonical digest entities; run 'memesh reindex' to refresh their vectors.`);
+                }
             }
         },
     });
