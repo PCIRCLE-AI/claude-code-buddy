@@ -2,6 +2,22 @@
 
 All notable changes to MeMesh are documented here.
 
+## [Unreleased]
+
+### Fixed
+
+- **The Ollama host guard now rebuilds the request origin instead of forwarding
+  the configured string.** `resolveOllamaHost` used to validate a persisted
+  `llm.host` and then pass the same string to `fetch`, which left CodeQL alert
+  #137 (`js/file-access-to-http`) open even though remote hosts were already
+  rejected. The scheme and hostname are now chosen by literal `switch` cases
+  and the port is re-parsed as a number, so no byte of the untrusted value
+  reaches the request. A configured loopback host carrying a path, query,
+  fragment, or credentials is refused with the existing `must be loopback`
+  error rather than silently reduced to its origin; the operator-set
+  `OLLAMA_HOST` is unchanged. The dashboard global-filter test builds its
+  cross-tab event as `new Event('storage')` to clear CodeQL #138.
+
 ## [4.8.3] — 2026-08-31
 
 ### Fixed
