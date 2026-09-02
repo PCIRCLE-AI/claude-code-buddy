@@ -92,6 +92,76 @@ export function executableTargets(packageDir) {
 }
 
 /**
+ * `package.json` `bin` entries with their command names preserved.
+ *
+ * `binTargets()` above collapses this to a de-duplicated path list, which is
+ * right for "which files need the executable bit" but wrong for "which
+ * command failed" — a gate that only has the path cannot tell a release
+ * engineer whether `memesh` or `memesh-http` broke when they share no path
+ * in common. This keeps the name.
+ *
+ * @param {string} packageDir - package root to read package.json from
+ * @returns {{name: string, relativePath: string}[]}
+ */
+export function binEntries(packageDir) {
+  const pkg = JSON.parse(fs.readFileSync(path.join(packageDir, 'package.json'), 'utf8'));
+  const bin = pkg.bin ?? {};
+  const entries = typeof bin === 'string'
+    ? [{ name: typeof pkg.name === 'string' ? pkg.name : 'bin', relativePath: bin }]
+    : Object.entries(bin).map(([name, relativePath]) => ({ name, relativePath }));
+
+  if (entries.length === 0) {
+    throw new Error('package.json declares no bin entries — expected at least the `memesh` command');
+  }
+
+  return entries;
+}
+
+/**
+ * Every hook Claude Code can invoke, one entry per `hooks/hooks.json`
+ * declaration, with the event it fires on and whether it is async.
+ *
+ * `hookCommands()` above collapses this to a de-duplicated path list. This
+ * keeps the event name (for "which SessionStart hook broke") and the
+ * `async` flag — an async hook's stdout is never parsed as a control
+ * response, so a caller validating hook output against the Claude Code
+ * hook-output contract needs to know which entries to hold to that contract
+ * and which merely need to exit cleanly.
+ *
+ * @param {string} packageDir - package root to read the manifest from
+ * @returns {{event: string, async: boolean, command: string, relativePath: string}[]}
+ */
+export function hookEntries(packageDir) {
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(packageDir, 'hooks', 'hooks.json'), 'utf8')
+  );
+
+  const entries = [];
+  for (const [event, matchers] of Object.entries(manifest.hooks ?? {})) {
+    for (const matcher of matchers ?? []) {
+      for (const hook of matcher.hooks ?? []) {
+        if (typeof hook.command !== 'string') continue;
+        entries.push({
+          event,
+          async: hook.async === true,
+          command: hook.command,
+          relativePath: hook.command.replace('${CLAUDE_PLUGIN_ROOT}/', '').split(' ')[0],
+        });
+      }
+    }
+  }
+
+  if (entries.length === 0) {
+    throw new Error(
+      'hooks/hooks.json declared no hook commands — the derivation in ' +
+        'scripts/lib/executable-targets.mjs is broken, not the manifest'
+    );
+  }
+
+  return entries;
+}
+
+/**
  * The script `.mcp.json` starts, relative to the package root.
  *
  * Derived for the same reason as the two lists above, and after the same kind

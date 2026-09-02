@@ -143,6 +143,7 @@ The same `operations.ts` memory functions run identically from all three transpo
 
 - Tests: `tests/` mirrors `src/`. Run `npm test -- --run` (pool: forks, not threads — native modules).
   Cross-hook contract gate: `tests/hooks/hook-output-contract.test.ts` (validates every hook's stdout against the real Claude Code contract).
+- Entry-point execution gate: `npm run verify:entry-points` (`scripts/check-entry-points-start.mjs`, part of `verify:release`) spawns every `package.json` `bin` and every `hooks/hooks.json` hook once with `process.execPath` and fails if any does not start, plus flags an unresolved `${CLAUDE_PLUGIN_ROOT}`-style placeholder in `.mcp.json`/`hooks/hooks.json`. Pinned by `tests/entry-points-start.test.ts`.
 - Owner-run live checks (never CI): `scripts/qa/live-journey.mjs` — `npm run qa:live-journey -- --host codex|claude`
   drives a real Codex thread or an interactive Claude channel session and requires model-visible proof.
   Its pure half is pinned by `tests/qa/live-journey.test.ts`; the contract is in `docs/platforms/agent-messaging.md`.
