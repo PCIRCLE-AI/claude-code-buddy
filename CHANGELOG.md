@@ -18,6 +18,18 @@ All notable changes to MeMesh are documented here.
   `OLLAMA_HOST` is unchanged. The dashboard global-filter test builds its
   cross-tab event as `new Event('storage')` to clear CodeQL #138.
 
+- **The packaged Dashboard E2E smoke now pins its environment isolation.**
+  `scripts/dashboard-e2e-smoke.mjs` builds the child runtime's environment in
+  an exported pure function (`buildIsolatedRuntimeEnv`) and only runs the smoke
+  when invoked directly. `tests/release-scripts-safety.test.ts` calls that
+  function with a deliberately polluted maintainer environment and asserts,
+  key by key, that the test-owned HOME/MEMESH_DIR/database win, that
+  `MEMESH_AUTO_DETECT_LLM` is off, and that every provider variable
+  `detectFromEnv()` reads is gone — the list is derived from `config.ts`
+  itself, so a provider added there without updating the smoke fails the test.
+  Recorded under a shell that really had `OPENAI_API_KEY` set: the packaged
+  server still started at Level 0 and the smoke exited 0 (#271).
+
 ### Added
 
 - **Repeatable owner-run live delivery checks.** `npm run qa:live-journey -- --host codex|claude`

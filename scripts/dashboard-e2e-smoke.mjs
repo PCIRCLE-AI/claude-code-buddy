@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { setTimeout as delay } from 'node:timers/promises';
+import { pathToFileURL } from 'node:url';
 import { chromium } from 'playwright';
 import { npmSync } from './lib/npm-bin.mjs';
 
@@ -106,15 +107,26 @@ function cleanupDir(dirPath) {
   fs.rmSync(dirPath, { recursive: true, force: true });
 }
 
-async function main() {
-  cleanupDir(smokeDir);
-  fs.mkdirSync(smokeDir, { recursive: true });
-  const runtimeHome = path.join(smokeDir, 'runtime-home');
-  const memeshDir = path.join(runtimeHome, '.memesh');
-  const dbPath = path.join(memeshDir, 'knowledge-graph.db');
-  fs.mkdirSync(memeshDir, { recursive: true });
+/**
+ * Build the environment the packaged runtime spawns under: a test-owned
+ * HOME/USERPROFILE/MEMESH_DIR/MEMESH_DB_PATH, provider auto-detection turned
+ * off, and every provider credential/endpoint variable that could turn it
+ * back on stripped from what would otherwise be a full `...baseEnv` spread.
+ *
+ * Pure and side-effect-free on purpose — `tests/release-scripts-safety.test.ts`
+ * imports it directly and calls it with a deliberately polluted `baseEnv` to
+ * pin this isolation as a regression test, without spawning `npm pack`,
+ * installing a tarball, or launching a browser.
+ *
+ * The stripped names are exactly what `src/core/config.ts`'s `detectFromEnv`
+ * reads (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OLLAMA_HOST`) plus
+ * `MEMESH_AUTO_DETECT_LLM` itself. Keeping the two lists in lockstep is the
+ * point: a name added to one without the other is exactly the gap GitHub
+ * issue #271 found.
+ */
+export function buildIsolatedRuntimeEnv(baseEnv, { runtimeHome, memeshDir, dbPath }) {
   const isolatedEnv = {
-    ...process.env,
+    ...baseEnv,
     HOME: runtimeHome,
     USERPROFILE: runtimeHome,
     MEMESH_DIR: memeshDir,
@@ -124,6 +136,17 @@ async function main() {
   delete isolatedEnv.ANTHROPIC_API_KEY;
   delete isolatedEnv.OPENAI_API_KEY;
   delete isolatedEnv.OLLAMA_HOST;
+  return isolatedEnv;
+}
+
+async function main() {
+  cleanupDir(smokeDir);
+  fs.mkdirSync(smokeDir, { recursive: true });
+  const runtimeHome = path.join(smokeDir, 'runtime-home');
+  const memeshDir = path.join(runtimeHome, '.memesh');
+  const dbPath = path.join(memeshDir, 'knowledge-graph.db');
+  fs.mkdirSync(memeshDir, { recursive: true });
+  const isolatedEnv = buildIsolatedRuntimeEnv(process.env, { runtimeHome, memeshDir, dbPath });
 
   const packJson = npmSync(
     ['pack', '--json', '--pack-destination', smokeDir],
@@ -374,7 +397,19 @@ async function onceExit(child) {
   });
 }
 
-main().catch((error) => {
-  console.error(error.stack || error.message);
-  process.exit(1);
-});
+// Guard so importing this module (the regression test in
+// tests/release-scripts-safety.test.ts imports buildIsolatedRuntimeEnv above)
+// does not also run the smoke. Matches the idiom already used in
+// scripts/hooks/auto-update-runner.mjs — realpathSync + pathToFileURL rather
+// than `new URL(import.meta.url).pathname`, which
+// tests/release-scripts-safety.test.ts's "resolves module paths with
+// fileURLToPath" gate forbids repo-wide (it breaks on Windows drive paths).
+const invokedPath = process.argv[1]
+  ? pathToFileURL(fs.realpathSync(process.argv[1])).href
+  : null;
+if (invokedPath === import.meta.url) {
+  main().catch((error) => {
+    console.error(error.stack || error.message);
+    process.exit(1);
+  });
+}
