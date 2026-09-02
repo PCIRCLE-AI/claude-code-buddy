@@ -656,7 +656,12 @@ describe('doctor', () => {
     expect(result.status).toBe('FAIL');
     expect(result.checks.find((check) => check.id === 'mcp-config')).toMatchObject({
       status: 'fail',
-      fix: expect.stringContaining('.claude-plugin/mcp.json'),
+      // `path.join`, not a literal: the fix line names the ABSOLUTE path of
+      // the file to edit, which is what a user needs, and on Windows that
+      // carries backslashes. A hardcoded '.claude-plugin/mcp.json' passed on
+      // macOS and Linux and failed on both Windows legs of CI — the assertion
+      // was platform-dependent, the code was not.
+      fix: expect.stringContaining(path.join('.claude-plugin', 'mcp.json')),
     });
   });
 
