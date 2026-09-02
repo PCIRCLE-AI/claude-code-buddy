@@ -70,6 +70,27 @@ describe('CLI error envelopes: caller mistakes are one line, not a crash', () =>
     expect(r.stdout).toContain('not found');
   });
 
+  // Regression for the false-success bug found dogfooding 4.8.3:
+  // `memesh pin --name nonexistent --json` printed
+  // `{"name":"...","pinned":true,"found":false}` and exited 1 — a caller
+  // that only reads `pinned` (the field `--json` exists to be read by)
+  // believed the protection was in place. The payload must not claim a pin
+  // state that was never stored, and the exit code must still say "this
+  // failed" so a script can't miss it just by trusting the exit code either.
+  it('pin --json on a nonexistent entity reports pinned:null, not pinned:true, and still exits 1', () => {
+    const r = runCli(['pin', '--name', 'ghost-entity-p7', '--json']);
+    expect(r.exitCode).toBe(1);
+    const parsed = JSON.parse(r.stdout);
+    expect(parsed).toEqual({ name: 'ghost-entity-p7', pinned: null, found: false });
+  });
+
+  it('unpin --json on a nonexistent entity also reports pinned:null (the case that hid the bug)', () => {
+    const r = runCli(['unpin', '--name', 'ghost-entity-p7', '--json']);
+    expect(r.exitCode).toBe(1);
+    const parsed = JSON.parse(r.stdout);
+    expect(parsed).toEqual({ name: 'ghost-entity-p7', pinned: null, found: false });
+  });
+
   it('config set language rejects a value containing a newline (prompt-injection surface)', () => {
     // config.language is interpolated into every content-generating LLM
     // prompt, and sanitizeForPrompt deliberately preserves \n — so a

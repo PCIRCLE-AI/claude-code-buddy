@@ -224,7 +224,7 @@ export function setPinned(name, pinned) {
     const kg = new KnowledgeGraph(db);
     const exists = db.prepare('SELECT 1 FROM entities WHERE name = ?').get(name);
     if (!exists)
-        return { name, pinned, found: false };
+        return { name, pinned: null, found: false };
     kg.updateEntityMetadata(name, (current) => {
         const next = { ...current };
         if (pinned)

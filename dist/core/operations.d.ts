@@ -22,7 +22,7 @@ export declare function learn(args: LearnInput): LearnResult;
 export declare function forget(args: ForgetInput): ForgetResult;
 export declare function setPinned(name: string, pinned: boolean): {
     name: string;
-    pinned: boolean;
+    pinned: boolean | null;
     found: boolean;
 };
 export interface ReindexResult {

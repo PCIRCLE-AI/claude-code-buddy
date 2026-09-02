@@ -37,8 +37,40 @@ describe('Core Operations: setPinned', () => {
     expect(after.pin).toBe(true);
   });
 
-  it('reports found=false for a missing entity without throwing', () => {
-    expect(setPinned('nope', true)).toEqual({ name: 'nope', pinned: true, found: false });
+  it('pin then unpin on a real entity round-trips with found=true and the achieved boolean', () => {
+    remember({ name: 'keep-me', type: 'decision' });
+    expect(setPinned('keep-me', true)).toEqual({ name: 'keep-me', pinned: true, found: true });
+    expect(setPinned('keep-me', false)).toEqual({ name: 'keep-me', pinned: false, found: true });
+  });
+
+  // Regression for the false-success bug found dogfooding 4.8.3: `pinned`
+  // used to echo the REQUESTED argument even when the entity did not exist,
+  // so `memesh pin --name nonexistent --json` printed
+  // `{"pinned":true,"found":false}` — a caller reading `pinned: true` had no
+  // way to tell the protection never happened. `pinned` must be `null`, not
+  // a boolean, when `found` is false: `false` would be its own false claim
+  // ("this entity is confirmed unpinned"), which is exactly what made `unpin`
+  // on a missing entity look correct while the same defect was present.
+  it('pin on a missing entity reports found=false and pinned=null, not the requested value', () => {
+    expect(setPinned('nope', true)).toEqual({ name: 'nope', pinned: null, found: false });
+  });
+
+  it('unpin on a missing entity also reports pinned=null — this is the case that hid the bug', () => {
+    // unpin passes pinned=false, which used to coincide with "not pinned"
+    // and made the false-success payload look accidentally correct.
+    expect(setPinned('nope', false)).toEqual({ name: 'nope', pinned: null, found: false });
+  });
+
+  it('the JSON payload never carries a boolean `pinned` when found is false', () => {
+    const missing = JSON.stringify(setPinned('nope', true));
+    expect(missing).not.toContain('"pinned":true');
+    expect(missing).not.toContain('"pinned":false');
+    expect(missing).toContain('"pinned":null');
+
+    remember({ name: 'keep-me', type: 'decision' });
+    const found = JSON.stringify(setPinned('keep-me', true));
+    expect(found).toContain('"pinned":true');
+    expect(found).toContain('"found":true');
   });
 });
 
