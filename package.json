@@ -59,6 +59,7 @@
     "lint:fix": "eslint src/ scripts/ tests/ dashboard/src/ --fix",
     "start": "node dist/mcp/server.js",
     "bench:longmemeval": "node benchmarks/longmemeval/run.mjs --mode A --dataset /tmp/longmemeval_s.json",
+    "qa:live-journey": "node scripts/qa/live-journey.mjs",
     "test:isolated": "node scripts/run-tests-isolated.mjs",
     "test:coverage": "node scripts/run-tests-isolated.mjs --coverage"
   },

@@ -203,6 +203,81 @@ for active Codex-session delivery.
 - `intake`, `ack`, `disposition`, and `activation` are explicit, separate, idempotent receipt facts. Inbox/MCP ACK is valid without a host-native acceptance; host-native ACK remains bound to its `host_accept`. `receipts` returns one ordered projection and identifies each underlying fact source. For example, `manual_resume_required` does not imply ACK, acceptance, rejection, cancellation, or completion.
 - The transport, rather than model-provided payload data, records sender-host provenance.
 
+## Repeatable owner-run live checks
+
+Everything above is checked by the test suite against stubs and fakes. That
+proves the plumbing and nothing about a live model: a queue admission or a
+`host_accept` is a statement about a frame, not about cognition. Two checks
+close that gap by requiring evidence that could only have come out of a running
+model.
+
+```bash
+npm run qa:live-journey -- --host codex  --out codex-report.json
+npm run qa:live-journey -- --host claude --out claude-report.json
+```
+
+`scripts/qa/live-journey.mjs` is owner-run and never runs in CI, because
+neither check can run unattended: one needs the owner's Codex login, the other
+needs a person at an interactive Claude session. Its argument parsing, its
+refusals, and every assertion it makes are unit-tested in
+`tests/qa/live-journey.test.ts`, which does run in CI against recorded fixtures.
+
+Both checks run entirely inside a fresh `mktemp` MEMESH_DIR that is deleted on
+exit (`--keep` retains it), against this repository's own `dist/`. The script
+refuses to start if `MEMESH_DIR` or `MEMESH_DB_PATH` resolves inside
+`$HOME/.memesh`, or if `dist/` has not been built. It reads no authentication
+file and writes no host configuration outside its temporary directory.
+
+**`--host codex`** starts the router, runs `memesh agent setup codex-session`,
+creates one real Codex CLI thread with `codex exec`, registers that thread,
+sends one exact-session message, and then resumes the thread with a fixed
+prompt that names neither the sentinel nor any identifier. The reply must quote
+the envelope's `message_id` and `delivery_id` back. Neither id exists anywhere
+in the prompt, so a reply carrying them is proof the envelope reached the
+model. The check then stops the companion and requires the next send to return
+`recipient_unavailable` while `message fetch` still returns the payload.
+
+**`--host claude`** starts the router, runs `memesh agent setup claude`, writes
+a temporary MCP config, and prints the exact interactive launch command. The
+operator runs it and types nothing. The check waits for the session to appear
+in `message discover`, sends one exact-session message, and then waits for an
+`intake` receipt on that message whose actor is that session — the model must
+call `intake` itself, which is what makes the proof model-visible rather than
+transport-visible. The operator is then asked to exit the session, and the same
+fail-closed assertion runs.
+
+Print mode (`claude -p`) is **not supported** and is deliberately not
+exercised. A print-mode session does not surface `memesh-channel` notifications
+to the model even when the channel host reports the frame accepted, so it can
+never produce the receipt this check requires.
+
+Each run writes a JSON report: the repository revision, every `message_id` and
+`delivery_id`, the `native_delivery` receipts, the model-visible evidence, and
+a `limitations` list. The exit code is 0 only when every required step passed.
+The limitations these checks always declare:
+
+- The Codex **registration** half is harness-driven. `codex exec
+  --ignore-user-config` structurally prevents the packaged plugin `SessionStart`
+  hook from running, so the check feeds the shipped
+  `src/host-runtime/codex-session.ts` companion the payload that hook would have
+  supplied. Dispatch → `codex queue` → model-visible reply is product-path
+  evidence; the registration step is not.
+- `--host codex` creates one throwaway thread in the owner's Codex rollout
+  store and queues one message into it. That is session state, not
+  configuration; nothing outside the temporary directory is otherwise written.
+- The Claude operator is told to type nothing, but the check cannot observe
+  whether anything was typed. The intake receipt proves the model called
+  `intake` in that session; it does not prove it did so unprompted.
+- The Claude intake receipt is matched on its `actor`, which `intake` sets from
+  the caller's `recipient`. The model must intake under its own session id; an
+  intake recorded against the principal id would not match, and the check would
+  report no model-visible proof.
+- `recipient_unavailable` is a shared failure surface — the same string is
+  returned when the *sender* cannot reach the router. The fail-closed step
+  therefore also records that `message discover` still answered and that
+  `message fetch` still returned the payload. That pairing, not the string, is
+  what attributes the failure to the stopped recipient.
+
 ## Identity and lifecycle
 
 A **principal** is the stable logical recipient. A **session** is one live host connection for that principal. A **generation** changes when that session is replaced. An exact-session target never reroutes. A principal target can deliver only to an eligible active session after its activation checkpoint; it does not replay historical inbox contents into a first session.
