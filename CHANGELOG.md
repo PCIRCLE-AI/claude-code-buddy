@@ -18,6 +18,23 @@ All notable changes to MeMesh are documented here.
   `OLLAMA_HOST` is unchanged. The dashboard global-filter test builds its
   cross-tab event as `new Event('storage')` to clear CodeQL #138.
 
+### Added
+
+- **Repeatable owner-run live delivery checks.** `npm run qa:live-journey -- --host codex|claude`
+  (`scripts/qa/live-journey.mjs`) starts this checkout's router in a throwaway
+  `MEMESH_DIR`, registers one real host session, sends one exact-session
+  envelope, and passes only on model-visible proof: the Codex path requires the
+  model to quote the envelope's `message_id` and `delivery_id` back on its next
+  turn; the Claude path requires an `intake` receipt written by the interactive
+  session the operator launched with the printed command. Both then stop the
+  session and require `recipient_unavailable` while the durable row stays
+  fetchable and the router still answers `discover`. It refuses to run against
+  `$HOME/.memesh`, reads no auth files, never runs in CI, and records its
+  limitations in the JSON report — including that the Codex registration is
+  harness-driven because `codex exec --ignore-user-config` bypasses the plugin
+  `SessionStart` hook, and that print-mode Claude is unsupported (#275).
+  Closes the "repeatable check in the repository" box on #270 and #272.
+
 ## [4.8.3] — 2026-08-31
 
 ### Fixed
