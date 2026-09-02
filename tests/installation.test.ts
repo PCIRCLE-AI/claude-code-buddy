@@ -35,8 +35,27 @@ describe('Installation Verification', () => {
       expect(plugin.version).toBe(pkg.version);
     });
 
-    it('should have .mcp.json', () => {
-      expect(fs.existsSync('.mcp.json')).toBe(true);
+    it('declares the Claude MCP manifest on a path Claude Code does NOT auto-discover as a project config', () => {
+      // The root `.mcp.json` this replaced was auto-discovered TWICE: by the
+      // plugin loader, where `${CLAUDE_PLUGIN_ROOT}` resolves, and as a
+      // project-scoped config for anyone who merely opened this repository,
+      // where it does not — `claude mcp list` reported "Missing environment
+      // variables: CLAUDE_PLUGIN_ROOT" and the server died with `-32000
+      // Connection closed`. The old test here asserted `.mcp.json` EXISTS,
+      // so it held the defect in place for three and a half months.
+      //
+      // Custom component paths SUPPLEMENT the defaults rather than replacing
+      // them, so declaring a path is only half of it: the root file has to be
+      // gone, or both still load.
+      const plugin = JSON.parse(fs.readFileSync('.claude-plugin/plugin.json', 'utf8'));
+      expect(plugin.mcpServers).toBe('./.claude-plugin/mcp.json');
+      expect(fs.existsSync('.mcp.json')).toBe(false);
+
+      const mcp = JSON.parse(fs.readFileSync('.claude-plugin/mcp.json', 'utf8'));
+      expect(mcp.mcpServers.memesh).toEqual({
+        command: 'node',
+        args: ['${CLAUDE_PLUGIN_ROOT}/dist/mcp/server.js'],
+      });
     });
 
     it('should have a native Codex plugin manifest for the packaged MCP server', () => {

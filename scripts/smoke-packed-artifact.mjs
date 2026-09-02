@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { binTargets, hookCommands, mcpEntry } from './lib/executable-targets.mjs';
+import { binTargets, hookCommands, mcpEntry, mcpManifestPath } from './lib/executable-targets.mjs';
 import { buildIsolatedRuntimeEnv } from './lib/isolated-env.mjs';
 import { npmSync } from './lib/npm-bin.mjs';
 
@@ -73,7 +73,7 @@ const requiredFiles = [
   '.claude-plugin/plugin.json',
   '.codex-plugin/plugin.json',
   '.codex-plugin/mcp.json',
-  '.mcp.json',
+  '.claude-plugin/mcp.json',
   'hooks/hooks.json',
   // Dist — core engine
   'dist/index.js',
@@ -159,14 +159,36 @@ for (const { relativePath, kind } of declaredExecutables) {
   }
 }
 
-// The script `.mcp.json` starts, derived from the manifest rather than from a
-// hand-written path. A `/plugin install` user reaches memesh ONLY through this
-// entry; when it named a file that had been renamed away, every MCP tool died
-// with `-32000 failed to reconnect` and no gate said a word.
+// The Claude plugin must declare its MCP manifest on a path Claude Code does
+// NOT auto-discover as a project config. A root `.mcp.json` is loaded twice —
+// once by the plugin loader (where ${CLAUDE_PLUGIN_ROOT} resolves) and once as
+// a project-scoped config for anyone who opens the directory (where it does
+// not, and the server dies with `-32000 Connection closed`). Custom component
+// paths SUPPLEMENT the defaults rather than replacing them, so declaring a
+// custom path is only half the fix: the root file has to be gone.
+const claudePlugin = JSON.parse(
+  fs.readFileSync(path.join(packageDir, '.claude-plugin', 'plugin.json'), 'utf8')
+);
+assert.equal(
+  claudePlugin.mcpServers,
+  './.claude-plugin/mcp.json',
+  'Claude plugin manifest must declare its MCP manifest on a non-auto-discovered path'
+);
+assert.ok(
+  !fs.existsSync(path.join(packageDir, '.mcp.json')),
+  'the tarball ships a root .mcp.json — Claude Code auto-discovers it as a project-scoped ' +
+    'MCP config, where ${CLAUDE_PLUGIN_ROOT} is undefined and every memesh MCP tool fails to start'
+);
+
+// The script the MCP manifest starts, derived from the manifest rather than
+// from a hand-written path. A `/plugin install` user reaches memesh ONLY
+// through this entry; when it named a file that had been renamed away, every
+// MCP tool died with `-32000 failed to reconnect` and no gate said a word.
+const mcpManifest = mcpManifestPath(packageDir);
 const mcpTarget = mcpEntry(packageDir);
 assert.ok(
   fs.existsSync(path.join(packageDir, mcpTarget)),
-  `.mcp.json starts ${mcpTarget}, which is not in the tarball — every MCP tool would fail to start`
+  `${mcpManifest} starts ${mcpTarget}, which is not in the tarball — every MCP tool would fail to start`
 );
 
 const packagedJson = JSON.parse(

@@ -364,8 +364,8 @@ describe('Feature: release scripts never edit the real ~/.memesh', () => {
         'Beim nicht vertrauenswürdigen, JSON-kodierten Payload gelten 65.536 UTF-8-Bytes (64 KiB); Intake, Bestätigung und Workflow-Status werden getrennt protokollieren.',
         'Die vollständige native Envelope ist auf 16.384 Bytes (16 KiB) begrenzt; native_message_too_large und recipient_unavailable bleiben getrennt. Principal-Ziele behalten Durable Store-and-Forward.',
       ].join('\n'));
-      write('.mcp.json', 'memesh ${CLAUDE_PLUGIN_ROOT}/dist/mcp/server.js');
-      write('.claude-plugin/plugin.json', '"name": "memesh" "version"');
+      write('.claude-plugin/mcp.json', 'memesh ${CLAUDE_PLUGIN_ROOT}/dist/mcp/server.js');
+      write('.claude-plugin/plugin.json', '"name": "memesh" "version" "mcpServers": "./.claude-plugin/mcp.json"');
       write('.codex-plugin/plugin.json', '"name": "memesh" "version" "mcpServers": "./.codex-plugin/mcp.json"');
       write('.codex-plugin/mcp.json', '"memesh" "command": "node" "./dist/mcp/server.js" "cwd": "."');
       write('.claude-plugin/marketplace.json', '"name": "pcircle-memesh" "version"');

@@ -92,11 +92,62 @@ export function executableTargets(packageDir) {
 }
 
 /**
- * The script `.mcp.json` starts, relative to the package root.
+ * The MCP manifest the Claude plugin declares, relative to the package root.
+ *
+ * Read from `.claude-plugin/plugin.json` rather than hardcoded, for the same
+ * anti-drift reason `mcpEntry` derives its path instead of naming one: a
+ * hand-written path that stopped matching the manifest is the exact defect
+ * class this pair exists to catch.
+ *
+ * The path MUST NOT be `.mcp.json` at the package root. Claude Code
+ * auto-discovers a root `.mcp.json` as a PROJECT-scoped MCP config for anyone
+ * who opens the directory, and in that context `${CLAUDE_PLUGIN_ROOT}` is
+ * undefined — `claude mcp list` reports "Missing environment variables:
+ * CLAUDE_PLUGIN_ROOT" and the server dies with `-32000 Connection closed`.
+ * The same file is correct inside the plugin loader, which is what made the
+ * breakage invisible for three and a half months: one file serving two roles,
+ * right in one and wrong in the other.
+ *
+ * @param {string} packageDir - package root to read .claude-plugin/plugin.json from
+ * @returns {string} relative path to the MCP manifest
+ */
+export function mcpManifestPath(packageDir) {
+  const pluginManifestPath = path.join(packageDir, '.claude-plugin', 'plugin.json');
+  const plugin = JSON.parse(fs.readFileSync(pluginManifestPath, 'utf8'));
+  const declared = plugin.mcpServers;
+
+  if (typeof declared !== 'string') {
+    throw new Error(
+      '.claude-plugin/plugin.json declares no `mcpServers` path — without it Claude Code ' +
+        'falls back to auto-discovering a root `.mcp.json`, which is the project-scoped ' +
+        'path where ${CLAUDE_PLUGIN_ROOT} is undefined'
+    );
+  }
+  if (!declared.startsWith('./')) {
+    throw new Error(
+      `.claude-plugin/plugin.json \`mcpServers\` is ${JSON.stringify(declared)} — the plugin ` +
+        'spec requires a path relative to the plugin root that starts with "./"'
+    );
+  }
+
+  const relative = declared.slice(2);
+  if (relative === '.mcp.json') {
+    throw new Error(
+      'the MCP manifest is declared at the package root as `.mcp.json`, which Claude Code ' +
+        'also auto-discovers as a project-scoped config; ${CLAUDE_PLUGIN_ROOT} is undefined ' +
+        'there and every memesh MCP tool fails to start'
+    );
+  }
+
+  return relative;
+}
+
+/**
+ * The script the MCP manifest starts, relative to the package root.
  *
  * Derived for the same reason as the two lists above, and after the same kind
  * of miss: the MCP entry point was renamed, `package.json` `bin` and `npm
- * start` were both repointed, and `.mcp.json` — the only entry point a
+ * start` were both repointed, and the MCP manifest — the only entry point a
  * `/plugin install` user ever hits — kept naming the deleted file. Every MCP
  * tool failed with `-32000 failed to reconnect`, and nothing noticed, because
  * the packed-artifact gate checked a hand-written path list that no longer
@@ -104,16 +155,17 @@ export function executableTargets(packageDir) {
  *
  * `command` is the interpreter (`node`), so the script is `args[0]`.
  *
- * @param {string} packageDir - package root to read .mcp.json from
+ * @param {string} packageDir - package root to read the MCP manifest from
  * @returns {string} relative path
  */
 export function mcpEntry(packageDir) {
-  const manifest = JSON.parse(fs.readFileSync(path.join(packageDir, '.mcp.json'), 'utf8'));
+  const relativeManifest = mcpManifestPath(packageDir);
+  const manifest = JSON.parse(fs.readFileSync(path.join(packageDir, relativeManifest), 'utf8'));
   const entry = manifest.mcpServers?.memesh?.args?.[0];
 
   if (typeof entry !== 'string') {
     throw new Error(
-      '.mcp.json declares no `mcpServers.memesh.args[0]` — the derivation in ' +
+      `${relativeManifest} declares no \`mcpServers.memesh.args[0]\` — the derivation in ` +
         'scripts/lib/executable-targets.mjs is broken, or the manifest lost its MCP entry point'
     );
   }

@@ -5,6 +5,7 @@
     "name": "PCIRCLE AI"
   },
   "version": "4.8.3",
+  "mcpServers": "./.claude-plugin/mcp.json",
   "homepage": "https://github.com/PCIRCLE-AI/memesh",
   "repository": "https://github.com/PCIRCLE-AI/memesh",
   "license": "MIT",

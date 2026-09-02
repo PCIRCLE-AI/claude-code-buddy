@@ -50,7 +50,7 @@ function writeJson(filePath: string, value: unknown): void {
 }
 
 function createPackageRoot(root = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-doctor-'))): string {
-  writeJson(path.join(root, '.mcp.json'), {
+  writeJson(path.join(root, '.claude-plugin', 'mcp.json'), {
     mcpServers: {
       memesh: {
         command: 'memesh-mcp',
@@ -67,6 +67,10 @@ function createPackageRoot(root = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-
   writeJson(path.join(root, '.claude-plugin', 'plugin.json'), {
     name: 'memesh',
     version: '4.1.4',
+    // Doctor derives the MCP manifest path from here rather than hardcoding
+    // one, so a fixture without this field describes an install whose MCP
+    // wiring Claude Code would fall back to auto-discovering at the root.
+    mcpServers: './.claude-plugin/mcp.json',
   });
 
   writeJson(path.join(root, 'hooks', 'hooks.json'), {
@@ -110,7 +114,7 @@ function createPackageRoot(root = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-
     'scripts/hooks/session-summary.js',
     'scripts/hooks/pre-compact.js',
     'hooks/hooks.json',
-    '.mcp.json',
+    '.claude-plugin/mcp.json',
   ];
   const entries = tracked.map(rel => {
     const buf = fs.readFileSync(path.join(root, rel));
@@ -625,7 +629,7 @@ describe('doctor', () => {
   it('fails when the MCP config is invalid JSON', async () => {
     const packageRoot = createPackageRoot();
     tempRoots.push(packageRoot);
-    fs.writeFileSync(path.join(packageRoot, '.mcp.json'), '{invalid');
+    fs.writeFileSync(path.join(packageRoot, '.claude-plugin', 'mcp.json'), '{invalid');
 
     const result = await runDoctor({
       packageRoot,
@@ -652,13 +656,13 @@ describe('doctor', () => {
     expect(result.status).toBe('FAIL');
     expect(result.checks.find((check) => check.id === 'mcp-config')).toMatchObject({
       status: 'fail',
-      fix: expect.stringContaining('.mcp.json'),
+      fix: expect.stringContaining('.claude-plugin/mcp.json'),
     });
   });
 
-  it('fails when .mcp.json starts a script that is not in the install', async () => {
+  it('fails when the MCP manifest starts a script that is not in the install', async () => {
     // The defect this was written for: the MCP entry point was renamed,
-    // `package.json` bin and `npm start` were repointed, and `.mcp.json` kept
+    // `package.json` bin and `npm start` were repointed, and the manifest kept
     // naming the deleted file. Every MCP tool died with
     // `-32000 failed to reconnect` — and doctor reported PASS, because it
     // stopped at "there is a string `command`" and never looked at what the
@@ -666,7 +670,7 @@ describe('doctor', () => {
     // not a valid config.
     const packageRoot = createPackageRoot();
     tempRoots.push(packageRoot);
-    writeJson(path.join(packageRoot, '.mcp.json'), {
+    writeJson(path.join(packageRoot, '.claude-plugin', 'mcp.json'), {
       mcpServers: {
         memesh: {
           command: 'node',
@@ -697,15 +701,17 @@ describe('doctor', () => {
     expect(result.status).toBe('FAIL');
   });
 
-  it('passes when .mcp.json starts a script that IS present', async () => {
+  it('passes when the MCP manifest starts a script that IS present', async () => {
     // The guard must not become "always fail": a correct config still passes,
     // and the check really does resolve the path rather than rejecting any
-    // config that has args at all.
+    // config that has args at all. `plugin-marketplace` is the channel where
+    // Claude Code really does substitute ${CLAUDE_PLUGIN_ROOT}, so it is the
+    // only one on which resolving against `packageRoot` is honest.
     const packageRoot = createPackageRoot();
     tempRoots.push(packageRoot);
     fs.mkdirSync(path.join(packageRoot, 'dist', 'mcp'), { recursive: true });
     fs.writeFileSync(path.join(packageRoot, 'dist', 'mcp', 'server.js'), '// present\n');
-    writeJson(path.join(packageRoot, '.mcp.json'), {
+    writeJson(path.join(packageRoot, '.claude-plugin', 'mcp.json'), {
       mcpServers: {
         memesh: {
           command: 'node',
@@ -722,15 +728,130 @@ describe('doctor', () => {
       detectCapabilitiesImpl: () => caps({ searchLevel: 1, embeddings: 'ollama' }),
       getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
       getUpdateCheckImpl: async () => makeUpdateCheck(),
-      getCurrentInstallChannelImpl: () => 'npm-global',
+      getCurrentInstallChannelImpl: () => 'plugin-marketplace',
       getInstallChannelSupportImpl: () => ({
-        channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
-        recommendedCommand: 'memesh update', guidance: '',
+        channel: 'plugin-marketplace', label: 'Claude Code plugin marketplace',
+        canSelfUpdate: false, recommendedCommand: 'memesh upgrade-plugin', guidance: '',
       }),
       nativeBindingProbeImpl: () => ({ ok: true }),
     });
 
     expect(result.checks.find((c) => c.id === 'mcp-config')?.status).toBe('pass');
+  });
+
+  it('does NOT claim the entry exists on a channel that never substitutes ${CLAUDE_PLUGIN_ROOT}', async () => {
+    // The reason Defect 1 survived three and a half months behind a green row.
+    //
+    // The check substituted `packageRoot` for ${CLAUDE_PLUGIN_ROOT}
+    // unconditionally, on the strength of a comment claiming Claude Code does
+    // that. Claude Code does — but only for a `plugin-marketplace` install.
+    // On `source-checkout` and `npm-global` the substitution was
+    // self-fulfilling: it rebuilt a path that exists by construction, so this
+    // branch could not fail, whatever the manifest said. Here the target does
+    // NOT exist and the placeholder cannot be resolved, and the row must say
+    // so rather than report a pass it did not earn.
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+    writeJson(path.join(packageRoot, '.claude-plugin', 'mcp.json'), {
+      mcpServers: {
+        memesh: { command: 'node', args: ['${CLAUDE_PLUGIN_ROOT}/dist/mcp/server.js'] },
+      },
+    });
+
+    const result = await runDoctor({
+      packageRoot,
+      packageVersion: '4.2.5',
+      openDatabaseImpl: () => makeDatabase(1) as never,
+      closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => caps({ searchLevel: 1, embeddings: 'ollama' }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck(),
+      getCurrentInstallChannelImpl: () => 'source-checkout',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'source-checkout', label: 'source checkout', canSelfUpdate: false,
+        recommendedCommand: 'git pull', guidance: '',
+      }),
+      envImpl: {},
+      nativeBindingProbeImpl: () => ({ ok: true }),
+    });
+
+    const check = result.checks.find((c) => c.id === 'mcp-config');
+    expect(check?.status).toBe('warn');
+    expect(check?.code).toBe('mcp-config.placeholder-unresolved');
+    expect(check?.summary).toContain('NOT VERIFIED');
+    expect(check?.summary).not.toContain('the script it starts exists');
+  });
+
+  it('resolves against CLAUDE_PLUGIN_ROOT when the environment actually provides one', async () => {
+    // The other half of the same rule: when something really does define the
+    // variable, the check must use THAT value and go back to being able to
+    // fail. `packageRoot` here carries the manifest; the plugin root is a
+    // different directory that does not carry the script.
+    const packageRoot = createPackageRoot();
+    const pluginRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-plugin-root-'));
+    tempRoots.push(packageRoot, pluginRoot);
+    fs.mkdirSync(path.join(packageRoot, 'dist', 'mcp'), { recursive: true });
+    fs.writeFileSync(path.join(packageRoot, 'dist', 'mcp', 'server.js'), '// present\n');
+    writeJson(path.join(packageRoot, '.claude-plugin', 'mcp.json'), {
+      mcpServers: {
+        memesh: { command: 'node', args: ['${CLAUDE_PLUGIN_ROOT}/dist/mcp/server.js'] },
+      },
+    });
+
+    const result = await runDoctor({
+      packageRoot,
+      packageVersion: '4.2.5',
+      openDatabaseImpl: () => makeDatabase(1) as never,
+      closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => caps({ searchLevel: 1, embeddings: 'ollama' }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck(),
+      getCurrentInstallChannelImpl: () => 'npm-global',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
+        recommendedCommand: 'memesh update', guidance: '',
+      }),
+      envImpl: { CLAUDE_PLUGIN_ROOT: pluginRoot },
+      nativeBindingProbeImpl: () => ({ ok: true }),
+    });
+
+    const check = result.checks.find((c) => c.id === 'mcp-config');
+    expect(check?.status).toBe('fail');
+    expect(check?.code).toBe('mcp-config.entry-missing');
+  });
+
+  it('fails when .claude-plugin/plugin.json declares no mcpServers path', async () => {
+    // With no declared path Claude Code falls back to auto-discovering
+    // `.mcp.json` at the plugin root — the project-scoped path where
+    // ${CLAUDE_PLUGIN_ROOT} is undefined. Losing the declaration is losing the
+    // fix, so it is a failure, not a silent default.
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+    writeJson(path.join(packageRoot, '.claude-plugin', 'plugin.json'), {
+      name: 'memesh',
+      version: '4.1.4',
+    });
+
+    const result = await runDoctor({
+      packageRoot,
+      packageVersion: '4.2.5',
+      openDatabaseImpl: () => makeDatabase(1) as never,
+      closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => caps({ searchLevel: 1, embeddings: 'ollama' }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck(),
+      getCurrentInstallChannelImpl: () => 'plugin-marketplace',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'plugin-marketplace', label: 'Claude Code plugin marketplace',
+        canSelfUpdate: false, recommendedCommand: 'memesh upgrade-plugin', guidance: '',
+      }),
+      nativeBindingProbeImpl: () => ({ ok: true }),
+    });
+
+    const check = result.checks.find((c) => c.id === 'mcp-config');
+    expect(check?.status).toBe('fail');
+    expect(check?.code).toBe('mcp-config.missing');
+    expect(check?.summary).toContain('mcpServers');
   });
 
   it('fails when hooks.json yields zero hook script commands', async () => {

@@ -151,6 +151,10 @@ interface DoctorOptions {
   existsSyncImpl?: typeof fs.existsSync;
   readFileSyncImpl?: typeof fs.readFileSync;
   statSyncImpl?: typeof fs.statSync;
+  /** Test override for the environment. A parameter for the same reason
+   *  `detectPluginHost` takes one: describing a layout must not require
+   *  mutating the process every other test in the file shares. */
+  envImpl?: NodeJS.ProcessEnv;
   fetchImpl?: typeof fetch;
   /**
    * Optional owner-supplied message-storage policy. Doctor reports it but
@@ -597,19 +601,54 @@ function inspectConfigFile(
   }
 }
 
+const MCP_PLACEHOLDER = '${CLAUDE_PLUGIN_ROOT}';
+
+/**
+ * Where the Claude plugin declares its MCP manifest, relative to the package
+ * root — read from `.claude-plugin/plugin.json`, never hardcoded.
+ *
+ * Hardcoding it would recreate the defect this function exists to catch: a
+ * hand-written path that stopped matching the manifest. `scripts/lib/
+ * executable-targets.mjs` derives the same path for the packaged-artifact
+ * gate, and for the same reason.
+ *
+ * Returns null when the manifest declares no usable path. That is not a
+ * cosmetic omission: with no `mcpServers` field Claude Code falls back to
+ * auto-discovering `.mcp.json` at the plugin root — which is ALSO the
+ * project-scoped path it auto-discovers for anyone who merely opens the
+ * directory, and `${CLAUDE_PLUGIN_ROOT}` is undefined there.
+ */
+function declaredMcpManifest(
+  packageRoot: string,
+  readFileSyncImpl: typeof fs.readFileSync,
+): string | null {
+  const parsed = parseJsonFile(path.join(packageRoot, '.claude-plugin', 'plugin.json'), readFileSyncImpl);
+  if (!parsed.ok) return null;
+  const declared = parsed.value.mcpServers;
+  if (typeof declared !== 'string' || !declared.startsWith('./')) return null;
+  return declared.slice(2);
+}
+
 function inspectMcpConfig(
   packageRoot: string,
+  installChannel: InstallChannel,
   existsSyncImpl: typeof fs.existsSync,
   readFileSyncImpl: typeof fs.readFileSync,
+  env: NodeJS.ProcessEnv,
 ): DoctorCheck {
-  const mcpPath = path.join(packageRoot, '.mcp.json');
-  if (!existsSyncImpl(mcpPath)) {
+  const relativeManifest = declaredMcpManifest(packageRoot, readFileSyncImpl);
+  const mcpPath = relativeManifest === null ? null : path.join(packageRoot, relativeManifest);
+  const label = relativeManifest ?? '.claude-plugin/mcp.json';
+
+  if (mcpPath === null || !existsSyncImpl(mcpPath)) {
     return createCheck(
       'mcp-config',
       'MCP config',
       'fail',
-      '.mcp.json is missing.',
-      'Restore `.mcp.json` from the package or reinstall MeMesh.',
+      relativeManifest === null
+        ? '.claude-plugin/plugin.json declares no `mcpServers` path, so Claude Code has no MeMesh MCP server to start.'
+        : `${label} is missing.`,
+      'Reinstall MeMesh so the plugin manifest and the MCP manifest it names are both restored.',
       { code: 'mcp-config.missing' },
     );
   }
@@ -620,7 +659,7 @@ function inspectMcpConfig(
       'mcp-config',
       'MCP config',
       'fail',
-      '.mcp.json is not valid JSON.',
+      `${label} is not valid JSON.`,
       `Fix ${mcpPath} so Claude Code can read the MCP server definition.`,
       { code: 'mcp-config.invalid-json', params: { path: mcpPath } },
     );
@@ -632,8 +671,8 @@ function inspectMcpConfig(
       'mcp-config',
       'MCP config',
       'fail',
-      '.mcp.json does not define a usable `memesh` MCP server entry.',
-      'Reinstall MeMesh or restore the `mcpServers.memesh` entry in `.mcp.json`.',
+      `${label} does not define a usable \`memesh\` MCP server entry.`,
+      `Reinstall MeMesh or restore the \`mcpServers.memesh\` entry in \`${label}\`.`,
       { code: 'mcp-config.no-entry' },
     );
   }
@@ -642,23 +681,51 @@ function inspectMcpConfig(
   //
   // This check used to stop at "there is a string `command`", which made it
   // structurally unable to notice the one way this file actually breaks. When
-  // the MCP entry point was renamed, `.mcp.json` kept pointing at the old path
+  // the MCP entry point was renamed, the manifest kept pointing at the old path
   // and every MCP tool died with `-32000 failed to reconnect` — while doctor
   // reported PASS, because the entry was still well-formed. A config that names
   // a file that is not there is not a valid config.
   const args = Array.isArray(server.args) ? server.args : [];
   const entry = typeof args[0] === 'string' ? args[0] : null;
   if (entry) {
-    // Claude Code substitutes ${CLAUDE_PLUGIN_ROOT} with the installed plugin
-    // directory, which is this package root.
-    const resolved = path.resolve(entry.replaceAll('${CLAUDE_PLUGIN_ROOT}', packageRoot));
+    // WHO substitutes ${CLAUDE_PLUGIN_ROOT}, and does it happen here?
+    //
+    // This used to substitute `packageRoot` unconditionally, with a comment
+    // asserting that "Claude Code substitutes that variable with this package
+    // root". That is true only on `plugin-marketplace`. On every other channel
+    // the substitution was self-fulfilling — it rebuilt a path that exists by
+    // construction — so the check could not fail, and a manifest whose
+    // placeholder nothing resolves sat behind a green row for three and a half
+    // months. Substitute only where something really does substitute.
+    const pluginRoot =
+      installChannel === 'plugin-marketplace' ? packageRoot : (env.CLAUDE_PLUGIN_ROOT || null);
+
+    if (entry.includes(MCP_PLACEHOLDER) && pluginRoot === null) {
+      // Not a failure of this install: on a source checkout or an npm install
+      // the plugin manifest is not the wiring in use, so there is no plugin
+      // root to resolve against and nothing is broken. It IS a limit on what
+      // this row may claim — saying "the script it starts exists" here is the
+      // sentence that hid the original defect.
+      return createCheck(
+        'mcp-config',
+        'MCP config',
+        'warn',
+        `${label} starts \`${entry}\`. NOT VERIFIED: \`${MCP_PLACEHOLDER}\` is substituted by the Claude Code plugin runtime, and this is a ${installChannel} install with CLAUDE_PLUGIN_ROOT unset — so the file it names was not checked.`,
+        `Verify it the way the plugin runtime would: CLAUDE_PLUGIN_ROOT=${packageRoot} memesh doctor`,
+        { code: 'mcp-config.placeholder-unresolved', params: { entry, channel: installChannel } },
+      );
+    }
+
+    const resolved = pluginRoot === null
+      ? path.resolve(packageRoot, entry)
+      : path.resolve(entry.replaceAll(MCP_PLACEHOLDER, pluginRoot));
     if (!existsSyncImpl(resolved)) {
       return createCheck(
         'mcp-config',
         'MCP config',
         'fail',
-        `.mcp.json starts \`${entry}\`, and that file is not in this install — so every memesh MCP tool fails to start.`,
-        'Reinstall MeMesh; if you edited `.mcp.json` by hand, point it back at `${CLAUDE_PLUGIN_ROOT}/dist/mcp/server.js`.',
+        `${label} starts \`${entry}\`, and that file is not in this install — so every memesh MCP tool fails to start.`,
+        `Reinstall MeMesh; if you edited \`${label}\` by hand, point it back at \`\${MCP_PLACEHOLDER}/dist/mcp/server.js\`.`,
         { code: 'mcp-config.entry-missing', params: { entry, resolved } },
       );
     }
@@ -668,7 +735,7 @@ function inspectMcpConfig(
     'mcp-config',
     'MCP config',
     'pass',
-    '.mcp.json is present, defines the memesh MCP server, and the script it starts exists.',
+    `${label} is present, defines the memesh MCP server, and the script it starts exists.`,
   );
 }
 
@@ -3075,6 +3142,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
     probeProviderImpl = probeProvider,
     httpBaseUrl = 'http://127.0.0.1:3737',
     platform = process.platform,
+    envImpl = process.env,
     openDatabaseImpl = openDatabase,
     closeDatabaseImpl = closeDatabase,
     isDatabaseOpenImpl = isDatabaseOpen,
@@ -3564,7 +3632,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   }
 
   checks.push(inspectConfigFile(existsSyncImpl, readFileSyncImpl, getConfigPathImpl, detectCapabilitiesImpl().llm));
-  checks.push(inspectMcpConfig(packageRoot, existsSyncImpl, readFileSyncImpl));
+  checks.push(inspectMcpConfig(packageRoot, install, existsSyncImpl, readFileSyncImpl, envImpl));
   checks.push(...inspectHooksConfig(packageRoot, platform, existsSyncImpl, readFileSyncImpl, statSyncImpl));
   // Runtime wiring + activity (#25 — file existence isn't enough;
   // doctor used to PASS for users whose Claude Code never loaded

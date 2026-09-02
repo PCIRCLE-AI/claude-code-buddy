@@ -29,7 +29,7 @@
 
 # Plugin manifest — wired up by Claude Code on install
 /.claude-plugin/plugin.json               @PCIRCLE-AI/maintainers
-/.mcp.json                 @PCIRCLE-AI/maintainers
+/.claude-plugin/mcp.json    @PCIRCLE-AI/maintainers
 
 # Manifest of shipped artefacts (skills, hooks) — generated at build
 # time, but if a PR touches it manually that's a tampering signal.
