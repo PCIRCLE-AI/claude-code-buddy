@@ -629,7 +629,14 @@ describe.runIf(process.platform !== 'win32').sequential('AgentRouter real SQLite
 
   it('discovers only live registrations in the requested project with declared metadata', async () => {
     const { db, socketPath, token } = setup();
-    await startRouter(db, socketPath, token, { lease_ms: 250 });
+    // A long lease on purpose: this test proves that live registrations are
+    // listed, not that expiry works (the next test expires the lease in
+    // SQLite directly). With lease_ms: 250 the client heartbeats every 125 ms,
+    // and a CI runner under load (a 577 s suite instead of ~300 s) let the
+    // lease lapse between connect and discover, returning [] — run
+    // 33598450056, Release Verification Gate, on a PR that never touched
+    // this code.
+    await startRouter(db, socketPath, token, { lease_ms: 5_000 });
     await RouterHostClient.connect({
       socketPath, token, project: 'project-a', principal: 'principal-codex', session: 'session-codex',
       model: 'gpt-5.6-luna', workSummary: 'review router contract',
