@@ -1121,6 +1121,14 @@ describe('normalizeAgentScopePaths — message scope identities spelled as paths
     // no convention to normalise against; `memesh` vs `memesh-llm-memory` IS
     // one project, but only a network call against one owner's GitHub account
     // proves it, and a migration running from an arbitrary directory cannot.
+    //
+    // What this covers, precisely: the REPAIR leaves both pairs alone. It
+    // seeds through raw SQL, so it never calls `canonicalAgentScopeId` and
+    // cannot see a write-path canonicaliser that starts stripping the
+    // `claude-code:` prefix — mutating that function leaves this file green.
+    // That half is guarded in `tests/core/agent-messaging.test.ts` ("two
+    // genuinely different identities stay apart"). Two files, two halves;
+    // neither title should be read as covering the other's.
     seed((db) => {
       message(db, 'm1', 'memesh', 'session_01PDMer3P4cVYeHr4KRen3Un');
       message(db, 'm2', 'memesh', 'claude-code:session_01PDMer3P4cVYeHr4KRen3Un');
