@@ -4,6 +4,43 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- **`npm run qa:pre-release` — one door before a release, that says what it did
+  not check.** It runs `npm run build`, `verify:artifact` (lint, typecheck,
+  version coherence, doc claims, the isolated suite, the packed artifact and
+  every derived upgrade path — the same sequence `prepublishOnly` runs, now
+  named once instead of copied) and `audit:memory`, reports each step's real
+  exit code, and prints the checks it cannot run: the interactive live journey,
+  the post-release check, and the entry-point start gate.
+- **`npm run qa:post-release` — the check that runs on the machine, not on a
+  fresh clone.** Every gate here runs on a fresh checkout or a fresh install,
+  and all three release incidents lived in state that already existed: v4.7.0
+  had a tag and a GitHub Release with nothing on npm; v4.8.2's plugin cache was
+  keyed by version and served 4.8.1 code; a 4.8.2 CLI sat on PATH beside a
+  4.8.3 plugin. This asks the registry whether the version is published and is
+  `latest`, installs it from the registry into a throwaway prefix and runs it,
+  and then asks whether this machine is on that version — read-only with
+  respect to `~/.memesh`, `~/.claude` and `~/.codex`, printing remediation
+  commands rather than running them. Run against 4.8.3 it immediately found the
+  skew it was written for: the shell CLI on this machine is still 4.8.2.
+
+### Changed
+
+- **The packed-upgrade gate derives its upgrade paths instead of pinning
+  them.** `scripts/smoke-packed-upgrade.mjs` named both ends by hand
+  (`expectedPreviousVersion = '4.8.2'`, `expectedCandidateVersion = '4.8.3'`,
+  the candidate spelled out again in the auto-update shim and three regex
+  assertions). Seventy versions are published; the moment 4.8.4 shipped, that
+  pin would have gone on passing while proving an upgrade nobody performs. The
+  candidate now comes from `package.json` and the from-versions from the
+  registry (`scripts/lib/upgrade-matrix.mjs`): the newest release below the
+  candidate, the current `latest` dist-tag when that is lower still, and the
+  oldest release that installs without a native build — 4.5.1, the first
+  release after `better-sqlite3` was dropped, whose database predates the
+  `title` column, the delivery `target_kind` column, FTS segmentation v3 and
+  the tags unique index. Both rows pass today.
+
 ### Fixed
 
 - **Three release-gate guards that could not fail, and the silent failure one
