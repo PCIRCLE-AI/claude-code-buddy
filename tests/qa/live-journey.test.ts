@@ -34,6 +34,7 @@ import {
   assertIntakeReceipt,
   assertNativeAccepted,
   assertNotCi,
+  assertSupportedPlatform,
   assertOutsideOwnerMemesh,
   assertRecipientUnavailable,
   assertSocketPathFits,
@@ -187,7 +188,10 @@ describe('--help', () => {
   });
 });
 
-describe('assertOutsideOwnerMemesh', () => {
+// POSIX path literals below: on Windows `path.resolve('/Users/example')` gains a
+// drive letter and never matches the fixture, and `/tmp` does not exist. The
+// runtime under test is macOS/Linux only, so this follows the repo's idiom.
+describe.skipIf(process.platform === 'win32')('assertOutsideOwnerMemesh', () => {
   const home = '/Users/example';
   const identity = (candidate: string) => candidate;
 
@@ -242,7 +246,7 @@ describe('assertOutsideOwnerMemesh', () => {
   });
 });
 
-describe('realpathAsFarAsPossible', () => {
+describe.skipIf(process.platform === 'win32')('realpathAsFarAsPossible', () => {
   it('resolves an existing directory', () => {
     expect(realpathAsFarAsPossible('/tmp')).toBe(fs.realpathSync('/tmp'));
   });
@@ -250,6 +254,17 @@ describe('realpathAsFarAsPossible', () => {
   it('resolves the existing ancestor of a path that does not exist yet', () => {
     const resolved = realpathAsFarAsPossible('/tmp/memesh-lj-does-not-exist-yet/memesh');
     expect(resolved).toBe(path.join(fs.realpathSync('/tmp'), 'memesh-lj-does-not-exist-yet', 'memesh'));
+  });
+});
+
+describe('assertSupportedPlatform', () => {
+  it('refuses on Windows, naming the documented boundary', () => {
+    expect(() => assertSupportedPlatform('win32')).toThrow(/macOS\/Linux only/);
+  });
+
+  it('allows the platforms the host-native runtime supports', () => {
+    expect(() => assertSupportedPlatform('darwin')).not.toThrow();
+    expect(() => assertSupportedPlatform('linux')).not.toThrow();
   });
 });
 

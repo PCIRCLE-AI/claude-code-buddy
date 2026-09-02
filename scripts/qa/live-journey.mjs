@@ -134,8 +134,9 @@ export function helpText() {
     '            model even when the channel host reports the frame accepted (issue #275),',
     '            so it can never produce the model-visible proof this check requires.',
     '',
-    'Refuses to run when CI is set, when dist/ is not built, or when the temporary',
-    'MEMESH_DIR would resolve inside the owner\'s ~/.memesh.',
+    'Refuses to run on Windows (the host-native runtime it exercises is macOS/Linux only),',
+    'when CI is set, when dist/ is not built, or when the temporary MEMESH_DIR would',
+    'resolve inside the owner\'s ~/.memesh.',
     '',
     'Two things sit OUTSIDE the temporary-directory isolation, and the report says so:',
     '  - Codex registration is harness-driven. The shipped codex-session companion is fed',
@@ -181,6 +182,26 @@ export function parseArgs(argv) {
     throw new Error(`--host must be codex or claude, not ${parsed.host}.`);
   }
   return parsed;
+}
+
+/**
+ * The host-native router, its Unix socket and the managed host adapters are
+ * macOS/Linux only (docs/platforms/agent-messaging.md: Windows keeps core
+ * memory, durable messaging and MCP, but host-native wakeup fails closed).
+ * This check exists to exercise exactly that runtime, so on Windows it has
+ * nothing to prove and refuses rather than failing later at a socket it can
+ * never bind.
+ *
+ * @param {string} platform `process.platform`
+ */
+export function assertSupportedPlatform(platform) {
+  if (platform === 'win32') {
+    throw new Error(
+      'Refusing to run: the host-native router and adapters this check exercises are macOS/Linux only '
+      + '(see docs/platforms/agent-messaging.md). On Windows, MeMesh keeps core memory, durable messaging '
+      + 'and MCP, but there is no host-native wakeup for this check to prove.',
+    );
+  }
 }
 
 /**
@@ -1157,6 +1178,7 @@ async function main() {
     return;
   }
 
+  assertSupportedPlatform(process.platform);
   assertNotCi(process.env);
   assertDistPresent(repoRoot);
   const revision = run('git', ['rev-parse', 'HEAD'], { cwd: repoRoot }).stdout.trim();
