@@ -47,9 +47,24 @@ A release is one operation, not three commands:
 
 ```bash
 git checkout main && git pull        # the release PR is already merged
+npm run qa:pre-release               # the enumerable gates, in one door
 npm run release:finish -- --dry-run  # what it would do, or every reason it refuses
 npm run release:finish
+npm run qa:post-release              # after the publish workflow is green
 ```
+
+`npm run qa:pre-release` runs the build, the `verify:artifact` sequence and
+`audit:memory`, prints each step's real exit code, and ends with the list of
+checks it could not run — the interactive live journey among them. It is not a
+substitute for reading that list.
+
+`npm run qa:post-release` is the half a fresh-clone gate cannot do: it asks the
+registry whether the version is really published and really `latest`, installs
+it from the registry into a throwaway prefix and runs it, and then asks whether
+this machine is on that version. It changes nothing — every remediation it
+finds is printed for you to run. Registry propagation lags a green publish by
+minutes, so a first `registry` FAIL right after the workflow goes green is
+worth re-running once before investigating.
 
 `npm run release:finish` (`scripts/finish-release.mjs`) creates the tag and the
 GitHub Release in a single `gh release create` call, and that release — not a

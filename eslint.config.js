@@ -44,6 +44,7 @@ export default tseslint.config(
         // Node 20+ web standard globals
         URL: 'readonly',
         URLSearchParams: 'readonly',
+        AbortSignal: 'readonly',
       },
     },
     rules: {

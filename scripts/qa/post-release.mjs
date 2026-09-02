@@ -1,0 +1,459 @@
+#!/usr/bin/env node
+/**
+ * What a release gate cannot see: the machine.
+ *
+ * Every gate in this repository runs on a fresh checkout or a fresh install,
+ * and every failure that reached a user lived in state that already existed:
+ * v4.7.0 had a tag and a GitHub Release and npm never got the package;
+ * v4.8.2's plugin cache was keyed by version and went on serving 4.8.1 code;
+ * on 2026-09-02 a PATH CLI on 4.8.2 sat beside a plugin on 4.8.3. All three
+ * shipped with every gate green.
+ *
+ * So this one runs AFTER the release, against the published version, and asks
+ * the questions those incidents answer badly:
+ *
+ *   registry  — is the version actually on the registry, and is it `latest`?
+ *   consumer  — does a fresh install FROM THE REGISTRY run that version?
+ *   artifact  — does the released artifact's own doctor find its tree intact?
+ *   machine   — is that version what this machine has installed?
+ *
+ * It is read-only with respect to owner state: the fresh install goes to a
+ * throwaway prefix, every child process gets a throwaway MEMESH_DIR and
+ * MEMESH_DB_PATH so nothing opens the real knowledge graph, and remediation
+ * commands are printed rather than run. The installed state of this machine
+ * belongs to its owner.
+ */
+import { execFileSync, spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { binTargets, hookCommands } from '../lib/executable-targets.mjs';
+import { npmSync } from '../lib/npm-bin.mjs';
+import { fetchPackument } from '../lib/upgrade-matrix.mjs';
+
+const packageName = '@pcircle/memesh';
+const npmTimeoutMs = 180_000;
+const processTimeoutMs = 45_000;
+
+/**
+ * The doctor checks that speak about the integrity of the package tree they
+ * run from. A `fail` in any of these means the published artifact itself is
+ * broken, for whoever installs it.
+ *
+ * They are deliberately NOT described as machine checks. Measured, not
+ * assumed: running the released doctor twice against the same install — once
+ * with this machine's HOME, once with a throwaway one — returns identical
+ * statuses for all seven. The only check whose answer changes is
+ * `hook-wiring`, which reads the host's `installed_plugins.json`; it warns
+ * rather than fails when a machine has no Claude Code at all, which is a
+ * legitimate state and not a broken release, so it stays doctor's to report
+ * and not this gate's to fail on. What this gate asks about the machine it
+ * asks in `machine-surfaces`, from the installed versions themselves.
+ *
+ * Named explicitly, and required to be PRESENT: a check that has been renamed
+ * or removed must make this gate red rather than silently shrink what it
+ * covers. That is the exact shape of the defect this gate exists for —
+ * `inspectMcpConfig` rewrote `${CLAUDE_PLUGIN_ROOT}` to its own package root,
+ * so it always found the file, always passed, and hid a broken `.mcp.json`
+ * for three and a half months.
+ */
+export const REQUIRED_DOCTOR_CHECKS = [
+  'install-channel',
+  'mcp-config',
+  'hooks-config',
+  'hook-scripts',
+  'skills-manifest',
+  'native-binding',
+  'dashboard',
+];
+
+/**
+ * Is the version on the registry, and is it what `npm install` would give?
+ *
+ * @param {object} packument abbreviated registry document
+ * @param {string} version
+ * @returns {{ok: boolean, detail: string, fix?: string}}
+ */
+export function evaluateRegistry(packument, version) {
+  const published = Object.keys(packument?.versions ?? {});
+  if (!published.includes(version)) {
+    return {
+      ok: false,
+      detail: `${packageName}@${version} is not on the registry (${published.length} versions published, newest ${published[published.length - 1] ?? 'none'})`,
+      fix: 'The tag and the GitHub Release exist without a publish — this is the v4.7.0 shape. Check the publish-npm workflow run for the release.',
+    };
+  }
+  const latest = packument?.['dist-tags']?.latest;
+  if (latest !== version) {
+    return {
+      ok: false,
+      detail: `${packageName}@${version} is published but the latest dist-tag is ${latest ?? 'missing'}, so a plain \`npm install\` does not get it`,
+      fix: `Move the tag deliberately: \`npm dist-tag add ${packageName}@${version} latest\`.`,
+    };
+  }
+  return { ok: true, detail: `${packageName}@${version} is published and is the latest dist-tag` };
+}
+
+/**
+ * Compare every install surface found on this machine against the release.
+ *
+ * A surface that is absent is reported as absent — never as a pass. "No
+ * failure signal" is not a success signal, and the skew incident was two
+ * surfaces disagreeing while each one looked fine on its own.
+ *
+ * @param {{name: string, version: string|null, location: string, fix: string}[]} surfaces
+ * @param {string} version
+ * @returns {{ok: boolean, detail: string, fix?: string}}
+ */
+export function evaluateSurfaces(surfaces, version) {
+  if (surfaces.length === 0) {
+    return {
+      ok: false,
+      detail: 'no memesh install was found on this machine, so nothing here can be confirmed to run the release',
+      fix: `Install it: \`npm install -g ${packageName}@${version}\`.`,
+    };
+  }
+  const stale = surfaces.filter((surface) => surface.version !== version);
+  if (stale.length > 0) {
+    return {
+      ok: false,
+      detail: stale
+        .map((surface) => `${surface.name} is on ${surface.version ?? 'an unreadable version'} (${surface.location})`)
+        .join('; '),
+      fix: stale.map((surface) => surface.fix).join(' '),
+    };
+  }
+  return {
+    ok: true,
+    detail: surfaces.map((surface) => `${surface.name}=${surface.version}`).join(', '),
+  };
+}
+
+/**
+ * @param {{id: string, status: string}[]} checks doctor's own JSON checks
+ * @param {string[]} requiredIds
+ * @returns {{ok: boolean, detail: string, fix?: string}}
+ */
+export function evaluateDoctor(checks, requiredIds = REQUIRED_DOCTOR_CHECKS) {
+  const byId = new Map(checks.map((check) => [check.id, check.status]));
+  const missing = requiredIds.filter((id) => !byId.has(id));
+  if (missing.length > 0) {
+    return {
+      ok: false,
+      detail: `doctor no longer reports ${missing.join(', ')} — this gate would be checking nothing`,
+      fix: 'Update REQUIRED_DOCTOR_CHECKS in scripts/qa/post-release.mjs to the checks doctor actually ships.',
+    };
+  }
+  const failed = requiredIds.filter((id) => byId.get(id) === 'fail');
+  if (failed.length > 0) {
+    return {
+      ok: false,
+      detail: `the released artifact's own doctor fails on its own package tree: ${failed.join(', ')}`,
+      fix: 'Run `memesh doctor` and read the fix each failing check prints.',
+    };
+  }
+  return { ok: true, detail: `${requiredIds.length} install-integrity checks pass under the released artifact` };
+}
+
+/**
+ * The `checks` array out of a doctor `--json` run, or null when the output is
+ * not readable as that.
+ *
+ * Separated from the call site so the unreadable branch has a test: a gate
+ * that silently treats "doctor printed nothing I could parse" as "doctor is
+ * fine" is the failure this whole script is against, and a `catch` inside
+ * `main()` is a branch nothing can reach from a test.
+ *
+ * @param {string} stdout
+ * @returns {{id: string, status: string}[] | null}
+ */
+export function parseDoctorChecks(stdout) {
+  try {
+    const parsed = JSON.parse(stdout);
+    return Array.isArray(parsed?.checks) ? parsed.checks : null;
+  } catch {
+    return null;
+  }
+}
+
+/** @param {{id: string, ok: boolean, detail: string, fix?: string}[]} results */
+export function formatVerdict(results) {
+  const lines = results.map((result) => `  ${result.ok ? 'PASS' : 'FAIL'}  ${result.id}: ${result.detail}`
+    + (result.ok || !result.fix ? '' : `\n        fix: ${result.fix}`));
+  return { ok: results.length > 0 && results.every((result) => result.ok), lines };
+}
+
+function run(binary, args, options = {}) {
+  return execFileSync(binary, args, {
+    encoding: 'utf8',
+    timeout: processTimeoutMs,
+    killSignal: 'SIGTERM',
+    ...options,
+  });
+}
+
+/** A throwaway data directory, so no child process opens the real graph. */
+function isolatedDataEnv(baseEnv, dataDir) {
+  return {
+    ...baseEnv,
+    MEMESH_DIR: dataDir,
+    MEMESH_DB_PATH: path.join(dataDir, 'knowledge-graph.db'),
+    MEMESH_AUTO_CAPTURE: 'false',
+    MEMESH_AUTO_DETECT_LLM: '0',
+  };
+}
+
+/**
+ * Every `memesh` a shell would resolve, with the version each one is.
+ *
+ * `which memesh` — singular — was the first version of this, and it could not
+ * see the failure it was written for. This machine has two: an nvm one and a
+ * homebrew one four releases apart, and a PATH that reaches the second first
+ * (a non-login shell, a cron job, a host app's hook with a minimal PATH) runs
+ * a version the gate said was fine. `which -a` / `where` list every hit, and
+ * every hit is a surface.
+ *
+ * @param {string} version the release under test, used only for the fix line
+ * @param {() => string[]} [resolveAll] injectable for tests
+ * @returns {{name: string, version: string|null, location: string, fix: string}[]}
+ */
+export function shellSurfaces(version, resolveAll = defaultResolveAllMemesh) {
+  const seen = new Set();
+  const surfaces = [];
+  for (const entry of resolveAll()) {
+    const root = packageRootOf(entry);
+    const location = root ?? entry;
+    if (seen.has(location)) continue;
+    seen.add(location);
+    surfaces.push({
+      name: `memesh on PATH (${entry})`,
+      version: root ? readPackageVersion(root) : null,
+      location,
+      fix: `Run \`npm install -g ${packageName}@${version}\`, or remove the install at ${location}.`,
+    });
+  }
+  return surfaces;
+}
+
+/** Every PATH hit for `memesh`, in resolution order. */
+function defaultResolveAllMemesh() {
+  const [command, args] = process.platform === 'win32'
+    ? ['where', ['memesh']]
+    : ['which', ['-a', 'memesh']];
+  const lookup = spawnSync(command, args, { encoding: 'utf8', timeout: processTimeoutMs });
+  if (lookup.status !== 0) return [];
+  return String(lookup.stdout ?? '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+/**
+ * The installed package root behind one executable path, or null.
+ *
+ * Two layouts, because npm ships two. On POSIX the bin is a symlink into
+ * `lib/node_modules/@pcircle/memesh`, so following links and walking up finds
+ * the manifest. On Windows the bin is a generated `memesh.cmd` in
+ * `%APPDATA%\npm` that is not a link, and the package sits BELOW that
+ * directory in `node_modules/@pcircle/memesh` — walking up alone never
+ * reaches it, which would have made this check fail on every correct Windows
+ * install.
+ *
+ * @param {string} entry an executable path from PATH
+ * @returns {string|null}
+ */
+export function packageRootOf(entry, fsImpl = fs) {
+  let resolved = entry;
+  for (let hops = 0; hops < 10 && fsImpl.existsSync(resolved) && fsImpl.lstatSync(resolved).isSymbolicLink(); hops += 1) {
+    resolved = path.resolve(path.dirname(resolved), fsImpl.readlinkSync(resolved));
+  }
+  let dir = path.dirname(resolved);
+  for (let hops = 0; hops < 10; hops += 1) {
+    // The "package below the bin" layout is npm's Windows shim directory and
+    // nothing else: `%APPDATA%\npm\memesh.cmd` beside
+    // `%APPDATA%\npm\node_modules\@pcircle\memesh`. Looking for it under
+    // EVERY ancestor attributes an executable to a package it does not run —
+    // a wrapper in `~/bin/memesh` on a machine with a stray
+    // `~/node_modules/@pcircle/memesh` was reported as that version, and
+    // passed. So the below-candidate is checked at the bin's own directory
+    // only; the walk up looks for the manifest in an ancestor, which is the
+    // POSIX layout.
+    const candidates = hops === 0
+      ? [dir, path.join(dir, 'node_modules', '@pcircle', 'memesh')]
+      : [dir];
+    for (const candidate of candidates) {
+      const manifest = path.join(candidate, 'package.json');
+      if (!fsImpl.existsSync(manifest)) continue;
+      try {
+        if (JSON.parse(fsImpl.readFileSync(manifest, 'utf8')).name === packageName) return candidate;
+      } catch {
+        // A manifest that will not parse is not this package's manifest; keep
+        // walking rather than reporting the surface as unreadable here.
+      }
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+  return null;
+}
+
+/** @param {string} packageRoot @returns {string|null} */
+function readPackageVersion(packageRoot) {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8')).version ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function freshConsumerInstall(version, root, registry) {
+  const prefix = path.join(root, 'npm-prefix');
+  const cache = path.join(root, 'npm-cache');
+  const home = path.join(root, 'home');
+  const data = path.join(root, 'data');
+  for (const dir of [prefix, cache, home, data]) fs.mkdirSync(dir, { recursive: true });
+
+  const env = isolatedDataEnv({ ...process.env, HOME: home, USERPROFILE: home }, data);
+  // A failing install is carried out as text, not swallowed: the caller puts
+  // it in the `consumer` result, so the verdict says why rather than ending in
+  // an npm stack trace with no verdict at all. Proven by fault injection — an
+  // `npm` shim on PATH that fails only on `install` — which must still produce
+  // a FAIL verdict and a non-zero exit.
+  let installError = null;
+  try {
+    npmSync(['install', '--global', '--prefix', prefix, '--cache', cache, '--registry', registry, `${packageName}@${version}`], {
+      stdio: 'inherit',
+      env,
+      timeout: npmTimeoutMs,
+    });
+  } catch (error) {
+    installError = error instanceof Error ? error.message : String(error);
+  }
+
+  const packageRoot = path.join(prefix, 'lib', 'node_modules', '@pcircle', 'memesh');
+  const windowsRoot = path.join(prefix, 'node_modules', '@pcircle', 'memesh');
+  const resolved = fs.existsSync(packageRoot) ? packageRoot : windowsRoot;
+  return { packageRoot: resolved, env, home, data, installError };
+}
+
+async function main() {
+  const args = process.argv.slice(2);
+  const flagIndex = args.indexOf('--version');
+  const repoRoot = process.cwd();
+  const version = flagIndex >= 0
+    ? args[flagIndex + 1]
+    : JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8')).version;
+
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-post-release-'));
+  const results = [];
+  try {
+    const registry = String(npmSync(['config', 'get', 'registry'], {
+      cwd: repoRoot, encoding: 'utf8', timeout: processTimeoutMs,
+    })).trim();
+    console.log(`post-release check: version=${version} registry=${registry}\n`);
+
+    const packument = await fetchPackument(packageName, registry);
+    results.push({ id: 'registry', ...evaluateRegistry(packument, version) });
+
+    // Everything below installs the version under test. There is nothing to
+    // install when the registry does not have it, and running the rest would
+    // report failures that all say the same thing.
+    if (results[0].ok) {
+      // Anything thrown in here (a CLI that will not start, an unreadable
+      // manifest) becomes a FAIL row. Letting it escape would end the run
+      // with a stack trace and no verdict — non-zero, so not a false green,
+      // but the operator would be left reading Node's output for the answer.
+      try {
+        proveConsumerInstall({ version, root, registry, results });
+      } catch (error) {
+        results.push({
+          id: 'consumer',
+          ok: false,
+          detail: `the fresh registry install could not be exercised: ${error instanceof Error ? error.message.split('\n')[0] : String(error)}`,
+        });
+      }
+
+      results.push({ id: 'machine-surfaces', ...evaluateSurfaces(shellSurfaces(version), version) });
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+
+  const verdict = formatVerdict(results);
+  console.log('\npost-release verdict');
+  for (const line of verdict.lines) console.log(line);
+  const skipped = ['registry', 'consumer', 'artifact-doctor', 'machine-surfaces']
+    .filter((id) => !results.some((result) => result.id === id));
+  if (skipped.length > 0) {
+    console.log(`  NOT RUN — nothing was installed to check them: ${skipped.join(', ')}`);
+  }
+  console.log('\nnot checked here:');
+  console.log("  - Each host's plugin cache beyond what the doctor above reports — `memesh doctor` run on that host is the owner-side check.");
+  console.log('  - Nothing on this machine was changed: every fix above is printed, never run.');
+  console.log(`\n${verdict.ok ? 'PASS' : 'FAIL'} — post-release check for ${version}`);
+  process.exitCode = verdict.ok ? 0 : 1;
+}
+
+/**
+ * Install the published version from the registry into a throwaway prefix,
+ * run it, and ask the released artifact's own doctor about that tree.
+ *
+ * @param {{version: string, root: string, registry: string, results: object[]}} context
+ */
+function proveConsumerInstall({ version, root, registry, results }) {
+  // The registry that answered the version question is the registry the
+  // install must use. `npm config get registry` reads the real HOME's
+  // .npmrc, while the install runs under a throwaway HOME with no config at
+  // all — so a mirror in ~/.npmrc made the two rows answer for different
+  // hosts. The sibling script pins this through its userconfig; this one
+  // passes --registry.
+  const install = freshConsumerInstall(version, root, registry);
+  const manifestPath = path.join(install.packageRoot, 'package.json');
+  if (!fs.existsSync(manifestPath)) {
+    results.push({
+      id: 'consumer',
+      ok: false,
+      detail: `a fresh \`npm install -g ${packageName}@${version}\` produced no package at ${install.packageRoot}`
+        + (install.installError ? `: ${install.installError.split('\n')[0]}` : ''),
+    });
+    return;
+  }
+
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  const cliEntry = path.join(install.packageRoot, 'dist/transports/cli/cli.js');
+  const reported = String(run(process.execPath, [cliEntry, '--version'], { cwd: install.packageRoot, env: install.env })).trim();
+  // Distinct, because the two manifests overlap: codex-session.js is both a
+  // bin and a hook command, and a concatenated length prints one more entry
+  // point than the package ships.
+  const shippedEntries = [...new Set([...binTargets(install.packageRoot), ...hookCommands(install.packageRoot)])];
+  const absent = shippedEntries.filter((entry) => !fs.existsSync(path.join(install.packageRoot, entry)));
+  results.push({
+    id: 'consumer',
+    ok: manifest.version === version && reported === version && absent.length === 0,
+    detail: absent.length > 0
+      ? `the published tarball is missing ${absent.join(', ')}`
+      : `a fresh registry install reports ${reported} from a package declaring ${manifest.version}, with all ${shippedEntries.length} shipped entry points present`,
+    fix: 'The published tarball is not what this tree builds — compare `npm pack` output against the published files.',
+  });
+
+  // The released artifact's own doctor, over the tree just installed from the
+  // registry, and never against the real database.
+  const doctorRun = spawnSync(process.execPath, [cliEntry, 'doctor', '--json'], {
+    cwd: install.packageRoot,
+    encoding: 'utf8',
+    timeout: npmTimeoutMs,
+    env: isolatedDataEnv({ ...process.env }, path.join(root, 'doctor-data')),
+  });
+  const checks = parseDoctorChecks(doctorRun.stdout);
+  results.push(checks
+    ? { id: 'artifact-doctor', ...evaluateDoctor(checks) }
+    : {
+      id: 'artifact-doctor',
+      ok: false,
+      detail: `the released doctor did not produce readable JSON (exit=${doctorRun.status}): ${String(doctorRun.stderr).slice(0, 300)}`,
+    });
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) await main();

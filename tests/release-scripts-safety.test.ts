@@ -251,13 +251,38 @@ describe('Feature: release scripts never edit the real ~/.memesh', () => {
   it('wires the isolated packaged upgrade acceptance into CI and npm publication', () => {
     const pkg = JSON.parse(read('package.json'));
     expect(pkg.scripts['test:packaged:upgrade']).toBe('node scripts/smoke-packed-upgrade.mjs');
-    expect(pkg.scripts.prepublishOnly).toContain('test:packaged:upgrade');
+    // The publish path reaches the upgrade acceptance through `verify:artifact`
+    // — one named sequence shared with `qa:pre-release` rather than two copies
+    // of the same list. Following the indirection is the point: asserting only
+    // that `prepublishOnly` mentions it would pass on a copy.
+    expect(pkg.scripts.prepublishOnly).toContain('verify:artifact');
+    expect(pkg.scripts['verify:artifact']).toContain('test:packaged:upgrade');
     const upgrade = read('scripts/smoke-packed-upgrade.mjs');
-    const escapedVersion = pkg.version.replaceAll('.', '\\.');
     expect(upgrade).toContain('auto-update-runner.mjs');
-    expect(upgrade).toContain(`SUCCESS target=${escapedVersion} installed=${escapedVersion}`);
+    expect(upgrade).toContain('SUCCESS target=${candidateVersion} installed=${candidateVersion}');
     expect(upgrade).toContain('MEMESH_UPGRADE_FORCE_FAILURE');
     expect(read('.github/workflows/ci.yml')).toContain('run: npm run test:packaged:upgrade');
+  });
+
+  it('derives both ends of every upgrade path instead of pinning a version pair', () => {
+    const upgrade = read('scripts/smoke-packed-upgrade.mjs');
+    // The import list is asserted by what it must bring in, not as one exact
+    // string: pinning the spelling made this guard go red for ADDING a
+    // derivation helper, which is the opposite of what it is for.
+    expect(upgrade).toContain("from './lib/upgrade-matrix.mjs'");
+    expect(upgrade).toContain('candidatePackage.version');
+    expect(upgrade).toContain('selectUpgradePaths(packument, candidateVersion)');
+    // Deriving the paths is half of it; proving every one it derived is the
+    // other half, and a matrix that silently shrinks passes every test in
+    // this repository without it.
+    expect(upgrade).toContain('assertEveryPathProven(upgradePaths, proven)');
+    // The regression this guards is the one the file shipped with for four
+    // releases: a hand-written version that goes on passing for an upgrade
+    // nobody performs. Any X.Y.Z literal back in this script is that defect —
+    // except the MCP client identity, which names this probe to the server it
+    // connects to and is not a version of anything under test.
+    const withoutProbeIdentity = upgrade.replace("version: '1.0.0'", "version: '<probe>'");
+    expect(withoutProbeIdentity).not.toMatch(/\d+\.\d+\.\d+/);
   });
 
   it('gives the complete release verification job the proven degraded-runner budget', () => {
