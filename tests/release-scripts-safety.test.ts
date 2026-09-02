@@ -23,7 +23,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { spawnSync } from 'child_process';
-import { buildIsolatedRuntimeEnv } from '../scripts/dashboard-e2e-smoke.mjs';
+import { buildIsolatedRuntimeEnv, buildIsolatedSuiteEnv } from '../scripts/lib/isolated-env.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -427,21 +427,26 @@ describe('Feature: release scripts never edit the real ~/.memesh', () => {
     // identical hazard until it was extracted.
     const text = read('scripts/run-tests-isolated.mjs');
     expect(text).toMatch(/mkdtempSync/);
-    expect(text).toMatch(/HOME:\s*home/);
+    // The throwaway HOME goes through the shared helper, which is where the
+    // deletions now live — asserted behaviourally in
+    // 'buildIsolatedSuiteEnv deletes the memesh path variables' below.
+    expect(text).toMatch(/buildIsolatedSuiteEnv\(process\.env, \{ runtimeHome: home \}\)/);
     // MEMESH_DB_PATH must stay unset — pointing it at an existing file breaks
-    // session-start-telemetry's "short-circuits on missing DB" case.
+    // session-start-telemetry's "short-circuits on missing DB" case. This is
+    // the assertion the helper cannot make for the runner: the runner must not
+    // pin one of its own after building the env.
     expect(text).not.toMatch(/MEMESH_DB_PATH:/);
-    // ...and must be actively REMOVED from the inherited environment, not just
-    // left unset here. Not setting it does nothing if the caller exported it.
-    expect(text).toMatch(/delete env\.MEMESH_DIR/);
-    expect(text).toMatch(/delete env\.MEMESH_DB_PATH/);
   });
 
   it('removes ambient provider settings without printing their values', () => {
     const providerKeys = ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'OLLAMA_HOST'];
-    const runner = read('scripts/run-tests-isolated.mjs');
+    // The deletions used to be inlined here; they now live in the one helper
+    // every isolating script shares. The spawn below is the assertion that
+    // actually matters either way — it runs the real runner with sentinel
+    // credentials exported and proves none of them reach the child.
+    const lib = read('scripts/lib/isolated-env.mjs');
     for (const key of providerKeys) {
-      expect(runner).toContain(`delete env.${key}`);
+      expect(lib).toContain(`delete isolatedEnv.${key}`);
     }
 
     const sentinels = {
@@ -473,18 +478,28 @@ describe('Feature: release scripts never edit the real ~/.memesh', () => {
     }
   });
 
-  it('the dashboard e2e smoke isolates the runtime env and strips provider variables', () => {
+  it('buildIsolatedRuntimeEnv strips provider variables, and every packaged/dashboard smoke that spawns the runtime uses it', () => {
     // GitHub issue #271: the packaged Dashboard E2E gave the child runtime
     // an isolated MEMESH_DB_PATH but otherwise spread the maintainer's real
     // process.env, so a shell with a configured provider made the "isolated"
     // server start in Smart Mode against a real LLM. buildIsolatedRuntimeEnv
-    // is the fix, extracted into a pure function so this test can call it
-    // directly instead of running the full smoke (npm pack + install +
-    // Playwright).
+    // is the fix, extracted into a pure function (scripts/lib/isolated-env.mjs,
+    // shared by both smokes) so this test can call it directly instead of
+    // running the full smoke (npm pack + install + Playwright).
+    //
+    // D17: scripts/smoke-packed-artifact.mjs had the same shape of bug in its
+    // own `nativeEnv` — MEMESH_DIR was overridden but MEMESH_DB_PATH was left
+    // to leak through from `...process.env`. src/host-runtime/router.ts's
+    // data directory follows MEMESH_DB_PATH (getMemeshDirFromDbPath), not
+    // MEMESH_DIR, so an ambient MEMESH_DB_PATH sent the router's `mkdirSync`
+    // to the wrong directory while MEMESH_ROUTER_TOKEN_FILE still pointed at
+    // the directory nothing had created — reproduced as `ENOENT` opening
+    // `router.token`. Moving the helper to scripts/lib/ and asserting every
+    // smoke imports it (below) is what keeps this from drifting apart again.
 
     // Derive the provider variable list from detectFromEnv() itself, rather
     // than re-typing it here, so a provider added to config.ts without
-    // updating the smoke script's delete list fails this test instead of
+    // updating the shared helper's delete list fails this test instead of
     // leaking silently. Falls back to nothing if the function is ever
     // rewritten in a way the regex can't follow — the assertions right
     // after this catch that case loudly instead of the loop passing
@@ -497,10 +512,64 @@ describe('Feature: release scripts never edit the real ~/.memesh', () => {
     expect(providerKeys.length).toBeGreaterThan(0);
     expect(providerKeys).toEqual(expect.arrayContaining(['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'OLLAMA_HOST']));
 
-    const smokeSource = read('scripts/dashboard-e2e-smoke.mjs');
+    const libSource = read('scripts/lib/isolated-env.mjs');
     for (const key of providerKeys) {
-      expect(smokeSource).toContain(`delete isolatedEnv.${key}`);
+      expect(libSource).toContain(`delete isolatedEnv.${key}`);
     }
+
+    // Both scripts import the shared helper rather than hand-rolling their
+    // own isolation — a second hand-rolled copy is exactly how D17 happened.
+    const dashboardSource = read('scripts/dashboard-e2e-smoke.mjs');
+    const packedArtifactSource = read('scripts/smoke-packed-artifact.mjs');
+    expect(dashboardSource).toMatch(/import \{ buildIsolatedRuntimeEnv \} from '\.\/lib\/isolated-env\.mjs';/);
+    expect(packedArtifactSource).toMatch(/import \{ buildIsolatedRuntimeEnv \} from '\.\/lib\/isolated-env\.mjs';/);
+    // The three scripts that need the deleting variant instead. Two of them —
+    // both audit scripts — pinned only HOME, which `src/core/paths.ts`
+    // resolves AFTER MEMESH_DIR and MEMESH_DB_PATH: an ambient MEMESH_DB_PATH
+    // sent a mutation run, or an injection measurement, straight at the real
+    // graph while each script's own comments promised isolation.
+    for (const rel of [
+      'scripts/run-tests-isolated.mjs',
+      'scripts/audit/mutation-sample.mjs',
+      'scripts/audit/measure-injection-tokens.mjs',
+    ]) {
+      expect(read(rel), rel).toMatch(
+        /import \{ buildIsolatedSuiteEnv \} from '\.\.?\/lib\/isolated-env\.mjs';/,
+      );
+    }
+
+    // The import alone proves nothing: reverting a single call site back to
+    // the hand-rolled spread leaves the import in place, and this test stayed
+    // green through exactly that mutation until it asserted the defect's own
+    // shape instead. `{ ...process.env, HOME: … }` IS the defect —
+    // `src/core/paths.ts` resolves MEMESH_DIR and MEMESH_DB_PATH before HOME,
+    // so pinning HOME inside a full ambient spread reads as isolation and is
+    // not. No script that spawns a child may write it.
+    for (const rel of [
+      'scripts/run-tests-isolated.mjs',
+      'scripts/audit/mutation-sample.mjs',
+      'scripts/audit/measure-injection-tokens.mjs',
+      'scripts/dashboard-e2e-smoke.mjs',
+      'scripts/smoke-packed-artifact.mjs',
+    ]) {
+      expect(read(rel), `${rel} hand-rolls an ambient spread with a pinned HOME`)
+        .not.toMatch(/\{\s*\.\.\.process\.env,[^}]*\bHOME\b/);
+    }
+
+    // Regression pin for D17 itself: the native-router env must be built
+    // through buildIsolatedRuntimeEnv, never a raw `...process.env` spread
+    // that overrides MEMESH_DIR without also overriding MEMESH_DB_PATH —
+    // that exact shape is the bug that shipped.
+    expect(packedArtifactSource).toMatch(/nativeEnv = \{\s*\.\.\.buildIsolatedRuntimeEnv\(/);
+    expect(packedArtifactSource).not.toMatch(/nativeEnv = \{\s*\.\.\.process\.env/);
+
+    // The packaged smoke builds at least three child environments
+    // deliberately through the helper: the installed-module import/openDatabase
+    // check, the MCP protocol driver, and the native router acceptance flow.
+    // A count regression here means one of those reverted to inheriting
+    // process.env directly.
+    const packedArtifactIsolationCalls = packedArtifactSource.match(/buildIsolatedRuntimeEnv\(process\.env,/g) ?? [];
+    expect(packedArtifactIsolationCalls.length).toBeGreaterThanOrEqual(3);
 
     // A base env standing in for a maintainer's shell: real PATH (so the
     // "unrelated ambient state still passes through" assertion below means
@@ -560,4 +629,40 @@ describe('Feature: release scripts never edit the real ~/.memesh', () => {
     // still passes through.
     expect(env.PATH).toBe(pollutedBaseEnv.PATH);
   });
+
+  // The other half. `buildIsolatedRuntimeEnv` pins a database path; the suite
+  // must NOT be handed one (several hook tests exercise the "no database yet"
+  // branches, which a MEMESH_DB_PATH pointing at a real file makes
+  // unreachable), so `buildIsolatedSuiteEnv` deletes the path variables
+  // instead of setting them. Both were hand-rolled in three scripts, and two
+  // of the three pinned only HOME — which is not isolation, because
+  // `src/core/paths.ts` resolves MEMESH_DIR and MEMESH_DB_PATH BEFORE
+  // falling back to HOME.
+  it('buildIsolatedSuiteEnv deletes the memesh path variables rather than pinning them', () => {
+    const runtimeHome = '/test-owned/suite-home';
+    const pollutedBaseEnv: Record<string, string> = {
+      PATH: process.env.PATH ?? '',
+      HOME: '/ambient/maintainer-home-sentinel',
+      USERPROFILE: 'C:\\ambient\\maintainer-home-sentinel',
+      MEMESH_DIR: '/ambient/maintainer-memesh-sentinel',
+      MEMESH_DB_PATH: '/ambient/maintainer-db-sentinel.db',
+      OLLAMA_HOST: 'http://ambient-ollama.invalid',
+      OPENAI_API_KEY: 'ambient-openai-sentinel',
+      ANTHROPIC_API_KEY: 'ambient-anthropic-sentinel',
+    };
+
+    const env = buildIsolatedSuiteEnv(pollutedBaseEnv, { runtimeHome });
+
+    expect(env.HOME).toBe(runtimeHome);
+    expect(env.USERPROFILE).toBe(runtimeHome);
+    // Deleted, not overwritten: an empty string or the ambient value would
+    // both still be resolved ahead of HOME.
+    expect('MEMESH_DIR' in env).toBe(false);
+    expect('MEMESH_DB_PATH' in env).toBe(false);
+    for (const key of ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'OLLAMA_HOST']) {
+      expect(env[key]).toBeUndefined();
+    }
+    expect(env.PATH).toBe(pollutedBaseEnv.PATH);
+  });
+
 });

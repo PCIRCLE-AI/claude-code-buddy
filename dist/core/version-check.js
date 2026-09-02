@@ -104,6 +104,40 @@ function readStoredUpdateCheck(updateCheckPath, currentVersion) {
         return null;
     }
 }
+export const MAX_UPDATE_CHECK_FILES = 5;
+function pruneOldUpdateCheckFiles(targetPath) {
+    const dir = path.dirname(targetPath);
+    const versionedFile = /^update-check\..+\.json$/;
+    if (!versionedFile.test(path.basename(targetPath)))
+        return;
+    let entries;
+    try {
+        entries = fs.readdirSync(dir);
+    }
+    catch {
+        return;
+    }
+    const files = entries
+        .filter((name) => versionedFile.test(name))
+        .map((name) => {
+        const full = path.join(dir, name);
+        let mtimeMs = 0;
+        try {
+            mtimeMs = fs.statSync(full).mtimeMs;
+        }
+        catch {
+        }
+        return { full, mtimeMs };
+    })
+        .sort((a, b) => b.mtimeMs - a.mtimeMs);
+    for (const stale of files.slice(MAX_UPDATE_CHECK_FILES)) {
+        try {
+            fs.unlinkSync(stale.full);
+        }
+        catch {
+        }
+    }
+}
 function writeStoredUpdateCheck(stored, updateCheckPath, currentVersion) {
     try {
         const targetPath = getUpdateCheckPath(updateCheckPath, currentVersion);
@@ -146,6 +180,7 @@ function writeStoredUpdateCheck(stored, updateCheckPath, currentVersion) {
                 throw secondErr;
             }
         }
+        pruneOldUpdateCheckFiles(targetPath);
     }
     catch {
     }

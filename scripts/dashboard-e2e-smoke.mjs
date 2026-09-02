@@ -8,6 +8,7 @@ import process from 'node:process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 import { chromium } from 'playwright';
+import { buildIsolatedRuntimeEnv } from './lib/isolated-env.mjs';
 import { npmSync } from './lib/npm-bin.mjs';
 
 const repoRoot = process.cwd();
@@ -105,38 +106,6 @@ function runNode(scriptPath, args, env) {
 
 function cleanupDir(dirPath) {
   fs.rmSync(dirPath, { recursive: true, force: true });
-}
-
-/**
- * Build the environment the packaged runtime spawns under: a test-owned
- * HOME/USERPROFILE/MEMESH_DIR/MEMESH_DB_PATH, provider auto-detection turned
- * off, and every provider credential/endpoint variable that could turn it
- * back on stripped from what would otherwise be a full `...baseEnv` spread.
- *
- * Pure and side-effect-free on purpose — `tests/release-scripts-safety.test.ts`
- * imports it directly and calls it with a deliberately polluted `baseEnv` to
- * pin this isolation as a regression test, without spawning `npm pack`,
- * installing a tarball, or launching a browser.
- *
- * The stripped names are exactly what `src/core/config.ts`'s `detectFromEnv`
- * reads (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OLLAMA_HOST`) plus
- * `MEMESH_AUTO_DETECT_LLM` itself. Keeping the two lists in lockstep is the
- * point: a name added to one without the other is exactly the gap GitHub
- * issue #271 found.
- */
-export function buildIsolatedRuntimeEnv(baseEnv, { runtimeHome, memeshDir, dbPath }) {
-  const isolatedEnv = {
-    ...baseEnv,
-    HOME: runtimeHome,
-    USERPROFILE: runtimeHome,
-    MEMESH_DIR: memeshDir,
-    MEMESH_DB_PATH: dbPath,
-    MEMESH_AUTO_DETECT_LLM: '0',
-  };
-  delete isolatedEnv.ANTHROPIC_API_KEY;
-  delete isolatedEnv.OPENAI_API_KEY;
-  delete isolatedEnv.OLLAMA_HOST;
-  return isolatedEnv;
 }
 
 async function main() {
@@ -397,9 +366,8 @@ async function onceExit(child) {
   });
 }
 
-// Guard so importing this module (the regression test in
-// tests/release-scripts-safety.test.ts imports buildIsolatedRuntimeEnv above)
-// does not also run the smoke. Matches the idiom already used in
+// Guard so importing this module never fires npm pack / install / a browser
+// launch as a side effect. Matches the idiom already used in
 // scripts/hooks/auto-update-runner.mjs — realpathSync + pathToFileURL rather
 // than `new URL(import.meta.url).pathname`, which
 // tests/release-scripts-safety.test.ts's "resolves module paths with

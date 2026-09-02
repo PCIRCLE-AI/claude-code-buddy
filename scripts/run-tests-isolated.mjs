@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { npxSync } from './lib/npm-bin.mjs';
+import { buildIsolatedSuiteEnv } from './lib/isolated-env.mjs';
 
 /**
  * Run the test suite against a throwaway HOME.
@@ -25,21 +26,15 @@ try {
   // maintainer's shell — a normal state while debugging against a copy — sends
   // the whole suite at the real config and the real database, from the publish
   // path. The docblock above warned about *setting* MEMESH_DB_PATH and said
-  // nothing about inheriting it.
-  const env = {
-    ...process.env,
-    HOME: home,
-    USERPROFILE: home,
-  };
-  delete env.MEMESH_DIR;
-  delete env.MEMESH_DB_PATH;
-  // Provider settings from the invoking shell are owner-controlled runtime
-  // state, not test inputs. Inheriting them makes the suite select a different
-  // LLM or embedding width depending on who runs it. Individual tests that
-  // exercise provider discovery set their own fixtures after Vitest starts.
-  delete env.ANTHROPIC_API_KEY;
-  delete env.OPENAI_API_KEY;
-  delete env.OLLAMA_HOST;
+  // nothing about inheriting it. Provider settings from the invoking shell are
+  // owner-controlled runtime state, not test inputs, and go for the same
+  // reason; individual tests that exercise provider discovery set their own
+  // fixtures after Vitest starts.
+  //
+  // Both deletions now live in `lib/isolated-env.mjs`, with the audit scripts
+  // that need the identical guarantee. Three copies is how two of them ended
+  // up pinning only HOME.
+  const env = buildIsolatedSuiteEnv(process.env, { runtimeHome: home });
 
   npxSync(['vitest', 'run', ...process.argv.slice(2)], {
     stdio: 'inherit',

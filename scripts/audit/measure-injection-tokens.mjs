@@ -28,6 +28,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { buildIsolatedSuiteEnv } from '../lib/isolated-env.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const asJson = process.argv.includes('--json');
@@ -58,7 +59,7 @@ const migrate = spawnSync(
   process.execPath,
   ['-e', 'import(process.argv[1]).then(m => { m.openDatabase(process.argv[2]); m.closeDatabase(); })',
     path.join(repoRoot, 'dist/db.js'), path.join(scratchMemesh, 'knowledge-graph.db')],
-  { encoding: 'utf8', env: { ...process.env, HOME: scratch, USERPROFILE: scratch }, timeout: 60_000 },
+  { encoding: 'utf8', env: buildIsolatedSuiteEnv(process.env, { runtimeHome: scratch }), timeout: 60_000 },
 );
 if (migrate.status !== 0) {
   console.error(`measure-injection-tokens: core open failed (${migrate.stderr?.trim().split('\n')[0] ?? 'unknown'})`);
@@ -79,7 +80,7 @@ const payload = JSON.stringify({
 const run = spawnSync(process.execPath, [path.join(repoRoot, 'scripts/hooks/session-start.js')], {
   input: payload,
   encoding: 'utf8',
-  env: { ...process.env, HOME: scratch, USERPROFILE: scratch },
+  env: buildIsolatedSuiteEnv(process.env, { runtimeHome: scratch }),
   timeout: 60_000,
 });
 
