@@ -1,0 +1,1 @@
+{"version":3,"file":"entry.d.ts","sourceRoot":"","sources":["../../src/host-runtime/entry.ts"],"names":[],"mappings":"AAiBA,MAAM,WAAW,eAAe;IAC9B,KAAK,CAAC,KAAK,EAAE,MAAM,GAAG,OAAO,CAAC;CAC/B;AAQD,wBAAsB,YAAY,CAChC,MAAM,EAAE,MAAM,EACd,GAAG,EAAE,MAAM,OAAO,CAAC,IAAI,CAAC,EACxB,MAAM,GAAE,eAAgC,GACvC,OAAO,CAAC,MAAM,CAAC,CAQjB"}

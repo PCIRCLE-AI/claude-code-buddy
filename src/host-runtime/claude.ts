@@ -24,6 +24,7 @@ import {
   readTokenFile,
   requiredString,
 } from './config.js';
+import { runHostEntry } from './entry.js';
 
 const CHANNEL_INSTRUCTIONS = [
   'Claude Channels must be enabled once for this session.',
@@ -276,10 +277,5 @@ function isMainModule(): boolean {
 }
 
 if (isMainModule()) {
-  try {
-    await main();
-  } catch {
-    process.stderr.write('memesh-host-claude: session startup failed.\n');
-    process.exitCode = 1;
-  }
+  process.exitCode = await runHostEntry('memesh-host-claude', main);
 }

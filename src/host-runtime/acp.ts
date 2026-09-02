@@ -19,6 +19,7 @@ import {
   readTokenFile,
   requiredString,
 } from './config.js';
+import { runHostEntry } from './entry.js';
 
 export const ACP_SESSION_UPDATE_MAX_RECORD_BYTES = 64 * 1024;
 export const ACP_SESSION_UPDATE_MAX_FILE_BYTES = 1024 * 1024;
@@ -452,7 +453,7 @@ async function runAcpHost(): Promise<void> {
 
 const entryPath = process.argv[1];
 if (entryPath && isExecutedModule(entryPath, import.meta.url)) {
-  await runAcpHost();
+  process.exitCode = await runHostEntry('memesh-host-acp', runAcpHost);
 }
 
 function isExecutedModule(entryPath: string, moduleUrl: string): boolean {

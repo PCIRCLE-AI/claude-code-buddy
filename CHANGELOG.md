@@ -19,6 +19,21 @@ All notable changes to MeMesh are documented here.
   that was never touched, and `null` cannot be misread as a boolean claim the
   way `false` was.
 
+- **Every host runtime now fails closed with the reason, not a stack trace or a
+  generic apology.** `memesh-host-codex` and `memesh-host-acp` awaited their
+  entry function at module scope with no `catch`, so a user whose only mistake
+  was omitting `--config` got a raw Node stack trace. `memesh-host-claude`
+  caught it and then discarded the error, printing `session startup failed.` —
+  fail-closed, but it hid the one sentence that says what to do. All three now
+  print `<binary>: <the actual error>` on one line and exit non-zero.
+  The guard is one shared `runHostEntry` rather than three copies: the
+  module-scope form could only be tested by spawning the built binary, so a
+  mutation to `src/` proved nothing until `dist/` was rebuilt. As a function
+  it is callable with an injected failure, so the contract is pinned where
+  the code lives; `tests/host-runtime/fail-closed.test.ts` keeps the spawn
+  tests too, which prove each shipped binary really routes through it.
+  Found by the new entry-point gate, not by review.
+
 - **The Ollama host guard now rebuilds the request origin instead of forwarding
   the configured string.** `resolveOllamaHost` used to validate a persisted
   `llm.host` and then pass the same string to `fetch`, which left CodeQL alert

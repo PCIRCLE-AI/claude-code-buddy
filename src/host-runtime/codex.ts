@@ -20,6 +20,7 @@ import {
   readTokenFile,
   requiredString,
 } from './config.js';
+import { runHostEntry } from './entry.js';
 import { connectRouterHost, type RouterHostConnection } from './router-client.js';
 
 const DEFAULT_STARTUP_TIMEOUT_MS = 15_000;
@@ -298,7 +299,7 @@ async function runManagedCodexHost(): Promise<void> {
 
 const entryPath = process.argv[1];
 if (entryPath && isExecutedModule(entryPath, import.meta.url)) {
-  await runManagedCodexHost();
+  process.exitCode = await runHostEntry('memesh-host-codex', runManagedCodexHost);
 }
 
 function isExecutedModule(entryPath: string, moduleUrl: string): boolean {
