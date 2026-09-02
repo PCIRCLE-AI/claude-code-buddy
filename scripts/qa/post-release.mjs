@@ -35,10 +35,6 @@ import { fetchPackument } from '../lib/upgrade-matrix.mjs';
 const packageName = '@pcircle/memesh';
 const npmTimeoutMs = 180_000;
 const processTimeoutMs = 45_000;
-const registryTimeoutMs = 30_000;
-
-/** A registry lookup that cannot hang the gate forever. */
-const registryFetch = (url, options) => fetch(url, { ...options, signal: AbortSignal.timeout(registryTimeoutMs) });
 
 /**
  * The doctor checks that speak about the integrity of the package tree they
@@ -274,7 +270,19 @@ export function packageRootOf(entry, fsImpl = fs) {
   }
   let dir = path.dirname(resolved);
   for (let hops = 0; hops < 10; hops += 1) {
-    for (const candidate of [dir, path.join(dir, 'node_modules', '@pcircle', 'memesh')]) {
+    // The "package below the bin" layout is npm's Windows shim directory and
+    // nothing else: `%APPDATA%\npm\memesh.cmd` beside
+    // `%APPDATA%\npm\node_modules\@pcircle\memesh`. Looking for it under
+    // EVERY ancestor attributes an executable to a package it does not run —
+    // a wrapper in `~/bin/memesh` on a machine with a stray
+    // `~/node_modules/@pcircle/memesh` was reported as that version, and
+    // passed. So the below-candidate is checked at the bin's own directory
+    // only; the walk up looks for the manifest in an ancestor, which is the
+    // POSIX layout.
+    const candidates = hops === 0
+      ? [dir, path.join(dir, 'node_modules', '@pcircle', 'memesh')]
+      : [dir];
+    for (const candidate of candidates) {
       const manifest = path.join(candidate, 'package.json');
       if (!fsImpl.existsSync(manifest)) continue;
       try {
@@ -300,7 +308,7 @@ function readPackageVersion(packageRoot) {
   }
 }
 
-function freshConsumerInstall(version, root) {
+function freshConsumerInstall(version, root, registry) {
   const prefix = path.join(root, 'npm-prefix');
   const cache = path.join(root, 'npm-cache');
   const home = path.join(root, 'home');
@@ -315,7 +323,7 @@ function freshConsumerInstall(version, root) {
   // a FAIL verdict and a non-zero exit.
   let installError = null;
   try {
-    npmSync(['install', '--global', '--prefix', prefix, '--cache', cache, `${packageName}@${version}`], {
+    npmSync(['install', '--global', '--prefix', prefix, '--cache', cache, '--registry', registry, `${packageName}@${version}`], {
       stdio: 'inherit',
       env,
       timeout: npmTimeoutMs,
@@ -346,7 +354,7 @@ async function main() {
     })).trim();
     console.log(`post-release check: version=${version} registry=${registry}\n`);
 
-    const packument = await fetchPackument(packageName, registry, registryFetch);
+    const packument = await fetchPackument(packageName, registry);
     results.push({ id: 'registry', ...evaluateRegistry(packument, version) });
 
     // Everything below installs the version under test. There is nothing to
@@ -358,7 +366,7 @@ async function main() {
       // with a stack trace and no verdict — non-zero, so not a false green,
       // but the operator would be left reading Node's output for the answer.
       try {
-        proveConsumerInstall({ version, root, results });
+        proveConsumerInstall({ version, root, registry, results });
       } catch (error) {
         results.push({
           id: 'consumer',
@@ -376,6 +384,11 @@ async function main() {
   const verdict = formatVerdict(results);
   console.log('\npost-release verdict');
   for (const line of verdict.lines) console.log(line);
+  const skipped = ['registry', 'consumer', 'artifact-doctor', 'machine-surfaces']
+    .filter((id) => !results.some((result) => result.id === id));
+  if (skipped.length > 0) {
+    console.log(`  NOT RUN — nothing was installed to check them: ${skipped.join(', ')}`);
+  }
   console.log('\nnot checked here:');
   console.log("  - Each host's plugin cache beyond what the doctor above reports — `memesh doctor` run on that host is the owner-side check.");
   console.log('  - Nothing on this machine was changed: every fix above is printed, never run.');
@@ -387,10 +400,16 @@ async function main() {
  * Install the published version from the registry into a throwaway prefix,
  * run it, and ask the released artifact's own doctor about that tree.
  *
- * @param {{version: string, root: string, results: object[]}} context
+ * @param {{version: string, root: string, registry: string, results: object[]}} context
  */
-function proveConsumerInstall({ version, root, results }) {
-  const install = freshConsumerInstall(version, root);
+function proveConsumerInstall({ version, root, registry, results }) {
+  // The registry that answered the version question is the registry the
+  // install must use. `npm config get registry` reads the real HOME's
+  // .npmrc, while the install runs under a throwaway HOME with no config at
+  // all — so a mirror in ~/.npmrc made the two rows answer for different
+  // hosts. The sibling script pins this through its userconfig; this one
+  // passes --registry.
+  const install = freshConsumerInstall(version, root, registry);
   const manifestPath = path.join(install.packageRoot, 'package.json');
   if (!fs.existsSync(manifestPath)) {
     results.push({
@@ -405,7 +424,10 @@ function proveConsumerInstall({ version, root, results }) {
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
   const cliEntry = path.join(install.packageRoot, 'dist/transports/cli/cli.js');
   const reported = String(run(process.execPath, [cliEntry, '--version'], { cwd: install.packageRoot, env: install.env })).trim();
-  const shippedEntries = [...binTargets(install.packageRoot), ...hookCommands(install.packageRoot)];
+  // Distinct, because the two manifests overlap: codex-session.js is both a
+  // bin and a hook command, and a concatenated length prints one more entry
+  // point than the package ships.
+  const shippedEntries = [...new Set([...binTargets(install.packageRoot), ...hookCommands(install.packageRoot)])];
   const absent = shippedEntries.filter((entry) => !fs.existsSync(path.join(install.packageRoot, entry)));
   results.push({
     id: 'consumer',

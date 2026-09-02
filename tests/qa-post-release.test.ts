@@ -139,7 +139,7 @@ describe('every memesh a shell would resolve', () => {
     fs.mkdirSync(path.join(root, 'bin'), { recursive: true });
     fs.writeFileSync(path.join(packageRoot, 'package.json'),
       JSON.stringify({ name: '@pcircle/memesh', version }));
-    fs.writeFileSync(path.join(packageRoot, 'dist', 'cli.js'), '');
+    fs.writeFileSync(path.join(packageRoot, 'dist', 'cli.js'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
     const bin = path.join(root, 'bin', 'memesh');
     fs.symlinkSync(path.join(packageRoot, 'dist', 'cli.js'), bin);
     return bin;
@@ -182,6 +182,32 @@ describe('every memesh a shell would resolve', () => {
     }
   });
 
+  it('does not attribute a wrapper script to a stray package further up the tree', () => {
+    // The reviewer's scenario: `~/bin/memesh` is a wrapper that execs some
+    // other install, and an accidental `npm install` once left
+    // `~/node_modules/@pcircle/memesh` behind. Searching for the "package
+    // below the bin" layout at every ancestor reported the wrapper as that
+    // stray version — a stale surface reading as a PASS.
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-surfaces-wrapper-'));
+    try {
+      const home = path.join(root, 'home');
+      fs.mkdirSync(path.join(home, 'bin'), { recursive: true });
+      const strayRoot = path.join(home, 'node_modules', '@pcircle', 'memesh');
+      fs.mkdirSync(strayRoot, { recursive: true });
+      fs.writeFileSync(path.join(strayRoot, 'package.json'),
+        JSON.stringify({ name: '@pcircle/memesh', version: '4.8.3' }));
+      const wrapper = path.join(home, 'bin', 'memesh');
+      fs.writeFileSync(wrapper, '#!/bin/sh\nexec /somewhere/else/memesh "$@"\n', { mode: 0o755 });
+
+      expect(packageRootOf(wrapper)).toBeNull();
+      const surfaces = shellSurfaces('4.8.3', () => [wrapper]);
+      expect(surfaces[0].version).toBeNull();
+      expect(evaluateSurfaces(surfaces, '4.8.3').ok).toBe(false);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('counts one install once, however many PATH entries reach it', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-surfaces-dup-'));
     try {
@@ -207,5 +233,32 @@ describe('every memesh a shell would resolve', () => {
 
   it('reports no surface at all when nothing resolves', () => {
     expect(evaluateSurfaces(shellSurfaces('4.8.3', () => []), '4.8.3').ok).toBe(false);
+  });
+
+  // Every test above injects the resolver, so the line that actually does the
+  // work — `which -a` rather than `which` — was unguarded: changing it back to
+  // the single-hit form left all of them green. This one runs the real
+  // resolver against a PATH built for it. POSIX only: `where` on Windows
+  // already lists every hit, and there is no `.cmd` shim to build here.
+  it.skipIf(process.platform === 'win32')('finds BOTH installs with the real resolver, not just the first', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-surfaces-path-'));
+    try {
+      const current = posixInstall(path.join(root, 'first'), '4.8.3');
+      const stale = posixInstall(path.join(root, 'second'), '4.7.3');
+      const previousPath = process.env.PATH;
+      // `which` itself is resolved through this PATH, so the system
+      // directories stay on it; the fixtures go first.
+      process.env.PATH = [path.dirname(current), path.dirname(stale), '/usr/bin', '/bin']
+        .join(path.delimiter);
+      try {
+        const surfaces = shellSurfaces('4.8.3');
+        expect(surfaces.map((surface) => surface.version)).toEqual(['4.8.3', '4.7.3']);
+        expect(evaluateSurfaces(surfaces, '4.8.3').ok).toBe(false);
+      } finally {
+        process.env.PATH = previousPath;
+      }
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });

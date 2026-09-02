@@ -105,10 +105,16 @@ describe('selectUpgradePaths', () => {
 });
 
 describe('the registry URL', () => {
-  it('encodes every separator in a scoped name, not just the first', () => {
+  it('encodes the scope separator', () => {
     expect(packumentUrl('https://registry.npmjs.org/', '@pcircle/memesh'))
       .toBe('https://registry.npmjs.org/@pcircle%2fmemesh');
   });
+
+  // The security fix is the validation, not the `replaceAll`: with a grammar
+  // that permits at most one separator, no valid input distinguishes
+  // `replaceAll` from `replace`, so a test claiming to catch that would be
+  // one nothing can fail. What CAN fail is the grammar, and these are the
+  // inputs it must refuse.
 
   it('adds the missing slash to a registry that has none', () => {
     expect(packumentUrl('https://registry.npmjs.org', 'memesh'))

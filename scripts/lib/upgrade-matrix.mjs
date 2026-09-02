@@ -130,6 +130,9 @@ export function selectUpgradePaths(packument, candidateVersion) {
   return [...paths].sort(compareReleases);
 }
 
+/** How long a registry lookup may take before the gate gives up. */
+export const REGISTRY_TIMEOUT_MS = 30_000;
+
 /** npm's own package-name grammar: an optional scope, then one name. */
 const PACKAGE_NAME_PATTERN = /^(?:@[a-z0-9][a-z0-9\-._]*\/)?[a-z0-9][a-z0-9\-._]*$/;
 
@@ -194,8 +197,12 @@ export function assertEveryPathProven(derived, proven) {
  */
 export async function fetchPackument(packageName, registry, fetchImpl = fetch) {
   const url = packumentUrl(registry, packageName);
+  // The timeout lives here rather than at a call site: it was added to one of
+  // the two callers, which reads as "the registry lookup is bounded" while
+  // the other one could still hang on undici's multi-minute default.
   const response = await fetchImpl(url, {
     headers: { accept: 'application/vnd.npm.install-v1+json' },
+    signal: AbortSignal.timeout(REGISTRY_TIMEOUT_MS),
   });
   if (!response.ok) {
     throw new Error(`registry lookup failed: ${url} answered ${response.status}`);
