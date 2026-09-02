@@ -91,6 +91,9 @@ Under Claude Code with the MeMesh plugin, hooks capture automatically:
 - **PreToolUse (Edit|Write)** surfaces memories related to the file being
   edited.
 - **PostToolUse (Bash)** records git commits with diff stats.
+- **PostToolUse (ExitPlanMode|AskUserQuestion)** reminds you to `remember` a
+  decision just made — once per tool per session. It only reminds; unlike
+  the hooks above, it writes nothing to the graph itself.
 - **Stop** captures session knowledge and turns failures into lessons.
 - **PreCompact** saves important knowledge before history is compressed.
 - **UserPromptSubmit** detects "remember this" intent in the prompt.
@@ -100,9 +103,11 @@ Under Claude Code with the MeMesh plugin, hooks capture automatically:
   you do.
 
 So under Claude Code: skip step 1 of the loop (the topology is already
-injected), and do not `remember` commits or session summaries by hand. Manual
-calls are for what hooks cannot see — decisions and their rationale, lessons
-worth keeping, and user-stated task state.
+injected), and do not `remember` commits or session summaries by hand. A
+decision made via `ExitPlanMode`/`AskUserQuestion` gets a reminder, not a
+write — act on it with a real `remember` call. Manual calls are still how
+decisions, their rationale, lessons worth keeping, and user-stated task state
+actually get stored.
 
 On a host with no hooks (Gemini CLI, Cursor, an MCP-only setup, …) the loop is
 fully manual, and it is worth running.

@@ -55,6 +55,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "ExitPlanMode|AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/decision-nudge.js",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "Stop": [

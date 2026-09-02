@@ -75,8 +75,12 @@ for (const matchers of Object.values(hooks.hooks ?? {})) {
 if (hookCommands.length === 0) errors.push('hooks/hooks.json yielded no hook commands');
 const hookTable = codemap.match(/### Hook commands \(`hooks\/hooks\.json`\)([\s\S]*?)\n---/m)?.[1] ?? '';
 if (!hookTable) errors.push('CODEMAP.md has no bounded hook-command table');
-const architectureHooks = architecture.match(/### Hook Commands \(8 hooks\)([\s\S]*?)(?=\n### )/m)?.[1] ?? '';
-if (!architectureHooks) errors.push('docs/ARCHITECTURE.md has no bounded 8-hook command table');
+// The hook count in the heading is not re-derived here — check-doc-claims.mjs
+// already gates it against hooks/hooks.json — so this match is deliberately
+// count-agnostic (`\(\d+ hooks?\)`) rather than a literal number that drifts
+// every time a hook is added or removed.
+const architectureHooks = architecture.match(/### Hook Commands \(\d+ hooks?\)([\s\S]*?)(?=\n### )/m)?.[1] ?? '';
+if (!architectureHooks) errors.push('docs/ARCHITECTURE.md has no bounded hook-command table under a `### Hook Commands (N hooks)` heading');
 for (const command of hookCommands) {
   if (!exists(command)) errors.push(`hooks/hooks.json maps to a missing source command: ${command}`);
   const documented = command.startsWith('scripts/hooks/') ? path.basename(command) : command;

@@ -145,6 +145,7 @@ If MeMesh is installed as a Claude Code plugin, these happen **without any actio
 | **PreToolUse (Edit/Write)** | Before editing files | Injects memories related to the file or project |
 | **UserPromptSubmit** | When you submit a prompt | Detects "remember this" intent (5 languages) and reminds Claude to use memesh |
 | **PostToolUse (Bash)** | After `git commit` | Auto-tracks the commit with diff stats as a memory entity |
+| **PostToolUse (ExitPlanMode/AskUserQuestion)** | A plan is approved or you answer a question | Reminds Claude to `remember` the decision if it's worth keeping — once per tool per session |
 | **Stop** | Session ends | Auto-captures session knowledge + runs LLM failure analysis → lessons |
 | **PreCompact** | Before context compaction | Saves important knowledge before history is compressed |
 | **PreToolUse (Bash)** | Before a command runs | Fires accepted lesson-guards — warns when a recorded mistake is about to repeat |

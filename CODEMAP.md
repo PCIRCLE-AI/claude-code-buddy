@@ -118,6 +118,7 @@ docs/                # ARCHITECTURE.md, api/API_REFERENCE.md
 | `session-summary.js` | Stop | auto-capture, LLM failure analysis, dream auto-trigger |
 | `pre-compact.js` | PreCompact | end-of-context save |
 | `post-commit.js` | PostToolUse Bash | git commit tracking |
+| `decision-nudge.js` | PostToolUse ExitPlanMode/AskUserQuestion | remind Claude to `remember` a decision just made, once per tool per session |
 | `user-prompt-intent.js` | UserPromptSubmit | detect "remember" intent |
 
 `scripts/hooks/_shared.js` is a helper, not a hook command. `scripts/hooks/auto-update-runner.mjs`
