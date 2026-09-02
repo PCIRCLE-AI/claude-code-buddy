@@ -20,10 +20,13 @@ import { removeTempDir } from '../helpers/temp-dir.js';
 import { createExplicitLesson } from '../../src/core/lesson-engine.js';
 import { KnowledgeGraph } from '../../src/knowledge-graph.js';
 import {
+  ARCHIVED_FTS_ROWS_KEY,
+  ARCHIVED_VECTOR_ROWS_KEY,
   FUSED_LESSON_SPLIT_KEY,
   SESSION_DEDUPE_KEY,
   ZERO_EDIT_RETRACT_KEY,
   bashWritesFiles,
+  dropArchivedIndexRows,
 } from '../../src/storage/graph-repairs.js';
 import { lessonSlug } from '../../src/core/lesson-slug.js';
 
@@ -47,8 +50,15 @@ type Db = ReturnType<typeof openDatabase>;
 function seed(fn: (db: Db) => void): void {
   const db = openDatabase(dbPath);
   fn(db);
-  db.prepare('DELETE FROM memesh_metadata WHERE key LIKE ? OR key LIKE ? OR key LIKE ?')
-    .run(`${SESSION_DEDUPE_KEY}%`, `${ZERO_EDIT_RETRACT_KEY}%`, `${FUSED_LESSON_SPLIT_KEY}%`);
+  db.prepare(
+    'DELETE FROM memesh_metadata WHERE key LIKE ? OR key LIKE ? OR key LIKE ? OR key LIKE ? OR key LIKE ?',
+  ).run(
+    `${SESSION_DEDUPE_KEY}%`,
+    `${ZERO_EDIT_RETRACT_KEY}%`,
+    `${FUSED_LESSON_SPLIT_KEY}%`,
+    `${ARCHIVED_FTS_ROWS_KEY}%`,
+    `${ARCHIVED_VECTOR_ROWS_KEY}%`,
+  );
   closeDatabase();
 }
 
@@ -523,5 +533,114 @@ describe('#241 — lessons fused into one -other bucket are split apart', () => 
     expect(tagsOf(db, 'lesson-proj-other')).toEqual(['error-pattern:other', 'project:proj', 'source:auto-learned']);
     closeDatabase();
     expect(runInvariants().status).toBe(0);
+  });
+});
+
+describe('dropArchivedIndexRows — archived rows leave both indexes (D11/D12)', () => {
+  function marker(db: Db, key: string): string | undefined {
+    return (db.prepare('SELECT value FROM memesh_metadata WHERE key = ?').get(key) as
+      | { value: string }
+      | undefined)?.value;
+  }
+
+  function ftsRows(db: Db, id: number): number {
+    return (db.prepare('SELECT COUNT(*) AS c FROM entities_fts WHERE rowid = ?').get(id) as { c: number }).c;
+  }
+
+  function vecRows(db: Db, id: number): number {
+    return (db.prepare('SELECT COUNT(*) AS c FROM entities_vec WHERE rowid = ?').get(BigInt(id)) as { c: number }).c;
+  }
+
+  function seedVector(db: Db, id: number): void {
+    const width = parseInt(
+      (db.prepare("SELECT value FROM memesh_metadata WHERE key = 'embedding_dimension'")
+        .get() as { value: string }).value,
+      10,
+    );
+    const v = new Float32Array(width);
+    v[0] = 1;
+    db.prepare('INSERT INTO entities_vec (rowid, embedding) VALUES (?, ?)')
+      .run(BigInt(id), Buffer.from(v.buffer, v.byteOffset, v.byteLength));
+  }
+
+  /** The damage: archived with a bare status UPDATE, both index rows left behind. */
+  function seedLeakedArchive(): void {
+    seed((db) => {
+      const kg = new KnowledgeGraph(db);
+      kg.createEntity('commit-leaked', 'commit', { observations: ['leakedtoken touched the parser'] });
+      kg.createEntity('decision-active', 'decision', { observations: ['activetoken SQLite over Postgres'] });
+      seedVector(db, entityId(db, 'commit-leaked'));
+      seedVector(db, entityId(db, 'decision-active'));
+      db.prepare("UPDATE entities SET status = 'archived' WHERE name = 'commit-leaked'").run();
+    });
+  }
+
+  it('removes both index rows for the archived entity and neither for the active one', () => {
+    seedLeakedArchive();
+    const db = repaired();
+    const leaked = entityId(db, 'commit-leaked');
+    const active = entityId(db, 'decision-active');
+
+    expect(ftsRows(db, leaked)).toBe(0);
+    expect(vecRows(db, leaked)).toBe(0);
+    // Nothing belonging to an active entity is touched — the property the
+    // repair is only trustworthy with.
+    expect(ftsRows(db, active)).toBe(1);
+    expect(vecRows(db, active)).toBe(1);
+    expect(new KnowledgeGraph(db).search('activetoken').map((e) => e.name)).toEqual(['decision-active']);
+    expect(new KnowledgeGraph(db).search('leakedtoken')).toHaveLength(0);
+
+    closeDatabase();
+    expect(runInvariants().status).toBe(0);
+  });
+
+  it('is one-shot: a second open changes nothing', () => {
+    seedLeakedArchive();
+    let db = repaired();
+    expect(marker(db, ARCHIVED_FTS_ROWS_KEY)).toBe('1');
+    expect(marker(db, ARCHIVED_VECTOR_ROWS_KEY)).toBe('1');
+    const active = entityId(db, 'decision-active');
+    closeDatabase();
+
+    db = openDatabase(dbPath);
+    expect(ftsRows(db, active)).toBe(1);
+    expect(vecRows(db, active)).toBe(1);
+    closeDatabase();
+    expect(runInvariants().status).toBe(0);
+  });
+
+  it('without a vector index: repairs FTS and leaves the vector marker UNSET', () => {
+    // A platform sqlite-vec publishes no binary for. The vector half can never
+    // run there, and stamping its marker anyway would mark the repair done on
+    // the one machine that never performed it — so the leaked row would still
+    // be waiting when the file is opened somewhere that HAS the binary, with
+    // the marker saying it had been handled. Two keys is what prevents that;
+    // this is the test that keeps them two.
+    //
+    // Called directly rather than through `openDatabase`, because
+    // `ensureVecTable` recreates `entities_vec` on every open — going through
+    // the opener would test a machine that HAS sqlite-vec and pass for the
+    // wrong reason.
+    seedLeakedArchive();
+    const db = repaired();
+    db.exec('DROP TABLE entities_vec');
+    db.prepare('DELETE FROM memesh_metadata WHERE key LIKE ? OR key LIKE ?')
+      .run(`${ARCHIVED_FTS_ROWS_KEY}%`, `${ARCHIVED_VECTOR_ROWS_KEY}%`);
+    // Re-leak the FTS row the first open's repair already cleaned, so the FTS
+    // half has real work to do on this run.
+    const leaked = entityId(db, 'commit-leaked');
+    db.prepare('INSERT INTO entities_fts (rowid, name, observations) VALUES (?, ?, ?)')
+      .run(leaked, 'commit-leaked', 'leakedtoken touched the parser');
+    expect(ftsRows(db, leaked)).toBe(1);
+
+    const result = dropArchivedIndexRows(db);
+
+    expect(result.ftsRows).toBe(1);
+    expect(result.vectorRows).toBe(-1); // the half that did not run
+    expect(ftsRows(db, leaked)).toBe(0);
+    expect(ftsRows(db, entityId(db, 'decision-active'))).toBe(1);
+    expect(marker(db, ARCHIVED_FTS_ROWS_KEY)).toBe('1');
+    expect(marker(db, ARCHIVED_VECTOR_ROWS_KEY)).toBeUndefined();
+    closeDatabase();
   });
 });

@@ -134,7 +134,10 @@ export function vectorSearch(queryEmbedding, limit = 20) {
         if (!hasVectorIndex(db))
             return [];
         const rows = db
-            .prepare('SELECT rowid AS id, distance FROM entities_vec WHERE embedding MATCH ? ORDER BY distance LIMIT ?')
+            .prepare(`SELECT rowid AS id, distance FROM entities_vec
+          WHERE embedding MATCH ?
+            AND rowid IN (SELECT id FROM entities WHERE status = 'active')
+          ORDER BY distance LIMIT ?`)
             .all(toVectorBlob(queryEmbedding), limit);
         return rows.filter((hit) => hit.distance < MAX_VECTOR_DISTANCE);
     }

@@ -59,6 +59,11 @@ function foldTitleIntoObservations(title, observationsText) {
 }
 export function removeFromFts(db, entityId, name, prevObsText, prevTitle) {
     try {
+        const indexed = db
+            .prepare('SELECT COUNT(*) AS c FROM entities_fts WHERE rowid = ?')
+            .get(entityId);
+        if (!indexed || indexed.c === 0)
+            return;
         db.prepare("INSERT INTO entities_fts (entities_fts, rowid, name, observations) VALUES('delete', ?, ?, ?)").run(entityId, toIndexForm(name), toIndexForm(foldTitleIntoObservations(prevTitle, prevObsText)));
     }
     catch (err) {

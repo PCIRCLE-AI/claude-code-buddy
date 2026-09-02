@@ -174,6 +174,73 @@ const INVARIANTS = [
     row: (r) => `${r.name}  observations=${r.total} (${r.lessons} lessons)`,
   },
   {
+    id: 'archived-entities-not-in-keyword-index',
+    refs: '#D12',
+    says: 'no archived entity is still findable through the full-text index',
+    // `entities_fts` is contentless, so its COLUMNS cannot be selected — but
+    // its rowids can be scanned, and a rowid is what identifies the leak. No
+    // shadow-table name is assumed.
+    //
+    // Measured on the maintainer's graph before the fix: 213 archived entities
+    // were still indexed, and `MATCH 'ae83279'` answered with the archived
+    // `commit-ae83279`. Three archive paths dropped the status but not the
+    // index row. A leak here is not only a wrong search result: re-remembering
+    // one of these entities inserts a SECOND document at the same rowid, and a
+    // contentless FTS5 delete can then never reach the first — its tokens
+    // become permanently unremovable.
+    sql: `
+      SELECT e.name AS name FROM entities_fts f
+        JOIN entities e ON e.id = f.rowid
+       WHERE e.status = 'archived'
+       ORDER BY e.id LIMIT ${MAX_ROWS + 1}`,
+    row: (r) => r.name,
+  },
+  {
+    id: 'archived-entities-not-in-vector-index',
+    refs: '#D11',
+    says: 'no archived entity keeps a row in the vector index',
+    // Every slot an archived entity takes in a k-NN result is a slot an active
+    // memory does not get — the LIMIT is spent before any status filter can
+    // run. Measured on the maintainer's graph before the fix: 413 of 1013
+    // vectors belonged to archived entities, and 41 synthetic 1536-dim queries
+    // against a copy of it spent 290 of 820 top-20 slots (35.4%) on them.
+    //
+    // NO LIMIT: it would bound candidates, not violations. The cap is applied
+    // after the post-filter, by the caller.
+    sql: `SELECT e.id AS id, e.name AS name FROM entities e WHERE e.status = 'archived' ORDER BY e.id`,
+    // `entities_vec` is a vec0 virtual table, and this audit opens the database
+    // read-only without loading the extension — selecting from it raises
+    // "no such module: vec0", which the caller would print as a benign `skip`.
+    // A silent pass is the one outcome an invariant must never have, so the
+    // vector side is read from sqlite-vec's plain rowid map instead, here in
+    // the post-filter where a throw is exit 2 rather than a skip.
+    rows: (db, rows) => {
+      const table = (name) =>
+        db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type IN ('table','view') AND name = ?").get(name);
+      // No vector index in this database at all (sqlite-vec never loaded here,
+      // or a keyword-only install). Nothing to violate.
+      if (!table('entities_vec')) return [];
+      // The vec0 table exists but its rowid map does not: sqlite-vec changed
+      // its internal layout under us. Throwing is correct — this invariant can
+      // no longer answer its question, and saying nothing would read as "holds".
+      if (!table('entities_vec_rowids')) {
+        throw new Error(
+          'entities_vec exists but entities_vec_rowids does not — sqlite-vec shadow-table layout changed; this invariant needs updating',
+        );
+      }
+      // `id` carries the user rowid when the vec0 table declares a rowid alias
+      // and is NULL when it does not (memesh's does not). COALESCE reads both.
+      const indexed = new Set(
+        db
+          .prepare('SELECT COALESCE(id, rowid) AS entity_id FROM entities_vec_rowids')
+          .all()
+          .map((r) => Number(r.entity_id)),
+      );
+      return rows.filter((r) => indexed.has(r.id));
+    },
+    row: (r) => r.name,
+  },
+  {
     id: 'global-namespace-reachable-by-injection',
     refs: '#242',
     says: 'every global-namespace entity is either project-tagged or the injection path reads namespace (this invariant only reports; the fix is in session-start.js)',

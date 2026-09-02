@@ -7,6 +7,7 @@ import { wrapUntrusted } from './prompt-safety.js';
 import { outputLanguageInstruction } from './output-language.js';
 import { isEmbeddingAvailable, scheduleEmbedAndStore, entityEmbedText } from './embedder.js';
 import { hasVectorIndex } from '../storage/vector-index.js';
+import { dropEntityFromIndexes } from '../storage/entity-index.js';
 import { PRODUCT_IMPROVEMENT_KIND, readProductImprovementPayload, readProductImprovementSourceIds, } from './product-improvements.js';
 const PROMPT_VERSION = 'v1';
 const COMPACT_MIN_CLUSTER_SIZE = 5;
@@ -855,7 +856,7 @@ export function applyProposal(db, proposalId, kg) {
             const archiveStmt = db.prepare("UPDATE entities SET status = 'archived' WHERE id = ?");
             const taken = [];
             for (const sourceId of sourceIds) {
-                const sourceRow = db.prepare('SELECT metadata FROM entities WHERE id = ?').get(sourceId);
+                const sourceRow = db.prepare('SELECT name, metadata FROM entities WHERE id = ?').get(sourceId);
                 if (!sourceRow) {
                     missingSources++;
                     continue;
@@ -874,6 +875,7 @@ export function applyProposal(db, proposalId, kg) {
                 meta.compacted_into = digestId;
                 updateMetaStmt.run(JSON.stringify(meta), sourceId);
                 relStmt.run(digestId, sourceId, 'summarizes');
+                dropEntityFromIndexes(db, sourceId, sourceRow.name);
                 archiveStmt.run(sourceId);
                 taken.push(sourceId);
                 archived++;

@@ -1,4 +1,5 @@
 import { KnowledgeGraph } from '../knowledge-graph.js';
+import { dropEntityFromIndexes } from '../storage/entity-index.js';
 const DECAY_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const STALE_THRESHOLD_DAYS = 30;
 const DECAY_FACTOR = 0.9;
@@ -122,11 +123,13 @@ export function compressWeeklyNoise(db) {
                 trustOverride: 'untrusted',
             });
         }
-        const archiveIdPlaceholders = entities.map(() => '?').join(',');
-        db.prepare(`
-      UPDATE entities SET status = 'archived'
-      WHERE id IN (${archiveIdPlaceholders})
-    `).run(...entities.map(e => e.id));
+        const archiveOne = db.prepare("UPDATE entities SET status = 'archived' WHERE id = ?");
+        db.transaction(() => {
+            for (const e of entities) {
+                dropEntityFromIndexes(db, e.id, e.name);
+                archiveOne.run(e.id);
+            }
+        })();
         totalCompressed += entities.length;
     }
     db.prepare("INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('last_noise_compress_at', ?)").run(new Date().toISOString());

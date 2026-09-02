@@ -41,6 +41,7 @@ import { wrapUntrusted } from './prompt-safety.js';
 import { outputLanguageInstruction } from './output-language.js';
 import { isEmbeddingAvailable, scheduleEmbedAndStore, entityEmbedText } from './embedder.js';
 import { hasVectorIndex } from '../storage/vector-index.js';
+import { dropEntityFromIndexes } from '../storage/entity-index.js';
 import {
   PRODUCT_IMPROVEMENT_KIND,
   readProductImprovementPayload,
@@ -1736,7 +1737,12 @@ export function applyProposal(
       const archiveStmt = db.prepare("UPDATE entities SET status = 'archived' WHERE id = ?");
       const taken: number[] = [];
       for (const sourceId of sourceIds) {
-        const sourceRow = db.prepare('SELECT metadata FROM entities WHERE id = ?').get(sourceId) as { metadata: string | null } | undefined;
+        // `name` is selected because archiving must also take the source out
+        // of both search indexes, and a contentless FTS5 delete needs the
+        // name that was indexed. This loop used to run the status UPDATE
+        // alone, leaving a compacted source matching keyword search and
+        // occupying vector-search slots that belong to live memories.
+        const sourceRow = db.prepare('SELECT name, metadata FROM entities WHERE id = ?').get(sourceId) as { name: string; metadata: string | null } | undefined;
         if (!sourceRow) { missingSources++; continue; }
         let meta: Record<string, unknown>;
         try { meta = sourceRow.metadata ? JSON.parse(sourceRow.metadata) : {}; } catch { meta = {}; }
@@ -1755,6 +1761,7 @@ export function applyProposal(
         meta.compacted_into = digestId;
         updateMetaStmt.run(JSON.stringify(meta), sourceId);
         relStmt.run(digestId, sourceId, 'summarizes');
+        dropEntityFromIndexes(db, sourceId, sourceRow.name);
         archiveStmt.run(sourceId);
         taken.push(sourceId);
         archived++;

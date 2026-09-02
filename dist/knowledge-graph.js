@@ -1,7 +1,7 @@
 import { findConflicts, trackAccess } from './storage/conflicts.js';
 import { indexedObservationText, insertFtsRow, joinIndexedObservations, removeFromFts, tokenizeQuery, renderMatchExpression, registerNfcFunction, SQL_NFC_FUNCTION, } from './storage/fts-index.js';
 import { computeSignalScore } from './core/signal-scorer.js';
-import { hasVectorIndex } from './storage/vector-index.js';
+import { dropEntityFromIndexes, removeVectorRow } from './storage/entity-index.js';
 const MAX_QUERY_TERMS = 32;
 function buildMatchExpression(db, query) {
     const terms = tokenizeQuery(query);
@@ -130,7 +130,7 @@ export class KnowledgeGraph {
                 .prepare("UPDATE entities SET status = 'active' WHERE name = ?")
                 .run(name);
         }
-        const prevObs = isNewEntity || wasArchived
+        const prevObs = isNewEntity
             ? []
             : this.db
                 .prepare('SELECT content FROM observations WHERE entity_id = ? ORDER BY id')
@@ -149,9 +149,9 @@ export class KnowledgeGraph {
                     .run(entityId);
             }
         }
-        const prevObsText = isNewEntity || wasArchived
+        const prevObsText = isNewEntity
             ? undefined
-            : prevObs.map((o) => o.content).join(' ');
+            : joinIndexedObservations(prevObs.map((o) => o.content));
         if (opts?.observations?.length) {
             const insertObs = this.db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
             for (const obs of opts.observations) {
@@ -477,11 +477,6 @@ export class KnowledgeGraph {
             this.trackAccess(results.map((e) => e.id));
         return results;
     }
-    removeVectorRow(id) {
-        if (!hasVectorIndex(this.db))
-            return;
-        this.db.prepare('DELETE FROM entities_vec WHERE rowid = ?').run(BigInt(id));
-    }
     clearEntityData(name) {
         const row = this.db
             .prepare('SELECT id, title FROM entities WHERE name = ?')
@@ -493,7 +488,7 @@ export class KnowledgeGraph {
             this.db.prepare('DELETE FROM observations WHERE entity_id = ?').run(row.id);
             this.db.prepare('DELETE FROM tags WHERE entity_id = ?').run(row.id);
             this.rebuildFts(row.id, name, prevObsText, row.title);
-            this.removeVectorRow(row.id);
+            removeVectorRow(this.db, row.id);
         })();
     }
     archiveEntity(name) {
@@ -502,10 +497,8 @@ export class KnowledgeGraph {
             .get(name);
         if (!row)
             return { archived: false };
-        const observationText = indexedObservationText(this.db, row.id);
         this.db.transaction(() => {
-            removeFromFts(this.db, row.id, name, observationText, row.title);
-            this.removeVectorRow(row.id);
+            dropEntityFromIndexes(this.db, row.id, name);
             this.db
                 .prepare("UPDATE entities SET status = 'archived' WHERE id = ?")
                 .run(row.id);
@@ -540,10 +533,8 @@ export class KnowledgeGraph {
             .get(name);
         if (!row)
             return { deleted: false };
-        const observationText = indexedObservationText(this.db, row.id);
         this.db.transaction(() => {
-            removeFromFts(this.db, row.id, name, observationText, row.title);
-            this.removeVectorRow(row.id);
+            dropEntityFromIndexes(this.db, row.id, name);
             this.db.prepare('DELETE FROM entities WHERE id = ?').run(row.id);
         }).immediate();
         return { deleted: true };

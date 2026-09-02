@@ -1,5 +1,6 @@
 import type { MemeshDatabase } from '../storage/sqlite.js';
 import { KnowledgeGraph } from '../knowledge-graph.js';
+import { dropEntityFromIndexes } from '../storage/entity-index.js';
 
 const DECAY_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const STALE_THRESHOLD_DAYS = 30;
@@ -205,12 +206,24 @@ export function compressWeeklyNoise(db: MemeshDatabase): { compressed: number; w
       });
     }
 
-    // Archive originals
-    const archiveIdPlaceholders = entities.map(() => '?').join(',');
-    db.prepare(`
-      UPDATE entities SET status = 'archived'
-      WHERE id IN (${archiveIdPlaceholders})
-    `).run(...entities.map(e => e.id));
+    // Archive originals — out of BOTH indexes, then out of circulation.
+    //
+    // This used to be the bare UPDATE alone, and an archived entity kept its
+    // FTS row and its vector. Measured on the maintainer's graph, this path
+    // alone accounted for all 213 archived entities still in the keyword index
+    // (`MATCH 'ae83279'` answered with the archived `commit-ae83279`), and it
+    // is also what made re-remembering one of them insert a second, permanently
+    // undeletable document at the same FTS rowid — see `createEntityInner`.
+    //
+    // Per entity rather than one set-UPDATE: a contentless FTS5 delete has to
+    // repeat that row's own indexed text, so there is no set form of it.
+    const archiveOne = db.prepare("UPDATE entities SET status = 'archived' WHERE id = ?");
+    db.transaction(() => {
+      for (const e of entities) {
+        dropEntityFromIndexes(db, e.id, e.name);
+        archiveOne.run(e.id);
+      }
+    })();
 
     totalCompressed += entities.length;
   }

@@ -7,7 +7,7 @@ import { resolveEmbeddingDimension } from './core/config.js';
 import { computeSignalScore } from './core/signal-scorer.js';
 import { getDbPath } from './core/paths.js';
 import { insertFtsRow, joinIndexedObservations, removeFromFts } from './storage/fts-index.js';
-import { dedupeSessionObservations, retractZeroEditClaims, splitFusedLessons } from './storage/graph-repairs.js';
+import { dedupeSessionObservations, dropArchivedIndexRows, retractZeroEditClaims, splitFusedLessons } from './storage/graph-repairs.js';
 import { SCHEMA_SQL, FTS_SQL, safeAlter, migrateEntitiesSchema, ensureTagsUniqueIndex, ensureHookRunsSince, ensureFtsSegmentation, rebuildFtsIndex, runOnceMigration, FTS_SEGMENTATION_VERSION, } from './storage/schema.js';
 export { runOnceMigration, FTS_SEGMENTATION_VERSION };
 import { truncateTitle, isBoilerplateObservation } from './core/title.js';
@@ -112,6 +112,7 @@ function migrateToCurrentSchema(db, resolvedPath) {
         const { dimension: targetDim, confident: dimensionKnown } = resolveEmbeddingDimension();
         ensureVecTable(db, resolvedPath, targetDim, dimensionKnown);
     }
+    dropArchivedIndexRows(db);
 }
 export function reindexFts() {
     const database = getDatabase();
