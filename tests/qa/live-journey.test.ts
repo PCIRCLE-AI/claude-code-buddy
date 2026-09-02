@@ -21,22 +21,32 @@
  * never happened.
  */
 
-import { describe, expect, it } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
+import { describe, expect, it, vi } from 'vitest';
 import {
   DEFAULT_WAIT_MS,
+  MAX_SOCKET_PATH_BYTES,
   REQUIRED_DIST,
+  assertCodexRanNoCommands,
   assertCodexReply,
   assertDistPresent,
   assertIntakeReceipt,
   assertNativeAccepted,
+  assertNotCi,
+  assertOutsideOwnerMemesh,
   assertRecipientUnavailable,
-  assertSafeMemeshPaths,
+  assertSocketPathFits,
+  awaitSessionDisconnect,
   collectCodexAgentMessages,
   findIntakeReceipt,
   findLiveCards,
   helpText,
+  isDistStale,
   parseArgs,
   parseCodexThreadId,
+  realpathAsFarAsPossible,
+  shouldRemoveWorkingDirectories,
 } from '../../scripts/qa/live-journey.mjs';
 
 const THREAD = '01a05ead-98e8-7091-a770-81f7339d3b29';
@@ -45,14 +55,18 @@ const DELIVERY_ID = '92f1bda2-5bd9-4da3-86f6-f083253a7ed1';
 const SENTINEL = 'codex-4f19ab27';
 
 /** `codex exec --json` output, in the shape a real turn emits it. */
-function codexTurn(messages: string[], threadId: string = THREAD): string {
+function codexTurn(
+  messages: string[],
+  options: { threadId?: string; extraItems?: Record<string, unknown>[] } = {},
+): string {
   return [
-    JSON.stringify({ type: 'thread.started', thread_id: threadId }),
+    JSON.stringify({ type: 'thread.started', thread_id: options.threadId ?? THREAD }),
     JSON.stringify({ type: 'turn.started' }),
     ...messages.map((text, index) => JSON.stringify({
       type: 'item.completed',
       item: { id: `item_${index}`, type: 'agent_message', text },
     })),
+    ...(options.extraItems ?? []).map((item) => JSON.stringify({ type: 'item.completed', item })),
     JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 1, output_tokens: 1 } }),
     '',
   ].join('\n');
@@ -157,52 +171,129 @@ describe('--help', () => {
     expect(text).toMatch(/issue #275/);
   });
 
-  it('states that it never touches the owner’s real memory directory', () => {
-    expect(helpText()).toMatch(/\$HOME\/\.memesh/);
+  it('discloses the harness-driven Codex registration', () => {
+    expect(helpText()).toMatch(/registration is harness-driven/);
+  });
+
+  it('warns that the launched Claude session is outside the isolation', () => {
+    const text = helpText();
+    expect(text).toMatch(/OUTSIDE the temporary-directory isolation/);
+    expect(text).toMatch(/would write the REAL ~\/\.memesh/);
+    expect(text).toMatch(/\/hooks and \/mcp/);
+  });
+
+  it('names the invocation that was actually verified', () => {
+    expect(helpText()).toMatch(/TMPDIR=\/private\/tmp npm run qa:live-journey/);
   });
 });
 
-describe('assertSafeMemeshPaths', () => {
+describe('assertOutsideOwnerMemesh', () => {
   const home = '/Users/example';
+  const identity = (candidate: string) => candidate;
 
   it('allows a temporary directory outside the owner’s memesh directory', () => {
-    expect(() => assertSafeMemeshPaths({
-      memeshDir: '/private/tmp/memesh-live-journey-abc/memesh',
-      dbPath: '/private/tmp/memesh-live-journey-abc/memesh/knowledge-graph.db',
+    expect(() => assertOutsideOwnerMemesh({
+      candidates: {
+        MEMESH_DIR: '/private/tmp/memesh-lj-abc/memesh',
+        MEMESH_DB_PATH: '/private/tmp/memesh-lj-abc/memesh/knowledge-graph.db',
+      },
       home,
+      realpath: identity,
     })).not.toThrow();
   });
 
   it('refuses when MEMESH_DIR is the owner’s memesh directory', () => {
-    expect(() => assertSafeMemeshPaths({
-      memeshDir: `${home}/.memesh`,
-      dbPath: '/private/tmp/x/knowledge-graph.db',
+    expect(() => assertOutsideOwnerMemesh({
+      candidates: { MEMESH_DIR: `${home}/.memesh` },
       home,
+      realpath: identity,
     })).toThrow(/Refusing to run: MEMESH_DIR/);
   });
 
   it('refuses when MEMESH_DB_PATH sits under the owner’s memesh directory', () => {
-    expect(() => assertSafeMemeshPaths({
-      memeshDir: '/private/tmp/x/memesh',
-      dbPath: `${home}/.memesh/knowledge-graph.db`,
+    expect(() => assertOutsideOwnerMemesh({
+      candidates: { MEMESH_DB_PATH: `${home}/.memesh/knowledge-graph.db` },
       home,
+      realpath: identity,
     })).toThrow(/Refusing to run: MEMESH_DB_PATH/);
   });
 
-  it('refuses a path that only reaches ~/.memesh after normalisation', () => {
-    expect(() => assertSafeMemeshPaths({
-      memeshDir: `${home}/projects/../.memesh/hosts`,
-      dbPath: '/private/tmp/x/knowledge-graph.db',
+  it('refuses a SYMLINKED temp root that really lands in ~/.memesh', () => {
+    // The case a resolve-only prefix test cannot see: the literal path is
+    // outside, the real path is inside, and deleting it would destroy memory.
+    const realpath = (candidate: string) => (
+      candidate.startsWith('/private/tmp/looks-safe')
+        ? candidate.replace('/private/tmp/looks-safe', `${home}/.memesh/hidden`)
+        : candidate
+    );
+    expect(() => assertOutsideOwnerMemesh({
+      candidates: { TMPDIR: '/private/tmp/looks-safe' },
       home,
-    })).toThrow(/Refusing to run/);
+      realpath,
+    })).toThrow(/Refusing to run: TMPDIR/);
   });
 
   it('does not confuse a sibling directory with a prefix match', () => {
-    expect(() => assertSafeMemeshPaths({
-      memeshDir: `${home}/.memesh-scratch/memesh`,
-      dbPath: `${home}/.memesh-scratch/memesh/knowledge-graph.db`,
+    expect(() => assertOutsideOwnerMemesh({
+      candidates: { MEMESH_DIR: `${home}/.memesh-scratch/memesh` },
       home,
+      realpath: identity,
     })).not.toThrow();
+  });
+});
+
+describe('realpathAsFarAsPossible', () => {
+  it('resolves an existing directory', () => {
+    expect(realpathAsFarAsPossible('/tmp')).toBe(fs.realpathSync('/tmp'));
+  });
+
+  it('resolves the existing ancestor of a path that does not exist yet', () => {
+    const resolved = realpathAsFarAsPossible('/tmp/memesh-lj-does-not-exist-yet/memesh');
+    expect(resolved).toBe(path.join(fs.realpathSync('/tmp'), 'memesh-lj-does-not-exist-yet', 'memesh'));
+  });
+});
+
+describe('assertNotCi', () => {
+  it('allows an ordinary owner shell', () => {
+    expect(() => assertNotCi({})).not.toThrow();
+    expect(() => assertNotCi({ CI: '' })).not.toThrow();
+    expect(() => assertNotCi({ CI: 'false' })).not.toThrow();
+  });
+
+  it('refuses under CI, where neither host can exist', () => {
+    expect(() => assertNotCi({ CI: 'true' })).toThrow(/Refusing to run: CI is set/);
+    expect(() => assertNotCi({ CI: '1' })).toThrow(/Refusing to run: CI is set/);
+  });
+});
+
+describe('assertSocketPathFits', () => {
+  it('accepts a short temporary root', () => {
+    expect(() => assertSocketPathFits('/private/tmp/memesh-lj-abc123/memesh/agent-router.sock')).not.toThrow();
+  });
+
+  it('refuses a path over the AF_UNIX limit and names the fix', () => {
+    const tooLong = `/private/tmp/${'d'.repeat(MAX_SOCKET_PATH_BYTES)}/memesh/agent-router.sock`;
+    expect(() => assertSocketPathFits(tooLong)).toThrow(/TMPDIR=\/private\/tmp/);
+  });
+
+  it('measures bytes, not characters', () => {
+    // 61 characters — comfortably under the limit — but 121 UTF-8 bytes, which
+    // is what the kernel counts. A `.length` check would pass this.
+    const twoByteChars = `/${'é'.repeat(60)}`;
+    expect(twoByteChars.length).toBeLessThan(MAX_SOCKET_PATH_BYTES);
+    expect(Buffer.byteLength(twoByteChars, 'utf8')).toBeGreaterThan(MAX_SOCKET_PATH_BYTES);
+    expect(() => assertSocketPathFits(twoByteChars)).toThrow(/AF_UNIX limit/);
+  });
+});
+
+describe('isDistStale', () => {
+  it('is stale when any dist artefact predates the newest source file', () => {
+    expect(isDistStale({ newestSrcMs: 2_000, oldestDistMs: 1_000 })).toBe(true);
+  });
+
+  it('is fresh when every dist artefact is at least as new as the newest source', () => {
+    expect(isDistStale({ newestSrcMs: 1_000, oldestDistMs: 1_000 })).toBe(false);
+    expect(isDistStale({ newestSrcMs: 1_000, oldestDistMs: 2_000 })).toBe(false);
   });
 });
 
@@ -277,6 +368,14 @@ describe('assertCodexReply', () => {
       .toThrow(/does not quote delivery_id/);
   });
 
+  it('rejects an otherwise-perfect reply from a turn that ran a command', () => {
+    const withCommand = codexTurn([`CODEX_RECEIVED_${SENTINEL} ${MESSAGE_ID} ${DELIVERY_ID}`], {
+      extraItems: [{ id: 'item_9', type: 'command_execution', command: 'cat turn1.jsonl', exit_code: 0 }],
+    });
+    expect(() => assertCodexReply({ jsonl: withCommand, ...expected }))
+      .toThrow(/non-answer items \(command_execution\)/);
+  });
+
   it('rejects NO_ENVELOPE with the reason, not a generic mismatch', () => {
     expect(() => assertCodexReply({ jsonl: codexTurn(['NO_ENVELOPE']), ...expected }))
       .toThrow(/not visible to the model/);
@@ -288,15 +387,45 @@ describe('assertCodexReply', () => {
   });
 });
 
+describe('assertCodexRanNoCommands', () => {
+  it('accepts a turn that only answered', () => {
+    expect(() => assertCodexRanNoCommands(GOOD_REPLY)).not.toThrow();
+  });
+
+  it('tolerates Codex’s own error notices, which are not model actions', () => {
+    const withNotice = codexTurn(['READY'], {
+      extraItems: [{ id: 'item_9', type: 'error', message: 'Skill descriptions were shortened.' }],
+    });
+    expect(() => assertCodexRanNoCommands(withNotice)).not.toThrow();
+  });
+
+  it('REJECTS a turn that ran a command — the model could have read the ids off disk', () => {
+    const withCommand = codexTurn([`CODEX_RECEIVED_${SENTINEL} ${MESSAGE_ID} ${DELIVERY_ID}`], {
+      extraItems: [{
+        id: 'item_9',
+        type: 'command_execution',
+        command: '/bin/zsh -lc \'cat ../memesh/knowledge-graph.db\'',
+        exit_code: 0,
+      }],
+    });
+    expect(() => assertCodexRanNoCommands(withCommand)).toThrow(/command_execution/);
+  });
+
+  it('rejects an unrecognised item type rather than assuming it is harmless', () => {
+    const withTool = codexTurn(['ok'], { extraItems: [{ id: 'item_9', type: 'mcp_tool_call', name: 'read_file' }] });
+    expect(() => assertCodexRanNoCommands(withTool)).toThrow(/mcp_tool_call/);
+  });
+});
+
 describe('assertNativeAccepted', () => {
   it('accepts a send whose exact session took the frame', () => {
-    expect(assertNativeAccepted(ACCEPTED_SEND, 'codex-cli-queue'))
+    expect(assertNativeAccepted(ACCEPTED_SEND, { adapterKind: 'codex-cli-queue', recipient: THREAD }))
       .toMatchObject({ messageId: MESSAGE_ID, deliveryId: DELIVERY_ID });
   });
 
   it('rejects a durable send with NO native_delivery block', () => {
     const { native_delivery: _dropped, ...durableOnly } = ACCEPTED_SEND;
-    expect(() => assertNativeAccepted(durableOnly, 'codex-cli-queue'))
+    expect(() => assertNativeAccepted(durableOnly, { adapterKind: 'codex-cli-queue', recipient: THREAD }))
       .toThrow(/no native_delivery block/);
   });
 
@@ -305,17 +434,43 @@ describe('assertNativeAccepted', () => {
       ...ACCEPTED_SEND,
       native_delivery: { ...ACCEPTED_SEND.native_delivery, status: 'recipient_unavailable' },
     };
-    expect(() => assertNativeAccepted(unavailable, 'codex-cli-queue'))
+    expect(() => assertNativeAccepted(unavailable, { adapterKind: 'codex-cli-queue', recipient: THREAD }))
       .toThrow(/not "native_accepted"/);
   });
 
   it('rejects acceptance by the wrong adapter', () => {
-    expect(() => assertNativeAccepted(ACCEPTED_SEND, 'claude-channel'))
+    expect(() => assertNativeAccepted(ACCEPTED_SEND, { adapterKind: 'claude-channel', recipient: THREAD }))
       .toThrow(/adapter_kind is "codex-cli-queue"/);
   });
 
+  it('rejects an acceptance whose delivery_id belongs to a different delivery', () => {
+    const mismatched = {
+      ...ACCEPTED_SEND,
+      native_delivery: { ...ACCEPTED_SEND.native_delivery, delivery_id: 'ffffffff-0000-4000-8000-000000000000' },
+    };
+    expect(() => assertNativeAccepted(mismatched, { adapterKind: 'codex-cli-queue', recipient: THREAD }))
+      .toThrow(/describes a different delivery/);
+  });
+
+  it('rejects a host receipt naming a different thread', () => {
+    const wrongThread = {
+      ...ACCEPTED_SEND,
+      native_delivery: {
+        ...ACCEPTED_SEND.native_delivery,
+        receipt: { ...ACCEPTED_SEND.native_delivery.receipt, thread_id: 'ffffffff-0000-4000-8000-000000000000' },
+      },
+    };
+    expect(() => assertNativeAccepted(wrongThread, { adapterKind: 'codex-cli-queue', recipient: THREAD }))
+      .toThrow(/not the session we addressed/);
+  });
+
+  it('rejects a send whose recipient is not the session we addressed', () => {
+    expect(() => assertNativeAccepted(ACCEPTED_SEND, { adapterKind: 'codex-cli-queue', recipient: 'someone-else' }))
+      .toThrow(/reports recipient/);
+  });
+
   it('rejects a result that is not an object', () => {
-    expect(() => assertNativeAccepted('ok', 'codex-cli-queue')).toThrow(/no JSON object/);
+    expect(() => assertNativeAccepted('ok', { adapterKind: 'codex-cli-queue', recipient: THREAD })).toThrow(/no JSON object/);
   });
 });
 
@@ -330,6 +485,11 @@ describe('assertRecipientUnavailable', () => {
   it('rejects a send to a stopped session that SUCCEEDED', () => {
     expect(() => assertRecipientUnavailable({ status: 0, stderr: '' }))
       .toThrow(/did not fail closed/);
+  });
+
+  it('rejects a KILLED send process — no exit status is not a decision', () => {
+    expect(() => assertRecipientUnavailable({ status: null, stderr: 'recipient_unavailable' }))
+      .toThrow(/killed before it produced an exit status/);
   });
 
   it('rejects a different failure wearing a non-zero exit code', () => {
@@ -362,6 +522,70 @@ describe('intake receipts', () => {
   it('treats an empty projection as no proof', () => {
     expect(findIntakeReceipt([], { messageId: MESSAGE_ID, actor: THREAD })).toBeNull();
     expect(findIntakeReceipt(null, { messageId: MESSAGE_ID, actor: THREAD })).toBeNull();
+  });
+});
+
+describe('shutdown decision', () => {
+  const noSleep = () => Promise.resolve();
+
+  it('is immediately safe when no session was ever registered', async () => {
+    const announce = vi.fn();
+    await expect(awaitSessionDisconnect({
+      sessionId: null,
+      isGone: () => false,
+      waitMs: 30_000,
+      now: () => 0,
+      sleep: noSleep,
+      announce,
+    })).resolves.toBe(true);
+    expect(announce).not.toHaveBeenCalled();
+  });
+
+  it('is safe once the session has left the router directory', async () => {
+    let calls = 0;
+    await expect(awaitSessionDisconnect({
+      sessionId: 'abc',
+      isGone: () => (calls += 1) > 2,
+      waitMs: 30_000,
+      now: () => 0,
+      sleep: noSleep,
+      announce: () => {},
+    })).resolves.toBe(true);
+  });
+
+  it('tells the operator what to do, once, while it waits', async () => {
+    let calls = 0;
+    const announce = vi.fn();
+    await awaitSessionDisconnect({
+      sessionId: 'abc',
+      isGone: () => (calls += 1) > 3,
+      waitMs: 30_000,
+      now: () => 0,
+      sleep: noSleep,
+      announce,
+    });
+    expect(announce).toHaveBeenCalledTimes(1);
+    expect(announce.mock.calls[0][0]).toMatch(/detached replacement/);
+  });
+
+  it('is NOT safe when the session is still connected at the bound', async () => {
+    // The orphan case: a connected host whose router disappears spawns a
+    // detached replacement that recreates this very directory.
+    let clock = 0;
+    await expect(awaitSessionDisconnect({
+      sessionId: 'abc',
+      isGone: () => false,
+      waitMs: 5_000,
+      now: () => (clock += 2_000),
+      sleep: noSleep,
+      announce: () => {},
+    })).resolves.toBe(false);
+  });
+
+  it('keeps the directory when a session is still connected, and removes it otherwise', () => {
+    expect(shouldRemoveWorkingDirectories({ keep: false, keptForSafety: false })).toBe(true);
+    expect(shouldRemoveWorkingDirectories({ keep: false, keptForSafety: true })).toBe(false);
+    expect(shouldRemoveWorkingDirectories({ keep: true, keptForSafety: false })).toBe(false);
   });
 });
 

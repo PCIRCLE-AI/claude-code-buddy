@@ -212,34 +212,58 @@ close that gap by requiring evidence that could only have come out of a running
 model.
 
 ```bash
-npm run qa:live-journey -- --host codex  --out codex-report.json
-npm run qa:live-journey -- --host claude --out claude-report.json
+TMPDIR=/private/tmp npm run qa:live-journey -- --host codex  --out codex-report.json
+TMPDIR=/private/tmp npm run qa:live-journey -- --host claude --out claude-report.json
 ```
 
-`scripts/qa/live-journey.mjs` is owner-run and never runs in CI, because
-neither check can run unattended: one needs the owner's Codex login, the other
-needs a person at an interactive Claude session. Its argument parsing, its
-refusals, and every assertion it makes are unit-tested in
-`tests/qa/live-journey.test.ts`, which does run in CI against recorded fixtures.
+`TMPDIR` is not decoration on macOS. The router's Unix socket lives beside the
+database inside the temporary directory, and `AF_UNIX` caps a socket path at
+104 bytes; the platform default `os.tmpdir()` spends about half of that before
+the check adds anything. The script measures its own socket path and refuses
+with this hint rather than starting a router that cannot bind.
 
-Both checks run entirely inside a fresh `mktemp` MEMESH_DIR that is deleted on
-exit (`--keep` retains it), against this repository's own `dist/`. The script
-refuses to start if `MEMESH_DIR` or `MEMESH_DB_PATH` resolves inside
-`$HOME/.memesh`, or if `dist/` has not been built. It reads no authentication
-file and writes no host configuration outside its temporary directory.
+`scripts/qa/live-journey.mjs` is owner-run and refuses to start when `CI` is
+set, because neither check can run unattended: one needs the owner's Codex
+login, the other needs a person at an interactive Claude session. Its argument
+parsing, its refusals, and every **pure** assertion it makes are unit-tested in
+`tests/qa/live-journey.test.ts`, which does run in CI against recorded
+fixtures; the orchestration around them is exercised only by a live run.
+
+Everything MeMesh writes goes into a fresh `mktemp` MEMESH_DIR that is deleted
+on exit (`--keep` retains it), against this repository's own `dist/`. The check
+refuses to start if that directory would resolve inside `$HOME/.memesh` — the
+comparison is made on **real** paths, before anything is created, so a
+symlinked `TMPDIR` cannot get past it — or if `dist/` has not been built. It
+reads no authentication file. Where that isolation stops is listed under
+limitations below, and the report records whether the working tree was dirty
+and whether `dist/` predates the newest file under `src/`.
+
+Shutdown order is part of the design rather than an afterthought. A connected
+host that sees the router socket disappear starts a **detached** packaged
+router inheriting its own environment — including this check's `MEMESH_DIR` —
+and the router recreates its data directory on start. The check therefore stops
+the companion, waits for live sessions to disconnect, stops the router, and
+only then removes the directory; if a session is still connected when the wait
+expires it keeps the directory rather than racing that spawn. The same sequence
+runs on failures and on `SIGINT`/`SIGTERM`.
 
 **`--host codex`** starts the router, runs `memesh agent setup codex-session`,
 creates one real Codex CLI thread with `codex exec`, registers that thread,
 sends one exact-session message, and then resumes the thread with a fixed
 prompt that names neither the sentinel nor any identifier. The reply must quote
-the envelope's `message_id` and `delivery_id` back. Neither id exists anywhere
-in the prompt, so a reply carrying them is proof the envelope reached the
-model. The check then stops the companion and requires the next send to return
+the envelope's `message_id` and `delivery_id` back, **and** that turn must have
+produced nothing but an answer. Both halves matter: a `read-only` Codex sandbox
+still permits reads, so a turn that ran one command could have taken the
+identifiers off disk instead of out of the envelope. The Codex workspace is a
+separate temporary tree for the same reason — the database and this run's own
+logs are not one `..` away from it. The check then stops the companion and requires the next send to return
 `recipient_unavailable` while `message fetch` still returns the payload.
 
 **`--host claude`** starts the router, runs `memesh agent setup claude`, writes
-a temporary MCP config, and prints the exact interactive launch command. The
-operator runs it and types nothing. The check waits for the session to appear
+a temporary MCP config, and prints the exact interactive launch command — which
+includes `--setting-sources ""` so that no user, project, or local settings
+file is loaded. The operator runs it, confirms with `/mcp` and `/hooks` that
+only the two servers from `--mcp-config` are present, and then types nothing. The check waits for the session to appear
 in `message discover`, sends one exact-session message, and then waits for an
 `intake` receipt on that message whose actor is that session — the model must
 call `intake` itself, which is what makes the proof model-visible rather than
@@ -256,12 +280,22 @@ Each run writes a JSON report: the repository revision, every `message_id` and
 a `limitations` list. The exit code is 0 only when every required step passed.
 The limitations these checks always declare:
 
-- The Codex **registration** half is harness-driven. `codex exec
-  --ignore-user-config` structurally prevents the packaged plugin `SessionStart`
-  hook from running, so the check feeds the shipped
-  `src/host-runtime/codex-session.ts` companion the payload that hook would have
-  supplied. Dispatch → `codex queue` → model-visible reply is product-path
-  evidence; the registration step is not.
+- The Codex **registration** half is harness-driven: the check drives the
+  shipped `src/host-runtime/codex-session.ts` companion directly with the
+  `SessionStart` payload the packaged plugin hook supplies, because a scripted
+  `codex exec` turn was not observed to register anything on its own. *Why* the
+  plugin hook does not run there is not established — `--ignore-user-config` is
+  documented only as skipping `config.toml`, and on a machine whose
+  `~/.memesh/hosts` has no `codex-session.json` the shipped companion would
+  return early regardless. Dispatch → `codex queue` → model-visible reply is
+  product-path evidence; the registration step is not.
+- The interactive Claude session is **outside** this check's isolation.
+  `--setting-sources ""` is accepted by the CLI (an invalid source name is
+  rejected, an empty list is not), but it is not verified to exclude
+  plugin-provided hooks or MCP servers. A MeMesh plugin hook running in that
+  session inherits no `MEMESH_DIR` and would write the owner's real
+  `~/.memesh`. The operator is told to confirm with `/mcp` and `/hooks` first,
+  and the check cannot observe whether they did.
 - `--host codex` creates one throwaway thread in the owner's Codex rollout
   store and queues one message into it. That is session state, not
   configuration; nothing outside the temporary directory is otherwise written.
