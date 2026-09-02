@@ -7,7 +7,7 @@ import { resolveEmbeddingDimension } from './core/config.js';
 import { computeSignalScore } from './core/signal-scorer.js';
 import { getDbPath } from './core/paths.js';
 import { insertFtsRow, joinIndexedObservations, removeFromFts } from './storage/fts-index.js';
-import { dedupeSessionObservations, dropArchivedIndexRows, retractZeroEditClaims, splitFusedLessons } from './storage/graph-repairs.js';
+import { dedupeObservations, dropArchivedIndexRows, retractZeroEditClaims, splitFusedLessons } from './storage/graph-repairs.js';
 import {
   SCHEMA_SQL,
   FTS_SQL,
@@ -180,7 +180,7 @@ function migrateToCurrentSchema(db: MemeshDatabase, resolvedPath: string): void 
   // 4.8.2 stop new damage; these passes clean the rows already there, once.
   // After the title backfill so a bucket already has its title when its FTS
   // row is re-derived, and a split-out lesson gets one the same way.
-  dedupeSessionObservations(db);
+  dedupeObservations(db);
   retractZeroEditClaims(db);
   splitFusedLessons(db, {
     deriveTitle: deriveHeuristicTitle,

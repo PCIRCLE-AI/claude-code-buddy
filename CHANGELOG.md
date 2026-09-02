@@ -227,6 +227,31 @@ All notable changes to MeMesh are documented here.
   extension and a `no such module: vec0` would have been printed as a benign
   `skip` — a silent pass being the one outcome an invariant must not have.
 
+- **Two capture hooks re-appended their whole payload on every run, and the
+  detector for it was keyed to the other hook's name.** `#240` was fixed in
+  `scripts/hooks/session-summary.js` alone. `scripts/hooks/pre-compact.js` and
+  `scripts/hooks/post-commit.js` write the same way and had no guard: measured
+  on a real graph, 2,188 duplicate observation rows across 58
+  `pre-compact-<sessionId>` entities (worst: 220 observations, 2 distinct, one
+  session's captures spanning four days) and 14 across `commit-<sha>` entities.
+  `captureEntity` (`scripts/hooks/_shared.js`) now refuses, inside its
+  transaction, to store an observation whose exact content is already on the
+  entity — a guard on CONTENT rather than on "this session already has an
+  entity", so a second real compaction that recorded different work is still
+  kept while a word-for-word repeat is not. It returns `observationsWritten`,
+  and PreCompact reports that instead of announcing "Saved 2 observations" on a
+  run that stored none. The `#240` invariant in
+  `scripts/audit/memory-invariants.mjs` and the one-shot repair in
+  `src/storage/graph-repairs.ts` were both keyed to `session-%` names and so
+  were blind to every row of this; both now ask the question instead — any
+  entity whose observations repeat — excluding only `lesson_learned`, whose
+  observations `groupLessons` reads as ordered blocks where a repeated line is
+  a second lesson's field rather than a duplicate fact. The repair's
+  `runOnceMigration` version moves 1 → 2 so it runs again on graphs that
+  already recorded the narrower pass; on the maintainer's graph it removes
+  2,208 rows across 65 entities and leaves the set of distinct
+  (entity, content) pairs unchanged.
+
 - **The Ollama host guard now rebuilds the request origin instead of forwarding
   the configured string.** `resolveOllamaHost` used to validate a persisted
   `llm.host` and then pass the same string to `fetch`, which left CodeQL alert

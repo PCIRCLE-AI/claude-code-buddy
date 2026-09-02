@@ -104,13 +104,63 @@ function resolveDbPath(argv) {
 /** One invariant: a SQL query whose rows are violations. Zero rows = holds. */
 const INVARIANTS = [
   {
-    id: 'stop-summary-no-duplicate-observations',
+    id: 'no-entity-carries-the-same-observation-twice',
     refs: '#240',
-    says: 'a session summary entity carries each observation once',
+    says: 'no entity carries the same observation content more than once',
+    // SCOPE: every entity except one structural exception, argued below.
+    // There is deliberately no NAME predicate, and that is the whole point of
+    // this invariant's second version.
+    //
+    // It used to ask `WHERE e.name LIKE 'session-%-summary'`, which keyed the
+    // check to the NAME the ONE hook fixed for #240 happened to write. Two
+    // sibling hooks write the same way under different names, and the
+    // detector was structurally blind to both: measured on the maintainer's
+    // graph, 2,188 duplicate rows on 58 `pre-compact-<sessionId>` entities
+    // (worst: 220 observations, 2 distinct) and 14 on `commit-<sha>`, none of
+    // it visible while this line named a session summary. A check keyed to
+    // where the last bug was found only ever finds that bug again.
+    //
+    // The two narrower scopes that suggest themselves are both the same
+    // mistake one layer out, and the snapshot says so:
+    //   - `source:auto-capture` tag — `commit-32e98b8` HAS duplicates and does
+    //     NOT carry the tag, and only 941 of 1,463 commit entities carry it at
+    //     all. The tag is a proxy for the writer, not for the question.
+    //   - entity TYPE — `pre-compact-*` is type `session-summary` while the
+    //     real `session-<id>-summary` rows are type `session-insight`, so a
+    //     type-keyed query would drop the family this invariant was written
+    //     for in the first place.
+    //
+    // WHY a repeat is a defect at all, and what the ONE exception is.
+    //
+    // Every reader that consumes observations AS CONTENT selects `content`
+    // and nothing else (`grep -rn 'FROM observations' src/ dashboard/src/` —
+    // `src/db.ts`, `src/knowledge-graph.ts`, `src/core/{operations,dreamer,
+    // why,conflict-judge}.ts`; the dashboard and HTTP transport read none of
+    // it directly). The single place `created_at` is selected is
+    // `splitFusedLessons` (src/storage/graph-repairs.ts), which MOVES rows and
+    // never displays the column. So a second row with identical content is
+    // invisible to every reader: it says nothing the first row does not,
+    // whatever event produced it. That holds
+    // for the append-log entities the wide scope now also reaches —
+    // `task-state:memesh`, `weekly-summary-*`, a `coordination-request` — and
+    // `task-state` keeps its actual state in metadata (see
+    // src/core/task-state-store.ts: "Metadata is the state's home"), so the
+    // repeated history line is doubly unreachable.
+    //
+    // The exception is a reader that treats the list as ORDERED BLOCKS rather
+    // than a bag of sentences. There is exactly one: `groupLessons`
+    // (src/storage/graph-repairs.ts:229) cuts a `lesson_learned` entity's
+    // observations into lessons at each `Error: ` line. There, a repeated line
+    // is not indistinguishable — its POSITION says which lesson it belongs to,
+    // and two lessons in one bucket sharing a `Fix:` line is ordinary. So
+    // `lesson_learned` is excluded, and note what the exclusion is keyed to: a
+    // named reader in this repository, not a writer's name and not a type used
+    // as a stand-in for one. If a second positional reader is ever added, this
+    // predicate is what has to be revisited with it.
     sql: `
       SELECT e.name AS name, COUNT(o.id) AS total, COUNT(DISTINCT o.content) AS distinct_count
       FROM entities e JOIN observations o ON o.entity_id = e.id
-      WHERE e.name LIKE 'session-%-summary'
+      WHERE e.type <> 'lesson_learned'
       GROUP BY e.id HAVING total > distinct_count
       ORDER BY total - distinct_count DESC LIMIT ${MAX_ROWS + 1}`,
     row: (r) => `${r.name}  observations=${r.total} unique=${r.distinct_count}`,

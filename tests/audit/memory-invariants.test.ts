@@ -97,8 +97,92 @@ describe('memory-invariants: read-only detector over a real graph', () => {
       });
       const r = run(dbPath);
       expect(r.status, r.stdout).toBe(1);
-      expect(r.stdout).toContain('FAIL stop-summary-no-duplicate-observations');
+      expect(r.stdout).toContain('FAIL no-entity-carries-the-same-observation-twice');
       expect(r.stdout).toContain('session-abc-summary  observations=12 unique=3');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  /**
+   * The scope regression. This invariant used to ask
+   * `WHERE e.name LIKE 'session-%-summary'`, which is not the question it
+   * claims to ask — it is the name the ONE hook fixed for #240 wrote. Two
+   * sibling hooks (`scripts/hooks/pre-compact.js`, `scripts/hooks/post-commit.js`)
+   * wrote the identical defect under `pre-compact-<sessionId>` and
+   * `commit-<sha>`; measured on the maintainer's real graph that was 2,188 +
+   * 14 duplicate rows the detector reported as "ok". These two cases seed the
+   * exact rows those hooks produced, so a re-narrowing of the scope goes red
+   * here rather than going quiet in production.
+   */
+  it('#240 — flags a pre-compact entity whose observations repeat (the family the name-keyed query missed)', () => {
+    const { dir, dbPath } = freshGraph();
+    try {
+      withRawDb(dbPath, (db) => {
+        // Type `session-summary`, NOT `session-insight` — the real pre-compact
+        // rows carry the type the session summaries do not, which is why a
+        // type-keyed scope is the same mistake as a name-keyed one.
+        const id = insertEntity(db, 'pre-compact-019ff9f6-6b8f-76b2-b145-b9a167cdf8d2', 'session-summary');
+        const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+        for (let compaction = 0; compaction < 5; compaction++) {
+          ins.run(id, 'Compaction reason: auto');
+          ins.run(id, 'Tool calls: 0');
+        }
+      });
+      const r = run(dbPath);
+      expect(r.status, r.stdout).toBe(1);
+      expect(r.stdout).toContain('FAIL no-entity-carries-the-same-observation-twice');
+      expect(r.stdout).toContain('pre-compact-019ff9f6-6b8f-76b2-b145-b9a167cdf8d2  observations=10 unique=2');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('#240 — flags a commit entity whose observations repeat', () => {
+    const { dir, dbPath } = freshGraph();
+    try {
+      withRawDb(dbPath, (db) => {
+        // No `source:auto-capture` tag, deliberately: `commit-32e98b8` on the
+        // real graph has the duplicates and not the tag, so a tag-keyed scope
+        // would be blind to exactly this row.
+        const id = insertEntity(db, 'commit-32e98b8', 'commit');
+        const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+        for (let capture = 0; capture < 2; capture++) {
+          ins.run(id, 'fix(memory): stop re-appending the same observation');
+          ins.run(id, 'Branch: main');
+          ins.run(id, 'Diff stats: 3 files changed, 45 insertions(+), 12 deletions(-)');
+        }
+      });
+      const r = run(dbPath);
+      expect(r.status, r.stdout).toBe(1);
+      expect(r.stdout).toContain('FAIL no-entity-carries-the-same-observation-twice');
+      expect(r.stdout).toContain('commit-32e98b8  observations=6 unique=3');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('#240 — a lesson bucket whose two blocks share a field is NOT a duplicate-observation violation', () => {
+    // The one exception to the wide scope, stated rather than left implicit.
+    // `groupLessons` (src/storage/graph-repairs.ts) reads a lesson entity's
+    // observations as ORDERED BLOCKS cut at each `Error: ` line, so "Root
+    // cause: a" appearing twice is two lessons' fields, not one fact stored
+    // twice. Every other reader selects `content` alone — no read path
+    // surfaces `observations.created_at` — which is why a repeat is
+    // unreachable everywhere else and reachable here. Re-widening this to
+    // every entity turns this test red instead of silently merging lessons.
+    const { dir, dbPath } = freshGraph();
+    try {
+      withRawDb(dbPath, (db) => {
+        const id = insertEntity(db, 'lesson-proj-shared-fields', 'lesson_learned');
+        const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+        for (const line of [
+          'Error: first thing', 'Root cause: a', 'Fix: b', 'Prevention: c',
+          'Error: second thing', 'Root cause: a', 'Fix: b', 'Prevention: c',
+        ]) ins.run(id, line);
+      });
+      const r = run(dbPath);
+      expect(r.status, r.stdout).toBe(0);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

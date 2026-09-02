@@ -159,12 +159,20 @@ process.stdin.on('end', () => {
     // it announced a save that may not have happened, with a number that never
     // matched the one entity and handful of observations actually written.
     //
-    // `obsLines.length` is the honest count on the success branch:
-    // `captureEntity` inserts every observation or throws, so a non-null return
-    // means all of them landed.
+    // `written.observationsWritten` is the honest count, NOT `obsLines.length`:
+    // a session compacts more than once, and the second compaction's lines are
+    // usually word-for-word the first's ("Compaction reason: auto", "Tool
+    // calls: 0"), which captureEntity now declines to store twice. Reporting
+    // the built count would announce "Saved 2 observations" on a run that
+    // stored none — the same success-shaped lie this comment block exists to
+    // stop. Zero written is still a successful run: the memory is already
+    // there.
+    const stored = written ? written.observationsWritten : 0;
     const hookOutput = {
       systemMessage: written
-        ? `Saved ${obsLines.length} observations to MeMesh before compaction`
+        ? (stored > 0
+          ? `Saved ${stored} observations to MeMesh before compaction`
+          : 'MeMesh: this compaction added nothing new (already captured)')
         : 'MeMesh: could not save pre-compaction insights (see stderr)',
     };
     console.log(JSON.stringify(hookOutput));

@@ -585,6 +585,11 @@ export function captureEntity(db, { name, type, observations = [], tags = [], ti
   // retried, because the callers dedupe on the entity NAME existing —
   // `INSERT OR IGNORE` reports "already there" on the next run and the
   // half-written state is permanent.
+  //
+  // Returns `{ id, isNew, observationsWritten }`, or null when the entity row
+  // could not be resolved. `observationsWritten` may be lower than
+  // `observations.length`: an observation whose exact content is already on
+  // the entity is not stored again (see the dedupe in captureEntityInner).
   return db.transaction(() => captureEntityInner(db, { name, type, observations, tags, title, metadata }))();
 }
 
@@ -655,8 +660,47 @@ function captureEntityInner(db, { name, type, observations, tags, title, metadat
   // BY + the one join rule), via the generated fts-index copy.
   const prevObsText = isNew ? undefined : indexedObservationText(db, id);
 
+  // Never store the same sentence twice on one entity (#240, widened).
+  //
+  // #240 was fixed in session-summary.js alone, with an EXISTENCE guard: "if
+  // this session already has an entity, bail". Its two siblings never got one
+  // and wrote 2,202 duplicate rows on the maintainer's graph —
+  // `pre-compact-<sessionId>` 2,188 of them (worst entity: 220 observations,
+  // 2 distinct), `commit-<sha>` 14.
+  //
+  // The guard belongs HERE, on CONTENT, not there, on existence, because a
+  // pre-compact entity is per-session and a session legitimately compacts
+  // more than once: entity 1947's 110 captures span four days. An existence
+  // guard would have dropped a second, genuinely different compaction
+  // ("Tool calls: 47", "Files edited: …") along with the identical ones. A
+  // content guard drops only rows that add nothing — a re-write of a sentence
+  // already stored carries no information, whatever produced it.
+  //
+  // Unconditional rather than opt-in: every caller of this function is an
+  // auto-capture hook writing machine-derived facts, and none of them has a
+  // case where re-storing an identical string means something. A flag two of
+  // three callers pass would be one more proxy for the question.
+  //
+  // Filtered ONCE, up front, because `allObsText` below composes the FTS text
+  // from this list rather than re-reading the rows. Filtering only at the
+  // insert loop would index text for rows that do not exist, and
+  // `entities_fts` is contentless: the next delete would not match, which is
+  // the "database disk image is malformed" failure this file warns about
+  // above. The `seen` set also collapses repeats WITHIN one call.
+  const seen = new Set(
+    isNew
+      ? []
+      : db.prepare('SELECT content FROM observations WHERE entity_id = ?').all(id).map((r) => r.content),
+  );
+  const freshObservations = [];
+  for (const obs of observations) {
+    if (seen.has(obs)) continue;
+    seen.add(obs);
+    freshObservations.push(obs);
+  }
+
   const insertObs = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
-  for (const obs of observations) insertObs.run(id, obs);
+  for (const obs of freshObservations) insertObs.run(id, obs);
   const insertTag = db.prepare('INSERT OR IGNORE INTO tags (entity_id, tag) VALUES (?, ?)');
   for (const tag of tags) insertTag.run(id, tag);
 
@@ -673,7 +717,7 @@ function captureEntityInner(db, { name, type, observations, tags, title, metadat
   // upserted entity's accumulated observation count.
   const obsParts = [];
   if (prevObsText) obsParts.push(prevObsText);
-  if (observations.length) obsParts.push(joinIndexedObservations(observations));
+  if (freshObservations.length) obsParts.push(joinIndexedObservations(freshObservations));
   const allObsText = joinIndexedObservations(obsParts);
   // Current title is fully determined by the branches above — no re-read.
   const currentTitle = isNew
@@ -681,7 +725,11 @@ function captureEntityInner(db, { name, type, observations, tags, title, metadat
     : ((title !== undefined && title !== previousTitle) ? title : previousTitle);
   insertFtsRow(db, id, name, allObsText, currentTitle);
 
-  return { id, isNew };
+  // `observationsWritten` is what actually landed, which is no longer the same
+  // as `observations.length` once the dedupe above can drop rows. A caller
+  // that reports a count to the user must read this one — pre-compact.js
+  // printed "Saved 2 observations" on a run that stored none.
+  return { id, isNew, observationsWritten: freshObservations.length };
 }
 
 const PRIVATE_DIR_MODE = 0o700;

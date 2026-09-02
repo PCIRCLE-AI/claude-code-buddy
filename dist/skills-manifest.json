@@ -93,8 +93,8 @@
     },
     {
       "path": "scripts/hooks/_shared.js",
-      "sha256": "df8b1b69fc7b6ee93232515957ee8d2a2e67fe49a28ba55dbbcedd6c32887af7",
-      "bytes": 40894
+      "sha256": "0b5d4b4fe8521b9588153d0c6f6fd368d78e26653868648f17cbd0fa54c47691",
+      "bytes": 43559
     },
     {
       "path": "scripts/hooks/decision-nudge.js",
@@ -108,13 +108,13 @@
     },
     {
       "path": "scripts/hooks/post-commit.js",
-      "sha256": "987dd817a6f6310039aa97a7ea2798bca6097a9c7a943ae5c6ea1a9fb00c4264",
-      "bytes": 10309
+      "sha256": "9b7daa927105f238165724b29a024dfdfb8f4a6d2a61994f9dd97a06ffb3a421",
+      "bytes": 11099
     },
     {
       "path": "scripts/hooks/pre-compact.js",
-      "sha256": "6e0f0e33fff5137a311b50eec688acda458277e1ac3d4cd275f4b445dfcbb58b",
-      "bytes": 8754
+      "sha256": "78eb3c2b417ac33c8ff3c45c29b7c3afbae54a48fae15697cf1cb68c828b5e8e",
+      "bytes": 9283
     },
     {
       "path": "scripts/hooks/pre-edit-recall.js",
