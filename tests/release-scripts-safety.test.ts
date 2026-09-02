@@ -17,12 +17,13 @@
  *
  * Recorded as unpinned during the mutation sweep of this release, then pinned.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import os from 'node:os';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { spawnSync } from 'child_process';
+import { buildIsolatedRuntimeEnv } from '../scripts/dashboard-e2e-smoke.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -470,5 +471,93 @@ describe('Feature: release scripts never edit the real ~/.memesh', () => {
     for (const value of Object.values(sentinels)) {
       expect(output).not.toContain(value);
     }
+  });
+
+  it('the dashboard e2e smoke isolates the runtime env and strips provider variables', () => {
+    // GitHub issue #271: the packaged Dashboard E2E gave the child runtime
+    // an isolated MEMESH_DB_PATH but otherwise spread the maintainer's real
+    // process.env, so a shell with a configured provider made the "isolated"
+    // server start in Smart Mode against a real LLM. buildIsolatedRuntimeEnv
+    // is the fix, extracted into a pure function so this test can call it
+    // directly instead of running the full smoke (npm pack + install +
+    // Playwright).
+
+    // Derive the provider variable list from detectFromEnv() itself, rather
+    // than re-typing it here, so a provider added to config.ts without
+    // updating the smoke script's delete list fails this test instead of
+    // leaking silently. Falls back to nothing if the function is ever
+    // rewritten in a way the regex can't follow — the assertions right
+    // after this catch that case loudly instead of the loop passing
+    // vacuously over an empty list.
+    const configSource = read('src/core/config.ts');
+    const detectFromEnvBody = configSource.match(/function detectFromEnv\(\)[^{]*\{([\s\S]*?)\n\}/)?.[1] ?? '';
+    const providerKeys = [...new Set(
+      [...detectFromEnvBody.matchAll(/process\.env\.([A-Z0-9_]+)/g)].map((m) => m[1])
+    )];
+    expect(providerKeys.length).toBeGreaterThan(0);
+    expect(providerKeys).toEqual(expect.arrayContaining(['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'OLLAMA_HOST']));
+
+    const smokeSource = read('scripts/dashboard-e2e-smoke.mjs');
+    for (const key of providerKeys) {
+      expect(smokeSource).toContain(`delete isolatedEnv.${key}`);
+    }
+
+    // A base env standing in for a maintainer's shell: real PATH (so the
+    // "unrelated ambient state still passes through" assertion below means
+    // something), plus a sentinel for every value the isolation must
+    // remove or override. GEMINI_API_KEY is deliberately NOT included —
+    // grepped repo-wide, it is not read anywhere in this codebase, so a
+    // sentinel for it would assert nothing and just be dead weight.
+    const paths = {
+      runtimeHome: '/test-owned/runtime-home',
+      memeshDir: '/test-owned/runtime-home/.memesh',
+      dbPath: '/test-owned/runtime-home/.memesh/knowledge-graph.db',
+    };
+    const pollutedBaseEnv: Record<string, string> = {
+      PATH: process.env.PATH ?? '',
+      HOME: '/ambient/maintainer-home-sentinel',
+      USERPROFILE: 'C:\\ambient\\maintainer-home-sentinel',
+      MEMESH_DIR: '/ambient/maintainer-memesh-sentinel',
+      MEMESH_DB_PATH: '/ambient/maintainer-db-sentinel.db',
+      OLLAMA_HOST: 'http://ambient-ollama.invalid',
+      OPENAI_API_KEY: 'ambient-openai-sentinel',
+      ANTHROPIC_API_KEY: 'ambient-anthropic-sentinel',
+      MEMESH_AUTO_DETECT_LLM: '1',
+    };
+
+    // Nothing about building this env should print anything — the isolated
+    // values (and, on a real machine, real credentials in the base env)
+    // must never reach a log.
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    let env: Record<string, string | undefined>;
+    try {
+      env = buildIsolatedRuntimeEnv(pollutedBaseEnv, paths);
+    } finally {
+      logSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
+    expect(logSpy).not.toHaveBeenCalled();
+    expect(errorSpy).not.toHaveBeenCalled();
+
+    // Test-owned paths win over whatever the ambient shell had.
+    expect(env.HOME).toBe(paths.runtimeHome);
+    expect(env.USERPROFILE).toBe(paths.runtimeHome);
+    expect(env.MEMESH_DIR).toBe(paths.memeshDir);
+    expect(env.MEMESH_DB_PATH).toBe(paths.dbPath);
+    expect(env.MEMESH_AUTO_DETECT_LLM).toBe('0');
+
+    // Every provider variable detectFromEnv() reads is gone, not merely
+    // overwritten. Asserted key by key (never the whole `env` object) so a
+    // failure here can never print a sentinel — or, on a real machine, a
+    // real credential — into the test log.
+    for (const key of providerKeys) {
+      expect(env[key]).toBeUndefined();
+    }
+
+    // This isolates the provider surface, not the whole environment —
+    // unrelated ambient state (PATH, needed to spawn npm/node at all)
+    // still passes through.
+    expect(env.PATH).toBe(pollutedBaseEnv.PATH);
   });
 });
