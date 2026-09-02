@@ -255,6 +255,15 @@ function makeDatabase(
       if (sql.includes('source_host')) {
         return { get: () => ({ c: opts.recentClaudeCodeWrites ?? 1 }) };
       }
+      // llm_telemetry health (D13): every test in this file predates the
+      // row and asserts nothing about it, so the default is "no telemetry
+      // recorded" — the same "opt-in options, default absent" convention
+      // as citationCounters above. A real predicate (window filtering,
+      // per-flow grouping) is exercised against a real database in
+      // tests/cli/doctor-llm-telemetry-health.test.ts, not here.
+      if (sql.includes('FROM llm_telemetry')) {
+        return { all: () => [] };
+      }
       // Three DIFFERENT questions used to share one canned answer.
       //
       // The default branch below returns `{ c: count }` for every query

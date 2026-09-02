@@ -301,6 +301,30 @@ const INVARIANTS = [
     row: (r) => r.name,
   },
   {
+    id: 'split-lesson-shell-carries-no-recall-history',
+    refs: 'D15',
+    says: 'an archived, emptied lesson shell that fed a split does not keep recall_hits/recall_misses that belong to no lesson',
+    // Same identification `repairFusedLessonShellHistory` uses (see
+    // src/storage/graph-repairs.ts): archived, no observations left, and at
+    // least one other entity's metadata.split_from names it — so this can
+    // only match a row that pass produced, never an unrelated archived
+    // lesson. NO LIMIT beyond the report cap: it would bound candidates,
+    // not violations.
+    sql: `
+      SELECT e.name AS name, e.recall_hits AS hits, e.recall_misses AS misses
+      FROM entities e
+      WHERE e.type = 'lesson_learned' AND e.status = 'archived'
+        AND (COALESCE(e.recall_hits, 0) > 0 OR COALESCE(e.recall_misses, 0) > 0)
+        AND NOT EXISTS (SELECT 1 FROM observations o WHERE o.entity_id = e.id)
+        AND EXISTS (
+          SELECT 1 FROM entities s
+          WHERE json_extract(s.metadata, '$.split_from') = e.name
+        )
+      ORDER BY COALESCE(e.recall_hits, 0) + COALESCE(e.recall_misses, 0) DESC
+      LIMIT ${MAX_ROWS + 1}`,
+    row: (r) => `${r.name}  hits=${r.hits ?? 0} misses=${r.misses ?? 0}`,
+  },
+  {
     id: 'global-namespace-reachable-by-injection',
     refs: '#242',
     says: 'every global-namespace entity is either project-tagged or the injection path reads namespace (this invariant only reports; the fix is in session-start.js)',

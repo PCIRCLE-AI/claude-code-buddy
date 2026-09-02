@@ -255,6 +255,37 @@ All notable changes to MeMesh are documented here.
   append path gets the same content guard, so this dedup is now a property of
   writing an observation at all, not just of these three hooks.
 
+- **`memesh doctor` now says when an AI-backed feature has quietly stopped
+  working.** `llm_telemetry` recorded every Smart-Mode call but nothing read
+  it for a health signal — measured on a real graph, `guard_proposer` had
+  failed all 69 of its calls, every one, across the four days it ran between
+  2026-08-28 and 2026-09-01, invisible to doctor. A new zero-cost check
+  (`inspectLlmTelemetryHealth`, no `--probe`
+  gate) reads the last 7 days and warns when a flow's recent calls (≥3) all
+  failed; a shorter window than `memesh telemetry`'s 30-day default is
+  deliberate — a longer one blends in stale successes and hides a flow that
+  has been 100% broken all week. Silent (not a false PASS) when the table is
+  empty or a flow has never run; informational when calls exist and none are
+  100%-failing. New `doctor.msg.llm-telemetry.silent-failure` catalogue entry
+  in all 11 dashboard locales.
+
+- **A split lesson no longer starts its life carrying its parent bucket's
+  stale recall history.** `splitFusedLessons` moves a fused `-other` bucket's
+  observations into their own entities but left `recall_hits`/`recall_misses`
+  on the now-empty, archived bucket forever — measured, 4 of 49 already-split
+  shells on a real graph still carried nonzero history (one at 3 hits / 61
+  misses), which `scripts/audit/measure-signals.mjs`'s unfiltered
+  `SUM(recall_hits) FROM entities` counts to this day. The bucket's rate is
+  itself an artifact of the fusion being repaired — a bucket fusing many
+  unrelated lessons gets injected broadly and cited rarely, which is not a
+  measurement of what any one lesson in it is worth — so it is not divided or
+  copied onto the successors (they correctly start at 0/0); the shell's own
+  counters are zeroed and the number is kept for forensic reading under
+  `metadata.retired_recall`. A new one-shot repair
+  (`repairFusedLessonShellHistory`) retires the history on shells already in
+  this state, and `scripts/audit/memory-invariants.mjs` gained
+  `split-lesson-shell-carries-no-recall-history` to keep it caught.
+
 - **The Ollama host guard now rebuilds the request origin instead of forwarding
   the configured string.** `resolveOllamaHost` used to validate a persisted
   `llm.host` and then pass the same string to `fetch`, which left CodeQL alert

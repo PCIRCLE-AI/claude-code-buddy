@@ -22,11 +22,13 @@ import { KnowledgeGraph } from '../../src/knowledge-graph.js';
 import {
   ARCHIVED_FTS_ROWS_KEY,
   ARCHIVED_VECTOR_ROWS_KEY,
+  FUSED_LESSON_SHELL_HISTORY_RESET_KEY,
   FUSED_LESSON_SPLIT_KEY,
   SESSION_DEDUPE_KEY,
   ZERO_EDIT_RETRACT_KEY,
   bashWritesFiles,
   dropArchivedIndexRows,
+  repairFusedLessonShellHistory,
 } from '../../src/storage/graph-repairs.js';
 import { lessonSlug } from '../../src/core/lesson-slug.js';
 
@@ -51,13 +53,14 @@ function seed(fn: (db: Db) => void): void {
   const db = openDatabase(dbPath);
   fn(db);
   db.prepare(
-    'DELETE FROM memesh_metadata WHERE key LIKE ? OR key LIKE ? OR key LIKE ? OR key LIKE ? OR key LIKE ?',
+    'DELETE FROM memesh_metadata WHERE key LIKE ? OR key LIKE ? OR key LIKE ? OR key LIKE ? OR key LIKE ? OR key LIKE ?',
   ).run(
     `${SESSION_DEDUPE_KEY}%`,
     `${ZERO_EDIT_RETRACT_KEY}%`,
     `${FUSED_LESSON_SPLIT_KEY}%`,
     `${ARCHIVED_FTS_ROWS_KEY}%`,
     `${ARCHIVED_VECTOR_ROWS_KEY}%`,
+    `${FUSED_LESSON_SHELL_HISTORY_RESET_KEY}%`,
   );
   closeDatabase();
 }
@@ -86,6 +89,21 @@ function tagsOf(db: Db, name: string): string[] {
 
 function statusOf(db: Db, name: string): string {
   return (db.prepare('SELECT status FROM entities WHERE name = ?').get(name) as { status: string }).status;
+}
+
+function recallOf(db: Db, name: string): { hits: number; misses: number } {
+  const row = db.prepare('SELECT recall_hits AS hits, recall_misses AS misses FROM entities WHERE name = ?')
+    .get(name) as { hits: number | null; misses: number | null };
+  return { hits: row.hits ?? 0, misses: row.misses ?? 0 };
+}
+
+function metadataOf(db: Db, name: string): Record<string, unknown> {
+  const row = db.prepare('SELECT metadata FROM entities WHERE name = ?').get(name) as { metadata: string | null };
+  return row.metadata ? JSON.parse(row.metadata) : {};
+}
+
+function setRecall(db: Db, name: string, hits: number, misses: number): void {
+  db.prepare('UPDATE entities SET recall_hits = ?, recall_misses = ? WHERE name = ?').run(hits, misses, name);
 }
 
 function runInvariants(): { status: number | null; stdout: string } {
@@ -808,5 +826,225 @@ describe('dropArchivedIndexRows — archived rows leave both indexes (D11/D12)',
     expect(new KnowledgeGraph(db).search('correctlytoken').map((e) => e.name)).toEqual(['note-drifted']);
     closeDatabase();
     expect(runInvariants().status).toBe(0);
+  });
+});
+
+describe('D15 — a split shell does not keep recall history that belongs to no lesson', () => {
+  it('zeroes the bucket\'s recall_hits/recall_misses when it empties, and leaves the split-out lessons at 0/0', () => {
+    seed((db) => {
+      const id = insertEntity(db, 'lesson-proj-other', 'lesson_learned',
+        ['project:proj', 'error-pattern:other', 'source:explicit']);
+      const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+      for (const line of [...LESSON_A, ...LESSON_B]) ins.run(id, line);
+      // The measured real shape: a bucket injected 64 times, cited 3.
+      setRecall(db, 'lesson-proj-other', 3, 61);
+    });
+    const db = repaired();
+    expect(statusOf(db, 'lesson-proj-other')).toBe('archived');
+    expect(recallOf(db, 'lesson-proj-other')).toEqual({ hits: 0, misses: 0 });
+    expect(metadataOf(db, 'lesson-proj-other').retired_recall).toEqual({ hits: 3, misses: 61 });
+    // Neither successor inherited any share of it — no double counting.
+    expect(recallOf(db, nameA)).toEqual({ hits: 0, misses: 0 });
+    expect(recallOf(db, nameB)).toEqual({ hits: 0, misses: 0 });
+    closeDatabase();
+    expect(runInvariants().status).toBe(0);
+  });
+
+  it('leaves recall history alone when a stray row keeps the bucket non-empty', () => {
+    seed((db) => {
+      const id = insertEntity(db, 'lesson-proj-other', 'lesson_learned',
+        ['project:proj', 'error-pattern:other', 'source:explicit']);
+      const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+      // Before any `Error:` line, so groupLessons leaves it un-grouped and
+      // it never moves — the same shape as the existing "stray row" test.
+      ins.run(id, 'Note: this bucket picked up a stray line');
+      for (const line of LESSON_A) ins.run(id, line);
+      setRecall(db, 'lesson-proj-other', 3, 61);
+    });
+    const db = repaired();
+    expect(statusOf(db, 'lesson-proj-other')).toBe('active');
+    // Still represents live content (the stray row), so its history is still
+    // its own business — the same reasoning that keeps `source:explicit` on
+    // a bucket that did not fully empty.
+    expect(recallOf(db, 'lesson-proj-other')).toEqual({ hits: 3, misses: 61 });
+    expect(metadataOf(db, 'lesson-proj-other').retired_recall).toBeUndefined();
+    closeDatabase();
+  });
+
+  it('does not write metadata.retired_recall when the bucket had no history to retire', () => {
+    seed((db) => {
+      const id = insertEntity(db, 'lesson-proj-other', 'lesson_learned',
+        ['project:proj', 'error-pattern:other', 'source:explicit']);
+      const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+      for (const line of LESSON_A) ins.run(id, line);
+      // No setRecall call: stays at the schema default (0, 0).
+    });
+    const db = repaired();
+    expect(recallOf(db, 'lesson-proj-other')).toEqual({ hits: 0, misses: 0 });
+    expect(metadataOf(db, 'lesson-proj-other').retired_recall).toBeUndefined();
+    closeDatabase();
+  });
+
+  it('retires history on the legacy readable-only split path too', () => {
+    seed((db) => {
+      const id = insertEntity(db, 'lesson-proj-null-pointer-in-the-auth-path', 'lesson_learned',
+        ['project:proj', 'error-pattern:null-reference', 'source:explicit']);
+      const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+      for (const line of ['Error: Null pointer in the auth path', 'Root cause: x', 'Fix: y', 'Prevention: z']) ins.run(id, line);
+      setRecall(db, 'lesson-proj-null-pointer-in-the-auth-path', 1, 9);
+    });
+    const db = repaired();
+    const legacyName = 'lesson-proj-null-pointer-in-the-auth-path';
+    const canonicalName = `lesson-proj-${lessonSlug('Null pointer in the auth path')}`;
+    expect(statusOf(db, legacyName)).toBe('archived');
+    expect(recallOf(db, legacyName)).toEqual({ hits: 0, misses: 0 });
+    expect(metadataOf(db, legacyName).retired_recall).toEqual({ hits: 1, misses: 9 });
+    expect(recallOf(db, canonicalName)).toEqual({ hits: 0, misses: 0 });
+    closeDatabase();
+  });
+
+  it('is idempotent: a second open changes nothing further', () => {
+    seed((db) => {
+      const id = insertEntity(db, 'lesson-proj-other', 'lesson_learned',
+        ['project:proj', 'error-pattern:other', 'source:explicit']);
+      const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+      for (const line of LESSON_A) ins.run(id, line);
+      setRecall(db, 'lesson-proj-other', 3, 61);
+    });
+    const first = repaired();
+    expect(recallOf(first, 'lesson-proj-other')).toEqual({ hits: 0, misses: 0 });
+    closeDatabase();
+    const second = openDatabase(dbPath);
+    expect(recallOf(second, 'lesson-proj-other')).toEqual({ hits: 0, misses: 0 });
+    expect(metadataOf(second, 'lesson-proj-other').retired_recall).toEqual({ hits: 3, misses: 61 });
+    closeDatabase();
+  });
+});
+
+describe('D15 — repairFusedLessonShellHistory: shells split before this fix existed', () => {
+  /**
+   * The state 4.8.2-and-later already produced on the maintainer's own
+   * graph: `splitFusedLessons` has already run to completion (the bucket is
+   * archived, empty, and a successor names it via `split_from`), from before
+   * this fix existed — so `splitFusedLessons`'s own migrate() has nothing
+   * left to do on this row; only the new standalone pass can reach it.
+   */
+  function seedAlreadySplitShell(db: Db, hits: number, misses: number): void {
+    insertEntity(db, 'lesson-proj-other', 'lesson_learned', [], 'archived');
+    setRecall(db, 'lesson-proj-other', hits, misses);
+    const successorId = insertEntity(db, nameA, 'lesson_learned', ['project:proj', 'source:explicit']);
+    db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(successorId, LESSON_A[0]);
+    db.prepare('UPDATE entities SET metadata = ? WHERE id = ?')
+      .run(JSON.stringify({ split_from: 'lesson-proj-other' }), successorId);
+    // splitFusedLessons's own live pass cannot re-touch either row: the
+    // bucket carries no `source:explicit` tag (already stripped by the
+    // split that produced this fixture), and the successor's digest-shaped
+    // name never matches `legacyReadableLessonSlug`, so its legacy-readable
+    // branch skips it too. Only the new standalone pass can reach this shape.
+  }
+
+  it('retires a pre-existing shell\'s history the first time it opens under the new code', () => {
+    seed((db) => seedAlreadySplitShell(db, 3, 61));
+    const db = repaired();
+    expect(recallOf(db, 'lesson-proj-other')).toEqual({ hits: 0, misses: 0 });
+    expect(metadataOf(db, 'lesson-proj-other').retired_recall).toEqual({ hits: 3, misses: 61 });
+    expect(recallOf(db, nameA)).toEqual({ hits: 0, misses: 0 });
+    closeDatabase();
+    expect(runInvariants().status).toBe(0);
+  });
+
+  it('does not touch an archived, empty lesson with no split_from referrer', () => {
+    seed((db) => {
+      insertEntity(db, 'lesson-proj-forgotten', 'lesson_learned', [], 'archived');
+      setRecall(db, 'lesson-proj-forgotten', 4, 4);
+    });
+    const db = repaired();
+    expect(recallOf(db, 'lesson-proj-forgotten')).toEqual({ hits: 4, misses: 4 });
+    expect(metadataOf(db, 'lesson-proj-forgotten').retired_recall).toBeUndefined();
+    closeDatabase();
+  });
+
+  it('is idempotent: a second open finds nothing left to retire', () => {
+    seed((db) => seedAlreadySplitShell(db, 3, 61));
+    const first = repaired();
+    expect(first.prepare('SELECT value FROM memesh_metadata WHERE key = ?').get(FUSED_LESSON_SHELL_HISTORY_RESET_KEY))
+      .toEqual({ value: '1' });
+    closeDatabase();
+    const second = openDatabase(dbPath);
+    expect(recallOf(second, 'lesson-proj-other')).toEqual({ hits: 0, misses: 0 });
+    expect(metadataOf(second, 'lesson-proj-other').retired_recall).toEqual({ hits: 3, misses: 61 });
+    closeDatabase();
+  });
+});
+
+describe('the split path retires history on its own, not by leaning on the one-shot repair', () => {
+  // Both wirings run in the same `openDatabase`, and the one-shot repair runs
+  // SECOND — so on a fresh database it silently rescues anything the archive
+  // point in `splitFusedLessons` failed to retire, and a test that opens once
+  // cannot tell the two apart. Break-testing found exactly that: removing
+  // `retireRecallHistory` from BOTH archive points left every existing test
+  // green.
+  //
+  // But the repair is a `runOnceMigration`. Once it has stamped, it never
+  // looks again — so a bucket fused AFTER the upgrade (the ordinary case from
+  // then on, forever) is protected by the archive point and nothing else.
+  // This seeds that state: the repair already done, the split still owed.
+  function seedWithShellRepairAlreadyDone(bucketName: string, extraTags: string[] = []): void {
+    const db = openDatabase(dbPath);
+    const id = insertEntity(db, bucketName, 'lesson_learned',
+      ['project:proj', 'error-pattern:other', 'source:explicit', ...extraTags]);
+    const ins = db.prepare('INSERT INTO observations (entity_id, content, created_at) VALUES (?, ?, ?)');
+    for (const [i, line] of [...LESSON_A, ...LESSON_B].entries()) {
+      ins.run(id, line, `2026-08-0${1 + Math.floor(i / 4)} 10:00:0${i % 4}`);
+    }
+    setRecall(db, bucketName, 4, 37);
+    // The split is owed (version 2 > the stamped 1); the shell repair is not.
+    const stamp = db.prepare('INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)');
+    stamp.run(FUSED_LESSON_SPLIT_KEY, '1');
+    stamp.run(FUSED_LESSON_SHELL_HISTORY_RESET_KEY, '1');
+    closeDatabase();
+  }
+
+  it('zeroes the emptied bucket even when the one-shot repair has already stamped and cannot rescue it', () => {
+    seedWithShellRepairAlreadyDone('lesson-proj-other');
+
+    const db = repaired();
+    // Guard the guard: if the one-shot repair DID run, this test proves
+    // nothing about the archive point, so assert it stayed stamped at 1.
+    expect(
+      db.prepare('SELECT value FROM memesh_metadata WHERE key = ?').get(FUSED_LESSON_SHELL_HISTORY_RESET_KEY),
+      'the one-shot repair ran after all — this test can no longer isolate the archive point',
+    ).toEqual({ value: '1' });
+    expect(statusOf(db, 'lesson-proj-other'), 'setup: the bucket did not empty and archive').toBe('archived');
+    expect(recallOf(db, 'lesson-proj-other')).toEqual({ hits: 0, misses: 0 });
+    expect(metadataOf(db, 'lesson-proj-other').retired_recall).toEqual({ hits: 4, misses: 37 });
+    closeDatabase();
+  });
+
+  it('does the same on the legacy readable-only path, which is a second archive point', () => {
+    // `lesson-<project>-<readable slug>` rather than `-other`: the second loop
+    // in `splitFusedLessons`, with its own `archive.run(...)`. It had the
+    // identical gap and the identical rescue hiding it.
+    const legacy = 'lesson-proj-null-pointer-in-the-auth-path';
+    const db0 = openDatabase(dbPath);
+    const id = insertEntity(db0, legacy, 'lesson_learned',
+      ['project:proj', 'error-pattern:null-reference', 'source:explicit']);
+    const ins = db0.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+    for (const line of ['Error: Null pointer in the auth path', 'Root cause: x', 'Fix: y', 'Prevention: z']) ins.run(id, line);
+    setRecall(db0, legacy, 2, 11);
+    const stamp = db0.prepare('INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)');
+    stamp.run(FUSED_LESSON_SPLIT_KEY, '1');
+    stamp.run(FUSED_LESSON_SHELL_HISTORY_RESET_KEY, '1');
+    closeDatabase();
+
+    const db = repaired();
+    expect(
+      db.prepare('SELECT value FROM memesh_metadata WHERE key = ?').get(FUSED_LESSON_SHELL_HISTORY_RESET_KEY),
+      'the one-shot repair ran after all — this test can no longer isolate the archive point',
+    ).toEqual({ value: '1' });
+    expect(statusOf(db, legacy), 'setup: the legacy entity did not archive').toBe('archived');
+    expect(recallOf(db, legacy)).toEqual({ hits: 0, misses: 0 });
+    expect(metadataOf(db, legacy).retired_recall).toEqual({ hits: 2, misses: 11 });
+    closeDatabase();
   });
 });

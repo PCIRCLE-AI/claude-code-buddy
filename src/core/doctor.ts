@@ -35,6 +35,7 @@ import { autoCaptureDecision } from './capture-flag.js';
 import { guardFromMetadata } from './guards.js';
 import { getAgentMessageStorageReport } from './agent-message-storage.js';
 import { readHostConfigFile } from '../host-runtime/config.js';
+import { summariseTelemetry, type TelemetrySummary } from './llm-telemetry.js';
 
 export type DoctorCheckStatus = 'pass' | 'warn' | 'fail';
 export type DoctorOverallStatus = 'PASS' | 'PASS_WITH_CONCERNS' | 'FAIL';
@@ -2892,6 +2893,113 @@ async function inspectEmbeddingProbe(
   }
 }
 
+/** How far back `inspectLlmTelemetryHealth` looks, and how many recent calls a
+ *  flow needs before "every one failed" is treated as a trend rather than a
+ *  blip. See the function doc for the measurement behind both numbers. */
+const LLM_TELEMETRY_HEALTH_WINDOW_DAYS = 7;
+const LLM_TELEMETRY_HEALTH_MIN_CALLS = 3;
+
+/**
+ * Has an AI-backed feature quietly stopped working?
+ *
+ * `llm_telemetry` (llm-telemetry.ts) is written by every Smart-Mode flow —
+ * dreamer, auto_tagger, failure_analyzer, guard_proposer, consolidator,
+ * transcript_extractor — and until this row existed, read by nothing that
+ * could alert anyone: `memesh telemetry` shows it on request, which means a
+ * broken flow needed someone to think to ask. Reading it costs nothing (no
+ * network call, unlike `inspectLlmProbe` below), so this runs on every
+ * `memesh doctor`.
+ *
+ * The window is 7 days, not `summariseTelemetry`'s 30-day default. Measured
+ * against a real graph on 2026-09-02: `dreamer` has 29 historical successes,
+ * the most recent on 2026-08-23, and 51 failures whose most recent run
+ * started 2026-08-28 and has not produced one success since. A 30-day (or
+ * even 14-day) window blends the 2026-08-23 successes into the average and
+ * reports "36% success" — true in aggregate, and exactly the number that
+ * hides a flow that had been 100% broken for five days. 7 days is short
+ * enough to exclude that stale success and still catch every flow that
+ * failed its entire recent history: the sparsest real case in the same
+ * graph (`failure_analyzer`) still had 8 failing calls inside the window.
+ *
+ * The rule is "every call in the window failed", not "some did" or "the
+ * rate dropped below X%". `transcript_extractor` in the same graph has a
+ * genuine 3.4% failure rate (4 of 118) from ordinary network blips — always
+ * sandwiched between successes, never two in a row — so a rate-based
+ * threshold anywhere below 100% has to guess a cutoff nothing in the
+ * measured data motivates. "Zero successes" needs no cutoff and is exactly
+ * the shape both real defects had (`guard_proposer`: 69 calls, 69 failures,
+ * ever).
+ *
+ * `minCalls` counts PRIMARY calls (`total_calls`, `attempt_index === 0`),
+ * not provider attempts (`total_attempts`): a single call whose failover
+ * chain tried three providers and failed all three is one data point, not
+ * three, and gating on attempts would treat that blip as the trend
+ * `minCalls` exists to rule out.
+ *
+ * Three outcomes, deliberately not two — "found a problem" and "found
+ * nothing" collapse "measured healthy" and "measured nothing" into the same
+ * silence, which is the honesty gap this row exists to close:
+ *   - no rows in the window at all (table absent, never run, or nothing
+ *     recent) → no row. Silence here means "nothing to report", not "fine" —
+ *     the same convention `guard_activity` and `citation_compliance` use.
+ *   - rows exist, none of them a 100%-failing flow → an informational row
+ *     naming what WAS measured, so "healthy" is a stated fact, not an
+ *     absence of complaint.
+ *   - a flow at 100% failure with ≥ minCalls primary calls → warn, not fail:
+ *     the rest of memesh (keyword search, everything not LLM-backed) is
+ *     unaffected, the same reasoning `embeddings.threw` uses.
+ */
+function inspectLlmTelemetryHealth(
+  db: MemeshDatabase,
+  windowDays: number = LLM_TELEMETRY_HEALTH_WINDOW_DAYS,
+  minCalls: number = LLM_TELEMETRY_HEALTH_MIN_CALLS,
+): DoctorCheck | undefined {
+  let summaries: TelemetrySummary[];
+  try {
+    summaries = summariseTelemetry(windowDays, db);
+  } catch {
+    // No `llm_telemetry` table (a database from before it existed) or an
+    // unreadable one: there is nothing here to diagnose, and reporting
+    // "healthy" would be a claim this function never checked.
+    return undefined;
+  }
+  if (summaries.length === 0) return undefined;
+
+  const broken = summaries
+    .filter((s) => s.total_calls >= minCalls && s.successes === 0)
+    .sort((a, b) => b.total_calls - a.total_calls);
+
+  if (broken.length > 0) {
+    // `total_calls` (primary attempts) and `failures` (a status count over
+    // ALL attempts, primary + fallback) are different units — a flow whose
+    // failover chain fires reads e.g. 3 calls, 6 failed attempts, and
+    // "3/6" would print backwards ("more failures than calls"). Stating the
+    // call count and "0 succeeded" (true by the filter above) says the same
+    // thing without mixing them.
+    const detail = broken.map((s) => `${s.flow} (${s.total_calls} call${s.total_calls === 1 ? '' : 's'}, 0 succeeded)`).join(', ');
+    return createCheck(
+      'llm_telemetry_health',
+      'AI feature health',
+      'warn',
+      `${broken.length} AI-backed feature${broken.length === 1 ? '' : 's'} failed every call in the last `
+        + `${windowDays} days: ${detail}. Those features are silently doing nothing.`,
+      'Run `memesh telemetry` for the full per-flow detail, then check the model/provider configured for '
+        + 'the failing flow. `memesh doctor --probe` confirms whether it answers a live call.',
+      { code: 'llm-telemetry.silent-failure', params: { count: broken.length, detail, windowDays } },
+    );
+  }
+
+  const totalCalls = summaries.reduce((n, s) => n + s.total_calls, 0);
+  const totalSuccesses = summaries.reduce((n, s) => n + s.successes, 0);
+  const rate = totalCalls > 0 ? Math.round((totalSuccesses / totalCalls) * 100) : 100;
+  return createInfo(
+    'llm_telemetry_health',
+    'AI feature health',
+    `${summaries.length} AI-backed flow${summaries.length === 1 ? '' : 's'} made ${totalCalls} call(s) in the `
+      + `last ${windowDays} days; ${rate}% succeeded.`,
+  );
+}
+
 /**
  * Does the configured LLM actually answer?
  *
@@ -3367,6 +3475,13 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
         ));
       }
     }
+
+    // Has an AI-backed feature quietly stopped working? See
+    // inspectLlmTelemetryHealth's own doc for the window/threshold and the
+    // measurements behind them. Zero cost (a local read), so unlike
+    // inspectLlmProbe below this runs unconditionally, not behind --probe.
+    const llmTelemetryHealth = inspectLlmTelemetryHealth(db as unknown as MemeshDatabase);
+    if (llmTelemetryHealth) dbChecks.push(llmTelemetryHealth);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'unknown database error';
 

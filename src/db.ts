@@ -7,7 +7,7 @@ import { resolveEmbeddingDimension } from './core/config.js';
 import { computeSignalScore } from './core/signal-scorer.js';
 import { getDbPath } from './core/paths.js';
 import { insertFtsRow, joinIndexedObservations, removeFromFts } from './storage/fts-index.js';
-import { dedupeObservations, dropArchivedIndexRows, retractZeroEditClaims, splitFusedLessons } from './storage/graph-repairs.js';
+import { dedupeObservations, dropArchivedIndexRows, retractZeroEditClaims, splitFusedLessons, repairFusedLessonShellHistory } from './storage/graph-repairs.js';
 import {
   SCHEMA_SQL,
   FTS_SQL,
@@ -192,6 +192,13 @@ function migrateToCurrentSchema(db: MemeshDatabase, resolvedPath: string): void 
       if (dim > 0) markReindexOwed(dim, dim, 'vectors-missing', conn);
     },
   });
+
+  // D15: shells splitFusedLessons emptied and archived before this file
+  // learned to zero their recall_hits/recall_misses still carry the fused
+  // bucket's stale history. Runs after splitFusedLessons so it only ever
+  // sees shells that pass has already produced (a split_from referrer must
+  // exist), never a bucket mid-split in the same open.
+  repairFusedLessonShellHistory(db);
 
   // Phase-2 of #39 (LLM cluster compactor): proposed digests live in
   // a staging table, written by the dreamer and reviewed by the user
