@@ -695,7 +695,14 @@ describe.runIf(process.platform !== 'win32').sequential('AgentRouter real SQLite
 
   it('does not infer missing metadata and heartbeat refreshes the authoritative lease', async () => {
     const { db, socketPath, token } = setup();
-    await startRouter(db, socketPath, token, { lease_ms: 120 });
+    // A long lease on purpose, for the same reason as the discover test above.
+    // What this proves is that a heartbeat moves lease_expires_at_ms forward
+    // and that absent metadata stays null — neither needs the lease to be
+    // short. With lease_ms: 120 the client heartbeats every 60 ms, and a
+    // loaded CI runner let the registration lapse between connect and the
+    // first discover, so `initial.cards` came back empty: run 33635969712,
+    // ubuntu Node 24, on a PR that never touched this code.
+    await startRouter(db, socketPath, token, { lease_ms: 5_000 });
     const host = await RouterHostClient.connect({
       socketPath, token, project: 'project-a', principal: 'principal-a', session: 'session-a',
     });
@@ -712,7 +719,7 @@ describe.runIf(process.platform !== 'win32').sequential('AgentRouter real SQLite
     await expect(sendAgentRouterRequest(socketPath, {
       version: 1, type: 'heartbeat', request_id: randomUUID(), project: 'project-a',
       session_instance_id: 'session-a', connection_id: host.connectionId, generation: host.generation, hops: 0,
-    })).resolves.toMatchObject({ generation: host.generation, lease_ms: 120 });
+    })).resolves.toMatchObject({ generation: host.generation, lease_ms: 5_000 });
     const refreshed = await discover();
     expect((refreshed.cards as Frame[])[0].lease_expires_at_ms).toBeGreaterThan(initialLease);
   });
