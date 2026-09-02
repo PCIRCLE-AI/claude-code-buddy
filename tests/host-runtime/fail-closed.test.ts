@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { runHostEntry } from '../../src/host-runtime/entry.js';
 
 /**
  * Every shipped host runtime must fail CLOSED and say why.
@@ -67,4 +68,50 @@ describe.skipIf(process.platform === 'win32')('host runtimes fail closed with a 
       }
     });
   }
+});
+
+/**
+ * The same contract at source level. The spawn tests above prove the wiring —
+ * that each shipped binary really routes through this — but they run `dist/`,
+ * so a mutation to `src/` cannot make them fail until a rebuild happens. These
+ * pin the behaviour where the code lives, with no build in between.
+ */
+describe('runHostEntry', () => {
+  const capture = () => {
+    const written: string[] = [];
+    return { written, stream: { write: (chunk: string) => { written.push(chunk); return true; } } };
+  };
+
+  it('returns 0 and writes nothing when the host starts', async () => {
+    const { written, stream } = capture();
+    await expect(runHostEntry('memesh-host-test', async () => {}, stream)).resolves.toBe(0);
+    expect(written).toEqual([]);
+  });
+
+  it('names the binary and the real reason, on one line, and returns 1', async () => {
+    const { written, stream } = capture();
+    const code = await runHostEntry('memesh-host-test', async () => {
+      throw new Error('A host config file is required via --config or MEMESH_HOST_CONFIG.');
+    }, stream);
+    expect(code).toBe(1);
+    expect(written).toEqual([
+      'memesh-host-test: A host config file is required via --config or MEMESH_HOST_CONFIG.\n',
+    ]);
+  });
+
+  it('does not swallow the reason behind a generic message', async () => {
+    // The `claude` host used to print "session startup failed." and discard
+    // the error — fail-closed, but it threw away the sentence that says what
+    // to do. This is the assertion that would have caught that.
+    const { written, stream } = capture();
+    await runHostEntry('memesh-host-test', async () => { throw new Error('the actual reason'); }, stream);
+    expect(written.join('')).toContain('the actual reason');
+    expect(written.join('')).not.toMatch(/failed\.?$/);
+  });
+
+  it('reports a non-Error throw rather than printing [object Object]', async () => {
+    const { written, stream } = capture();
+    await runHostEntry('memesh-host-test', async () => { throw 'plain string failure'; }, stream);
+    expect(written.join('')).toBe('memesh-host-test: plain string failure\n');
+  });
 });

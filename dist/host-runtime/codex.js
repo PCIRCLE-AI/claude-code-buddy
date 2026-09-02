@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CodexAppServerDisconnectedError, CodexAppServerTimeoutError, createCodexAppServerAdapter, startCodexAppServerThread, } from '../host-adapters/codex-app-server.js';
 import { assertSecureLocalHostRuntimeSupported, readHostConfig, readTokenFile, requiredString, } from './config.js';
+import { runHostEntry } from './entry.js';
 import { connectRouterHost } from './router-client.js';
 const DEFAULT_STARTUP_TIMEOUT_MS = 15_000;
 const STARTUP_RETRY_MS = 50;
@@ -206,13 +207,7 @@ async function runManagedCodexHost() {
 }
 const entryPath = process.argv[1];
 if (entryPath && isExecutedModule(entryPath, import.meta.url)) {
-    try {
-        await runManagedCodexHost();
-    }
-    catch (error) {
-        process.stderr.write(`memesh-host-codex: ${error instanceof Error ? error.message : String(error)}\n`);
-        process.exitCode = 1;
-    }
+    process.exitCode = await runHostEntry('memesh-host-codex', runManagedCodexHost);
 }
 function isExecutedModule(entryPath, moduleUrl) {
     try {

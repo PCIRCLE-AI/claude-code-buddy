@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AcpClientHostAdapter, } from '../host-adapters/acp-client.js';
 import { assertSecureLocalHostRuntimeSupported, optionalStringArray, readHostConfig, readTokenFile, requiredString, } from './config.js';
+import { runHostEntry } from './entry.js';
 export const ACP_SESSION_UPDATE_MAX_RECORD_BYTES = 64 * 1024;
 export const ACP_SESSION_UPDATE_MAX_FILE_BYTES = 1024 * 1024;
 export const ACP_SESSION_UPDATE_MAX_RECORDS = 1024;
@@ -329,13 +330,7 @@ async function runAcpHost() {
 }
 const entryPath = process.argv[1];
 if (entryPath && isExecutedModule(entryPath, import.meta.url)) {
-    try {
-        await runAcpHost();
-    }
-    catch (error) {
-        process.stderr.write(`memesh-host-acp: ${error instanceof Error ? error.message : String(error)}\n`);
-        process.exitCode = 1;
-    }
+    process.exitCode = await runHostEntry('memesh-host-acp', runAcpHost);
 }
 function isExecutedModule(entryPath, moduleUrl) {
     try {

@@ -24,6 +24,7 @@ import {
   readTokenFile,
   requiredString,
 } from './config.js';
+import { runHostEntry } from './entry.js';
 
 const CHANNEL_INSTRUCTIONS = [
   'Claude Channels must be enabled once for this session.',
@@ -276,14 +277,5 @@ function isMainModule(): boolean {
 }
 
 if (isMainModule()) {
-  try {
-    await main();
-  } catch (error) {
-    // Was `catch {}` with a generic "session startup failed." — fail-closed,
-    // but it discarded the one sentence the user needed ("A host config file
-    // is required via --config or MEMESH_HOST_CONFIG"). Hiding the reason is
-    // the same defect as printing a stack trace, in the other direction.
-    process.stderr.write(`memesh-host-claude: ${error instanceof Error ? error.message : String(error)}\n`);
-    process.exitCode = 1;
-  }
+  process.exitCode = await runHostEntry('memesh-host-claude', main);
 }

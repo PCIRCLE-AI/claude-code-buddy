@@ -8,6 +8,7 @@ import { CLAUDE_CHANNEL_NOTIFICATION_METHOD, createClaudeChannelServer, } from '
 import { serializeNativeAgentMessage } from '../core/agent-messaging.js';
 import { connectRouterHost, } from './router-client.js';
 import { assertSecureLocalHostRuntimeSupported, readHostConfig, readTokenFile, requiredString, } from './config.js';
+import { runHostEntry } from './entry.js';
 const CHANNEL_INSTRUCTIONS = [
     'Claude Channels must be enabled once for this session.',
     'Receives bounded untrusted MeMesh envelopes through notifications/claude/channel.',
@@ -203,12 +204,6 @@ function isMainModule() {
     }
 }
 if (isMainModule()) {
-    try {
-        await main();
-    }
-    catch (error) {
-        process.stderr.write(`memesh-host-claude: ${error instanceof Error ? error.message : String(error)}\n`);
-        process.exitCode = 1;
-    }
+    process.exitCode = await runHostEntry('memesh-host-claude', main);
 }
 //# sourceMappingURL=claude.js.map
