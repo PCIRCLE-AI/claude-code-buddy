@@ -13,6 +13,7 @@ import { remember, recallWithConflicts, forget, exportMemories, importMemories, 
 import { readConfig, writeConfig, maskApiKey, detectCapabilities } from '../../core/config.js';
 import { MAX_LANGUAGE_LENGTH, languageValueError } from '../../core/output-language.js';
 import { getDbPath, getProjectName, homeDir, redactSecrets, redactUserPaths } from '../../core/paths.js';
+import { agentScopeIdRejection, canonicalAgentScopeId } from '../../core/agent-scope-id.js';
 import { flushPendingEmbeddings, canRefillVectorIndex } from '../../core/embedder.js';
 import { NAMESPACES } from '../../core/types.js';
 import { assembleBriefing } from '../../core/briefing.js';
@@ -1124,8 +1125,14 @@ agentCmd
     const common = {
       router_socket: path.join(messageDir, 'agent-router.sock'),
       token_file: routerTokenFile,
-      project: opts.project,
-      principal_id: opts.principal,
+      // The fourth producer of a routing identity, after the MCP, HTTP and CLI
+      // message surfaces. `send` refuses a path-shaped project or recipient,
+      // so a host configured under one would register a principal that nothing
+      // can address: the failure would surface as an error about the SENDER's
+      // argument, hours later, rather than about this config. Refuse it here,
+      // with the same message, at the moment the config is written.
+      project: requireAgentScopeArg(opts.project, 'project', '--project'),
+      principal_id: requireAgentScopeArg(opts.principal, 'recipient', '--principal'),
       ...(opts.model === undefined ? {} : { model: boundedCliDeclaration(opts.model, '--model', 200) }),
       ...(opts.workSummary === undefined ? {} : { work_summary: boundedCliDeclaration(opts.workSummary, '--work-summary', 200) }),
     };
@@ -2097,9 +2104,19 @@ kgCmd
     });
   });
 
+/**
+ * A `memesh agent setup` identity argument, in the canonical form the message
+ * surfaces use, or a refusal naming the flag. See core/agent-scope-id.ts.
+ */
+function requireAgentScopeArg(value: string, field: string, flag: string): string {
+  const rejection = agentScopeIdRejection(field, value);
+  if (rejection) throw new Error(`${flag}: ${rejection}`);
+  return canonicalAgentScopeId(value);
+}
+
 kgCmd
   .command('rename-project')
-  .description('Merge or rename a project:<name> tag across all entities (heals mis-homed tags from before git-based project identity)')
+  .description('Merge or rename a project across all entities AND durable agent messages (heals mis-homed tags from before git-based project identity, and the message scopes that go with them)')
   .option('--from <name>', 'Existing project name to rewrite. Omit both --from/--to to just LIST all project tags + counts.')
   .option('--to <name>', 'New project name to rewrite it to')
   .option('--apply', 'Actually write the change. Default is a dry-run preview. Backs up the DB first.')
@@ -2132,12 +2149,16 @@ kgCmd
         console.log(`Dry-run: project:${opts.from} → project:${opts.to}`);
         console.log(`  ${preview.affectedEntities} entit${preview.affectedEntities === 1 ? 'y' : 'ies'} carry project:${opts.from}`);
         console.log(`  ${preview.renamed} would be renamed, ${preview.merged} already have project:${opts.to} (their project:${opts.from} row would be removed)`);
+        // A project identity is half the key of a durable-message inbox, so a
+        // rename that moved only the tags left the messages in a scope nobody
+        // polls. Reported separately because it is a different kind of row.
+        console.log(`  ${preview.messageRows} durable agent-message row(s) scoped to ${opts.from} would move to ${opts.to}`);
         console.log(`\nNothing written. Re-run with --apply to commit (the DB is backed up first).`);
         return;
       }
 
-      if (preview.affectedEntities === 0) {
-        console.log(`No entities carry project:${opts.from} — nothing to do.`);
+      if (preview.affectedEntities === 0 && preview.messageRows === 0) {
+        console.log(`Nothing carries project ${opts.from} — no entity tags and no agent-message rows. Nothing to do.`);
         return;
       }
 
@@ -2159,6 +2180,7 @@ kgCmd
       if (opts.json) { console.log(JSON.stringify({ ...result, backupPath }, null, 2)); return; }
       console.log(`✅ project:${opts.from} → project:${opts.to}`);
       console.log(`  ${result.renamed} renamed, ${result.merged} merged (${result.affectedEntities} entities total)`);
+      console.log(`  ${result.messageRows} agent-message row(s) moved${result.messageRowsBlocked > 0 ? `, ${result.messageRowsBlocked} left in place (${opts.to} already holds an equivalent row)` : ''}`);
       console.log(`  Backup: ${backupPath}`);
       console.log(`  Restore if needed: cp "${backupPath}" "${dbPath}"`);
     });

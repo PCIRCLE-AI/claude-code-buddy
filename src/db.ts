@@ -7,7 +7,7 @@ import { resolveEmbeddingDimension } from './core/config.js';
 import { computeSignalScore } from './core/signal-scorer.js';
 import { getDbPath } from './core/paths.js';
 import { insertFtsRow, joinIndexedObservations, removeFromFts } from './storage/fts-index.js';
-import { dedupeObservations, dropArchivedIndexRows, retractZeroEditClaims, splitFusedLessons, repairFusedLessonShellHistory } from './storage/graph-repairs.js';
+import { dedupeObservations, dropArchivedIndexRows, normalizeAgentScopePaths, repairFusedLessonShellHistory, retractZeroEditClaims, splitFusedLessons } from './storage/graph-repairs.js';
 import {
   SCHEMA_SQL,
   FTS_SQL,
@@ -182,6 +182,12 @@ function migrateToCurrentSchema(db: MemeshDatabase, resolvedPath: string): void 
   // row is re-derived, and a split-out lesson gets one the same way.
   dedupeObservations(db);
   retractZeroEditClaims(db);
+
+  // Durable-message scope identities written as filesystem paths, which split
+  // one inbox across two spellings. The write path now refuses the shape; this
+  // repairs the rows already there. See storage/graph-repairs.ts for what it
+  // deliberately does NOT merge.
+  normalizeAgentScopePaths(db);
   splitFusedLessons(db, {
     deriveTitle: deriveHeuristicTitle,
     markReindexOwed: (conn) => {

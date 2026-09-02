@@ -7,6 +7,11 @@ import { z } from 'zod';
 import { NAMESPACES } from '../core/types.js';
 import { TITLE_MAX_LENGTH } from '../core/title.js';
 import { AGENT_MESSAGE_JSON_MAX_BYTES, AGENT_NATIVE_MESSAGE_MAX_BYTES } from '../core/agent-messaging.js';
+import {
+  AGENT_SCOPE_ID_MAX_LENGTH,
+  agentScopeIdRejection,
+  canonicalAgentScopeId,
+} from '../core/agent-scope-id.js';
 
 const sanitizeName = (s: string) => s.replace(/[\r\n\t]+/g, ' ').trim();
 const nameField = z.string().min(1).max(255).transform(sanitizeName).refine(s => s.length > 0, {
@@ -160,9 +165,43 @@ export const TaskStateSchema = z.object({
 // and get a success-shaped response back with nothing recorded.
 }).strict();
 
+const nonBlankBounded = (max: number) => z.string().trim().min(1).max(max);
+
+/**
+ * A routing identifier: `project`, `recipient`, and the `actor` those two
+ * derive. One inbox is keyed on (`project`, `recipient`), so two spellings of
+ * one identity are two inboxes — a recipient fetching under one never sees
+ * what was sent under the other, and `briefing` counts unread per spelling.
+ *
+ * Canonicalised to NFC (`canonicalAgentScopeId`) and refused outright when it
+ * is spelled as an absolute filesystem path. The refusal, rather than a
+ * rewrite, is the point: `getProjectName` cannot produce a path at any of its
+ * three layers, so such a value is provably not an identity this product
+ * derived — but silently turning `/root` into `root` would just as silently
+ * fuse `/tmp/root` with `/var/root`. See core/agent-scope-id.ts for the whole
+ * argument, including which look-alike pairs are deliberately left apart.
+ *
+ * The same rule is enforced again in `core/agent-messaging.ts`, which is the
+ * last gate before SQL. This one exists so an MCP, HTTP, or CLI caller is told
+ * which field is wrong before anything else runs.
+ */
+const agentScopeId = (field: string) =>
+  nonBlankBounded(AGENT_SCOPE_ID_MAX_LENGTH)
+    .transform(canonicalAgentScopeId)
+    .refine((value) => agentScopeIdRejection(field, value) === null, {
+      error: (issue) =>
+        agentScopeIdRejection(field, String(issue.input)) ?? `${field} is not a valid identifier.`,
+    });
+
+// `briefing` reads the SAME inbox key the message tool writes — it counts the
+// deliveries for one exact (project, recipient) — so it must ask the question
+// in the same spelling. Left as free text it would report "0 unread" for a
+// recipient whose messages are all there under the canonical form, which is
+// the split this change exists to close, reappearing on the surface an agent
+// actually reads.
 export const BriefingSchema = z.object({
-  project: z.string().min(1).max(200).optional(),
-  recipient: z.string().trim().min(1).max(200).optional(),
+  project: agentScopeId('project').optional(),
+  recipient: agentScopeId('recipient').optional(),
 }).strict();
 
 // `why` deliberately takes commit HASHES, not a repo path: the server never
@@ -181,7 +220,6 @@ export const UserPatternsSchema = z.object({
     .describe('Specific categories to return. Omit for all.'),
 }).strict();
 
-const nonBlankBounded = (max: number) => z.string().trim().min(1).max(max);
 
 /**
  * Agent-facing entry to the governed memory-to-product loop.
@@ -212,14 +250,19 @@ export const ImprovementSchema = z.discriminatedUnion('action', [
 // discover the ordering rules from one contract.  The split actions are
 // intentional: poll/fetch are reads, while intake, ack, disposition, and
 // activation are separate explicit facts.  No read is allowed to imply ACK.
-const messageProject = nonBlankBounded(200);
-const messageAgentId = nonBlankBounded(200);
+const messageProject = agentScopeId('project');
+const messageRecipient = agentScopeId('recipient');
+// `sender` is provenance, not routing: it keys no inbox, and
+// `agent_message_idempotency` is keyed (project, sender, idempotency_key), so
+// canonicalising it would mutate replay-protection keys for no delivery
+// benefit. Left exactly as it was.
+const messageSender = nonBlankBounded(AGENT_SCOPE_ID_MAX_LENGTH);
 const messageId = nonBlankBounded(255);
 const messageCursor = nonBlankBounded(160);
 const messageIdempotencyKey = nonBlankBounded(200);
 const messageReceiptBase = {
   project: messageProject,
-  recipient: messageAgentId,
+  recipient: messageRecipient,
   message_id: messageId,
   idempotency_key: messageIdempotencyKey,
 };
@@ -228,8 +271,8 @@ export const MessageSchema = z.discriminatedUnion('action', [
   z.object({
     action: z.literal('send'),
     project: messageProject,
-    sender: messageAgentId,
-    recipient: messageAgentId,
+    sender: messageSender,
+    recipient: messageRecipient,
     target_kind: z.enum(['principal', 'session']).default('principal'),
     idempotency_key: messageIdempotencyKey,
     payload: z.json().refine(
@@ -246,7 +289,7 @@ export const MessageSchema = z.discriminatedUnion('action', [
   z.object({
     action: z.literal('poll'),
     project: messageProject,
-    recipient: messageAgentId,
+    recipient: messageRecipient,
     cursor: messageCursor.optional(),
     wait_ms: z.number().int().min(0).max(30_000).default(0),
     limit: z.number().int().min(1).max(100).default(20),
@@ -259,7 +302,7 @@ export const MessageSchema = z.discriminatedUnion('action', [
   z.object({
     action: z.literal('fetch'),
     project: messageProject,
-    recipient: messageAgentId,
+    recipient: messageRecipient,
     target_kind: z.enum(['principal', 'session']).default('principal'),
     message_id: messageId,
   }).strict(),
@@ -287,7 +330,7 @@ export const MessageSchema = z.discriminatedUnion('action', [
   z.object({
     action: z.literal('receipts'),
     project: messageProject,
-    recipient: messageAgentId,
+    recipient: messageRecipient,
     message_id: messageId,
   }).strict(),
 ]);

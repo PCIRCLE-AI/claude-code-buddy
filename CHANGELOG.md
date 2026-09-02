@@ -323,6 +323,66 @@ All notable changes to MeMesh are documented here.
   rather than hardcoding one, so a future move cannot leave the check pointing
   at a file nobody loads.
 
+- **One agent's inbox was split across spellings of its own name.**
+  `agent_message_deliveries` keys an inbox on (`project`, `recipient`) and both
+  columns were free text with no canonical form, so a recipient that fetched
+  under one spelling never saw what was sent under the other, and `briefing`
+  counted unread per spelling. Measured on a real graph: `recipient` held
+  `root` 25 times beside `/root` 20, and one delivery was scoped to the project
+  `/Users/…/memesh-llm-memory` — a value `getProjectName` cannot produce at any
+  of its three layers, so nothing would ever match it again. Both spellings had
+  their own receipts, so both inboxes were live.
+  Scope identifiers (`project`, `recipient`, and the `actor` they derive) are
+  now canonicalised to Unicode NFC on every message action, read as well as
+  write, and a value spelled as an absolute filesystem path — POSIX, Windows
+  drive, or UNC — is refused at the transport boundary
+  (`src/transports/schemas.ts`) and again in core before any SQL runs, with an
+  error naming the field and a valid value. `sender` is deliberately unchanged:
+  it is provenance, it keys no inbox, and it keys replay protection.
+  The rule covers every surface that touches that key, not only the `message`
+  tool: `briefing` counts unfetched deliveries for one exact
+  (`project`, `recipient`) and now asks in the canonical spelling, and
+  `memesh agent setup --project/--principal` refuses a path-shaped identity at
+  the moment the host config is written rather than letting it surface later as
+  an error about some other agent's send.
+  A one-shot repair (`normalizeAgentScopePaths` in
+  `src/storage/graph-repairs.ts`) rewrites the rows already written, and a new
+  invariant, `agent-message-scope-ids-are-not-filesystem-paths`, watches the
+  same columns in `scripts/audit/memory-invariants.mjs`. On the maintainer's
+  graph the repair moved 96 values and dropped 2 poll cursors that the
+  canonical identity already covered; every message, delivery, sender, payload
+  and timestamp was preserved, and the only identities that changed were
+  `/root` → `root` and `/Users/…/memesh-llm-memory` → `memesh-llm-memory`. Two poll
+  cursors whose canonical identity already held that exact position were
+  dropped rather than forced past the UNIQUE index; an agent still holding one
+  of those opaque tokens gets an explicit scope error on its next
+  `poll --cursor` rather than a silent restart. The repair covers the durable
+  message tables only — the router and presence tables take their `project`
+  from an owner-written host config, which is why that entry point is gated
+  instead — and `memesh kg rename-project` likewise moves the message scopes,
+  not `agent_principals`, so a renamed project needs its host config reissued.
+
+  Two look-alike pairs are deliberately left apart, because merging identities
+  that are genuinely different is worse than the split it would close.
+  `claude-code:session_01PDMer…` is NOT fused with `session_01PDMer…`: that
+  prefix appears nowhere in this repository's source, artifacts or history, so
+  there is no convention to normalise against, the two were used with different
+  `target_kind`, and neither carries a receipt. And the largest split — the
+  projects `memesh` (38 messages) and `memesh-llm-memory` (28) — is not merged
+  automatically even though they *are* one repository renamed on GitHub,
+  because the evidence that proves it is a network call against one owner's
+  account and the repair runs unattended on every machine.
+
+- **`memesh kg rename-project` now moves durable message scopes, not just
+  tags.** A project identity is half the key of an inbox as well as an entity
+  tag, so renaming only the tags left every message behind in a scope nobody
+  polls — which is how the `memesh` / `memesh-llm-memory` split above survived.
+  The command now counts and moves the `project` column of the durable-message
+  tables in the same transaction, still dry-run by default and still backing
+  the database up before `--apply`, and it no longer stops at "no entities
+  carry project:<x>" when only messages carry it. That is the owner-driven
+  answer to a rename, and the reason the unattended repair does not guess one.
+
 - **The Ollama host guard now rebuilds the request origin instead of forwarding
   the configured string.** `resolveOllamaHost` used to validate a persisted
   `llm.host` and then pass the same string to `fetch`, which left CodeQL alert

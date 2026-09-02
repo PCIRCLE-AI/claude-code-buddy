@@ -101,6 +101,36 @@ function resolveDbPath(argv) {
   return join(dir, 'knowledge-graph.db');
 }
 
+/**
+ * Every durable-message column that holds a routing identity — mirrored from
+ * `AGENT_MESSAGE_SCOPE_COLUMNS` in src/core/agent-scope-id.ts (this script
+ * cannot import TypeScript). Keep the two in step: the set the write path
+ * refuses, the set src/storage/graph-repairs.ts rewrites, and the set this
+ * invariant watches must be equal, or the result is either a hole or an
+ * invariant that is red forever.
+ */
+const AGENT_MESSAGE_SCOPE_COLUMNS = [
+  ['agent_messages', ['project', 'recipient']],
+  ['agent_message_deliveries', ['project', 'recipient']],
+  ['agent_message_events', ['project', 'recipient']],
+  ['agent_message_cursors', ['project', 'recipient']],
+  ['agent_message_receipts', ['project', 'recipient', 'actor']],
+  ['agent_message_idempotency', ['project']],
+  ['agent_ack_facts', ['actor']],
+  ['agent_workflow_facts', ['actor']],
+  ['agent_retention_facts', ['actor']],
+];
+
+/**
+ * The SQL spelling of `isFilesystemPathScopeId` (src/core/agent-scope-id.ts):
+ * a POSIX absolute path, a UNC path, or a Windows drive path. `char(92)` is a
+ * backslash — writing it as a literal inside a JS template would need three
+ * levels of escaping and is the kind of thing that silently stops matching.
+ */
+const PATH_SHAPED = (col) =>
+  `(substr(${col}, 1, 1) IN ('/', char(92))`
+  + ` OR (substr(${col}, 2, 1) = ':' AND substr(${col}, 3, 1) IN ('/', char(92))))`;
+
 /** One invariant: a SQL query whose rows are violations. Zero rows = holds. */
 const INVARIANTS = [
   {
@@ -338,6 +368,25 @@ const INVARIANTS = [
       LIMIT ${MAX_ROWS + 1}`,
     row: (r) => r.name,
     reportOnly: true,
+  },
+  {
+    id: 'agent-message-scope-ids-are-not-filesystem-paths',
+    refs: 'message identity',
+    says: 'no durable-message project, recipient or actor is spelled as a filesystem path',
+    // An inbox is keyed on (project, recipient), so two spellings of one
+    // identity are two inboxes: a recipient that fetches under one never sees
+    // what was sent under the other, and briefing counts unread per spelling.
+    // A filesystem path is the spelling that is provably wrong rather than
+    // merely different — getProjectName cannot produce one at any of its three
+    // layers — so it is the shape the write path refuses and this watches.
+    // Measured before the fix on the maintainer's graph: recipient `/root` 20
+    // rows beside `root` 25, and one project `/Users/…/memesh-llm-memory`.
+    // No LIMIT inside the UNION: it would bound candidates per table, not
+    // violations; the cap is applied after the union, by the caller.
+    sql: AGENT_MESSAGE_SCOPE_COLUMNS.flatMap(([table, columns]) => columns.map((column) => `
+      SELECT '${table}' AS tbl, '${column}' AS col, ${column} AS value, COUNT(*) AS n
+      FROM ${table} WHERE ${PATH_SHAPED(column)} GROUP BY ${column}`)).join('\n      UNION ALL'),
+    row: (r) => `${r.tbl}.${r.col} = ${JSON.stringify(r.value)}  rows=${r.n}`,
   },
 ];
 

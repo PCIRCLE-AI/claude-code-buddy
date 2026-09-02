@@ -46,11 +46,6 @@
       "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
       "triaged": "2026-08-04"
     },
-    "C1 tests/core/project-tags.test.ts": {
-      "class": "SAFE",
-      "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
-      "triaged": "2026-08-04"
-    },
     "C1 tests/hooks/pre-edit-recall.test.ts": {
       "class": "SAFE",
       "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",

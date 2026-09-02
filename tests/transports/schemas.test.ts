@@ -5,6 +5,8 @@ import {
   ForgetSchema,
   LearnSchema,
   ImportSchema,
+  MessageSchema,
+  BriefingSchema,
 } from '../../src/transports/schemas.js';
 
 // ── RememberSchema ──────────────────────────────────────────────────────────
@@ -188,5 +190,76 @@ describe('ImportSchema', () => {
   it('rejects missing merge_strategy', () => {
     const result = ImportSchema.safeParse({ data: validData });
     expect(result.success).toBe(false);
+  });
+});
+
+// ── MessageSchema scope identifiers ─────────────────────────────────────────
+
+describe('MessageSchema scope identifiers', () => {
+  const send = {
+    action: 'send' as const,
+    project: 'memesh',
+    sender: 'author',
+    recipient: 'reviewer-agent',
+    idempotency_key: 'k-1',
+    payload: 'hello',
+  };
+
+  it('canonicalises project and recipient to NFC at the boundary', () => {
+    const parsed = MessageSchema.parse({ ...send, project: 'proje\u0301t', recipient: 'cafe\u0301-reviewer' });
+    expect(parsed.action).toBe('send');
+    if (parsed.action !== 'send') throw new Error('unreachable');
+    expect(parsed.project).toBe('proj\u00e9t');
+    expect(parsed.recipient).toBe('caf\u00e9-reviewer');
+  });
+
+  it('refuses an absolute path and the error names the field and a valid value', () => {
+    const bad = MessageSchema.safeParse({ ...send, recipient: '/root' });
+    expect(bad.success).toBe(false);
+    const message = bad.success ? '' : bad.error.issues.map((i) => i.message).join(' | ');
+    expect(message).toContain('recipient must be a stable identifier, not a filesystem path');
+    expect(message).toContain('"/root"');
+    expect(message).toContain('"root"');
+
+    const badProject = MessageSchema.safeParse({ ...send, project: '/Users/x/Projects/memesh-llm-memory' });
+    expect(badProject.success).toBe(false);
+    const projectMessage = badProject.success ? '' : badProject.error.issues.map((i) => i.message).join(' | ');
+    expect(projectMessage).toContain('project must be a stable identifier');
+    expect(projectMessage).toContain('"memesh-llm-memory"');
+  });
+
+  it('refuses a path-shaped recipient on the read actions too, not only on send', () => {
+    for (const action of ['poll', 'fetch', 'receipts', 'ack'] as const) {
+      const result = MessageSchema.safeParse({
+        action, project: 'memesh', recipient: '/root', message_id: 'm-1', idempotency_key: 'k-1',
+      });
+      expect(result.success, `${action} must refuse a path-shaped recipient`).toBe(false);
+    }
+  });
+
+  it('leaves `sender` alone — it is provenance, and it keys replay protection', () => {
+    const parsed = MessageSchema.safeParse({ ...send, sender: '/root/full-board-scan-luna' });
+    expect(parsed.success).toBe(true);
+    if (parsed.success && parsed.data.action === 'send') {
+      expect(parsed.data.sender).toBe('/root/full-board-scan-luna');
+    }
+  });
+
+  it('accepts an identifier that merely contains a separator', () => {
+    // Only an ABSOLUTE path is provably not an identity this product derived.
+    expect(MessageSchema.safeParse({ ...send, recipient: 'team/reviewer' }).success).toBe(true);
+  });
+});
+
+describe('BriefingSchema scope identifiers', () => {
+  it('applies the same rule as the message tool — briefing reads the same inbox key', () => {
+    const parsed = BriefingSchema.parse({ project: 'memesh', recipient: 'cafe\u0301-reviewer' });
+    expect(parsed.recipient).toBe('caf\u00e9-reviewer');
+    const bad = BriefingSchema.safeParse({ project: 'memesh', recipient: '/root' });
+    expect(bad.success).toBe(false);
+    const message = bad.success ? '' : bad.error.issues.map((i) => i.message).join(' | ');
+    expect(message).toContain('recipient must be a stable identifier, not a filesystem path');
+    // Both fields stay optional: a generic briefing has no recipient identity.
+    expect(BriefingSchema.safeParse({}).success).toBe(true);
   });
 });

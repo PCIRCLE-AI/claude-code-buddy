@@ -362,3 +362,108 @@ describe('agent messaging durable core', () => {
     await expect(aborted).rejects.toThrow(AgentWaitAbortedError);
   });
 });
+
+describe('agent messaging scope identity', () => {
+  // An inbox is keyed on (project, recipient). Two spellings of ONE identity
+  // are two inboxes — the split measured on the maintainer's graph. The
+  // opposite mistake is worse: fusing two identities delivers one agent's
+  // messages to another. These three cases pin both edges and the refusal
+  // between them.
+
+  it('two spellings of one identity converge: an NFD recipient lands in the NFC inbox', () => {
+    // Unicode calls these canonically equivalent; SQLite compares bytes and
+    // would call them two inboxes.
+    const composed = 'caf\u00e9-reviewer';
+    const decomposed = 'cafe\u0301-reviewer';
+    expect(composed).not.toBe(decomposed);
+    expect(decomposed.normalize('NFC')).toBe(composed);
+
+    const sent = sendAgentMessage(getDatabase(), {
+      project: 'proj-nfc',
+      sender: 'author',
+      recipient: decomposed,
+      idempotency_key: 'nfc-1',
+      content_type: 'text/plain',
+      payload: 'converged',
+    });
+    expect(sent.recipient).toBe(composed);
+
+    // Stored once, under the canonical spelling...
+    const stored = getDatabase()
+      .prepare('SELECT DISTINCT recipient AS r FROM agent_message_deliveries')
+      .all() as Array<{ r: string }>;
+    expect(stored.map((row) => row.r)).toEqual([composed]);
+
+    // ...and reachable from either spelling, because reads canonicalise too.
+    for (const spelling of [composed, decomposed]) {
+      expect(fetchAgentMessage(getDatabase(), {
+        project: 'proj-nfc',
+        recipient: spelling,
+        message_id: sent.message_id,
+      }).payload).toBe('converged');
+      expect(pollAgentEvents(getDatabase(), { project: 'proj-nfc', recipient: spelling }).events).toHaveLength(1);
+    }
+  });
+
+  it('two genuinely different identities stay apart: `session_X` and `claude-code:session_X`', () => {
+    // THE dangerous failure mode. `claude-code:` looks like a namespace
+    // prefix, but it appears nowhere in this repository's source or history:
+    // there is no convention to normalise against, and stripping it would
+    // hand one agent another agent's mail. Both spellings really do occur in
+    // the maintainer's graph (17 and 14 deliveries), and they stay separate.
+    const bare = 'session_01PDMer3P4cVYeHr4KRen3Un';
+    const prefixed = `claude-code:${bare}`;
+    const db = getDatabase();
+
+    const toBare = sendAgentMessage(db, {
+      project: 'memesh', sender: 'reviewer', recipient: bare,
+      idempotency_key: 'split-1', content_type: 'text/plain', payload: 'for the bare id',
+    });
+    const toPrefixed = sendAgentMessage(db, {
+      project: 'memesh', sender: 'reviewer', recipient: prefixed,
+      idempotency_key: 'split-2', content_type: 'text/plain', payload: 'for the prefixed id',
+    });
+
+    expect(toBare.recipient).toBe(bare);
+    expect(toPrefixed.recipient).toBe(prefixed);
+    expect(count('agent_message_deliveries')).toBe(2);
+
+    // Neither can read the other's payload...
+    expect(() => fetchAgentMessage(db, { project: 'memesh', recipient: prefixed, message_id: toBare.message_id }))
+      .toThrow(AgentMessageAccessError);
+    expect(() => fetchAgentMessage(db, { project: 'memesh', recipient: bare, message_id: toPrefixed.message_id }))
+      .toThrow(AgentMessageAccessError);
+    // ...and neither sees the other's event.
+    expect(pollAgentEvents(db, { project: 'memesh', recipient: bare }).events.map((e) => e.message_id))
+      .toEqual([toBare.message_id]);
+    expect(pollAgentEvents(db, { project: 'memesh', recipient: prefixed }).events.map((e) => e.message_id))
+      .toEqual([toPrefixed.message_id]);
+  });
+
+  it('an absolute filesystem path is refused, naming the field and a valid value', () => {
+    const base = {
+      project: 'memesh-llm-memory', sender: 'author', recipient: 'root',
+      idempotency_key: 'abs-1', content_type: 'text/plain' as const, payload: 'x',
+    };
+    // `/root` is the spelling that split the maintainer's inbox. It is
+    // refused rather than silently rewritten: turning `/root` into `root`
+    // would just as silently fuse `/tmp/root` with `/var/root`.
+    expect(() => sendAgentMessage(getDatabase(), { ...base, recipient: '/root' }))
+      .toThrow(/recipient must be a stable identifier, not a filesystem path.*"\/root".*"root"/s);
+    expect(() => sendAgentMessage(getDatabase(), { ...base, project: '/Users/x/Projects/memesh-llm-memory' }))
+      .toThrow(/project must be a stable identifier, not a filesystem path.*"memesh-llm-memory"/s);
+    expect(() => sendAgentMessage(getDatabase(), { ...base, project: 'C:\\work\\repo' }))
+      .toThrow(/project must be a stable identifier/);
+    expect(count('agent_messages')).toBe(0);
+
+    // Reads are gated by the same rule, so the refused spelling cannot be
+    // used to reach rows either.
+    expect(() => pollAgentEvents(getDatabase(), { project: 'memesh-llm-memory', recipient: '/root' }))
+      .toThrow(/recipient must be a stable identifier/);
+
+    // `sender` is provenance, not routing: it keys no inbox and it keys
+    // replay protection, so it is deliberately left alone.
+    const sent = sendAgentMessage(getDatabase(), { ...base, sender: '/root/full-board-scan-luna' });
+    expect(sent.sender).toBe('/root/full-board-scan-luna');
+  });
+});

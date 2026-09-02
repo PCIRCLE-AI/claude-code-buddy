@@ -105,8 +105,8 @@ export declare const TaskStateSchema: z.ZodObject<{
     done: z.ZodOptional<z.ZodString>;
 }, z.core.$strict>;
 export declare const BriefingSchema: z.ZodObject<{
-    project: z.ZodOptional<z.ZodString>;
-    recipient: z.ZodOptional<z.ZodString>;
+    project: z.ZodOptional<z.ZodPipe<z.ZodString, z.ZodTransform<string, string>>>;
+    recipient: z.ZodOptional<z.ZodPipe<z.ZodString, z.ZodTransform<string, string>>>;
 }, z.core.$strict>;
 export declare const WhySchema: z.ZodObject<{
     file: z.ZodString;
@@ -144,9 +144,9 @@ export declare const ImprovementSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
 }, z.core.$strict>], "action">;
 export declare const MessageSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
     action: z.ZodLiteral<"send">;
-    project: z.ZodString;
+    project: z.ZodPipe<z.ZodString, z.ZodTransform<string, string>>;
     sender: z.ZodString;
-    recipient: z.ZodString;
+    recipient: z.ZodPipe<z.ZodString, z.ZodTransform<string, string>>;
     target_kind: z.ZodDefault<z.ZodEnum<{
         principal: "principal";
         session: "session";
@@ -165,19 +165,19 @@ export declare const MessageSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
     reply_to: z.ZodOptional<z.ZodString>;
 }, z.core.$strict>, z.ZodObject<{
     action: z.ZodLiteral<"poll">;
-    project: z.ZodString;
-    recipient: z.ZodString;
+    project: z.ZodPipe<z.ZodString, z.ZodTransform<string, string>>;
+    recipient: z.ZodPipe<z.ZodString, z.ZodTransform<string, string>>;
     cursor: z.ZodOptional<z.ZodString>;
     wait_ms: z.ZodDefault<z.ZodNumber>;
     limit: z.ZodDefault<z.ZodNumber>;
 }, z.core.$strict>, z.ZodObject<{
     action: z.ZodLiteral<"discover">;
-    project: z.ZodString;
+    project: z.ZodPipe<z.ZodString, z.ZodTransform<string, string>>;
     limit: z.ZodDefault<z.ZodNumber>;
 }, z.core.$strict>, z.ZodObject<{
     action: z.ZodLiteral<"fetch">;
-    project: z.ZodString;
-    recipient: z.ZodString;
+    project: z.ZodPipe<z.ZodString, z.ZodTransform<string, string>>;
+    recipient: z.ZodPipe<z.ZodString, z.ZodTransform<string, string>>;
     target_kind: z.ZodDefault<z.ZodEnum<{
         principal: "principal";
         session: "session";
@@ -188,14 +188,14 @@ export declare const MessageSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
         fetched: "fetched";
         ingested: "ingested";
     }>;
-    project: z.ZodString;
-    recipient: z.ZodString;
+    project: z.ZodPipe<z.ZodString, z.ZodTransform<string, string>>;
+    recipient: z.ZodPipe<z.ZodString, z.ZodTransform<string, string>>;
     message_id: z.ZodString;
     idempotency_key: z.ZodString;
     action: z.ZodLiteral<"intake">;
 }, z.core.$strict>, z.ZodObject<{
-    project: z.ZodString;
-    recipient: z.ZodString;
+    project: z.ZodPipe<z.ZodString, z.ZodTransform<string, string>>;
+    recipient: z.ZodPipe<z.ZodString, z.ZodTransform<string, string>>;
     message_id: z.ZodString;
     idempotency_key: z.ZodString;
     action: z.ZodLiteral<"ack">;
@@ -208,8 +208,8 @@ export declare const MessageSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
         deferred: "deferred";
     }>;
     detail: z.ZodOptional<z.ZodString>;
-    project: z.ZodString;
-    recipient: z.ZodString;
+    project: z.ZodPipe<z.ZodString, z.ZodTransform<string, string>>;
+    recipient: z.ZodPipe<z.ZodString, z.ZodTransform<string, string>>;
     message_id: z.ZodString;
     idempotency_key: z.ZodString;
     action: z.ZodLiteral<"disposition">;
@@ -221,15 +221,15 @@ export declare const MessageSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
         failed: "failed";
     }>;
     detail: z.ZodOptional<z.ZodString>;
-    project: z.ZodString;
-    recipient: z.ZodString;
+    project: z.ZodPipe<z.ZodString, z.ZodTransform<string, string>>;
+    recipient: z.ZodPipe<z.ZodString, z.ZodTransform<string, string>>;
     message_id: z.ZodString;
     idempotency_key: z.ZodString;
     action: z.ZodLiteral<"activation">;
 }, z.core.$strict>, z.ZodObject<{
     action: z.ZodLiteral<"receipts">;
-    project: z.ZodString;
-    recipient: z.ZodString;
+    project: z.ZodPipe<z.ZodString, z.ZodTransform<string, string>>;
+    recipient: z.ZodPipe<z.ZodString, z.ZodTransform<string, string>>;
     message_id: z.ZodString;
 }, z.core.$strict>], "action">;
 //# sourceMappingURL=schemas.d.ts.map

@@ -232,6 +232,31 @@ describe('CLI durable-message ingress', () => {
     }
   });
 
+  it.skipIf(process.platform === 'win32')('refuses a filesystem path as --project or --principal, before writing any config', () => {
+    // `memesh agent setup` is the fourth producer of a routing identity, and
+    // the only one outside the message tool. `send` refuses a path-shaped
+    // project or recipient, so a host configured under one would register a
+    // principal nothing can address — and the failure would surface as an
+    // error about a SENDER's argument, later, somewhere else.
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-cli-agent-'));
+    try {
+      for (const [flag, value] of [['--project', '/Users/x/Projects/repo'], ['--principal', '/root']] as const) {
+        const args = ['agent', 'setup', 'codex', '--project', 'test', '--principal', 'reviewer', '--workspace', home];
+        args[args.indexOf(flag) + 1] = value;
+        const setup = spawnSync(process.execPath, cliArgs(...args), {
+          encoding: 'utf8',
+          env: { ...process.env, HOME: home, MEMESH_AUTO_CAPTURE: 'false' },
+        });
+        expect(setup.status, setup.stdout).not.toBe(0);
+        expect(setup.stderr).toContain(`${flag}:`);
+        expect(setup.stderr).toContain('must be a stable identifier, not a filesystem path');
+      }
+      expect(fs.existsSync(path.join(home, '.memesh', 'hosts', 'codex.json'))).toBe(false);
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   it.skipIf(process.platform === 'win32')('creates reusable owner-private managed host config without a fabricated session identity', () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-cli-agent-'));
     try {

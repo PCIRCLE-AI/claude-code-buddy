@@ -7,6 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { openDatabase, closeDatabase } from '../../src/db.js';
 import { KnowledgeGraph } from '../../src/knowledge-graph.js';
 import { lessonSlug } from '../../src/core/lesson-slug.js';
+import { AGENT_MESSAGE_SCOPE_COLUMNS } from '../../src/core/agent-scope-id.js';
 
 /**
  * scripts/audit/memory-invariants.mjs is the check that would have caught
@@ -42,6 +43,22 @@ function insertEntity(db: DatabaseSync, name: string, type: string, extra: Recor
   const vals = [name, type, ...Object.values(extra)];
   db.prepare(`INSERT INTO entities (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`).run(...vals);
   return Number((db.prepare('SELECT id FROM entities WHERE name = ?').get(name) as { id: number }).id);
+}
+
+/** One message + its delivery + its event, the three rows a real send writes. */
+function seedDelivery(db: DatabaseSync, messageId: string, project: string, recipient: string): void {
+  db.prepare(
+    `INSERT INTO agent_messages (message_id, project, sender, recipient, content_type, privacy, payload_json, provenance_json)
+     VALUES (?, ?, 'sender-1', ?, 'text/plain', 'private', '"hi"', '{}')`,
+  ).run(messageId, project, recipient);
+  db.prepare(
+    `INSERT INTO agent_message_deliveries (delivery_id, message_id, project, recipient, target_kind)
+     VALUES (?, ?, ?, ?, 'principal')`,
+  ).run(`d-${messageId}`, messageId, project, recipient);
+  db.prepare(
+    `INSERT INTO agent_message_events (event_id, message_id, delivery_id, project, recipient, event_kind)
+     VALUES (?, ?, ?, ?, ?, 'message_available')`,
+  ).run(`e-${messageId}`, messageId, `d-${messageId}`, project, recipient);
 }
 
 describe('memory-invariants: read-only detector over a real graph', () => {
@@ -615,6 +632,76 @@ describe('memory-invariants: read-only detector over a real graph', () => {
       expect(r.status, r.stdout).toBe(0);
       expect(r.stdout).toContain('note global-namespace-reachable-by-injection');
       expect(r.stdout).toContain('always-memesh-on-failure');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+  /**
+   * The write path refuses a shape, the repair rewrites it, and this script
+   * watches it. Those three sets must name the same columns: a column the
+   * repair misses stays red forever, and a column the invariant misses is a
+   * hole. `AGENT_MESSAGE_SCOPE_COLUMNS` is the one list, mirrored here because
+   * a .mjs script cannot import TypeScript — so the mirror is asserted, not
+   * merely commented, exactly as `lessonSlug` above is.
+   */
+  it('mirrors AGENT_MESSAGE_SCOPE_COLUMNS from src/core/agent-scope-id.ts exactly', () => {
+    const mjs = fs.readFileSync(script, 'utf8');
+    const listed = /const AGENT_MESSAGE_SCOPE_COLUMNS = \[([\s\S]*?)\n\];/.exec(mjs);
+    if (!listed) throw new Error('AGENT_MESSAGE_SCOPE_COLUMNS not found in the audit script');
+    const mirrored = [...listed[1].matchAll(/\['([a-z_]+)',\s*\[([^\]]*)\]\]/g)]
+      .map(([, table, cols]) => `${table}:${[...cols.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]).join(',')}`);
+    const source = AGENT_MESSAGE_SCOPE_COLUMNS.map((e) => `${e.table}:${e.columns.join(',')}`);
+    expect(mirrored).toEqual(source);
+  });
+
+  it('message identity — a recipient spelled as a filesystem path fails, and the canonical spelling does not', () => {
+    const { dir, dbPath } = freshGraph();
+    try {
+      withRawDb(dbPath, (db) => {
+        seedDelivery(db, 'm-ok', 'sports-platform', 'root');
+      });
+      expect(run(dbPath).status, 'canonical spelling must be clean').toBe(0);
+
+      withRawDb(dbPath, (db) => {
+        seedDelivery(db, 'm-bad', 'sports-platform', '/root');
+      });
+      const r = run(dbPath);
+      expect(r.status, r.stdout).toBe(1);
+      expect(r.stdout).toContain('agent-message-scope-ids-are-not-filesystem-paths');
+      expect(r.stdout).toContain('agent_message_deliveries.recipient = "/root"');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('message identity — a Windows drive path and a UNC path in `project` and `actor` both fail', () => {
+    const { dir, dbPath } = freshGraph();
+    try {
+      withRawDb(dbPath, (db) => {
+        seedDelivery(db, 'm-win', 'C:\\work\\repo', 'reviewer');
+        db.prepare(
+          `INSERT INTO agent_message_receipts
+             (receipt_id, message_id, project, recipient, receipt_kind, actor, idempotency_key, request_hash, detail_json)
+           VALUES ('r1', 'm-win', 'proj', 'reviewer', 'ack', ?, 'k1', 'h1', '{}')`,
+        ).run('\\\\host\\share');
+      });
+      const r = run(dbPath);
+      expect(r.status, r.stdout).toBe(1);
+      expect(r.stdout).toContain('agent_messages.project');
+      expect(r.stdout).toContain('agent_message_receipts.actor');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('message identity — a relative-looking id with a slash inside it is NOT a violation', () => {
+    // The rule is deliberately narrow: only an ABSOLUTE path is provably not
+    // an identity this product derived. Widening it to "contains a separator"
+    // would fail agents that legitimately name themselves `team/reviewer`.
+    const { dir, dbPath } = freshGraph();
+    try {
+      withRawDb(dbPath, (db) => seedDelivery(db, 'm-rel', 'proj', 'team/reviewer'));
+      expect(run(dbPath).status).toBe(0);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

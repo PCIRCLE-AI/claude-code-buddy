@@ -30,6 +30,7 @@
 //   retractZeroEditClaims         → stop-summary-does-not-assert-zero-edits-for-bash-sessions
 //   splitFusedLessons             → explicit-lessons-not-fused-into-other-bucket
 //   repairFusedLessonShellHistory → split-lesson-shell-carries-no-recall-history
+//   normalizeAgentScopePaths      → agent-message-scope-ids-are-not-filesystem-paths
 //
 // What each pass does NOT do, and why:
 //   - The dedupe keeps the lowest id of each (entity, content) pair and leaves
@@ -65,6 +66,11 @@ import type { MemeshDatabase } from './sqlite.js';
 import { rebuildFtsIndex, runOnceMigration } from './schema.js';
 import { hasVectorIndex } from './vector-index.js';
 import { lessonSlug } from '../core/lesson-slug.js';
+import {
+  AGENT_MESSAGE_SCOPE_COLUMNS,
+  isFilesystemPathScopeId,
+  lastPathSegment,
+} from '../core/agent-scope-id.js';
 import { computeSignalScore } from '../core/signal-scorer.js';
 
 export const SESSION_DEDUPE_KEY = 'session_observation_dedupe';
@@ -709,4 +715,159 @@ export function repairFusedLessonShellHistory(db: MemeshDatabase): number {
     },
   });
   return retired;
+}
+
+export const AGENT_SCOPE_PATH_KEY = 'agent_scope_path_identity';
+
+/**
+ * Message scope identifiers spelled as filesystem paths.
+ *
+ * `agent_message_deliveries` keys one inbox on (`project`, `recipient`) and
+ * both columns were free text with no canonical form, so one logical inbox was
+ * split across spellings. On the maintainer's own graph, measured before this
+ * pass: `recipient` held `root` 25 times and `/root` 20; `project` held one row
+ * of `/Users/ktseng/Developer/Projects/memesh-llm-memory`. A recipient that
+ * fetches under one spelling never sees what was sent under the other.
+ *
+ * The rule applied here is the ONLY one that is mechanical: a value spelled as
+ * an absolute filesystem path is rewritten to its final segment. It is safe
+ * because `getProjectName` cannot produce such a value at any of its three
+ * layers (git remote slug, git repo-root basename, `basename-<hash>`), so the
+ * path spelling is a caller writing its own home directory or checkout path
+ * where its NAME belonged, and the final segment is that name. The write path
+ * now refuses the same shape (core/agent-scope-id.ts), so the divergence
+ * cannot recur.
+ *
+ * What this pass deliberately does NOT do, and why each is a rule this code
+ * cannot legitimately invent:
+ *
+ *   - It does not merge `project` `memesh-llm-memory` into `memesh`, the
+ *     LARGEST split on that graph (38 vs 28 messages). They ARE one project:
+ *     `gh api repos/PCIRCLE-AI/memesh-llm-memory` answers `PCIRCLE-AI/memesh`,
+ *     so the repository was renamed, and both values are `getProjectName`
+ *     outputs for one working directory — the remote slug before and after the
+ *     rename, the repo-root basename when no origin is configured. But the
+ *     evidence that proves it is a network call against one owner's GitHub
+ *     account. A `runOnceMigration` firing inside `openDatabase` on an
+ *     arbitrary machine has no way to know it, and `src/core/project-tags.ts`
+ *     already states the standing rule for exactly this case: the mapping is
+ *     user-driven. `memesh kg rename-project --from memesh-llm-memory --to
+ *     memesh` is the owner-driven, dry-run-by-default answer, and it now moves
+ *     these message rows as well as the project tags.
+ *
+ *     Nor may this pass resolve it from `getProjectName(process.cwd())`, which
+ *     WOULD be mechanical: a one-shot migration fires from whatever directory
+ *     the user's first post-upgrade open happens to be in, so the result would
+ *     differ per user by accident.
+ *
+ *   - It does not strip the `claude-code:` prefix from
+ *     `claude-code:session_01PDMer3P4cVYeHr4KRen3Un` to fuse it with
+ *     `session_01PDMer3P4cVYeHr4KRen3Un`. That string appears nowhere in this
+ *     repository's source, artifacts, docs, or history (`git log -S
+ *     'claude-code:' --all` is empty), so there is no prefixing convention to
+ *     normalise against; neither spelling is a registered identity in
+ *     `agent_session_instances`; they were used with DIFFERENT `target_kind`,
+ *     which is part of the fetch key; and neither carries a single receipt, so
+ *     the split-inbox symptom is not even demonstrable for them. Stripping it
+ *     would merge a legitimate `claude-code:reviewer` with a different agent
+ *     called `reviewer` — the failure mode that is worse than the split.
+ *
+ *   - It does not touch `sender`. Sender is provenance, not routing: it keys
+ *     no inbox, and `agent_message_idempotency` is keyed
+ *     `(project, sender, idempotency_key)`, so rewriting it would mutate
+ *     replay-protection keys to no delivery benefit.
+ *
+ *   - It does not touch the router tables (`agent_principals`,
+ *     `agent_session_instances`, `agent_session_connections`,
+ *     `agent_presence_facts`, `agent_dispatch_attempts`). Their `project` comes
+ *     from an owner-written host config through `memesh agent setup`, not from
+ *     `MessageSchema`. Gating that entry point is a separate change, and the
+ *     invariant in `scripts/audit/memory-invariants.mjs` watches exactly the
+ *     columns this pass repairs and the write path refuses — the three sets are
+ *     kept equal so neither a hole nor a permanently red invariant is left.
+ *
+ * A rewrite that would violate a UNIQUE constraint is left in place and
+ * counted, not forced: that is the one case where the target identity already
+ * holds an equivalent row, and deleting user rows to satisfy a migration is
+ * not this pass's decision to make. The invariant then still reports it, which
+ * is the correct outcome — an owner has to say what should happen.
+ *
+ * @returns number of column values rewritten, or -1 if the pass did not run
+ */
+export function normalizeAgentScopePaths(db: MemeshDatabase): number {
+  let rewritten = -1;
+  runOnceMigration(db, {
+    key: AGENT_SCOPE_PATH_KEY,
+    version: 1,
+    describe: 'agent message scope path identities',
+    migrate: (conn) => {
+      rewritten = 0;
+      let merged = 0;
+      let blocked = 0;
+      let discarded = 0;
+      const pairs = new Set<string>();
+      for (const { table, columns } of AGENT_MESSAGE_SCOPE_COLUMNS) {
+        for (const column of columns) {
+          let values: Array<{ v: unknown }>;
+          try {
+            values = conn.prepare(`SELECT DISTINCT ${column} AS v FROM ${table}`).all() as unknown as Array<{ v: unknown }>;
+          } catch {
+            // A schema older than this column is not a violation of it.
+            continue;
+          }
+          const update = conn.prepare(`UPDATE ${table} SET ${column} = ? WHERE rowid = ?`);
+          const drop = conn.prepare(`DELETE FROM ${table} WHERE rowid = ?`);
+          const ids = conn.prepare(`SELECT rowid AS rid FROM ${table} WHERE ${column} = ?`);
+          const exists = conn.prepare(`SELECT 1 AS hit FROM ${table} WHERE ${column} = ? LIMIT 1`);
+          for (const { v } of values) {
+            if (typeof v !== 'string' || !isFilesystemPathScopeId(v)) continue;
+            const target = lastPathSegment(v);
+            // `/` or `C:\` names nothing; there is no identity to rewrite it
+            // to, so it is left for the invariant to report.
+            if (target === null) continue;
+            const isMerge = exists.get(target) !== undefined;
+            const rows = ids.all(v) as unknown as Array<{ rid: number }>;
+            for (const { rid } of rows) {
+              try {
+                const changed = Number(update.run(target, rid).changes);
+                rewritten += changed;
+                if (changed > 0 && isMerge) merged += changed;
+              } catch {
+                // UNIQUE constraint: an equivalent row already exists under the
+                // canonical spelling. A failed statement rolls back only itself.
+                //
+                // A cursor is the one row where that is not a standoff.
+                // `idx_agent_message_cursors_unique_scope_sequence` is UNIQUE on
+                // (project, recipient, event_sequence), so the collision means
+                // the canonical identity ALREADY has a cursor at this exact
+                // position. The path-spelled one is now dead state: no legal
+                // call can reach it, because `poll` refuses the path spelling
+                // of the recipient it is bound to, and `resolveCursor` rejects
+                // a token whose scope does not match the caller's. The public
+                // contract already treats a cursor as an opaque, re-derivable
+                // hint that may repeat an event, so dropping the unreachable
+                // duplicate loses nothing and keeps the invariant honest.
+                if (table === 'agent_message_cursors') {
+                  discarded += Number(drop.run(rid).changes);
+                } else {
+                  blocked += 1;
+                }
+              }
+            }
+            if (rows.length > 0) pairs.add(`${v} → ${target}`);
+          }
+        }
+      }
+      if (rewritten > 0 || discarded > 0) {
+        const detail = [...pairs].join(', ');
+        note(
+          `rewrote ${rewritten} filesystem-path message scope value(s) to their identity name (${detail})`
+          + `${merged > 0 ? `; ${merged} joined an identity that already existed` : ''}`
+          + `${discarded > 0 ? `; ${discarded} duplicate poll cursor(s) dropped` : ''}`
+          + `${blocked > 0 ? `; ${blocked} left in place because the canonical spelling already holds an equivalent row` : ''}.`,
+        );
+      }
+    },
+  });
+  return rewritten;
 }

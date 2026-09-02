@@ -1,52 +1,26 @@
 import { rebuildFtsIndex, runOnceMigration } from './schema.js';
-import { hasVectorIndex } from './vector-index.js';
 import { lessonSlug } from '../core/lesson-slug.js';
+import { AGENT_MESSAGE_SCOPE_COLUMNS, isFilesystemPathScopeId, lastPathSegment, } from '../core/agent-scope-id.js';
 import { computeSignalScore } from '../core/signal-scorer.js';
 export const SESSION_DEDUPE_KEY = 'session_observation_dedupe';
 export const ZERO_EDIT_RETRACT_KEY = 'session_zero_edit_retract';
 export const FUSED_LESSON_SPLIT_KEY = 'fused_lesson_split';
-export const ARCHIVED_FTS_ROWS_KEY = 'archived_fts_rows';
-export const ARCHIVED_VECTOR_ROWS_KEY = 'archived_vector_rows';
-export const FUSED_LESSON_SHELL_HISTORY_RESET_KEY = 'fused_lesson_shell_history_reset';
 const ZERO_EDITS = ', 0 files edited';
 const ZERO_EDITS_RETRACTED = ', files edited through Bash (count not recorded before 4.8.2)';
 function note(line) {
     process.stderr.write(`MeMesh: ${line}\n`);
 }
-function retireRecallHistory(conn, id) {
-    const row = conn
-        .prepare('SELECT metadata, recall_hits, recall_misses FROM entities WHERE id = ?')
-        .get(id);
-    if (!row)
-        return;
-    const hits = row.recall_hits ?? 0;
-    const misses = row.recall_misses ?? 0;
-    if (hits === 0 && misses === 0)
-        return;
-    let metadata = {};
-    try {
-        const parsed = row.metadata ? JSON.parse(row.metadata) : {};
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed))
-            metadata = parsed;
-    }
-    catch { }
-    metadata.retired_recall = { hits, misses };
-    conn
-        .prepare('UPDATE entities SET metadata = ?, recall_hits = 0, recall_misses = 0 WHERE id = ?')
-        .run(JSON.stringify(metadata), id);
-}
-export function dedupeObservations(db) {
+export function dedupeSessionObservations(db) {
     let removed = -1;
     runOnceMigration(db, {
         key: SESSION_DEDUPE_KEY,
-        version: 2,
-        describe: 'observation dedupe',
+        version: 1,
+        describe: 'session observation dedupe',
         migrate: (conn) => {
             const affected = conn
-                .prepare(`SELECT DISTINCT o.entity_id AS id FROM observations o
-           JOIN entities e ON e.id = o.entity_id
-           WHERE e.type NOT IN ('lesson_learned', 'lesson', 'mistake')
-           GROUP BY o.entity_id, o.content HAVING COUNT(o.id) > 1`)
+                .prepare(`SELECT DISTINCT e.id FROM entities e JOIN observations o ON o.entity_id = e.id
+           WHERE e.name LIKE 'session-%'
+           GROUP BY e.id, o.content HAVING COUNT(o.id) > 1`)
                 .all();
             removed = 0;
             const del = conn.prepare(`DELETE FROM observations WHERE entity_id = ? AND id NOT IN (
@@ -55,7 +29,7 @@ export function dedupeObservations(db) {
                 removed += Number(del.run(row.id, row.id).changes);
             if (removed > 0) {
                 rebuildFtsIndex(conn);
-                note(`removed ${removed} duplicate observation(s) from ${affected.length} entit${affected.length === 1 ? 'y' : 'ies'} (written by hooks up to 4.8.3).`);
+                note(`removed ${removed} duplicate observation(s) from ${affected.length} session entit${affected.length === 1 ? 'y' : 'ies'} (written by 4.8.1 hooks).`);
             }
         },
     });
@@ -216,8 +190,7 @@ export function splitFusedLessons(db, deps) {
                     bucket.name.slice('lesson-'.length, -'-other'.length);
                 const movedFromBucket = moveLessonGroups(bucket, project, groups, tags);
                 dropExplicit.run(bucket.id, bucket.id);
-                if (archive.run(bucket.id, bucket.id).changes > 0)
-                    retireRecallHistory(conn, bucket.id);
+                archive.run(bucket.id, bucket.id);
                 if (movedFromBucket > 0)
                     bucketsTouched += 1;
             }
@@ -247,8 +220,7 @@ export function splitFusedLessons(db, deps) {
                 if (!groups.every((group) => `lesson-${project}-${legacyReadableLessonSlug(group.error)}` === entity.name))
                     continue;
                 const movedFromEntity = moveLessonGroups(entity, project, groups, tags);
-                if (archive.run(entity.id, entity.id).changes > 0)
-                    retireRecallHistory(conn, entity.id);
+                archive.run(entity.id, entity.id);
                 legacyReadableMoved += movedFromEntity;
             }
             if (moved > 0) {
@@ -268,71 +240,70 @@ export function splitFusedLessons(db, deps) {
     });
     return moved;
 }
-export function dropArchivedIndexRows(db) {
-    const result = { ftsRows: -1, vectorRows: -1 };
+export const AGENT_SCOPE_PATH_KEY = 'agent_scope_path_identity';
+export function normalizeAgentScopePaths(db) {
+    let rewritten = -1;
     runOnceMigration(db, {
-        key: ARCHIVED_FTS_ROWS_KEY,
+        key: AGENT_SCOPE_PATH_KEY,
         version: 1,
-        describe: 'archived rows removed from the keyword index',
+        describe: 'agent message scope path identities',
         migrate: (conn) => {
-            const stale = conn
-                .prepare(`SELECT COUNT(*) AS n FROM entities_fts f
-             JOIN entities e ON e.id = f.rowid
-            WHERE e.status = 'archived'`)
-                .get();
-            result.ftsRows = stale.n;
-            rebuildFtsIndex(conn);
-            if (stale.n > 0) {
-                note(`removed ${stale.n} archived entit${stale.n === 1 ? 'y' : 'ies'} from the keyword index (archived before 4.8.4 by a path that left the index behind).`);
+            rewritten = 0;
+            let merged = 0;
+            let blocked = 0;
+            let discarded = 0;
+            const pairs = new Set();
+            for (const { table, columns } of AGENT_MESSAGE_SCOPE_COLUMNS) {
+                for (const column of columns) {
+                    let values;
+                    try {
+                        values = conn.prepare(`SELECT DISTINCT ${column} AS v FROM ${table}`).all();
+                    }
+                    catch {
+                        continue;
+                    }
+                    const update = conn.prepare(`UPDATE ${table} SET ${column} = ? WHERE rowid = ?`);
+                    const drop = conn.prepare(`DELETE FROM ${table} WHERE rowid = ?`);
+                    const ids = conn.prepare(`SELECT rowid AS rid FROM ${table} WHERE ${column} = ?`);
+                    const exists = conn.prepare(`SELECT 1 AS hit FROM ${table} WHERE ${column} = ? LIMIT 1`);
+                    for (const { v } of values) {
+                        if (typeof v !== 'string' || !isFilesystemPathScopeId(v))
+                            continue;
+                        const target = lastPathSegment(v);
+                        if (target === null)
+                            continue;
+                        const isMerge = exists.get(target) !== undefined;
+                        const rows = ids.all(v);
+                        for (const { rid } of rows) {
+                            try {
+                                const changed = Number(update.run(target, rid).changes);
+                                rewritten += changed;
+                                if (changed > 0 && isMerge)
+                                    merged += changed;
+                            }
+                            catch {
+                                if (table === 'agent_message_cursors') {
+                                    discarded += Number(drop.run(rid).changes);
+                                }
+                                else {
+                                    blocked += 1;
+                                }
+                            }
+                        }
+                        if (rows.length > 0)
+                            pairs.add(`${v} → ${target}`);
+                    }
+                }
+            }
+            if (rewritten > 0 || discarded > 0) {
+                const detail = [...pairs].join(', ');
+                note(`rewrote ${rewritten} filesystem-path message scope value(s) to their identity name (${detail})`
+                    + `${merged > 0 ? `; ${merged} joined an identity that already existed` : ''}`
+                    + `${discarded > 0 ? `; ${discarded} duplicate poll cursor(s) dropped` : ''}`
+                    + `${blocked > 0 ? `; ${blocked} left in place because the canonical spelling already holds an equivalent row` : ''}.`);
             }
         },
     });
-    if (!hasVectorIndex(db))
-        return result;
-    runOnceMigration(db, {
-        key: ARCHIVED_VECTOR_ROWS_KEY,
-        version: 1,
-        describe: 'archived rows removed from the vector index',
-        migrate: (conn) => {
-            const removed = conn
-                .prepare(`DELETE FROM entities_vec WHERE rowid IN
-             (SELECT e.id FROM entities e WHERE e.status = 'archived')`)
-                .run();
-            result.vectorRows = Number(removed.changes);
-            if (result.vectorRows > 0) {
-                note(`removed ${result.vectorRows} archived entit${result.vectorRows === 1 ? 'y' : 'ies'} from the vector index; they were taking recall slots from live memories.`);
-            }
-        },
-    });
-    return result;
-}
-export function repairFusedLessonShellHistory(db) {
-    let retired = -1;
-    runOnceMigration(db, {
-        key: FUSED_LESSON_SHELL_HISTORY_RESET_KEY,
-        version: 1,
-        describe: 'fused lesson shell history reset',
-        migrate: (conn) => {
-            const shells = conn
-                .prepare(`SELECT e.id, e.name FROM entities e
-           WHERE e.type = 'lesson_learned' AND e.status = 'archived'
-             AND (COALESCE(e.recall_hits, 0) > 0 OR COALESCE(e.recall_misses, 0) > 0)
-             AND NOT EXISTS (SELECT 1 FROM observations o WHERE o.entity_id = e.id)
-             AND EXISTS (
-               SELECT 1 FROM entities s
-               WHERE json_extract(s.metadata, '$.split_from') = e.name
-             )`)
-                .all();
-            retired = 0;
-            for (const shell of shells) {
-                retireRecallHistory(conn, shell.id);
-                retired += 1;
-            }
-            if (retired > 0) {
-                note(`retired stale recall history on ${retired} archived lesson shell(s) split before this fix existed.`);
-            }
-        },
-    });
-    return retired;
+    return rewritten;
 }
 //# sourceMappingURL=graph-repairs.js.map

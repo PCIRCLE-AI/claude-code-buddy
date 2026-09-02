@@ -31,6 +31,7 @@ import { readRepoState, repoStateLines } from './repo-state.js';
 import { rankEntities } from './scoring.js';
 import { getTaskState } from './task-state-store.js';
 import { recipientEverSeen, unreadDeliveryCount, unreadInboxLines } from './agent-message-inbox.js';
+import { canonicalAgentScopeId } from './agent-scope-id.js';
 import { taskStateLines } from './task-state.js';
 import {
   GLOBAL_TOPOLOGY_LIMIT,
@@ -163,21 +164,35 @@ export function assembleBriefing(project?: string, recipient?: string): Briefing
   // The one stated line, before anything ranked — same reasoning as the
   // hook: ranking cannot know what you meant to do next.
   const { state } = getTaskState(projectName);
+  const inboxRecipient = recipient === undefined ? undefined : canonicalAgentScopeId(recipient);
   // The inbox line rides WITH the stated lines, not among the ranked
   // memories: like goal / next / blocked it is a fact the agent must act
   // on, not a memory that scored well. It is only actionable when the caller
   // supplies the exact logical recipient; generic briefing has no identity
   // and must not aggregate another recipient's activity.
-  const unreadCount = unreadDeliveryCount(db, projectName, recipient);
+  // The inbox is keyed on (project, recipient) in the canonical form
+  // core/agent-scope-id.ts defines — that is how `send` stores it and how
+  // `poll` reads it back. Counting must ask in the same spelling, or a
+  // caller whose name differs only by Unicode composition is told its inbox
+  // is empty while `poll` returns messages: the split this change closes,
+  // reappearing on the surface an agent actually reads. The project tag
+  // lookups below deliberately keep `projectName` as given — those are
+  // entity tags, written by a different path, not this key.
+  const unreadCount = unreadDeliveryCount(db, canonicalAgentScopeId(projectName), inboxRecipient);
   // D8: only worth asking when it can change the answer — a nonzero count
   // already proves the recipient is real, and with no recipient at all
   // `unreadInboxLines` never looks at it.
-  const everSeen = recipient !== undefined && unreadCount === 0
-    ? recipientEverSeen(db, projectName, recipient)
+  const everSeen = inboxRecipient !== undefined && unreadCount === 0
+    ? recipientEverSeen(db, canonicalAgentScopeId(projectName), inboxRecipient)
     : undefined;
   const stateLines = [
     ...taskStateLines(state, projectName),
-    ...unreadInboxLines(unreadCount, projectName, recipient, everSeen),
+    ...unreadInboxLines(
+      unreadCount,
+      canonicalAgentScopeId(projectName),
+      inboxRecipient,
+      everSeen,
+    ),
   ];
 
   // A database from before namespaces cannot hold global rows. Preserve the

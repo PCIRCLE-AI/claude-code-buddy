@@ -1,4 +1,5 @@
 import { getDatabase } from '../db.js';
+import { AGENT_MESSAGE_PROJECT_TABLES } from './agent-scope-id.js';
 export function listProjectTags(db) {
     const conn = db ?? getDatabase();
     const rows = conn.prepare("SELECT tag, COUNT(*) c FROM tags WHERE tag LIKE 'project:%' GROUP BY tag ORDER BY c DESC, tag ASC").all();
@@ -16,7 +17,19 @@ export function renameProjectTag(from, to, opts) {
     }));
     const merged = plan.filter((p) => p.action === 'merge').length;
     const renamed = plan.filter((p) => p.action === 'rename').length;
-    if (opts?.apply && affected.length > 0) {
+    const messagePlan = AGENT_MESSAGE_PROJECT_TABLES.map((table) => {
+        try {
+            const rows = conn.prepare(`SELECT rowid AS rid FROM ${table} WHERE project = ?`)
+                .all(from);
+            return { table, rowIds: rows.map((r) => r.rid) };
+        }
+        catch {
+            return { table, rowIds: [] };
+        }
+    });
+    const messageRows = messagePlan.reduce((n, t) => n + t.rowIds.length, 0);
+    let messageRowsBlocked = 0;
+    if (opts?.apply && (affected.length > 0 || messageRows > 0)) {
         const del = conn.prepare('DELETE FROM tags WHERE entity_id = ? AND tag = ?');
         const upd = conn.prepare('UPDATE tags SET tag = ? WHERE entity_id = ? AND tag = ?');
         const tx = conn.transaction(() => {
@@ -25,6 +38,19 @@ export function renameProjectTag(from, to, opts) {
                     del.run(p.id, fromTag);
                 else
                     upd.run(toTag, p.id, fromTag);
+            }
+            for (const { table, rowIds } of messagePlan) {
+                if (rowIds.length === 0)
+                    continue;
+                const move = conn.prepare(`UPDATE ${table} SET project = ? WHERE rowid = ?`);
+                for (const rid of rowIds) {
+                    try {
+                        move.run(to, rid);
+                    }
+                    catch {
+                        messageRowsBlocked += 1;
+                    }
+                }
             }
         });
         tx();
@@ -37,6 +63,8 @@ export function renameProjectTag(from, to, opts) {
         renamed,
         applied: !!opts?.apply,
         affectedNames: affected.map((e) => e.name),
+        messageRows,
+        messageRowsBlocked,
     };
 }
 //# sourceMappingURL=project-tags.js.map
