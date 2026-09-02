@@ -206,7 +206,13 @@ async function runManagedCodexHost() {
 }
 const entryPath = process.argv[1];
 if (entryPath && isExecutedModule(entryPath, import.meta.url)) {
-    await runManagedCodexHost();
+    try {
+        await runManagedCodexHost();
+    }
+    catch (error) {
+        process.stderr.write(`memesh-host-codex: ${error instanceof Error ? error.message : String(error)}\n`);
+        process.exitCode = 1;
+    }
 }
 function isExecutedModule(entryPath, moduleUrl) {
     try {

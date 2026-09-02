@@ -206,8 +206,8 @@ if (isMainModule()) {
     try {
         await main();
     }
-    catch {
-        process.stderr.write('memesh-host-claude: session startup failed.\n');
+    catch (error) {
+        process.stderr.write(`memesh-host-claude: ${error instanceof Error ? error.message : String(error)}\n`);
         process.exitCode = 1;
     }
 }

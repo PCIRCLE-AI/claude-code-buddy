@@ -452,7 +452,16 @@ async function runAcpHost(): Promise<void> {
 
 const entryPath = process.argv[1];
 if (entryPath && isExecutedModule(entryPath, import.meta.url)) {
-  await runAcpHost();
+  try {
+    await runAcpHost();
+  } catch (error) {
+    // Fail closed, and say why. An uncaught throw here printed a raw Node
+    // stack trace at a user whose only problem was a missing --config, and
+    // a bare `catch {}` with a generic line would hide the one sentence
+    // that tells them what to do. One line, the real reason, exit 1.
+    process.stderr.write(`memesh-host-acp: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  }
 }
 
 function isExecutedModule(entryPath: string, moduleUrl: string): boolean {

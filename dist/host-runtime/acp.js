@@ -329,7 +329,13 @@ async function runAcpHost() {
 }
 const entryPath = process.argv[1];
 if (entryPath && isExecutedModule(entryPath, import.meta.url)) {
-    await runAcpHost();
+    try {
+        await runAcpHost();
+    }
+    catch (error) {
+        process.stderr.write(`memesh-host-acp: ${error instanceof Error ? error.message : String(error)}\n`);
+        process.exitCode = 1;
+    }
 }
 function isExecutedModule(entryPath, moduleUrl) {
     try {
