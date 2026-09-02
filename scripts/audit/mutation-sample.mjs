@@ -27,6 +27,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { buildIsolatedSuiteEnv } from '../lib/isolated-env.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const WORK = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-mutation-'));
@@ -112,7 +113,7 @@ function runVitest(files) {
   try {
     execFileSync('npx', ['vitest', 'run', ...files], {
       cwd: COPY, encoding: 'utf8',
-      env: { ...process.env, HOME },
+      env: buildIsolatedSuiteEnv(process.env, { runtimeHome: HOME }),
       stdio: ['ignore', 'pipe', 'pipe'], timeout: 900_000,
     });
     return 0;

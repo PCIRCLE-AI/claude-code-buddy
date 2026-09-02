@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { binTargets, hookCommands, mcpEntry } from './lib/executable-targets.mjs';
+import { buildIsolatedRuntimeEnv } from './lib/isolated-env.mjs';
 import { npmSync } from './lib/npm-bin.mjs';
 
 const repoRoot = process.cwd();
@@ -206,6 +207,17 @@ assert.ok(
   'the packed tarball did not install — nothing was imported'
 );
 
+// `openDatabase()` below gets an explicit path, so the DB file itself cannot
+// leak to an ambient location — but opening it also runs
+// `resolveEmbeddingDimension()`, which reads config.json through
+// `memeshDir()` (HOME/MEMESH_DIR), a path independent of the explicit DB
+// path. Without an isolated HOME/MEMESH_DIR here, an ambient MEMESH_DIR
+// would still hand this step the maintainer's real embedder/LLM config.
+const importHome = path.join(smokeDir, 'import-home');
+const importMemeshDir = path.join(importHome, '.memesh');
+fs.mkdirSync(importMemeshDir, { recursive: true });
+const importDbPath = path.join(smokeDir, 'smoke.db');
+
 execFileSync(
   process.execPath,
   [
@@ -221,13 +233,18 @@ if (typeof pkg.KnowledgeGraph !== 'function') {
 // Exercise the runtime path, not just the export shape: opening a database
 // loads sqlite-vec, which is where a dependency that was
 // moved out of \`dependencies\` actually bites.
-const db = pkg.openDatabase(${JSON.stringify(path.join(smokeDir, 'smoke.db'))});
+const db = pkg.openDatabase(${JSON.stringify(importDbPath)});
 if (!db) throw new Error('openDatabase returned nothing');
 `,
   ],
   {
     cwd: consumerDir,
     stdio: 'inherit',
+    env: buildIsolatedRuntimeEnv(process.env, {
+      runtimeHome: importHome,
+      memeshDir: importMemeshDir,
+      dbPath: importDbPath,
+    }),
   }
 );
 
@@ -235,7 +252,9 @@ if (!db) throw new Error('openDatabase returned nothing');
 // Importing handlers directly would miss the stdio initialize handshake,
 // tool-list schema, and the server lifecycle that every host depends on.
 const protocolHome = path.join(smokeDir, 'protocol-home');
-fs.mkdirSync(protocolHome, { recursive: true });
+const protocolMemeshDir = path.join(protocolHome, '.memesh');
+fs.mkdirSync(protocolMemeshDir, { recursive: true });
+const protocolDbPath = path.join(protocolMemeshDir, 'knowledge-graph.db');
 const protocolServer = path.join(installedRoot, 'dist', 'mcp', 'server.js');
 execFileSync(
   process.execPath,
@@ -246,10 +265,14 @@ execFileSync(
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
+// \`process.env\` here is already the isolated env built by
+// buildIsolatedRuntimeEnv() at the outer execFileSync call below — HOME,
+// MEMESH_DIR and MEMESH_DB_PATH are already test-owned, so this spread
+// carries the isolation through rather than re-inheriting the ambient shell.
 const transport = new StdioClientTransport({
   command: process.execPath,
   args: [${JSON.stringify(protocolServer)}],
-  env: { ...process.env, HOME: ${JSON.stringify(protocolHome)}, MEMESH_AUTO_CAPTURE: 'false', MEMESH_AUTO_DETECT_LLM: '0' },
+  env: { ...process.env, MEMESH_AUTO_CAPTURE: 'false' },
 });
 const client = new Client({ name: 'memesh-packaged-smoke', version: '1.0.0' });
 try {
@@ -379,7 +402,11 @@ try {
   {
     cwd: consumerDir,
     stdio: 'inherit',
-    env: { ...process.env, HOME: protocolHome, MEMESH_AUTO_DETECT_LLM: '0' },
+    env: buildIsolatedRuntimeEnv(process.env, {
+      runtimeHome: protocolHome,
+      memeshDir: protocolMemeshDir,
+      dbPath: protocolDbPath,
+    }),
   }
 );
 
@@ -443,6 +470,7 @@ if (process.platform !== 'win32') {
   // would turn a valid installed router into a false release failure.
   const nativeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'mr-'));
   const nativeDir = path.join(nativeHome, '.memesh');
+  const nativeDbPath = path.join(nativeDir, 'knowledge-graph.db');
   const routerSocket = path.join(nativeDir, 'router.sock');
   const routerToken = path.join(nativeDir, 'router.token');
   const fakeBin = path.join(nativeHome, 'bin');
@@ -458,15 +486,24 @@ if (args[0] !== 'queue' || args[1] !== '--thread' || args[3] !== '--message' || 
 }
 fs.writeFileSync(process.env.MEMESH_CODEX_QUEUE_CAPTURE, JSON.stringify({ thread_id: args[2], message: JSON.parse(args[4]) }));
 `, { mode: 0o700 });
+  // `getMemeshDirFromDbPath()` (src/host-runtime/router.ts) follows
+  // MEMESH_DB_PATH, not MEMESH_DIR — so setting MEMESH_DIR alone here left an
+  // ambient MEMESH_DB_PATH free to send the router's data directory (and the
+  // `fs.mkdirSync` that creates it) somewhere other than `nativeDir`, while
+  // MEMESH_ROUTER_TOKEN_FILE below still pointed at a `nativeDir` nothing had
+  // created. Reproduced: `MEMESH_DB_PATH=/private/tmp/x/kg.db npm run
+  // test:packaged` failed with ENOENT opening `<nativeHome>/.memesh/router.token`.
+  // buildIsolatedRuntimeEnv overrides both together.
   const nativeEnv = {
-    ...process.env,
-    HOME: nativeHome,
-    MEMESH_DIR: nativeDir,
+    ...buildIsolatedRuntimeEnv(process.env, {
+      runtimeHome: nativeHome,
+      memeshDir: nativeDir,
+      dbPath: nativeDbPath,
+    }),
     MEMESH_ROUTER_SOCKET: routerSocket,
     MEMESH_ROUTER_TOKEN_FILE: routerToken,
     MEMESH_CODEX_QUEUE_CAPTURE: queueCapture,
     MEMESH_AUTO_CAPTURE: 'false',
-    MEMESH_AUTO_DETECT_LLM: '0',
     PATH: `${fakeBin}${path.delimiter}${process.env.PATH ?? ''}`,
   };
   const router = spawn(installedBin('memesh-router'), [], {
@@ -576,7 +613,7 @@ fs.writeFileSync(process.env.MEMESH_CODEX_QUEUE_CAPTURE, JSON.stringify({ thread
     });
     assert.equal(send.native_delivery.status, 'native_accepted', 'exact-session send returned before native acceptance');
     assert.equal(JSON.stringify(queued).includes('installed-native-stdin'), true, 'native message omitted the full payload');
-    const accepted = readHostAcceptance(path.join(nativeDir, 'knowledge-graph.db'), send.delivery_id);
+    const accepted = readHostAcceptance(nativeDbPath, send.delivery_id);
     assert.equal(accepted.attempts, 1, 'router-to-adapter dispatch did not persist exactly one dispatch attempt');
     assert.equal(accepted.acceptance?.adapter_kind, 'codex-cli-queue', 'router-to-adapter dispatch did not persist host_accept');
     assert.equal(JSON.parse(accepted.acceptance.receipt_json).host, 'codex-cli');
@@ -634,10 +671,10 @@ fs.writeFileSync(process.env.MEMESH_CODEX_QUEUE_CAPTURE, JSON.stringify({ thread
     ], { cwd: consumerDir, env: nativeEnv, encoding: 'utf8' });
     const recovery = recoveryOutput.trim().split('\n').map(line => JSON.parse(line)).at(-1);
     const noHostMessage = recovery.events[0];
-    const noHostDeliveryId = readDeliveryId(path.join(nativeDir, 'knowledge-graph.db'), noHostMessage.message_id);
+    const noHostDeliveryId = readDeliveryId(nativeDbPath, noHostMessage.message_id);
     assert.ok(noHostDeliveryId, 'unavailable exact-session send did not preserve scoped recovery data');
     await new Promise((resolve) => setTimeout(resolve, 100));
-    const absent = readHostAcceptance(path.join(nativeDir, 'knowledge-graph.db'), noHostDeliveryId);
+    const absent = readHostAcceptance(nativeDbPath, noHostDeliveryId);
     assert.equal(absent.attempts, 0, 'a stopped/no-host target unexpectedly received a dispatch attempt');
     assert.equal(absent.acceptance, null, 'a stopped/no-host target unexpectedly persisted host_accept');
     assert.equal(fs.readFileSync(queueCapture, 'utf8'), JSON.stringify(queued), 'the active host received a wakeup for another principal');

@@ -24,6 +24,7 @@ interface CheckForUpdateOptions {
 interface GetUpdateCheckOptions extends CheckForUpdateOptions {
     preferFresh?: boolean;
 }
+export declare const MAX_UPDATE_CHECK_FILES = 5;
 export declare function checkForUpdate(currentVersion: string, options?: CheckForUpdateOptions): Promise<UpdateCheck>;
 export declare function getLastUpdateCheck(currentVersion: string, options?: {
     updateCheckPath?: string;

@@ -192,6 +192,77 @@ function readStoredUpdateCheck(
   }
 }
 
+// One `update-check.<version>.json` file accumulates per version this
+// machine has ever run — nothing ever removed the old ones (verified: no
+// caller anywhere, including scripts/hooks/_shared.js's independent
+// readUpdateCheckCache(), reads a file keyed by any version other than the
+// CURRENTLY installed one). 19 files going back to 4.2.3 were found sitting
+// in one ~/.memesh, 76 KB total — harmless in size, but unbounded.
+//
+// The per-version keying itself is not the defect and stays: it exists so
+// two installs of DIFFERENT versions running against the same HOME (Codex
+// round 38's documented case — a global install and a project-local pin)
+// don't clobber each other's cache. What has no reader is a version that is
+// no longer installed anywhere, and nothing on disk marks a file that way.
+// Recency is the closest available signal — a file an active install is
+// still checking gets its mtime refreshed at least once a day (see
+// AUTO_UPDATE_CACHE_FRESHNESS_MS in scripts/hooks/_shared.js), so anything
+// that falls out of the N most-recently-written files has almost certainly
+// not been touched by a live install in a long time. N=5 keeps headroom
+// well past the documented two-install case while still bounding growth
+// that was otherwise unlimited.
+export const MAX_UPDATE_CHECK_FILES = 5;
+
+/**
+ * Delete the oldest `update-check.<version>.json` files in the same
+ * directory as `targetPath`, keeping the `MAX_UPDATE_CHECK_FILES` most
+ * recently modified (which always includes the file just written, since its
+ * mtime is now newest).
+ *
+ * Scoped to exactly the versioned family this module owns: a caller-supplied
+ * override (`updateCheckPath` / `MEMESH_UPDATE_CHECK_PATH`, used by tests and
+ * CI) always names a bare `update-check.json` with no version segment, which
+ * the pattern below does not match — nothing is pruned for those, and
+ * nothing else in the directory is touched.
+ */
+function pruneOldUpdateCheckFiles(targetPath: string): void {
+  const dir = path.dirname(targetPath);
+  const versionedFile = /^update-check\..+\.json$/;
+  if (!versionedFile.test(path.basename(targetPath))) return;
+
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(dir);
+  } catch {
+    return;
+  }
+
+  const files = entries
+    .filter((name) => versionedFile.test(name))
+    .map((name) => {
+      const full = path.join(dir, name);
+      let mtimeMs = 0;
+      try {
+        mtimeMs = fs.statSync(full).mtimeMs;
+      } catch {
+        // Vanished between readdir and stat (concurrent writer/pruner) —
+        // sorts to the end and gets skipped below rather than crashing.
+      }
+      return { full, mtimeMs };
+    })
+    .sort((a, b) => b.mtimeMs - a.mtimeMs);
+
+  for (const stale of files.slice(MAX_UPDATE_CHECK_FILES)) {
+    try {
+      fs.unlinkSync(stale.full);
+    } catch {
+      // Best-effort only — a concurrent pruner or a locked file on Windows
+      // just means this pass leaves one extra file for the next write to
+      // catch.
+    }
+  }
+}
+
 function writeStoredUpdateCheck(
   stored: StoredUpdateCheck,
   updateCheckPath?: string,
@@ -253,6 +324,7 @@ function writeStoredUpdateCheck(
         throw secondErr;
       }
     }
+    pruneOldUpdateCheckFiles(targetPath);
   } catch {
     // Cache writes are best effort only.
   }

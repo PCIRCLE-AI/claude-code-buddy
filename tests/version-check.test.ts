@@ -7,6 +7,7 @@ import {
   formatUpdateCheckStatus,
   getLastUpdateCheck,
   getUpdateCheck,
+  MAX_UPDATE_CHECK_FILES,
 } from '../src/core/version-check.js';
 
 /**
@@ -676,5 +677,58 @@ describe('version check', () => {
     });
     expect(upgraded?.currentVersionDeprecated).toBe(false);
     expect(upgraded?.deprecationMessage).toBeNull();
+  });
+
+  it('prunes old update-check.<version>.json files, keeping only the most recent ones', async () => {
+    // D9: nothing reads a file keyed by a version other than the currently
+    // installed one — scripts/hooks/_shared.js's readUpdateCheckCache()
+    // builds the identical path from the same installedVersion argument —
+    // so old per-version files just accumulated forever. This exercises the
+    // REAL per-version path (getUpdateCheckPath()'s memeshDir() branch), not
+    // the `updateCheckPath` override every other test in this file uses:
+    // that override names a bare `update-check.json` with no version
+    // segment and bypasses the versioned scheme (and pruning) entirely.
+    const memeshDir = path.join(testDir, '.memesh-prune');
+    fs.mkdirSync(memeshDir, { recursive: true });
+    const previousMemeshDir = process.env.MEMESH_DIR;
+    process.env.MEMESH_DIR = memeshDir;
+
+    try {
+      // Seed more stale per-version files than the retention cap, each with
+      // a distinct mtime so "most recently written" is unambiguous.
+      const staleVersions = ['4.2.3', '4.3.0', '4.4.0', '4.5.0', '4.5.1', '4.6.0', '4.6.1'];
+      const baseTimeMs = Date.now() - 30 * 24 * 60 * 60 * 1000;
+      staleVersions.forEach((version, i) => {
+        const filePath = path.join(memeshDir, `update-check.${version}.json`);
+        fs.writeFileSync(filePath, JSON.stringify({ currentVersion: version }));
+        const mtime = new Date(baseTimeMs + i * 1000);
+        fs.utimesSync(filePath, mtime, mtime);
+      });
+      expect(fs.readdirSync(memeshDir).filter((n) => n.startsWith('update-check.')).length)
+        .toBe(staleVersions.length);
+
+      await checkForUpdate('4.7.0', { execFileImpl: succeedWith('4.7.0') });
+
+      const survivors = fs.readdirSync(memeshDir).filter((n) => n.startsWith('update-check.'));
+      expect(survivors.length).toBe(MAX_UPDATE_CHECK_FILES);
+      // The file just written is always among the survivors — its mtime is
+      // now the newest.
+      expect(survivors).toContain('update-check.4.7.0.json');
+      // Retention kept the most recently modified stale files, not an
+      // arbitrary subset: with MAX_UPDATE_CHECK_FILES=5, the write leaves
+      // room for the 4 newest stale mtimes (4.6.1, 4.6.0, 4.5.1, 4.5.0)
+      // alongside the just-written 4.7.0 file; the 3 oldest (4.2.3, 4.3.0,
+      // 4.4.0) must be gone.
+      expect(survivors.sort()).toEqual([
+        'update-check.4.5.0.json',
+        'update-check.4.5.1.json',
+        'update-check.4.6.0.json',
+        'update-check.4.6.1.json',
+        'update-check.4.7.0.json',
+      ]);
+    } finally {
+      if (previousMemeshDir === undefined) delete process.env.MEMESH_DIR;
+      else process.env.MEMESH_DIR = previousMemeshDir;
+    }
   });
 });

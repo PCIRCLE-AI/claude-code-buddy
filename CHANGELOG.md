@@ -58,6 +58,50 @@ All notable changes to MeMesh are documented here.
   Recorded under a shell that really had `OPENAI_API_KEY` set: the packaged
   server still started at Level 0 and the smoke exited 0 (#271).
 
+- **`scripts/smoke-packed-artifact.mjs` no longer inherits the maintainer's
+  ambient `MEMESH_DIR`/`MEMESH_DB_PATH`.** Its native-router `nativeEnv`
+  overrode `MEMESH_DIR` but left `MEMESH_DB_PATH` to leak through from a raw
+  `...process.env` spread; `src/host-runtime/router.ts`'s data directory
+  follows `MEMESH_DB_PATH` (`getMemeshDirFromDbPath()`), not `MEMESH_DIR`, so
+  an ambient `MEMESH_DB_PATH` sent the router's `mkdirSync` to the wrong
+  directory while `MEMESH_ROUTER_TOKEN_FILE` still pointed at the directory
+  nothing had created — reproduced as `ENOENT` opening `router.token`. The
+  script's three child environments (the installed-module import/openDatabase
+  check, the MCP protocol driver, and the native router flow) now all build
+  through `buildIsolatedRuntimeEnv`, moved to `scripts/lib/isolated-env.mjs`
+  so `scripts/dashboard-e2e-smoke.mjs` shares the same isolation instead of a
+  second hand-rolled copy. `tests/release-scripts-safety.test.ts` now also
+  pins that both scripts import the helper and that the native env is never
+  built from a bare `...process.env` spread again. Same defect class as
+  #271, on the sibling smoke.
+
+- **The two audit scripts that promised an isolated run pinned only `HOME`.**
+  `scripts/audit/mutation-sample.mjs` and
+  `scripts/audit/measure-injection-tokens.mjs` each spawned their child with
+  `{ ...process.env, HOME: <scratch> }`. `src/core/paths.ts` resolves
+  `MEMESH_DIR` and `MEMESH_DB_PATH` *before* falling back to `HOME`, so an
+  ambient `MEMESH_DB_PATH` — a normal state while debugging against a copy —
+  sent a mutation run, or an injection measurement, straight at the real
+  knowledge graph, while each script's own comments promised isolation. Both
+  now build their child environment through the same
+  `scripts/lib/isolated-env.mjs` the packaged smokes use, which grew a second
+  variant (`buildIsolatedSuiteEnv`) that *deletes* the path variables rather
+  than pinning them — the suite must not be handed a `MEMESH_DB_PATH`, or the
+  hook tests covering the "no database yet" branches become unreachable.
+  `scripts/run-tests-isolated.mjs` now goes through it too, so the guarantee
+  has one owner instead of three copies, two of which had drifted.
+
+- **`~/.memesh/update-check.<version>.json` no longer accumulates forever.**
+  Nothing reads a file keyed by any version other than the one currently
+  installed, so every prior release's cache file just sat there — 19 files
+  going back to 4.2.3 on one machine. `writeStoredUpdateCheck` now prunes
+  down to the 5 most-recently-modified per-version files after every write
+  (current version's file always included, since its mtime is newest); the
+  per-version keying itself is unchanged, so a global install and a pinned
+  project-local install still get separate cache slots. `_shared.js`'s
+  independent `readUpdateCheckCache()` path formula is untouched by this —
+  it only reads, and the filename scheme did not change.
+
 ### Added
 
 - **Repeatable owner-run live delivery checks.** `npm run qa:live-journey -- --host codex|claude`
