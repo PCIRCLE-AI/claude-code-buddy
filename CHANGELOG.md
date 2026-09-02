@@ -6,6 +6,41 @@ All notable changes to MeMesh are documented here.
 
 ### Fixed
 
+- **Three release-gate guards that could not fail, and the silent failure one
+  of them was hiding.** A mutation audit reintroduced the defect each guard was
+  written for and re-ran the suite: with all three defects present at once,
+  3286 tests were green.
+  - `check-generated-mirror`'s "a failed build must fail the gate" assertion
+    matched `/catch[\s\S]{0,200}process\.exit\(1\)/` against the whole
+    script, which has FOUR such pairs — deleting the exit from the *build*
+    catch satisfied it via one of the other three. That is not cosmetic:
+    `npm run build` is an `&&` chain, so a `tsc` failure short-circuits it and
+    `scripts/hooks/_generated/` is never regenerated — the exact hook/core
+    divergence this gate exists to catch — after which the gate diffs, finds
+    nothing, and prints a green tick. The assertion is now scoped to the build
+    catch's own block.
+  - `check-doc-claims`'s test-count rule was pinned by asserting the gate
+    *imports* the shared predicate. The gate could keep the import and filter
+    with a private English-only regex at the call site, which is the drift the
+    test was written for; replacing the call with `/\b\d[\d,]*\s+tests?\b/i`
+    (blind to `630 項測試`) left the suite green. Now pinned at the call site,
+    plus a behavioural probe that runs the shipped gate against a Chinese
+    test-count claim and requires it to exit 1 naming the file.
+  - The session-start banner's per-host upgrade advice was pinned by asserting
+    three strings were present in one function. The defect is a wrong *mapping*,
+    not a missing string: making the codex branch unreachable handed every
+    Codex user the Claude Code command with all three strings still in place.
+    Now pinned as a pairing — the codex predicate and the codex command in one
+    branch.
+- **`pluginHostOf` collapsed "could not ask" into "not Codex".** It was
+  `detectPluginHost?.(root) ?? null` inside a bare `catch { return null }`, and
+  `null` is a legitimate answer meaning "this path is not under any plugin
+  cache" — so a module that failed to load, or a detector that threw, produced
+  the identical banner a confident "not Codex" would, with no mutation needed.
+  It now returns `'unknown'` for that state, matching what
+  `getCurrentInstallChannel` already did, and the banner names both upgrade
+  paths rather than guessing one.
+
 - **`memesh pin`/`unpin --json` no longer reports a pin that never happened.**
   `setPinned` echoed the *requested* `pinned` argument back in its result even
   when the named entity did not exist, so `memesh pin --name nonexistent

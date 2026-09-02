@@ -117,7 +117,28 @@ describe('Feature: release scripts never edit the real ~/.memesh', () => {
     expect(buildAt, 'the gate diffs before it builds').toBeLessThan(diffAt);
     // A failed build must fail the gate. Reporting "output is current" because
     // the compiler crashed is the same class of lie one level up.
-    expect(text).toMatch(/catch[\s\S]{0,200}process\.exit\(1\)/);
+    //
+    // Scoped to the BUILD catch, deliberately. This used to be
+    // `expect(text).toMatch(/catch[\s\S]{0,200}process\.exit\(1\)/)`, and the
+    // script has FOUR `process.exit(1)` calls each preceded by a catch — any
+    // one of them satisfied an unanchored regex, so deleting the exit from the
+    // build catch left this test green. Measured: with that one line removed,
+    // this file passed and so did the whole suite.
+    //
+    // What that costs is not hypothetical. `npm run build` is an `&&` chain
+    // (`check-schema-drift && tsc && generate-hook-core && …`), so a tsc
+    // failure short-circuits it and `scripts/hooks/_generated/` is never
+    // regenerated — the exact hook/core divergence this gate's own docblock
+    // names as the class behind the P0 FTS omission. Falling through to
+    // `git diff --stat` then finds nothing to report and prints a green tick.
+    const buildCatchStart = text.indexOf('} catch (err) {', buildAt);
+    expect(buildCatchStart, 'the build call has no catch').toBeGreaterThan(-1);
+    const buildCatchEnd = text.indexOf('\n}\n', buildCatchStart);
+    expect(buildCatchEnd, 'the build catch is unterminated').toBeGreaterThan(buildCatchStart);
+    expect(
+      text.slice(buildCatchStart, buildCatchEnd),
+      'a failed build no longer fails the gate: it falls through to the diff, which is empty on any tree whose committed output already matches HEAD',
+    ).toContain('process.exit(1)');
   });
 
   it('installs dashboard deps from the lockfile, not the ranges', () => {

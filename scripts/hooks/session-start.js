@@ -334,11 +334,24 @@ function detectInstallChannelHook(pluginRoot) {
  * Claude Code wording rather than suppressing the hint entirely — the
  * banner is more useful naming the majority host than naming none.
  */
+/**
+ * Which plugin host is this install under — or `'unknown'` when we could not
+ * ask.
+ *
+ * `null` is a real answer from `detectPluginHost`: "this path is not under any
+ * plugin cache". So `detectPluginHost?.(root) ?? null` inside a bare catch,
+ * which is what this was, gave a module that failed to load and a detector
+ * that threw the SAME value as a confident "not Codex" — and
+ * `pluginUpgradeLine` then handed every Codex user the Claude Code command.
+ * `getCurrentInstallChannel` above already returns `'unknown'` for exactly
+ * this state; this now matches it.
+ */
 function pluginHostOf(pluginRoot) {
+  if (typeof _installChannelMod?.detectPluginHost !== 'function') return 'unknown';
   try {
-    return _installChannelMod?.detectPluginHost?.(pluginRoot) ?? null;
+    return _installChannelMod.detectPluginHost(pluginRoot);
   } catch {
-    return null;
+    return 'unknown';
   }
 }
 
@@ -354,8 +367,16 @@ function pluginHostOf(pluginRoot) {
  * happened. One owner, so it cannot happen again.
  */
 function pluginUpgradeLine(pluginRoot) {
-  if (pluginHostOf(pluginRoot) === 'codex') {
+  const host = pluginHostOf(pluginRoot);
+  if (host === 'codex') {
     return `    Run: codex plugin marketplace upgrade pcircle-memesh && codex plugin add memesh@pcircle-memesh`;
+  }
+  if (host === 'unknown') {
+    // Naming one host's command here would be a guess presented as an
+    // instruction. Rare — it needs `dist/core/install-channel.js` to be
+    // missing or unloadable — but that is a broken install, which is exactly
+    // when wrong upgrade advice costs the most.
+    return `    Run: memesh upgrade-plugin   (on Codex: codex plugin marketplace upgrade pcircle-memesh && codex plugin add memesh@pcircle-memesh)`;
   }
   return `    Run: memesh upgrade-plugin   (no CLI? npx @pcircle/memesh upgrade-plugin — or reinstall from /plugin UI)`;
 }

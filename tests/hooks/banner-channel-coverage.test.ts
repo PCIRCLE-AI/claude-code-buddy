@@ -89,5 +89,36 @@ describe('session-start banners cover every install channel', () => {
     expect(body, 'the helper does not consult the plugin host').toMatch(/pluginHostOf\(/);
     expect(body, 'no Codex-specific command').toMatch(/codex plugin marketplace upgrade/);
     expect(body, 'no Claude Code command').toMatch(/memesh upgrade-plugin/);
+    // The three assertions above are satisfied by the strings merely being
+    // PRESENT, and the defect here is a wrong mapping, not a missing string.
+    // Measured: changing the predicate to `=== 'codex-disabled'` — so every
+    // Codex user is handed the Claude Code command — left all three green, and
+    // the whole suite with them. Pin the pairing instead: the codex predicate
+    // and the codex command inside one branch.
+    expect(body, 'the helper no longer asks pluginHostOf for the value it branches on')
+      .toMatch(/const host = pluginHostOf\(pluginRoot\);/);
+    expect(
+      body,
+      "the codex branch no longer returns the codex command — the strings are all still there, the mapping is not",
+    ).toMatch(/if \(host === 'codex'\) \{[\s\S]{0,200}?codex plugin marketplace upgrade/);
+  });
+
+  it("says so when it could not ask which host this is, rather than assuming Claude Code", () => {
+    // `pluginHostOf` used to be `detectPluginHost?.(root) ?? null` inside a
+    // bare `catch { return null }`. `null` is a legitimate answer — "this path
+    // is not under any plugin cache" — so a module that failed to load, or a
+    // detector that threw, produced the same value as a confident "not Codex"
+    // and every Codex user silently got the Claude Code command. That is the
+    // same wrong outcome as the mutation above, reachable in production with
+    // no mutation at all.
+    const src = fs.readFileSync(HOOK, 'utf8');
+    const start = src.indexOf('function pluginHostOf(');
+    expect(start, 'pluginHostOf not found').toBeGreaterThan(-1);
+    const body = src.slice(start, src.indexOf('\nfunction ', start + 1));
+    expect(body, 'a missing detector still collapses into a host answer').toMatch(/return 'unknown'/);
+    expect(body, "a thrown detector still collapses into a host answer").toMatch(/catch\s*\{[^}]*'unknown'/);
+    const line = src.slice(src.indexOf('function pluginUpgradeLine('));
+    expect(line.slice(0, line.indexOf('\nfunction ', 1)), 'the unknown case is not handled separately')
+      .toMatch(/'unknown'/);
   });
 });
