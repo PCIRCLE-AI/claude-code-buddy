@@ -505,6 +505,16 @@ program
         name: opts.name,
         observation: opts.observation,
       });
+      // D7: this used to set `process.exitCode = 1` inside the human-readable
+      // branches only, so `--json` printed the identical "not found" result
+      // and exited 0 — the one output shape a script actually parses was the
+      // one that lied. `pin`/`unpin` (registerPinCommand, below) already get
+      // this right by deciding the exit code once, outside the `--json`
+      // branch; mirrored here instead of duplicated per branch so the two
+      // output modes cannot drift apart again. Same rule as pin: an
+      // operation that archived or removed nothing did not happen, and must
+      // not look like success to a script, `--json` included.
+      const didSomething = result.archived === true || result.observation_removed === true;
       if (opts.json) {
         console.log(JSON.stringify(result));
       } else if (result.archived) {
@@ -517,14 +527,10 @@ program
         // one action guaranteed to make it worse.
         console.log(`Entity "${opts.name}" has no observation matching that text (${result.remaining_observations} observation(s) present).`);
         console.log(`See them with: memesh recall "${opts.name}" --json`);
-        process.exitCode = 1;
       } else {
-        // `pin` already exits 1 here, with a comment explaining that a pin
-        // which pinned nothing is invisible to scripts. A forget that forgot
-        // nothing is the same.
         console.log(`Entity "${opts.name}" not found`);
-        process.exitCode = 1;
       }
+      if (!didSomething) process.exitCode = 1;
     });
   });
 

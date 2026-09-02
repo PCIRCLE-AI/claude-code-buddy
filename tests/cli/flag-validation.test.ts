@@ -205,6 +205,35 @@ describe('CLI: flags reject values they do not understand', () => {
       expect(r.exitCode, 'a forget that forgot nothing is invisible to scripts').toBe(1);
     });
 
+    // D7: `--json` used to print the identical `{ archived: false, ... }`
+    // envelope and exit 0 regardless of outcome — the one output shape a
+    // script actually parses was the one that lied about whether anything
+    // happened. These three pin the `--json` exit code to agree with the
+    // human-readable one above, for all three forget outcomes.
+    it('--json: an entity that really is missing exits 1, not 0', () => {
+      const r = runCli(['forget', '--name', 'never-existed-json', '--json']);
+      expect(r.exitCode, 'a forget --json that forgot nothing must not look like success').toBe(1);
+      const parsed = JSON.parse(r.stdout) as { archived?: boolean };
+      expect(parsed.archived).toBe(false);
+    });
+
+    it('--json: text that matches no observation exits 1, not 0', () => {
+      expect(runCli(['remember', '--name', 'kept-json', '--type', 'note', '--obs', 'the real text']).exitCode).toBe(0);
+      const r = runCli(['forget', '--name', 'kept-json', '--observation', 'text that is not there', '--json']);
+      expect(r.exitCode).toBe(1);
+      const parsed = JSON.parse(r.stdout) as { observation_removed?: boolean; entity_found?: boolean };
+      expect(parsed.observation_removed).toBe(false);
+      expect(parsed.entity_found).toBe(true);
+    });
+
+    it('--json: an entity that IS archived still exits 0', () => {
+      expect(runCli(['remember', '--name', 'to-archive-json', '--type', 'note', '--obs', 'bye']).exitCode).toBe(0);
+      const r = runCli(['forget', '--name', 'to-archive-json', '--json']);
+      expect(r.exitCode, 'a real archive must not be reported as a failure').toBe(0);
+      const parsed = JSON.parse(r.stdout) as { archived?: boolean };
+      expect(parsed.archived).toBe(true);
+    });
+
     it('an EMPTY selector is refused, and never reported as a missing entity', () => {
       // `--observation ""` is what an unset shell variable expands to, and it
       // is the input that used to archive the whole memory. Core stopped

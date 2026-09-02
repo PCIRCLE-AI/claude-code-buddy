@@ -1335,7 +1335,11 @@ export async function runDoctor(options) {
                     ? 'The vector index could not be read, so how much of your memory semantic recall can see is unknown'
                     : `${missingVectors} memor${missingVectors === 1 ? 'y has' : 'ies have'} no search vector, `
                         + 'so semantic recall cannot find them (keyword search still works)';
-            dbChecks.push(createCheck('vector_index', 'Vector Index', 'warn', owed, `Run 'memesh reindex' to fix. This will restore full search functionality.`, { code: 'vector-index.stale', params: { missing: missingVectors ?? -1 } }));
+            const noEmbedderConfigured = detectCapabilitiesImpl().embeddings === 'tfidf';
+            const vectorIndexFix = noEmbedderConfigured
+                ? `No embedder is configured, so reindex has nothing to embed with — run 'memesh config set embedder.provider ollama|openai' first, then 'memesh reindex'.`
+                : `Run 'memesh reindex' to fix. This will restore full search functionality.`;
+            dbChecks.push(createCheck('vector_index', 'Vector Index', 'warn', owed, vectorIndexFix, { code: 'vector-index.stale', params: { missing: missingVectors ?? -1 } }));
         }
         const generation = readVectorGeneration();
         if (generation.state !== 'none') {

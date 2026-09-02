@@ -30,7 +30,7 @@ import { getProjectName } from './paths.js';
 import { readRepoState, repoStateLines } from './repo-state.js';
 import { rankEntities } from './scoring.js';
 import { getTaskState } from './task-state-store.js';
-import { unreadDeliveryCount, unreadInboxLines } from './agent-message-inbox.js';
+import { recipientEverSeen, unreadDeliveryCount, unreadInboxLines } from './agent-message-inbox.js';
 import { taskStateLines } from './task-state.js';
 import {
   GLOBAL_TOPOLOGY_LIMIT,
@@ -168,11 +168,16 @@ export function assembleBriefing(project?: string, recipient?: string): Briefing
   // on, not a memory that scored well. It is only actionable when the caller
   // supplies the exact logical recipient; generic briefing has no identity
   // and must not aggregate another recipient's activity.
+  const unreadCount = unreadDeliveryCount(db, projectName, recipient);
+  // D8: only worth asking when it can change the answer — a nonzero count
+  // already proves the recipient is real, and with no recipient at all
+  // `unreadInboxLines` never looks at it.
+  const everSeen = recipient !== undefined && unreadCount === 0
+    ? recipientEverSeen(db, projectName, recipient)
+    : undefined;
   const stateLines = [
     ...taskStateLines(state, projectName),
-    ...unreadInboxLines(
-      unreadDeliveryCount(db, projectName, recipient), projectName, recipient,
-    ),
+    ...unreadInboxLines(unreadCount, projectName, recipient, everSeen),
   ];
 
   // A database from before namespaces cannot hold global rows. Preserve the

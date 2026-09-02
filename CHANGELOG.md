@@ -125,6 +125,33 @@ All notable changes to MeMesh are documented here.
   the cache backing that claim actually is, since doctor never makes a live
   registry call itself.
 
+- **`memesh doctor`'s Vector Index fix now names its own prerequisite.** On a
+  fresh Core-mode install — the default, with no embedder configured — the
+  WARN's one-line fix said `Run 'memesh reindex' to fix`, but `memesh reindex`
+  refuses with exit 1 (`no embedding provider is configured`) in exactly that
+  state, for nearly every new user. The fix line now checks the same
+  `capabilities.embeddings === 'tfidf'` predicate `inspectEmbeddingProbe`
+  already uses, and says to configure an embedder first when that is true.
+
+- **`memesh forget --json` now agrees with `memesh forget` and with `memesh
+  pin`/`unpin` on the exit code.** `--json` printed the same `{ archived:
+  false, ... }` / `{ observation_removed: false, ... }` envelope regardless of
+  outcome and always exited 0 — the one output shape a script actually parses
+  was the one that reported success for an operation that changed nothing. The
+  exit code is now decided once, from whether anything was actually archived
+  or removed, and applied to both `--json` and plain output alike, matching
+  the rule `pin`/`unpin` already followed.
+
+- **`memesh briefing --recipient <id>` no longer reads a typo as a quiet,
+  healthy inbox.** At zero unread, the block was identical whether the
+  recipient was real with nothing waiting, or had never been addressed in
+  that project at all — a typo went unreported. A new `recipientEverSeen`
+  check (`agent_principals` for a live connection, `agent_message_deliveries`
+  for any delivery, ever) distinguishes the two; the block now says so
+  explicitly when the exact recipient id has never been seen in that project,
+  and stays silent (as before) when the database predates the message tables
+  and the question cannot be answered at all.
+
 - **The Ollama host guard now rebuilds the request origin instead of forwarding
   the configured string.** `resolveOllamaHost` used to validate a persisted
   `llm.host` and then pass the same string to `fetch`, which left CodeQL alert

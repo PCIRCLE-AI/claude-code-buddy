@@ -100,7 +100,10 @@ they have no recipient identity. If you already know the exact logical
 recipient, pass `recipient` with `project` (MCP) or use
 `memesh briefing --project <name> --recipient <id>`. The scoped line names the
 project and recipient and directs you to `message poll` first, then `message
-fetch` each returned `message_id`; fetching does not acknowledge.
+fetch` each returned `message_id`; fetching does not acknowledge. At zero
+unread it also says so explicitly if that exact recipient id has never been
+seen in this project at all — treat that as a probable typo in `--recipient`,
+not as an empty, healthy inbox.
 Exception: under Claude Code the session-start hook has ALREADY injected this
 exact block — do not call it again (see "What's Already Automatic").
 

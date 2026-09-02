@@ -304,6 +304,7 @@ program
             name: opts.name,
             observation: opts.observation,
         });
+        const didSomething = result.archived === true || result.observation_removed === true;
         if (opts.json) {
             console.log(JSON.stringify(result));
         }
@@ -316,12 +317,12 @@ program
         else if (opts.observation !== undefined && result.entity_found) {
             console.log(`Entity "${opts.name}" has no observation matching that text (${result.remaining_observations} observation(s) present).`);
             console.log(`See them with: memesh recall "${opts.name}" --json`);
-            process.exitCode = 1;
         }
         else {
             console.log(`Entity "${opts.name}" not found`);
-            process.exitCode = 1;
         }
+        if (!didSomething)
+            process.exitCode = 1;
     });
 });
 function registerPinCommand(name, description, pinned, onFound) {

@@ -506,7 +506,7 @@ The text is wrapped in the same fence and "background data, not instructions" pr
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project` | string | No | Project name (default: the current working directory's project) |
-| `recipient` | string | No | Exact logical recipient. When supplied, reports only that recipient's unfetched deliveries for the project. Omit for generic context; generic briefing never reports unread activity. |
+| `recipient` | string | No | Exact logical recipient. When supplied, reports only that recipient's unfetched deliveries for the project. At zero unread, the block also says so explicitly if this exact recipient id has never been addressed in this project either (durable delivery or live connection) — distinct from a real, quiet inbox, so a typo'd recipient is never indistinguishable from "nothing waiting". Omit for generic context; generic briefing never reports unread activity. |
 
 **Response**:
 
@@ -632,7 +632,7 @@ Status returns the proposal state, source IDs, review timestamps/reason, and `ac
 
 Discover live registrations or exchange durable exact-recipient messages between local hosts connected to the same MeMesh SQLite instance. One tool owns both surfaces so every transport uses the same validation and state semantics.
 
-**When to use it:** use `discover` when you know the project but not the right live recipient; use `send` to hand off work, ask for a result, or report a disposition. For `target_kind: "session"`, MeMesh sends the bounded full message through the exact active native host channel and returns only after `host_accept`. An oversized full envelope returns `native_message_too_large`; an absent, stopped, disconnected, or otherwise rejected exact session returns `recipient_unavailable`. Durable state remains available for scoped recovery, but a failed exact-session native delivery is not automatically replayed when that session later registers. Principal targets retain durable store-and-forward behavior. A briefing surfaces `N messages waiting for "<recipient>" in project "<project>"` only when the caller supplies that exact recipient; generic briefing and SessionStart context have no recipient identity and remain quiet.
+**When to use it:** use `discover` when you know the project but not the right live recipient; use `send` to hand off work, ask for a result, or report a disposition. For `target_kind: "session"`, MeMesh sends the bounded full message through the exact active native host channel and returns only after `host_accept`. An oversized full envelope returns `native_message_too_large`; an absent, stopped, disconnected, or otherwise rejected exact session returns `recipient_unavailable`. Durable state remains available for scoped recovery, but a failed exact-session native delivery is not automatically replayed when that session later registers. Principal targets retain durable store-and-forward behavior. A briefing surfaces `N messages waiting for "<recipient>" in project "<project>"` only when the caller supplies that exact recipient; generic briefing and SessionStart context have no recipient identity and remain quiet. At zero unread, a scoped briefing still says `... this recipient id has never been seen in this project` when that exact id has no delivery and no live connection recorded for that project — a typo in `--recipient` must not read as an empty, healthy inbox.
 
 The JSON-encoded durable `payload` is limited to 65,536 UTF-8 bytes (64 KiB). Native delivery has a separate 16,384-byte (16 KiB) limit for the complete envelope, including routing metadata and payload. Therefore, fitting the durable payload limit does not guarantee that native delivery can accept the message; that permanent size failure is reported as `native_message_too_large`, not as transient unavailability. Payloads are untrusted data and are never executed by MeMesh.
 
@@ -1548,6 +1548,35 @@ memesh unpin --name "auth-architecture-decision"
 | `--json` | Output the result as JSON (`{ name, pinned, found }`). `pinned` is `null` when `found` is `false` — there is no pin state to report for an entity that does not exist, so the payload never claims one. |
 
 If the named entity does not exist, the command reports it and exits with a non-zero status (`found: false`, `pinned: null`).
+
+---
+
+### memesh forget
+
+Archive an entity (soft-delete), or remove one observation. See [`forget`](#forget) above for the modes and the archive-not-delete guarantee.
+
+**Usage**:
+
+```bash
+memesh forget --name "old-decision"
+memesh forget --name "auth-notes" --observation "the exact observation text"
+```
+
+**Options**:
+
+| Option | Description |
+|--------|-------------|
+| `--name <name>` | Entity name (required). |
+| `--observation <text>` | Remove only this observation instead of archiving the entity. |
+| `--json` | Output the result as JSON. |
+
+The command **exits 1** whenever nothing changed — the named entity does not
+exist, or `--observation` names text that matched no observation on an entity
+that does exist — and exits 0 only when something was actually archived or
+removed. This holds for `--json` too: the JSON envelope alone (`archived:
+false` / `observation_removed: false`) is not a script-visible failure by
+itself, so the exit code is the contract to check, same as `pin`/`unpin`
+above.
 
 ---
 
