@@ -168,6 +168,17 @@ const HOOK_CASES: HookCase[] = [
       prompt: 'remember that we use PKCE for OAuth',
     },
   },
+  {
+    file: 'decision-nudge.js',
+    boundEvent: 'PostToolUse',
+    input: {
+      session_id: 'contract-8',
+      cwd: '/tmp/contract-project',
+      hook_event_name: 'PostToolUse',
+      tool_name: 'ExitPlanMode',
+      tool_input: { plan: 'Ship the decision-nudge hook' },
+    },
+  },
 ];
 
 describe('Feature: Claude Code hook-output contract', () => {

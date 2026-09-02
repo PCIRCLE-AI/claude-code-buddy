@@ -35,6 +35,20 @@ All notable changes to MeMesh are documented here.
   `SessionStart` hook, and that print-mode Claude is unsupported (#275).
   Closes the "repeatable check in the repository" box on #270 and #272.
 
+- **A write-side reminder hook.** The read side of MeMesh was already automatic
+  (SessionStart and PreToolUse inject memories) but nothing prompted an agent
+  to *store* anything, so decisions made mid-session were routinely lost until
+  the user said "remember this" (#277). A ninth hook,
+  `scripts/hooks/decision-nudge.js`, runs on `PostToolUse` for `ExitPlanMode`
+  and `AskUserQuestion` — the two calls where a decision has most likely just
+  been made — and adds one line of context asking the model to `remember` it
+  if it is worth keeping. At most once per tool per session, enforced by an
+  `O_EXCL` flag file under `MEMESH_DIR/decision-nudge-flags/`; the hook never
+  opens the database, exits 0 on any malformed input, and writes nothing to
+  the graph itself. Hook inventories in the READMEs (three languages),
+  `docs/ARCHITECTURE.md`, `AGENTS.md`, `CODEMAP.md` and the skill now list nine
+  hooks, and `check-codemap-parity` no longer hard-codes the count.
+
 ## [4.8.3] — 2026-08-31
 
 ### Fixed

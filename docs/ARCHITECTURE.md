@@ -374,13 +374,14 @@ Foreign key cascades: deleting an entity automatically deletes its observations,
 
 Hooks are defined in `hooks/hooks.json` and executed by Claude Code at specific lifecycle events.
 
-### Hook Commands (8 hooks)
+### Hook Commands (9 hooks)
 
 | Hook | Event | Purpose |
 |------|-------|---------|
 | pre-edit-recall.js | PreToolUse (Edit/Write) | Continuous recall: inject relevant memories when editing files |
 | session-start.js | SessionStart | Auto-recall + record injected IDs + noise compression |
 | post-commit.js | PostToolUse (Bash) | Record git commits with diff stats |
+| decision-nudge.js | PostToolUse (ExitPlanMode/AskUserQuestion) | Remind the model to `remember` a decision just made — once per tool per session |
 | session-summary.js | Stop | Auto-capture session knowledge + recall effectiveness tracking |
 | pre-compact.js | PreCompact | Save knowledge before compaction |
 | user-prompt-intent.js | UserPromptSubmit | Detect "remember" intent (5 languages: en, es, fr, pt, zh-TW) and remind Claude to use mcp__memesh__remember |
@@ -411,6 +412,12 @@ Hooks are defined in `hooks/hooks.json` and executed by Claude Code at specific 
 - **Trigger**: `PostToolUse` event on `Bash` tool
 - **Matcher**: `Bash` (filters for git commit commands)
 - **Behavior**: Detects git commit messages from tool output, creates a `commit` entity with the commit message as an observation, tags with the project name; includes diff stats (files changed, insertions, deletions)
+
+### Decision Nudge (`scripts/hooks/decision-nudge.js`)
+
+- **Trigger**: `PostToolUse` event on `ExitPlanMode` and `AskUserQuestion` tools
+- **Matcher**: `ExitPlanMode|AskUserQuestion`
+- **Behavior**: The read side of MeMesh is automatic; the write side was not (#277) — an agent could make several decisions in a session and store none of them until the user asked. This hook fires at the two tool calls where a decision most likely just happened (a plan got approved, a question got answered) and emits a one-line `additionalContext` reminder to call `remember` if the decision is worth keeping. Rate-limited to once per tool per session via a private flag file under `~/.memesh/decision-nudge-flags/`. Never opens the database — it only reminds, it does not capture — so it stays fast and cannot be slowed by lock contention. Fails silently (exit 0, no output) on malformed input or a missing/unsafe `session_id`.
 
 ### Session Summary (`scripts/hooks/session-summary.js`)
 
