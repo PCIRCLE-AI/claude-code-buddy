@@ -28,7 +28,10 @@ function entity(id: number, type = 'decision'): Entity {
 }
 
 function storageEvent(key: string): StorageEvent {
-  const event = new StorageEvent('storage');
+  // A plain Event cast to StorageEvent: the handler under test reads only
+  // `key`, and constructing StorageEvent with arguments trips CodeQL's
+  // superfluous-argument check under the test DOM's constructor model (#138).
+  const event = new Event('storage') as StorageEvent;
   Object.defineProperty(event, 'key', { value: key });
   return event;
 }
