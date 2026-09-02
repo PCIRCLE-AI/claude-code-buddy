@@ -1767,10 +1767,22 @@ function inspectShellCli(
       );
     }
     if (thisIsBehind) {
-      const pluginHost = installChannel === 'plugin-marketplace' ? (detectPluginHost(packageRoot) ?? 'claude-code') : null;
-      const fix = pluginHost
-        ? `Run \`${PLUGIN_REFRESH_COMMANDS[pluginHost]}\` to bring this plugin copy to ${shellVersion} (or newer).`
-        : `Update this install (a ${installChannel}) to ${shellVersion} or newer via its own channel — see \`memesh status\`.`;
+      // `?? 'claude-code'` was wrong here and is the same mistake the
+      // session-start banner made: `null` is a legitimate answer from
+      // `detectPluginHost` — "this path is not under any plugin cache" — so
+      // collapsing it into a host handed a Codex user the Claude Code command
+      // with no way to tell. On a plugin-marketplace install the host normally
+      // IS detectable; when it is not (a relocated cache whose env var this
+      // process cannot see), naming one host's command is a guess presented as
+      // an instruction. Name both instead.
+      const pluginHost = installChannel === 'plugin-marketplace' ? detectPluginHost(packageRoot) : null;
+      const fix = installChannel !== 'plugin-marketplace'
+        ? `Update this install (a ${installChannel}) to ${shellVersion} or newer via its own channel — see \`memesh status\`.`
+        : pluginHost
+          ? `Run \`${PLUGIN_REFRESH_COMMANDS[pluginHost]}\` to bring this plugin copy to ${shellVersion} (or newer).`
+          : `Bring this plugin copy to ${shellVersion} (or newer) with your host's refresh command — `
+            + `Claude Code: \`${PLUGIN_REFRESH_COMMANDS['claude-code']}\`; `
+            + `Codex: \`${PLUGIN_REFRESH_COMMANDS.codex}\`.`;
       return createCheck(
         'shell-cli',
         'Shell CLI on PATH',

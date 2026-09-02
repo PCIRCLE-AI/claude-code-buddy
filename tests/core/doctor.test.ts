@@ -2786,7 +2786,35 @@ describe('shell CLI on PATH check (plugin-without-global gotcha)', () => {
       const cliCheck = result.checks.find((c) => c.id === 'shell-cli');
       expect(cliCheck?.status).toBe('warn');
       expect(cliCheck?.summary).toContain('ahead');
+      // This fixture's packageRoot is a bare temp directory, so
+      // `detectPluginHost` returns null — the "plugin-marketplace install
+      // whose host cannot be determined" case. The advice must not pick one
+      // host: `?? 'claude-code'` handed a Codex user `memesh upgrade-plugin`,
+      // which does nothing for them, and nothing in the message said it was a
+      // guess. Both commands, or neither.
       expect(cliCheck?.fix).toContain('memesh upgrade-plugin');
+      expect(cliCheck?.fix, 'the undetectable-host case named only one host')
+        .toContain('codex plugin marketplace upgrade');
+    });
+
+    it('names ONLY the host it actually detected, when it can detect one', async () => {
+      // The other side of the same predicate, and the reason the test above
+      // is not simply "always print both": a Claude Code plugin install must
+      // not be told to run Codex commands. `detectPluginHost` matches on the
+      // plugin cache segment in the resolved path, so a packageRoot under
+      // `.claude/plugins/cache/` is a detectable host.
+      const cacheRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-plugincache-'));
+      tempRoots.push(cacheRoot);
+      const packageRoot = createPackageRoot(
+        path.join(cacheRoot, '.claude', 'plugins', 'cache', 'pcircle-memesh', 'memesh'),
+      );
+      const result = await runWithShellCli(packageRoot, '4.8.3', fakeShellCli('4.9.0'));
+
+      const cliCheck = result.checks.find((c) => c.id === 'shell-cli');
+      expect(cliCheck?.status).toBe('warn');
+      expect(cliCheck?.fix).toContain('memesh upgrade-plugin');
+      expect(cliCheck?.fix, 'a detected Claude Code host was still offered the Codex command')
+        .not.toContain('codex plugin marketplace upgrade');
     });
 
     it('stays PASS and states the shared version when both copies agree', async () => {

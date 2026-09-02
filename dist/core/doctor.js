@@ -661,10 +661,14 @@ function inspectShellCli(installChannel, packageRoot, packageVersion, resolveShe
             return createCheck('shell-cli', 'Shell CLI on PATH', 'warn', `\`memesh\` resolves to ${shellPath} (separate from this install at ${packageRoot}), and it is running ${shellVersion} — behind this install's ${packageVersion}. Both share the same DB, but an agent using this install and a human typing \`memesh\` in a terminal are running different code.`, 'Run `npm install -g @pcircle/memesh@latest` to bring the shell CLI up to date — a separate global install is never updated automatically by the plugin marketplace.');
         }
         if (thisIsBehind) {
-            const pluginHost = installChannel === 'plugin-marketplace' ? (detectPluginHost(packageRoot) ?? 'claude-code') : null;
-            const fix = pluginHost
-                ? `Run \`${PLUGIN_REFRESH_COMMANDS[pluginHost]}\` to bring this plugin copy to ${shellVersion} (or newer).`
-                : `Update this install (a ${installChannel}) to ${shellVersion} or newer via its own channel — see \`memesh status\`.`;
+            const pluginHost = installChannel === 'plugin-marketplace' ? detectPluginHost(packageRoot) : null;
+            const fix = installChannel !== 'plugin-marketplace'
+                ? `Update this install (a ${installChannel}) to ${shellVersion} or newer via its own channel — see \`memesh status\`.`
+                : pluginHost
+                    ? `Run \`${PLUGIN_REFRESH_COMMANDS[pluginHost]}\` to bring this plugin copy to ${shellVersion} (or newer).`
+                    : `Bring this plugin copy to ${shellVersion} (or newer) with your host's refresh command — `
+                        + `Claude Code: \`${PLUGIN_REFRESH_COMMANDS['claude-code']}\`; `
+                        + `Codex: \`${PLUGIN_REFRESH_COMMANDS.codex}\`.`;
             return createCheck('shell-cli', 'Shell CLI on PATH', 'warn', `\`memesh\` resolves to ${shellPath} (separate from this install at ${packageRoot}), and it is running ${shellVersion} — ahead of this install's ${packageVersion}.`, fix);
         }
         return createCheck('shell-cli', 'Shell CLI on PATH', 'pass', `\`memesh\` resolves to ${shellPath} (separate from this install at ${packageRoot}). Both paths coexist and share the same DB`
