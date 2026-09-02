@@ -84,7 +84,17 @@ export const MAX_SOCKET_PATH_BYTES = 103;
  * did nothing but answer, so an unrecognised item type must fail loudly rather
  * than be assumed harmless.
  */
-export const ALLOWED_CODEX_ITEM_TYPES = new Set(['agent_message', 'error']);
+export const ALLOWED_CODEX_ITEM_TYPES = new Set(['agent_message', 'reasoning', 'error']);
+
+/**
+ * `codex exec --json` event types that are lifecycle, not model action. The
+ * no-command check walks EVERY event, not only `item.completed`: a native tool
+ * (read_file, view_image) that surfaced under some other event type would
+ * otherwise be invisible to an item-only scan. Anything not listed fails closed.
+ */
+export const ALLOWED_CODEX_EVENT_TYPES = new Set([
+  'thread.started', 'turn.started', 'turn.completed', 'item.started', 'item.updated', 'item.completed', 'error',
+]);
 
 /** dist artefacts this check runs. Missing any of them is a refusal, not a skip. */
 export const REQUIRED_DIST = [
@@ -327,10 +337,15 @@ export function collectCodexAgentMessages(text) {
 export function assertCodexRanNoCommands(text) {
   const offending = [];
   for (const event of parseJsonl(text)) {
-    if (event?.type !== 'item.completed') continue;
+    const type = event?.type;
+    if (typeof type !== 'string' || !ALLOWED_CODEX_EVENT_TYPES.has(type)) {
+      offending.push(`event:${typeof type === 'string' ? type : '<unknown>'}`);
+      continue;
+    }
+    if (!type.startsWith('item.')) continue;
     const kind = event.item?.type;
     if (typeof kind !== 'string' || !ALLOWED_CODEX_ITEM_TYPES.has(kind)) {
-      offending.push(typeof kind === 'string' ? kind : '<unknown>');
+      offending.push(`item:${typeof kind === 'string' ? kind : '<unknown>'}`);
     }
   }
   if (offending.length > 0) {
@@ -626,16 +641,14 @@ class Journey {
       realpath: realpathAsFarAsPossible,
     });
 
+    // Measure the socket path BEFORE creating anything, on the real temp root
+    // (os.tmpdir() may be a symlink to a longer path), so a refusal leaves no
+    // empty directory behind. mkdtemp appends six characters.
+    assertSocketPathFits(path.join(realpathAsFarAsPossible(tmpRoot), 'memesh-lj-XXXXXX', 'memesh', 'agent-router.sock'));
     this.dir = fs.realpathSync(fs.mkdtempSync(path.join(tmpRoot, 'memesh-lj-')));
     this.memeshDir = path.join(this.dir, 'memesh');
     this.dbPath = path.join(this.memeshDir, 'knowledge-graph.db');
     this.socketPath = path.join(this.memeshDir, 'agent-router.sock');
-    assertOutsideOwnerMemesh({
-      candidates: { MEMESH_DIR: this.memeshDir, MEMESH_DB_PATH: this.dbPath },
-      home: os.homedir(),
-      realpath: realpathAsFarAsPossible,
-    });
-    assertSocketPathFits(this.socketPath);
     fs.mkdirSync(this.memeshDir, { recursive: true, mode: 0o700 });
     this.env = { ...process.env, MEMESH_DIR: this.memeshDir, MEMESH_DB_PATH: this.dbPath };
 
@@ -694,9 +707,13 @@ class Journey {
 
   startRouter() {
     const log = fs.openSync(path.join(this.dir, 'router.log'), 'a');
+    // detached: the router gets its own process group, so a terminal Ctrl-C
+    // reaches the harness (which unwinds in order) and not the router first —
+    // a router killed while a host is still connected is what spawns an orphan.
     this.router = spawn(process.execPath, [dist('dist/host-runtime/router.js')], {
       env: this.env,
       stdio: ['ignore', log, log],
+      detached: true,
     });
     return this.router;
   }
@@ -794,13 +811,18 @@ class Journey {
    * connected after the bounded wait, keep the directory rather than delete a
    * tree something is about to recreate. Runs on every exit path.
    */
-  async shutdown(waitMs = 30_000) {
-    if (this.shuttingDown) return;
-    this.shuttingDown = true;
+  shutdown(waitMs = 30_000) {
+    // Memoised, not guarded: a second caller (signal handler racing the main
+    // path's own failure) must AWAIT the first unwind, not skip it and exit
+    // while rmSync has not run yet.
+    this.shutdownPromise ??= this.unwind(waitMs);
+    return this.shutdownPromise;
+  }
 
+  async unwind(waitMs) {
     await stopChild(this.companion);
 
-    const routerAlive = this.router !== null && this.router.exitCode === null;
+    const routerAlive = this.router !== null && this.router.exitCode === null && this.router.signalCode === null;
     const disconnected = await awaitSessionDisconnect({
       sessionId: routerAlive ? this.liveSessionId : null,
       isGone: (sessionId) => this.sessionGone(sessionId),
@@ -813,7 +835,8 @@ class Journey {
       this.keptForSafety = true;
       process.stderr.write(
         `\n  WARNING: ${this.liveSessionId} is still connected. Keeping ${this.dir} rather than deleting a\n`
-        + '  directory a live host is about to recreate. Exit that session, then remove it by hand.\n',
+        + '  directory a live host is about to recreate. Exit that session, then remove it by hand; if a\n'
+        + '  detached router was started by that host, stop it too: pkill -f dist/host-runtime/router.js\n',
       );
     }
 
@@ -887,6 +910,7 @@ async function runCodex(journey) {
   journey.companion = spawn(process.execPath, [dist('dist/host-runtime/codex-session.js')], {
     env: { ...journey.env, PLUGIN_ROOT: repoRoot },
     stdio: ['pipe', companionLog, companionLog],
+    detached: true, // same reason as the router: the harness, not the terminal, decides the order
   });
   journey.companion.stdin.end(JSON.stringify({
     hook_event_name: 'SessionStart',
@@ -1158,12 +1182,38 @@ async function main() {
   }
   process.stdout.write('\n');
 
+  const emitReport = (failureText) => {
+    const report = {
+      schema_version: 'memesh-live-journey/v1',
+      revision,
+      dirty,
+      dist_stale: distStale,
+      host: options.host,
+      project: PROJECT,
+      started_at: startedAt,
+      finished_at: new Date().toISOString(),
+      verdict: failureText === null ? 'PASS' : 'FAIL',
+      memesh_dir: journey.memeshDir,
+      steps: journey.steps,
+      limitations: journey.limitations,
+      ...(failureText === null ? {} : { error: failureText }),
+    };
+    if (options.out) {
+      const target = path.resolve(options.out);
+      fs.writeFileSync(target, `${JSON.stringify(report, null, 2)}\n`, { mode: 0o600 });
+      process.stdout.write(`\nReport: ${target}\n`);
+    } else {
+      process.stdout.write(`\n${JSON.stringify(report, null, 2)}\n`);
+    }
+  };
   const finish = async (code) => {
     await journey.shutdown();
     process.exit(code);
   };
   const onSignal = (signal, code) => {
     process.stderr.write(`\nReceived ${signal}; shutting down cleanly.\n`);
+    // The partial report is evidence too: which steps passed before the interrupt.
+    try { emitReport(`interrupted by ${signal}`); } catch { /* the report is best effort here */ }
     void finish(code);
   };
   process.once('SIGINT', () => onSignal('SIGINT', 130));
@@ -1184,28 +1234,7 @@ async function main() {
     process.stderr.write(`  FAIL ${failure}\n`);
   }
 
-  const report = {
-    schema_version: 'memesh-live-journey/v1',
-    revision,
-    dirty,
-    dist_stale: distStale,
-    host: options.host,
-    project: PROJECT,
-    started_at: startedAt,
-    finished_at: new Date().toISOString(),
-    verdict: failure === null ? 'PASS' : 'FAIL',
-    memesh_dir: journey.memeshDir,
-    steps: journey.steps,
-    limitations: journey.limitations,
-    ...(failure === null ? {} : { error: failure }),
-  };
-  if (options.out) {
-    const target = path.resolve(options.out);
-    fs.writeFileSync(target, `${JSON.stringify(report, null, 2)}\n`, { mode: 0o600 });
-    process.stdout.write(`\nReport: ${target}\n`);
-  } else {
-    process.stdout.write(`\n${JSON.stringify(report, null, 2)}\n`);
-  }
+  emitReport(failure);
   await finish(failure === null ? 0 : 1);
 }
 

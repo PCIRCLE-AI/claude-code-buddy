@@ -373,7 +373,7 @@ describe('assertCodexReply', () => {
       extraItems: [{ id: 'item_9', type: 'command_execution', command: 'cat turn1.jsonl', exit_code: 0 }],
     });
     expect(() => assertCodexReply({ jsonl: withCommand, ...expected }))
-      .toThrow(/non-answer items \(command_execution\)/);
+      .toThrow(/non-answer items \(item:command_execution\)/);
   });
 
   it('rejects NO_ENVELOPE with the reason, not a generic mismatch', () => {
@@ -414,6 +414,23 @@ describe('assertCodexRanNoCommands', () => {
   it('rejects an unrecognised item type rather than assuming it is harmless', () => {
     const withTool = codexTurn(['ok'], { extraItems: [{ id: 'item_9', type: 'mcp_tool_call', name: 'read_file' }] });
     expect(() => assertCodexRanNoCommands(withTool)).toThrow(/mcp_tool_call/);
+  });
+
+  it('tolerates a reasoning item — thinking is not a model action', () => {
+    const withReasoning = codexTurn(['ok'], { extraItems: [{ id: 'item_9', type: 'reasoning', text: 'considering' }] });
+    expect(() => assertCodexRanNoCommands(withReasoning)).not.toThrow();
+  });
+
+  it('rejects an unrecognised EVENT type, not only an unrecognised item type', () => {
+    // A native tool surfaced under some event other than item.* must not slip
+    // past an item-only scan.
+    const withForeignEvent = `${GOOD_REPLY}\n${JSON.stringify({ type: 'tool.call', name: 'read_file', path: '../memesh/knowledge-graph.db' })}`;
+    expect(() => assertCodexRanNoCommands(withForeignEvent)).toThrow(/event:tool\.call/);
+  });
+
+  it('rejects a command that only STARTED (item.started) even if it never completed', () => {
+    const withStartedCommand = `${GOOD_REPLY}\n${JSON.stringify({ type: 'item.started', item: { id: 'item_9', type: 'command_execution', command: 'cat x' } })}`;
+    expect(() => assertCodexRanNoCommands(withStartedCommand)).toThrow(/item:command_execution/);
   });
 });
 
