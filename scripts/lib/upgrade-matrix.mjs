@@ -130,6 +130,59 @@ export function selectUpgradePaths(packument, candidateVersion) {
   return [...paths].sort(compareReleases);
 }
 
+/** npm's own package-name grammar: an optional scope, then one name. */
+const PACKAGE_NAME_PATTERN = /^(?:@[a-z0-9][a-z0-9\-._]*\/)?[a-z0-9][a-z0-9\-._]*$/;
+
+/**
+ * The registry URL for a package's packument.
+ *
+ * Two things, because one was not enough. `packageName.replace('/', '%2f')`
+ * substitutes only the FIRST match — a name carrying a second separator kept
+ * it, and a path segment that survives into a URL is a traversal waiting for
+ * an input that is not a constant (CodeQL js/incomplete-sanitization, high,
+ * on this exact line). Replacing every occurrence closes that, and rejecting
+ * anything that is not an npm package name closes the question of what else
+ * could arrive here — the value is validated before it is used, not repaired
+ * after.
+ *
+ * @param {string} registry registry base URL, from `npm config get registry`
+ * @param {string} packageName e.g. `@pcircle/memesh`
+ * @returns {string}
+ */
+export function packumentUrl(registry, packageName) {
+  if (!PACKAGE_NAME_PATTERN.test(packageName)) {
+    throw new Error(`not an npm package name: ${packageName}`);
+  }
+  const base = registry.endsWith('/') ? registry : `${registry}/`;
+  return `${base}${packageName.replaceAll('/', '%2f')}`;
+}
+
+/**
+ * Every path that was derived must have been proven.
+ *
+ * The gap this closes was measured: changing the runner's loop to
+ * `upgradePaths.slice(0, 1)` proved one row instead of two, printed a
+ * cheerful summary and exited 0, and all 55 tests over these files stayed
+ * green. Nothing in the repository could tell a two-row matrix from a
+ * one-row one — which is the same defect, in the gate itself, that the gate
+ * exists to prevent.
+ *
+ * @param {string[]} derived what selectUpgradePaths returned
+ * @param {string[]} proven what the runner actually ran
+ * @throws when a derived path was skipped, or a path nobody derived was run
+ */
+export function assertEveryPathProven(derived, proven) {
+  const missing = derived.filter((version) => !proven.includes(version));
+  const unexpected = proven.filter((version) => !derived.includes(version));
+  if (missing.length > 0 || unexpected.length > 0) {
+    throw new Error(
+      `the upgrade matrix proved ${proven.length} of ${derived.length} derived paths`
+        + (missing.length > 0 ? `; never proved: ${missing.join(', ')}` : '')
+        + (unexpected.length > 0 ? `; proved but never derived: ${unexpected.join(', ')}` : ''),
+    );
+  }
+}
+
 /**
  * The abbreviated packument for a package, from the registry npm is
  * configured to use.
@@ -140,8 +193,7 @@ export function selectUpgradePaths(packument, candidateVersion) {
  * @returns {Promise<object>}
  */
 export async function fetchPackument(packageName, registry, fetchImpl = fetch) {
-  const base = registry.endsWith('/') ? registry : `${registry}/`;
-  const url = `${base}${packageName.replace('/', '%2f')}`;
+  const url = packumentUrl(registry, packageName);
   const response = await fetchImpl(url, {
     headers: { accept: 'application/vnd.npm.install-v1+json' },
   });

@@ -12,7 +12,7 @@
  * status, a real verdict) in about a second, instead of running the release
  * suite twice.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -23,9 +23,18 @@ import { NOT_CHECKED, STEPS, formatVerdict, unknownSteps } from '../scripts/qa/p
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const gate = path.join(repoRoot, 'scripts', 'qa', 'pre-release.mjs');
 
+// Every fixture repository this file creates, removed when it is done. Three
+// per run were being left in $TMPDIR; 42 of them had accumulated by the time
+// a reviewer counted.
+const fixtureDirs: string[] = [];
+afterAll(() => {
+  for (const dir of fixtureDirs) fs.rmSync(dir, { recursive: true, force: true });
+});
+
 /** A package.json with the gate's own step names bound to trivial commands. */
 function fixtureRepo(failing: string | null) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-pre-release-fixture-'));
+  fixtureDirs.push(dir);
   const scripts: Record<string, string> = {};
   for (const step of STEPS) {
     scripts[step.id] = step.id === failing ? 'node -e "process.exit(3)"' : 'node -e "0"';
@@ -65,6 +74,7 @@ describe('the plan', () => {
 
   it('detects a step whose npm script has been renamed away', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-pre-release-missing-'));
+    fixtureDirs.push(dir);
     fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'x', version: '0.0.0', scripts: {} }));
     expect(unknownSteps(dir)).toEqual(STEPS.map((step) => step.id));
     const run = runGate(dir);

@@ -35,6 +35,10 @@ import { fetchPackument } from '../lib/upgrade-matrix.mjs';
 const packageName = '@pcircle/memesh';
 const npmTimeoutMs = 180_000;
 const processTimeoutMs = 45_000;
+const registryTimeoutMs = 30_000;
+
+/** A registry lookup that cannot hang the gate forever. */
+const registryFetch = (url, options) => fetch(url, { ...options, signal: AbortSignal.timeout(registryTimeoutMs) });
 
 /**
  * The doctor checks that speak about the integrity of the package tree they
@@ -204,38 +208,96 @@ function isolatedDataEnv(baseEnv, dataDir) {
   };
 }
 
-/** The package root a `memesh` on PATH resolves into, or null. */
-function shellSurface(version) {
-  const lookup = spawnSync(process.platform === 'win32' ? 'where' : 'which', ['memesh'], {
-    encoding: 'utf8',
-    timeout: processTimeoutMs,
-  });
-  const first = String(lookup.stdout ?? '').split('\n')[0].trim();
-  if (lookup.status !== 0 || !first) return null;
-
-  let entry = first;
-  for (let hops = 0; hops < 10 && fs.existsSync(entry) && fs.lstatSync(entry).isSymbolicLink(); hops += 1) {
-    entry = path.resolve(path.dirname(entry), fs.readlinkSync(entry));
+/**
+ * Every `memesh` a shell would resolve, with the version each one is.
+ *
+ * `which memesh` — singular — was the first version of this, and it could not
+ * see the failure it was written for. This machine has two: an nvm one and a
+ * homebrew one four releases apart, and a PATH that reaches the second first
+ * (a non-login shell, a cron job, a host app's hook with a minimal PATH) runs
+ * a version the gate said was fine. `which -a` / `where` list every hit, and
+ * every hit is a surface.
+ *
+ * @param {string} version the release under test, used only for the fix line
+ * @param {() => string[]} [resolveAll] injectable for tests
+ * @returns {{name: string, version: string|null, location: string, fix: string}[]}
+ */
+export function shellSurfaces(version, resolveAll = defaultResolveAllMemesh) {
+  const seen = new Set();
+  const surfaces = [];
+  for (const entry of resolveAll()) {
+    const root = packageRootOf(entry);
+    const location = root ?? entry;
+    if (seen.has(location)) continue;
+    seen.add(location);
+    surfaces.push({
+      name: `memesh on PATH (${entry})`,
+      version: root ? readPackageVersion(root) : null,
+      location,
+      fix: `Run \`npm install -g ${packageName}@${version}\`, or remove the install at ${location}.`,
+    });
   }
-  let dir = path.dirname(entry);
+  return surfaces;
+}
+
+/** Every PATH hit for `memesh`, in resolution order. */
+function defaultResolveAllMemesh() {
+  const [command, args] = process.platform === 'win32'
+    ? ['where', ['memesh']]
+    : ['which', ['-a', 'memesh']];
+  const lookup = spawnSync(command, args, { encoding: 'utf8', timeout: processTimeoutMs });
+  if (lookup.status !== 0) return [];
+  return String(lookup.stdout ?? '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+/**
+ * The installed package root behind one executable path, or null.
+ *
+ * Two layouts, because npm ships two. On POSIX the bin is a symlink into
+ * `lib/node_modules/@pcircle/memesh`, so following links and walking up finds
+ * the manifest. On Windows the bin is a generated `memesh.cmd` in
+ * `%APPDATA%\npm` that is not a link, and the package sits BELOW that
+ * directory in `node_modules/@pcircle/memesh` — walking up alone never
+ * reaches it, which would have made this check fail on every correct Windows
+ * install.
+ *
+ * @param {string} entry an executable path from PATH
+ * @returns {string|null}
+ */
+export function packageRootOf(entry, fsImpl = fs) {
+  let resolved = entry;
+  for (let hops = 0; hops < 10 && fsImpl.existsSync(resolved) && fsImpl.lstatSync(resolved).isSymbolicLink(); hops += 1) {
+    resolved = path.resolve(path.dirname(resolved), fsImpl.readlinkSync(resolved));
+  }
+  let dir = path.dirname(resolved);
   for (let hops = 0; hops < 10; hops += 1) {
-    const manifest = path.join(dir, 'package.json');
-    if (fs.existsSync(manifest)) {
-      const parsed = JSON.parse(fs.readFileSync(manifest, 'utf8'));
-      if (parsed.name === packageName) {
-        return {
-          name: 'shell CLI on PATH',
-          version: parsed.version ?? null,
-          location: dir,
-          fix: `Run \`npm install -g ${packageName}@${version}\`.`,
-        };
+    for (const candidate of [dir, path.join(dir, 'node_modules', '@pcircle', 'memesh')]) {
+      const manifest = path.join(candidate, 'package.json');
+      if (!fsImpl.existsSync(manifest)) continue;
+      try {
+        if (JSON.parse(fsImpl.readFileSync(manifest, 'utf8')).name === packageName) return candidate;
+      } catch {
+        // A manifest that will not parse is not this package's manifest; keep
+        // walking rather than reporting the surface as unreadable here.
       }
     }
     const parent = path.dirname(dir);
-    if (parent === dir) break;
+    if (parent === dir) return null;
     dir = parent;
   }
-  return { name: 'shell CLI on PATH', version: null, location: first, fix: `Run \`npm install -g ${packageName}@${version}\`.` };
+  return null;
+}
+
+/** @param {string} packageRoot @returns {string|null} */
+function readPackageVersion(packageRoot) {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8')).version ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function freshConsumerInstall(version, root) {
@@ -284,57 +346,28 @@ async function main() {
     })).trim();
     console.log(`post-release check: version=${version} registry=${registry}\n`);
 
-    const packument = await fetchPackument(packageName, registry);
+    const packument = await fetchPackument(packageName, registry, registryFetch);
     results.push({ id: 'registry', ...evaluateRegistry(packument, version) });
 
     // Everything below installs the version under test. There is nothing to
     // install when the registry does not have it, and running the rest would
     // report failures that all say the same thing.
     if (results[0].ok) {
-      const install = freshConsumerInstall(version, root);
-      const manifestPath = path.join(install.packageRoot, 'package.json');
-      if (!fs.existsSync(manifestPath)) {
+      // Anything thrown in here (a CLI that will not start, an unreadable
+      // manifest) becomes a FAIL row. Letting it escape would end the run
+      // with a stack trace and no verdict — non-zero, so not a false green,
+      // but the operator would be left reading Node's output for the answer.
+      try {
+        proveConsumerInstall({ version, root, results });
+      } catch (error) {
         results.push({
           id: 'consumer',
           ok: false,
-          detail: `a fresh \`npm install -g ${packageName}@${version}\` produced no package at ${install.packageRoot}`
-            + (install.installError ? `: ${install.installError.split('\n')[0]}` : ''),
+          detail: `the fresh registry install could not be exercised: ${error instanceof Error ? error.message.split('\n')[0] : String(error)}`,
         });
-      } else {
-        const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-        const cliEntry = path.join(install.packageRoot, 'dist/transports/cli/cli.js');
-        const reported = String(run(process.execPath, [cliEntry, '--version'], { cwd: install.packageRoot, env: install.env })).trim();
-        const shippedEntries = [...binTargets(install.packageRoot), ...hookCommands(install.packageRoot)];
-        const absent = shippedEntries.filter((entry) => !fs.existsSync(path.join(install.packageRoot, entry)));
-        results.push({
-          id: 'consumer',
-          ok: manifest.version === version && reported === version && absent.length === 0,
-          detail: absent.length > 0
-            ? `the published tarball is missing ${absent.join(', ')}`
-            : `a fresh registry install reports ${reported} from a package declaring ${manifest.version}, with all ${shippedEntries.length} shipped entry points present`,
-          fix: 'The published tarball is not what this tree builds — compare `npm pack` output against the published files.',
-        });
-
-        // The released artifact's own doctor, over the tree just installed
-        // from the registry, and never against the real database.
-        const doctorRun = spawnSync(process.execPath, [cliEntry, 'doctor', '--json'], {
-          cwd: install.packageRoot,
-          encoding: 'utf8',
-          timeout: npmTimeoutMs,
-          env: isolatedDataEnv({ ...process.env }, path.join(root, 'doctor-data')),
-        });
-        const checks = parseDoctorChecks(doctorRun.stdout);
-        results.push(checks
-          ? { id: 'artifact-doctor', ...evaluateDoctor(checks) }
-          : {
-            id: 'artifact-doctor',
-            ok: false,
-            detail: `the released doctor did not produce readable JSON (exit=${doctorRun.status}): ${String(doctorRun.stderr).slice(0, 300)}`,
-          });
       }
 
-      const surfaces = [shellSurface(version)].filter(Boolean);
-      results.push({ id: 'machine-surfaces', ...evaluateSurfaces(surfaces, version) });
+      results.push({ id: 'machine-surfaces', ...evaluateSurfaces(shellSurfaces(version), version) });
     }
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -344,10 +377,61 @@ async function main() {
   console.log('\npost-release verdict');
   for (const line of verdict.lines) console.log(line);
   console.log('\nnot checked here:');
-  console.log('  - Each host\'s plugin cache beyond what the doctor above reports — `memesh doctor` run on that host is the owner-side check.');
+  console.log("  - Each host's plugin cache beyond what the doctor above reports — `memesh doctor` run on that host is the owner-side check.");
   console.log('  - Nothing on this machine was changed: every fix above is printed, never run.');
   console.log(`\n${verdict.ok ? 'PASS' : 'FAIL'} — post-release check for ${version}`);
   process.exitCode = verdict.ok ? 0 : 1;
+}
+
+/**
+ * Install the published version from the registry into a throwaway prefix,
+ * run it, and ask the released artifact's own doctor about that tree.
+ *
+ * @param {{version: string, root: string, results: object[]}} context
+ */
+function proveConsumerInstall({ version, root, results }) {
+  const install = freshConsumerInstall(version, root);
+  const manifestPath = path.join(install.packageRoot, 'package.json');
+  if (!fs.existsSync(manifestPath)) {
+    results.push({
+      id: 'consumer',
+      ok: false,
+      detail: `a fresh \`npm install -g ${packageName}@${version}\` produced no package at ${install.packageRoot}`
+        + (install.installError ? `: ${install.installError.split('\n')[0]}` : ''),
+    });
+    return;
+  }
+
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  const cliEntry = path.join(install.packageRoot, 'dist/transports/cli/cli.js');
+  const reported = String(run(process.execPath, [cliEntry, '--version'], { cwd: install.packageRoot, env: install.env })).trim();
+  const shippedEntries = [...binTargets(install.packageRoot), ...hookCommands(install.packageRoot)];
+  const absent = shippedEntries.filter((entry) => !fs.existsSync(path.join(install.packageRoot, entry)));
+  results.push({
+    id: 'consumer',
+    ok: manifest.version === version && reported === version && absent.length === 0,
+    detail: absent.length > 0
+      ? `the published tarball is missing ${absent.join(', ')}`
+      : `a fresh registry install reports ${reported} from a package declaring ${manifest.version}, with all ${shippedEntries.length} shipped entry points present`,
+    fix: 'The published tarball is not what this tree builds — compare `npm pack` output against the published files.',
+  });
+
+  // The released artifact's own doctor, over the tree just installed from the
+  // registry, and never against the real database.
+  const doctorRun = spawnSync(process.execPath, [cliEntry, 'doctor', '--json'], {
+    cwd: install.packageRoot,
+    encoding: 'utf8',
+    timeout: npmTimeoutMs,
+    env: isolatedDataEnv({ ...process.env }, path.join(root, 'doctor-data')),
+  });
+  const checks = parseDoctorChecks(doctorRun.stdout);
+  results.push(checks
+    ? { id: 'artifact-doctor', ...evaluateDoctor(checks) }
+    : {
+      id: 'artifact-doctor',
+      ok: false,
+      detail: `the released doctor did not produce readable JSON (exit=${doctorRun.status}): ${String(doctorRun.stderr).slice(0, 300)}`,
+    });
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) await main();

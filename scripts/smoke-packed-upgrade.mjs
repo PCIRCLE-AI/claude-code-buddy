@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { npmSync } from './lib/npm-bin.mjs';
-import { fetchPackument, selectUpgradePaths } from './lib/upgrade-matrix.mjs';
+import { assertEveryPathProven, fetchPackument, selectUpgradePaths } from './lib/upgrade-matrix.mjs';
 
 // This is deliberately a narrow upgrade proof, not a second copy of
 // smoke-packed-artifact.mjs. That script validates a fresh consumer install;
@@ -343,20 +343,23 @@ try {
   const candidateVersion = candidatePackage.version;
   const cache = path.join(upgradeRoot, 'npm-cache');
   const userconfig = path.join(upgradeRoot, 'npmrc');
-  fs.writeFileSync(userconfig, [
-    'registry=https://registry.npmjs.org/',
-    'audit=false',
-    'fund=false',
-    'update-notifier=false',
-    '',
-  ].join('\n'));
-
+  // One registry answers both questions. The versions used to be derived from
+  // `npm config get registry` while every install was pinned to
+  // registry.npmjs.org, so on a machine behind a mirror the matrix could name
+  // versions the installs could not fetch — or worse, agree by accident.
   const registry = String(npmSync(['config', 'get', 'registry'], {
     cwd: repoRoot,
     encoding: 'utf8',
     timeout: processTimeoutMs,
     killSignal: 'SIGTERM',
   })).trim();
+  fs.writeFileSync(userconfig, [
+    `registry=${registry}`,
+    'audit=false',
+    'fund=false',
+    'update-notifier=false',
+    '',
+  ].join('\n'));
   const packument = await fetchPackument(packageName, registry);
   const upgradePaths = selectUpgradePaths(packument, candidateVersion);
   console.log(`matrix: candidate=${candidateVersion} registry=${registry} from=${upgradePaths.join(', ')}`);
@@ -380,13 +383,16 @@ try {
   assert.ok(fs.existsSync(candidateTarball), `npm pack did not create ${candidateTarball}`);
   console.log(`candidate: version=${candidateVersion} tarball=${filename} sha256=${sha256(candidateTarball)}`);
 
+  const proven = [];
   for (const fromVersion of upgradePaths) {
     console.log(`--- upgrade path: ${fromVersion} -> ${candidateVersion}`);
     proveUpgradePath({ fromVersion, candidateVersion, candidateTarball, cache, userconfig });
+    proven.push(fromVersion);
   }
+  assertEveryPathProven(upgradePaths, proven);
 
-  console.log(`✅ Packaged upgrade smoke passed — ${upgradePaths.length} upgrade path(s) proved: `
-    + upgradePaths.map((from) => `${from} -> ${candidateVersion}`).join(', '));
+  console.log(`✅ Packaged upgrade smoke passed — ${proven.length} upgrade path(s) proved: `
+    + proven.map((from) => `${from} -> ${candidateVersion}`).join(', '));
 } finally {
   fs.rmSync(upgradeRoot, { recursive: true, force: true });
 }

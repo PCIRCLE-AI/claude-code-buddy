@@ -12,8 +12,10 @@
 import { describe, it, expect } from 'vitest';
 import {
   NATIVE_BUILD_DEPENDENCIES,
+  assertEveryPathProven,
   compareReleases,
   needsNativeBuild,
+  packumentUrl,
   parseRelease,
   selectUpgradePaths,
 } from '../scripts/lib/upgrade-matrix.mjs';
@@ -99,5 +101,39 @@ describe('selectUpgradePaths', () => {
     const withPrerelease = packument('4.8.3');
     withPrerelease.versions['4.8.4-rc.1'] = { dependencies: {} };
     expect(selectUpgradePaths(withPrerelease, '4.8.4')).toEqual(['4.5.1', '4.8.3']);
+  });
+});
+
+describe('the registry URL', () => {
+  it('encodes every separator in a scoped name, not just the first', () => {
+    expect(packumentUrl('https://registry.npmjs.org/', '@pcircle/memesh'))
+      .toBe('https://registry.npmjs.org/@pcircle%2fmemesh');
+  });
+
+  it('adds the missing slash to a registry that has none', () => {
+    expect(packumentUrl('https://registry.npmjs.org', 'memesh'))
+      .toBe('https://registry.npmjs.org/memesh');
+  });
+
+  it('refuses anything that is not an npm package name', () => {
+    for (const bad of ['../../etc/passwd', '@scope/a/b', 'name?query=1', 'name#frag', '']) {
+      expect(() => packumentUrl('https://registry.npmjs.org/', bad)).toThrow(/not an npm package name/);
+    }
+  });
+});
+
+describe('proving every derived path', () => {
+  it('accepts a run that proved exactly what was derived', () => {
+    expect(() => assertEveryPathProven(['4.5.1', '4.8.2'], ['4.5.1', '4.8.2'])).not.toThrow();
+  });
+
+  it('rejects a matrix that quietly shrank to one row', () => {
+    expect(() => assertEveryPathProven(['4.5.1', '4.8.2'], ['4.5.1']))
+      .toThrow(/proved 1 of 2 derived paths; never proved: 4\.8\.2/);
+  });
+
+  it('rejects a row nobody derived', () => {
+    expect(() => assertEveryPathProven(['4.8.2'], ['4.8.2', '4.7.3']))
+      .toThrow(/proved but never derived: 4\.7\.3/);
   });
 });

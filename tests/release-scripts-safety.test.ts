@@ -266,9 +266,16 @@ describe('Feature: release scripts never edit the real ~/.memesh', () => {
 
   it('derives both ends of every upgrade path instead of pinning a version pair', () => {
     const upgrade = read('scripts/smoke-packed-upgrade.mjs');
-    expect(upgrade).toContain("import { fetchPackument, selectUpgradePaths } from './lib/upgrade-matrix.mjs'");
+    // The import list is asserted by what it must bring in, not as one exact
+    // string: pinning the spelling made this guard go red for ADDING a
+    // derivation helper, which is the opposite of what it is for.
+    expect(upgrade).toContain("from './lib/upgrade-matrix.mjs'");
     expect(upgrade).toContain('candidatePackage.version');
     expect(upgrade).toContain('selectUpgradePaths(packument, candidateVersion)');
+    // Deriving the paths is half of it; proving every one it derived is the
+    // other half, and a matrix that silently shrinks passes every test in
+    // this repository without it.
+    expect(upgrade).toContain('assertEveryPathProven(upgradePaths, proven)');
     // The regression this guards is the one the file shipped with for four
     // releases: a hand-written version that goes on passing for an upgrade
     // nobody performs. Any X.Y.Z literal back in this script is that defect —

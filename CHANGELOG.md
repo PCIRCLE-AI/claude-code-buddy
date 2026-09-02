@@ -22,8 +22,10 @@ All notable changes to MeMesh are documented here.
   `latest`, installs it from the registry into a throwaway prefix and runs it,
   and then asks whether this machine is on that version — read-only with
   respect to `~/.memesh`, `~/.claude` and `~/.codex`, printing remediation
-  commands rather than running them. Run against 4.8.3 it immediately found the
-  skew it was written for: the shell CLI on this machine is still 4.8.2.
+  commands rather than running them. It reports EVERY `memesh` a shell would
+  resolve, not the first one: two installs on one PATH, four releases apart,
+  is the shape of the incident, and a check that stops at the first hit cannot
+  see it.
 
 ### Changed
 

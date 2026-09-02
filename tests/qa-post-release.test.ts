@@ -10,13 +10,18 @@
  *     silently narrowing what the gate covers.
  */
 import { describe, it, expect } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import {
   REQUIRED_DOCTOR_CHECKS,
   evaluateDoctor,
   evaluateRegistry,
   evaluateSurfaces,
   formatVerdict,
+  packageRootOf,
   parseDoctorChecks,
+  shellSurfaces,
 } from '../scripts/qa/post-release.mjs';
 
 const published = {
@@ -123,5 +128,84 @@ describe('verdict', () => {
     ]);
     expect(lines[0]).not.toMatch(/unused/);
     expect(lines[1]).toMatch(/fix: do this/);
+  });
+});
+
+describe('every memesh a shell would resolve', () => {
+  /** An npm-global layout: bin symlinked into lib/node_modules. */
+  function posixInstall(root: string, version: string) {
+    const packageRoot = path.join(root, 'lib', 'node_modules', '@pcircle', 'memesh');
+    fs.mkdirSync(path.join(packageRoot, 'dist'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'bin'), { recursive: true });
+    fs.writeFileSync(path.join(packageRoot, 'package.json'),
+      JSON.stringify({ name: '@pcircle/memesh', version }));
+    fs.writeFileSync(path.join(packageRoot, 'dist', 'cli.js'), '');
+    const bin = path.join(root, 'bin', 'memesh');
+    fs.symlinkSync(path.join(packageRoot, 'dist', 'cli.js'), bin);
+    return bin;
+  }
+
+  /** The Windows layout: a .cmd shim with the package BELOW its directory. */
+  function windowsInstall(root: string, version: string) {
+    const packageRoot = path.join(root, 'node_modules', '@pcircle', 'memesh');
+    fs.mkdirSync(packageRoot, { recursive: true });
+    fs.writeFileSync(path.join(packageRoot, 'package.json'),
+      JSON.stringify({ name: '@pcircle/memesh', version }));
+    const shim = path.join(root, 'memesh.cmd');
+    fs.writeFileSync(shim, '@echo off');
+    return shim;
+  }
+
+  it('reports the second install on PATH, which is the whole incident', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-surfaces-'));
+    try {
+      const current = posixInstall(path.join(root, 'nvm'), '4.8.3');
+      const stale = posixInstall(path.join(root, 'homebrew'), '4.7.3');
+      const surfaces = shellSurfaces('4.8.3', () => [current, stale]);
+      expect(surfaces.map((surface) => surface.version)).toEqual(['4.8.3', '4.7.3']);
+      const verdict = evaluateSurfaces(surfaces, '4.8.3');
+      expect(verdict.ok).toBe(false);
+      expect(verdict.detail).toMatch(/4\.7\.3/);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('resolves the Windows shim layout, where the package sits below the bin', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-surfaces-win-'));
+    try {
+      const shim = windowsInstall(path.join(root, 'npm'), '4.8.3');
+      expect(packageRootOf(shim)).toBe(path.join(root, 'npm', 'node_modules', '@pcircle', 'memesh'));
+      expect(shellSurfaces('4.8.3', () => [shim])[0].version).toBe('4.8.3');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('counts one install once, however many PATH entries reach it', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-surfaces-dup-'));
+    try {
+      const bin = posixInstall(path.join(root, 'one'), '4.8.3');
+      expect(shellSurfaces('4.8.3', () => [bin, bin])).toHaveLength(1);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('reports an executable that belongs to no package as an unreadable version', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-surfaces-orphan-'));
+    try {
+      const orphan = path.join(root, 'memesh');
+      fs.writeFileSync(orphan, '');
+      const surfaces = shellSurfaces('4.8.3', () => [orphan]);
+      expect(surfaces[0].version).toBeNull();
+      expect(evaluateSurfaces(surfaces, '4.8.3').ok).toBe(false);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('reports no surface at all when nothing resolves', () => {
+    expect(evaluateSurfaces(shellSurfaces('4.8.3', () => []), '4.8.3').ok).toBe(false);
   });
 });
