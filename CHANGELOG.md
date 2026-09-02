@@ -6,6 +6,19 @@ All notable changes to MeMesh are documented here.
 
 ### Fixed
 
+- **`memesh pin`/`unpin --json` no longer reports a pin that never happened.**
+  `setPinned` echoed the *requested* `pinned` argument back in its result even
+  when the named entity did not exist, so `memesh pin --name nonexistent
+  --json` printed `{"pinned":true,"found":false}` — a caller scripting
+  against `--json` (the reason the flag exists) could read `pinned: true` and
+  believe the protection was in place while `found: false` said the entity
+  was never touched. `unpin` on a missing entity looked correct only because
+  its requested value (`false`) happened to coincide with "not pinned"; the
+  same defect was present either way. `setPinned` now returns `pinned: null`
+  when `found` is `false` — there is no pin state to report for an entity
+  that was never touched, and `null` cannot be misread as a boolean claim the
+  way `false` was.
+
 - **The Ollama host guard now rebuilds the request origin instead of forwarding
   the configured string.** `resolveOllamaHost` used to validate a persisted
   `llm.host` and then pass the same string to `fetch`, which left CodeQL alert

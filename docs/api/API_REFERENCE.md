@@ -1545,9 +1545,9 @@ memesh unpin --name "auth-architecture-decision"
 | Option | Description |
 |--------|-------------|
 | `--name <name>` | Entity name (required). |
-| `--json` | Output the result as JSON (`{ name, pinned, found }`). |
+| `--json` | Output the result as JSON (`{ name, pinned, found }`). `pinned` is `null` when `found` is `false` — there is no pin state to report for an entity that does not exist, so the payload never claims one. |
 
-If the named entity does not exist, the command reports it and exits without error (`found: false`).
+If the named entity does not exist, the command reports it and exits with a non-zero status (`found: false`, `pinned: null`).
 
 ---
 

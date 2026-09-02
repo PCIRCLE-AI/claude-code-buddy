@@ -523,12 +523,17 @@ export function forget(args: ForgetInput): ForgetResult {
  * makes the guarantee real. Uses `updateEntityMetadata` so the rest of the
  * metadata (trust, provenance, signal_score) is preserved.
  */
-export function setPinned(name: string, pinned: boolean): { name: string; pinned: boolean; found: boolean } {
+export function setPinned(name: string, pinned: boolean): { name: string; pinned: boolean | null; found: boolean } {
   const db = getDatabase();
   const kg = new KnowledgeGraph(db);
 
+  // No entity, no pin state to report. Echoing the REQUESTED `pinned` value
+  // here (the old behavior) made `{ pinned: true, found: false }` read as "it
+  // worked" to a `--json` caller — `pinned` is not what was stored, it is
+  // just the argument. `null` refuses to answer instead of guessing a
+  // boolean a reader could mistake for the real state.
   const exists = db.prepare('SELECT 1 FROM entities WHERE name = ?').get(name);
-  if (!exists) return { name, pinned, found: false };
+  if (!exists) return { name, pinned: null, found: false };
 
   kg.updateEntityMetadata(name, (current) => {
     const next = { ...current };
