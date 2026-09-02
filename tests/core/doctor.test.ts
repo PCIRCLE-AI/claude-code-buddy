@@ -1034,6 +1034,82 @@ describe('doctor', () => {
   });
 
   // ===========================================================================
+  // F1 (2026-09-02 dogfood) — a cached "is current" claim must name its own
+  // age. Repro on a real machine: an npm-global install's cache said
+  // latestVersion=4.8.2 (true when written), doctor read it ~23h44m later
+  // (inside the 24h STALE_AFTER_MS window, so still 'cached' not 'stale')
+  // and printed the unqualified `[PASS] Version 4.8.2 is current.` at the
+  // exact moment npm had already published 4.8.3.
+  // ===========================================================================
+  it('update-status: the cached-PASS branch states how old the check is, not an unqualified "is current"', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+
+    const twoHoursAgo = new Date(Date.now() - 2 * 3600_000).toISOString();
+    const result = await runDoctor({
+      packageRoot,
+      packageVersion: '4.8.2',
+      openDatabaseImpl: () => makeDatabase() as never,
+      closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => caps({ searchLevel: 0, llm: null, embeddings: 'tfidf' }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck({
+        currentVersion: '4.8.2',
+        latestVersion: '4.8.2',
+        updateAvailable: false,
+        lastSuccessfulCheckAt: twoHoursAgo,
+        freshness: 'cached',
+      }),
+      getCurrentInstallChannelImpl: () => 'npm-global',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
+        recommendedCommand: 'memesh update', guidance: 'This installation can be updated directly from MeMesh.',
+      }),
+    });
+
+    const updateCheck = result.checks.find((c) => c.id === 'update-status');
+    expect(updateCheck?.status).toBe('pass');
+    expect(updateCheck?.summary).toContain('As of the last check');
+    expect(updateCheck?.summary).toContain('2 hours ago');
+    // The literal bug: this exact sentence, with no way to tell a check made
+    // 23h59m ago apart from one made a minute ago.
+    expect(updateCheck?.summary).not.toBe(`Version ${'4.8.2'} is current.`);
+  });
+
+  it('update-status: the stale branch also names the check age, not just "is stale"', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+
+    const twoDaysAgo = new Date(Date.now() - 48 * 3600_000).toISOString();
+    const result = await runDoctor({
+      packageRoot,
+      packageVersion: '4.8.2',
+      openDatabaseImpl: () => makeDatabase() as never,
+      closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => caps({ searchLevel: 0, llm: null, embeddings: 'tfidf' }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck({
+        currentVersion: '4.8.2',
+        latestVersion: '4.8.2',
+        updateAvailable: false,
+        lastSuccessfulCheckAt: twoDaysAgo,
+        freshness: 'stale',
+      }),
+      getCurrentInstallChannelImpl: () => 'npm-global',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
+        recommendedCommand: 'memesh update', guidance: 'This installation can be updated directly from MeMesh.',
+      }),
+    });
+
+    const updateCheck = result.checks.find((c) => c.id === 'update-status');
+    expect(updateCheck?.status).toBe('warn');
+    expect(updateCheck?.code).toBe('update-status.stale');
+    expect(updateCheck?.summary).toContain('As of the last check');
+    expect(updateCheck?.summary).toContain('2 days ago');
+  });
+
+  // ===========================================================================
   // #25 — runtime hook wiring + activity checks
   // ===========================================================================
 
@@ -2645,6 +2721,98 @@ describe('shell CLI on PATH check (plugin-without-global gotcha)', () => {
     expect(cliCheck?.fix).toContain('npm install -g @pcircle/memesh');
   });
 
+  describe('shell CLI is a distinct COPY, and can be on a different version (F1b)', () => {
+    // `which`/`where` return a PATH entry, and every packaged install ships
+    // `memesh` as a symlink into node_modules — `readVersionFromInstalledBinary`
+    // follows it with `fs.realpathSync` (not injectable) then walks UP from
+    // there looking for package.json via the injected existsSyncImpl /
+    // readFileSyncImpl. The fake path here doesn't exist on the real
+    // filesystem, so realpathSync throws and the walk falls back to the raw
+    // path — exactly the fallback the implementation is written to take —
+    // which is why two directories separate the fake binary from its fake
+    // package.json below (mirroring a real, if shallower, install layout).
+    function fakeShellCli(version: string | null) {
+      const shellBin = path.join('/fake-shell-cli-f1b', 'nvm', 'bin', 'memesh');
+      const shellPkgPath = path.join('/fake-shell-cli-f1b', 'package.json');
+      const existsSyncImpl = ((p: fs.PathLike) => {
+        if (p === shellPkgPath) return version !== null;
+        return fs.existsSync(p);
+      }) as typeof fs.existsSync;
+      const readFileSyncImpl = ((p: fs.PathLike, enc?: unknown) => {
+        if (p === shellPkgPath) return JSON.stringify({ name: '@pcircle/memesh', version });
+        return (fs.readFileSync as (path: fs.PathLike, options?: unknown) => string | Buffer)(p, enc);
+      }) as typeof fs.readFileSync;
+      return { shellBin, existsSyncImpl, readFileSyncImpl };
+    }
+
+    async function runWithShellCli(packageRoot: string, packageVersion: string, shell: ReturnType<typeof fakeShellCli> | { shellBin: string }) {
+      return runDoctor({
+        packageRoot,
+        packageVersion,
+        openDatabaseImpl: () => makeDatabase(1) as never,
+        closeDatabaseImpl: () => undefined,
+        detectCapabilitiesImpl: () => caps({ searchLevel: 1, embeddings: 'ollama' }),
+        getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+        getUpdateCheckImpl: async () => makeUpdateCheck(),
+        getCurrentInstallChannelImpl: () => 'plugin-marketplace',
+        getInstallChannelSupportImpl: () => ({
+          channel: 'plugin-marketplace', label: 'Claude Code plugin marketplace', canSelfUpdate: false,
+          recommendedCommand: 'memesh upgrade-plugin', guidance: '',
+        }),
+        nativeBindingProbeImpl: () => ({ ok: true }),
+        resolveShellMemeshImpl: () => shell.shellBin,
+        ...('existsSyncImpl' in shell ? { existsSyncImpl: shell.existsSyncImpl, readFileSyncImpl: shell.readFileSyncImpl } : {}),
+      });
+    }
+
+    it('WARNs and names both versions when the shell CLI is BEHIND this install', async () => {
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      const result = await runWithShellCli(packageRoot, '4.8.3', fakeShellCli('4.8.2'));
+
+      const cliCheck = result.checks.find((c) => c.id === 'shell-cli');
+      expect(cliCheck?.status).toBe('warn');
+      expect(cliCheck?.summary).toContain('4.8.2');
+      expect(cliCheck?.summary).toContain('4.8.3');
+      expect(cliCheck?.summary).toContain('behind');
+      expect(cliCheck?.fix).toContain('npm install -g @pcircle/memesh@latest');
+    });
+
+    it('WARNs and points at the plugin refresh command when THIS (plugin) install is BEHIND the shell CLI', async () => {
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      const result = await runWithShellCli(packageRoot, '4.8.3', fakeShellCli('4.9.0'));
+
+      const cliCheck = result.checks.find((c) => c.id === 'shell-cli');
+      expect(cliCheck?.status).toBe('warn');
+      expect(cliCheck?.summary).toContain('ahead');
+      expect(cliCheck?.fix).toContain('memesh upgrade-plugin');
+    });
+
+    it('stays PASS and states the shared version when both copies agree', async () => {
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      const result = await runWithShellCli(packageRoot, '4.8.3', fakeShellCli('4.8.3'));
+
+      const cliCheck = result.checks.find((c) => c.id === 'shell-cli');
+      expect(cliCheck?.status).toBe('pass');
+      expect(cliCheck?.summary).toContain('both on 4.8.3');
+    });
+
+    it('stays PASS but says so honestly when the shell copy\'s version cannot be read — it does not claim agreement', async () => {
+      const packageRoot = createPackageRoot();
+      tempRoots.push(packageRoot);
+      // No existsSyncImpl/readFileSyncImpl override: the walk runs against
+      // the real filesystem and finds no package.json under this fake path,
+      // so the version genuinely cannot be determined.
+      const result = await runWithShellCli(packageRoot, '4.8.3', { shellBin: '/fake-shell-cli-unreadable/bin/memesh' });
+
+      const cliCheck = result.checks.find((c) => c.id === 'shell-cli');
+      expect(cliCheck?.status).toBe('pass');
+      expect(cliCheck?.summary).toContain('could not read');
+    });
+  });
+
   describe('plugin-cache: same version is not same code', () => {
     // Claude Code keys the plugin cache by version. A cache staged from an
     // earlier commit under the same version is never refreshed, and every
@@ -3346,6 +3514,122 @@ describe('shell CLI on PATH check (plugin-without-global gotcha)', () => {
     const cliCheck = result.checks.find((c) => c.id === 'shell-cli');
     expect(cliCheck?.status).toBe('pass');
     expect(cliCheck?.summary).toContain('informational');
+  });
+});
+
+describe('npm-global vs. discovered plugin-cache version skew (F3/F5)', () => {
+  // The #247 incident (see project memory / CHANGELOG) was about the SHA a
+  // cache was staged from vs the marketplace HEAD. This is the sibling gap:
+  // a discovered plugin cache and the npm-global process asking about it can
+  // simply be on different VERSIONS, with the plugin's own auto-updater
+  // structurally unable to reach the npm-global copy — see
+  // `annotateNpmGlobalPluginCacheVersion`'s docstring on doctor.ts.
+  function registryWithEntry(packageRoot: string, entry: Record<string, unknown>): string {
+    const registry = path.join(packageRoot, 'installed_plugins.json');
+    writeJson(registry, { plugins: { 'memesh@pcircle-memesh': [entry] } });
+    return registry;
+  }
+
+  async function runNpmGlobal(
+    packageRoot: string,
+    packageVersion: string,
+    discovery: Array<{ host: 'claude-code' | 'codex'; packageRoot: string; installedPluginsPath?: string; unverifiableReason?: string }>,
+    marketplaceSha: string | null = null,
+  ) {
+    return runDoctor({
+      packageRoot,
+      packageVersion,
+      openDatabaseImpl: () => makeDatabase(1) as never,
+      closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => caps({ searchLevel: 1, embeddings: 'ollama' }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck(),
+      getCurrentInstallChannelImpl: () => 'npm-global',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
+        recommendedCommand: 'memesh update', guidance: '',
+      }),
+      marketplaceHeadShaImpl: () => marketplaceSha,
+      pluginCacheDiscoveryImpl: () => discovery,
+      nativeBindingProbeImpl: () => ({ ok: true }),
+      resolveShellMemeshImpl: () => null,
+    });
+  }
+
+  it('WARNs and names both versions when the npm-global process is behind the discovered Claude Code plugin cache', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+    const installPath = path.join(packageRoot, 'claude-cache', 'memesh', '4.8.3');
+    fs.mkdirSync(installPath, { recursive: true });
+    const sha = 'a'.repeat(40);
+    const registry = registryWithEntry(packageRoot, { installPath, version: '4.8.3', gitCommitSha: sha });
+
+    const result = await runNpmGlobal(packageRoot, '4.8.2', [
+      { host: 'claude-code', packageRoot: installPath, installedPluginsPath: registry },
+    ], sha); // SHA matches — commit-currency ALONE would say PASS.
+
+    const check = result.checks.find((c) => c.id === 'plugin-cache-claude-code');
+    expect(check?.status).toBe('warn');
+    expect(check?.summary).toContain('4.8.2');
+    expect(check?.summary).toContain('4.8.3');
+    expect(check?.summary).toContain('npm-global');
+    expect(check?.fix).toContain('memesh update');
+  });
+
+  it('stays PASS when the npm-global process and the discovered plugin cache agree on version', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+    const installPath = path.join(packageRoot, 'claude-cache', 'memesh', '4.8.2');
+    fs.mkdirSync(installPath, { recursive: true });
+    const sha = 'b'.repeat(40);
+    const registry = registryWithEntry(packageRoot, { installPath, version: '4.8.2', gitCommitSha: sha });
+
+    const result = await runNpmGlobal(packageRoot, '4.8.2', [
+      { host: 'claude-code', packageRoot: installPath, installedPluginsPath: registry },
+    ], sha);
+
+    const check = result.checks.find((c) => c.id === 'plugin-cache-claude-code');
+    expect(check?.status).toBe('pass');
+    expect(check?.summary).not.toContain('npm-global install is on');
+  });
+
+  it('does not claim a version skew when the discovery is unverifiable (honest absence of an answer, not a crash)', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+    const installPath = path.join(packageRoot, 'claude-cache', 'memesh', '4.8.3');
+    fs.mkdirSync(installPath, { recursive: true });
+
+    const result = await runNpmGlobal(packageRoot, '4.8.2', [
+      { host: 'claude-code', packageRoot: installPath, unverifiableReason: 'installed_plugins.json has a malformed memesh entry' },
+    ]);
+
+    const check = result.checks.find((c) => c.id === 'plugin-cache-claude-code');
+    expect(check?.status).toBe('warn');
+    expect(check?.code).toBe('plugin-cache.unverifiable');
+    expect(check?.summary).not.toContain('npm-global install is on');
+  });
+
+  it('adds an informational note, not a status change, when more than two versioned copies are cached (F5)', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+    const cacheRoot = path.join(packageRoot, 'claude-cache', 'memesh');
+    for (const v of ['4.8.0', '4.8.1', '4.8.2', '4.8.3']) {
+      fs.mkdirSync(path.join(cacheRoot, v), { recursive: true });
+    }
+    const installPath = path.join(cacheRoot, '4.8.2');
+    const sha = 'c'.repeat(40);
+    const registry = registryWithEntry(packageRoot, { installPath, version: '4.8.2', gitCommitSha: sha });
+
+    const result = await runNpmGlobal(packageRoot, '4.8.2', [
+      { host: 'claude-code', packageRoot: installPath, installedPluginsPath: registry },
+    ], sha);
+
+    const check = result.checks.find((c) => c.id === 'plugin-cache-claude-code');
+    // Same version, same SHA — nothing here should warn; this is purely
+    // informational disk-usage bookkeeping.
+    expect(check?.status).toBe('pass');
+    expect(check?.summary).toContain('4 versioned copies');
+    expect(check?.summary).toContain('rm -rf');
   });
 });
 
