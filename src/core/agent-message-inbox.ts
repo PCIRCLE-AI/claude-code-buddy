@@ -68,16 +68,68 @@ export function unreadDeliveryCount(db: InboxDb, project: string, recipient?: st
 }
 
 /**
- * The line(s) to place beside the task-state lines. Empty when nothing is
- * waiting, so a quiet inbox adds no noise.
+ * D8: has `recipient` ever been addressed in `project` at all — as a live
+ * host-native connection, or as a delivery target (durable inbox, whether
+ * or not it was ever fetched)? `unreadDeliveryCount` answers "how many are
+ * unread", which is 0 for both a quiet inbox and a typo'd recipient id —
+ * so `briefing --recipient <typo>` used to read identically to `briefing
+ * --recipient <real-but-quiet>`. This is the one signal the data can
+ * actually tell them apart with.
+ *
+ * Two tables, not three: `agent_session_connections` also carries
+ * `principal_id`, but every row there is reached through
+ * `agent_session_instances`, which `registerConnection` (agent-router.ts)
+ * only ever creates AFTER upserting `agent_principals` for that same
+ * principal — so a connection can never exist without the principal row.
+ * That does NOT make `agent_session_instances` itself redundant to check,
+ * though: `target_kind: 'session'` messages key on a session instance's OWN
+ * id (`agent_message_deliveries.recipient` stores it verbatim), and a
+ * session that connected but has not yet received a delivery has a row
+ * ONLY in `agent_session_instances` — neither of the other two tables has
+ * heard of it yet, so omitting this EXISTS misreported an actually-live,
+ * registered session as "never seen" (D8 review finding, reproduced by
+ * seeding exactly that state before this fix).
+ *
+ * Returns `undefined` — not `false` — when the question cannot be answered
+ * at all (a database from before the message tables existed, or any query
+ * error). Asserting "no such recipient" from a table this process could not
+ * read would be a new way to lie; staying silent, as the quiet-inbox case
+ * already does, is the honest answer here too.
  */
-export function unreadInboxLines(count: number, project: string, recipient?: string): string[] {
-  if (count <= 0 || !recipient) return [];
-  const noun = count === 1 ? 'message' : 'messages';
+export function recipientEverSeen(db: InboxDb, project: string, recipient: string): boolean | undefined {
+  try {
+    const row = db.prepare(
+      `SELECT (
+         EXISTS(SELECT 1 FROM agent_principals WHERE project = ? AND principal_id = ?)
+         OR EXISTS(SELECT 1 FROM agent_message_deliveries WHERE project = ? AND recipient = ?)
+         OR EXISTS(SELECT 1 FROM agent_session_instances WHERE project = ? AND session_instance_id = ?)
+       ) AS seen`,
+    ).get(project, recipient, project, recipient, project, recipient) as { seen?: number } | undefined;
+    return row?.seen === undefined ? undefined : Boolean(row.seen);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The line(s) to place beside the task-state lines. Empty when nothing is
+ * waiting AND the recipient is known (or unknowable) — a quiet, real inbox
+ * adds no noise. `everSeen === false` is the one case worth a line even at
+ * zero unread: see {@link recipientEverSeen}.
+ */
+export function unreadInboxLines(count: number, project: string, recipient?: string, everSeen?: boolean): string[] {
+  if (!recipient) return [];
   // CLI callers bypass Zod and project/recipient values become model-facing
   // text. JSON quoting keeps quotes, control characters, and newlines from
   // forging a second briefing line while the SQL query still uses originals.
   const displayProject = JSON.stringify(project);
   const displayRecipient = JSON.stringify(recipient);
-  return [`${count} ${noun} waiting for ${displayRecipient} in project ${displayProject} — poll the message tool with project ${displayProject} and recipient ${displayRecipient}, then fetch each message_id; fetching does not acknowledge.`];
+  if (count > 0) {
+    const noun = count === 1 ? 'message' : 'messages';
+    return [`${count} ${noun} waiting for ${displayRecipient} in project ${displayProject} — poll the message tool with project ${displayProject} and recipient ${displayRecipient}, then fetch each message_id; fetching does not acknowledge.`];
+  }
+  if (everSeen === false) {
+    return [`No messages waiting for ${displayRecipient} in project ${displayProject} — and this recipient id has never been seen in this project (check for a typo).`];
+  }
+  return [];
 }

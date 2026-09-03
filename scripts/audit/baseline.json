@@ -246,11 +246,6 @@
       "reason": "batch-hydrate lookups; confidence bump fails closed",
       "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (review pass 2: redactUserPaths moved to core/paths, namespace breadcrumb, dreamer retirement); re-keyed 2026-08-14 (UX-1 title column added lines above; same statement — verified against the line content); re-keyed 2026-08-15 411→429 (merge main shifted lines +18; same statement — verified); re-keyed 2026-08-24 (cleanup pass; statement re-located in file order, classification unchanged)"
     },
-    "C3 scripts/audit/measure-injection-tokens.mjs": {
-      "class": "NOT-A-GATE",
-      "reason": "manual measurement tool a human runs to compare session-start injection size before/after a change; spawns the hook against a throwaway HOME and gates nothing. (This reason used to carry a note that its own header's mention of measure-work-topology-baseline.mjs was what kept THAT script from being a C3 hit. The detector no longer counts a filename written in a comment as a caller, so the note is obsolete and the other script now carries its own entry.)",
-      "triaged": "2026-08-16"
-    },
     "C1 tests/core/task-state.test.ts": {
       "class": "DETECTOR-HEURISTIC",
       "reason": "Every emptiness assertion in this file is pinned by a non-empty counterpart on the SAME value: `changed` is asserted `[]` on a re-statement and `['blocked']` / `['next']` on real changes; `taskStateLines` is asserted `[]` on an empty state and `['Goal','Next','Blocked','Just finished']` on a populated one. The detector looks for `toBeGreaterThan` / `.has(` / `length).toBe(N)` and does not recognise `toEqual(['x'])` as a size pin. Adding one of those shapes here would satisfy the regex without testing anything new.",
@@ -685,6 +680,11 @@
       "class": "SAFE",
       "reason": "emptiness assertions (non-target tool, malformed JSON, rate-limited second call emit nothing) are paired in the same file with positive assertions that ExitPlanMode and AskUserQuestion emit the nudge line; the mutation that disables the rate limit turns the emptiness test red",
       "triaged": "2026-09-02"
+    },
+    "C3 scripts/qa/verify-dashboard-vector-index-i18n.mjs": {
+      "class": "NOT-A-GATE",
+      "reason": "real-browser (real HTTP server + real Chromium) verification that the dashboard renders the Vector Index no-embedder fix correctly translated, and distinct from the plain reindex fix, across all 11 locales, for evidence-gates output_readback/process_boundary/failure_path evidence -- invoked directly by `eg record`, not by any npm script or CI workflow. A human or eg re-runs it on demand when the dashboard i18n catalogue changes; it does not gate a commit or a release on its own.",
+      "triaged": "2026-09-03"
     }
   }
 }

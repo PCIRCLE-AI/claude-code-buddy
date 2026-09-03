@@ -3,7 +3,7 @@ import { getProjectName } from './paths.js';
 import { readRepoState, repoStateLines } from './repo-state.js';
 import { rankEntities } from './scoring.js';
 import { getTaskState } from './task-state-store.js';
-import { unreadDeliveryCount, unreadInboxLines } from './agent-message-inbox.js';
+import { recipientEverSeen, unreadDeliveryCount, unreadInboxLines } from './agent-message-inbox.js';
 import { taskStateLines } from './task-state.js';
 import { GLOBAL_TOPOLOGY_LIMIT, SNIPPET_FETCH_CHARS, TOPOLOGY_CANDIDATE_CAP, assembleTopologyBlock, buildReferenceContext, isAutoInjectable, } from './work-topology.js';
 const PROJECT_LIMIT = 30;
@@ -55,9 +55,13 @@ export function assembleBriefing(project, recipient) {
         ? repoStateLines(readRepoState())
         : [];
     const { state } = getTaskState(projectName);
+    const unreadCount = unreadDeliveryCount(db, projectName, recipient);
+    const everSeen = recipient !== undefined && unreadCount === 0
+        ? recipientEverSeen(db, projectName, recipient)
+        : undefined;
     const stateLines = [
         ...taskStateLines(state, projectName),
-        ...unreadInboxLines(unreadDeliveryCount(db, projectName, recipient), projectName, recipient),
+        ...unreadInboxLines(unreadCount, projectName, recipient, everSeen),
     ];
     const hasNamespace = db.prepare('PRAGMA table_info(entities)').all()
         .some((column) => column.name === 'namespace');

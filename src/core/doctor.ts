@@ -3163,14 +3163,41 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
           ? 'The vector index could not be read, so how much of your memory semantic recall can see is unknown'
           : `${missingVectors} memor${missingVectors === 1 ? 'y has' : 'ies have'} no search vector, `
             + 'so semantic recall cannot find them (keyword search still works)';
+      // D6: `memesh reindex` refuses (exit 1) when no embedder is configured
+      // — "Nothing was rebuilt: no embedding provider is configured" — and
+      // that is the state nearly every fresh Core-mode install is in, since
+      // the capture hooks never embed. Sending that user to a command that
+      // is guaranteed to fail is not a fix. `inspectEmbeddingProbe` above
+      // already answers "is an embedder configured?" via
+      // `capabilities.embeddings === 'tfidf'`; reuse that exact predicate
+      // here instead of re-deriving it, so the two checks can never disagree
+      // about the embedder state.
+      const noEmbedderConfigured = detectCapabilitiesImpl().embeddings === 'tfidf';
+      // Distinct code, not a shared one with a branching fix string: the
+      // dashboard looks up its own locale string by `code` alone
+      // (DoctorBanner.tsx's trFix/trField), so a single 'vector-index.stale'
+      // code covering two different embedder states cannot carry two
+      // different fix messages there — whichever the catalogue holds "wins"
+      // for both branches, and the no-embedder branch (the common
+      // fresh-install state) had been getting the OTHER one, telling users
+      // to run a command that is guaranteed to fail. A second code makes the
+      // dashboard-i18n parity check require its own catalogue entry, so a
+      // missing translation fails loudly instead of silently reusing the
+      // wrong text.
+      const vectorIndexFix = noEmbedderConfigured
+        ? `No embedder is configured, so reindex has nothing to embed with — run 'memesh config set embedder.provider ollama' (or 'openai') first, then 'memesh reindex'.`
+        : `Run 'memesh reindex' to fix. This will restore full search functionality.`;
       dbChecks.push(
         createCheck(
           'vector_index',
           'Vector Index',
           'warn',
           owed,
-          `Run 'memesh reindex' to fix. This will restore full search functionality.`,
-          { code: 'vector-index.stale', params: { missing: missingVectors ?? -1 } },
+          vectorIndexFix,
+          {
+            code: noEmbedderConfigured ? 'vector-index.stale-no-embedder' : 'vector-index.stale',
+            params: { missing: missingVectors ?? -1 },
+          },
         ),
       );
     }
