@@ -1,0 +1,1 @@
+{"version":3,"file":"entity-index.d.ts","sourceRoot":"","sources":["../../src/storage/entity-index.ts"],"names":[],"mappings":"AA4BA,OAAO,KAAK,EAAE,cAAc,EAAE,MAAM,aAAa,CAAC;AAkBlD,wBAAgB,eAAe,CAAC,EAAE,EAAE,cAAc,EAAE,QAAQ,EAAE,MAAM,GAAG,IAAI,CAG1E;AAgBD,wBAAgB,qBAAqB,CACnC,EAAE,EAAE,cAAc,EAClB,QAAQ,EAAE,MAAM,EAChB,IAAI,EAAE,MAAM,GACX,IAAI,CAMN"}

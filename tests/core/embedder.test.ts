@@ -32,6 +32,20 @@ describe('Embedder', () => {
     return getDatabase();
   }
 
+  /**
+   * Give a vector rowid an ACTIVE entity to belong to.
+   *
+   * `vectorSearch` restricts its k-NN to active entity ids inside the query,
+   * so a vector whose rowid names no entity is not a hit — correctly: nothing
+   * downstream can hydrate it, and `getEntitiesByIds` would drop it anyway.
+   * These fixtures used to insert the vector alone, which made them pass while
+   * describing a row shape the product never writes.
+   */
+  function seedEntity(db: ReturnType<typeof getDatabase>, id: number, status = 'active') {
+    db.prepare('INSERT INTO entities (id, name, type, status) VALUES (?, ?, ?, ?)')
+      .run(id, `entity-${id}`, 'note', status);
+  }
+
   it('isEmbeddingAvailable returns boolean', () => {
     const result = isEmbeddingAvailable();
     expect(typeof result).toBe('boolean');
@@ -75,6 +89,7 @@ describe('Embedder', () => {
     const norm = Math.hypot(...embedding);
     for (let i = 0; i < dim; i++) embedding[i] /= norm;
 
+    seedEntity(db, 123);
     db.prepare(
       'INSERT INTO entities_vec (rowid, embedding) VALUES (?, ?)'
     ).run(123n, Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength));
@@ -95,6 +110,7 @@ describe('Embedder', () => {
     const dim = getEmbeddingDimension();
     const unit = new Float32Array(dim);
     unit[0] = 1;
+    seedEntity(db, 7);
     db.prepare(
       'INSERT INTO entities_vec (rowid, embedding) VALUES (?, ?)'
     ).run(7n, Buffer.from(unit.buffer, unit.byteOffset, unit.byteLength));
@@ -128,6 +144,7 @@ describe('Embedder', () => {
       // cos 0.6 -> L2 sqrt(0.8) ≈ 0.894, inside the nomic signal band (real
       // matches measured at 0.858…0.988). Below the 1.00 cut, so it survives.
       const related = vectorAtCosine(0.6, dim);
+      seedEntity(db, 7);
       db.prepare('INSERT INTO entities_vec (rowid, embedding) VALUES (?, ?)')
         .run(7n, Buffer.from(related.buffer, related.byteOffset, related.byteLength));
 
@@ -145,6 +162,10 @@ describe('Embedder', () => {
       // (unrelated queries' nearest neighbours measured at 1.02…1.10). Above
       // the 1.00 cut, so it must not come back as an answer.
       const opposed = vectorAtCosine(0.4, dim);
+      // Seeded ACTIVE on purpose: without the entity row this assertion would
+      // hold because the rowid filter dropped the hit, not because the
+      // distance cut did — the test would keep its name and stop testing it.
+      seedEntity(db, 8);
       db.prepare('INSERT INTO entities_vec (rowid, embedding) VALUES (?, ?)')
         .run(8n, Buffer.from(opposed.buffer, opposed.byteOffset, opposed.byteLength));
 
@@ -169,6 +190,57 @@ describe('Embedder', () => {
       // The mapping stays positive across the whole 0…2 range — the previous
       // `1 - d` form returned 0 for everything past 1.0, where real hits live.
       expect(vectorSimilarity(1.187)).toBeGreaterThan(0);
+    });
+  });
+
+  describe('archived entities do not consume k-NN slots (D11)', () => {
+    /** Unit vector at a chosen cosine angle from [1,0,0,…]. */
+    function vectorAtCosine(cos: number, dim: number): Float32Array {
+      const v = new Float32Array(dim);
+      v[0] = cos;
+      v[1] = Math.sqrt(1 - cos * cos);
+      return v;
+    }
+
+    function seedVector(
+      db: ReturnType<typeof getDatabase>,
+      id: number,
+      status: string,
+      cos: number,
+      dim: number,
+    ) {
+      db.prepare('INSERT INTO entities (id, name, type, status) VALUES (?, ?, ?, ?)')
+        .run(id, `entity-${id}`, 'note', status);
+      const v = vectorAtCosine(cos, dim);
+      db.prepare('INSERT INTO entities_vec (rowid, embedding) VALUES (?, ?)')
+        .run(BigInt(id), Buffer.from(v.buffer, v.byteOffset, v.byteLength));
+    }
+
+    it('returns the active neighbour that a nearer archived one would have displaced', () => {
+      // The shape that cost 35.4% of every top-20 on the maintainer's graph:
+      // an archived entity sits NEARER the query than an active one, and the
+      // limit is spent before any status filter can run. Filtering after the
+      // search cannot recover the displaced row — it is not in the result to
+      // filter. Asking for exactly one hit is what makes the displacement
+      // visible: with the pre-filter the single slot goes to the active
+      // entity; without it, to the archived one.
+      const db = openTempDb();
+      const dim = getEmbeddingDimension();
+      seedVector(db, 11, 'archived', 1.0, dim);  // nearest
+      seedVector(db, 12, 'active', 0.9, dim);    // second nearest, still inside the cut
+
+      const hits = vectorSearch(vectorAtCosine(1, dim), 1);
+      expect(hits.map((h) => h.id)).toEqual([12]);
+    });
+
+    it('never returns an archived entity, even when slots are free', () => {
+      const db = openTempDb();
+      const dim = getEmbeddingDimension();
+      seedVector(db, 21, 'archived', 1.0, dim);
+      seedVector(db, 22, 'active', 0.95, dim);
+
+      const hits = vectorSearch(vectorAtCosine(1, dim), 20);
+      expect(hits.map((h) => h.id)).toEqual([22]);
     });
   });
 });

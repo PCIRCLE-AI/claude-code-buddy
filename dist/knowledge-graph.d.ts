@@ -29,7 +29,6 @@ export declare class KnowledgeGraph {
     listRecent(limit?: number, includeArchived?: boolean, namespace?: string, countAsAccess?: boolean): Entity[];
     listByType(type: string, limit?: number, includeArchived?: boolean, namespace?: string): Entity[];
     private listRecentByTag;
-    private removeVectorRow;
     clearEntityData(name: string): void;
     archiveEntity(name: string): {
         archived: boolean;

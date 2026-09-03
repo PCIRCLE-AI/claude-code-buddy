@@ -165,6 +165,68 @@ All notable changes to MeMesh are documented here.
   `agent_session_instances` alone — omitting it misreported an actually-live
   session as never seen.
 
+- **An archived memory no longer takes a recall slot from a live one.**
+  `vectorSearch` ran an unrestricted k-NN and `supplementWithVectors` dropped
+  archived hits during hydration — after the LIMIT had been spent on them, so
+  an archived neighbour did not just get discarded, it displaced an active
+  memory. Measured on the maintainer's graph (2136 entities, 820 active): 413
+  of 1013 vector rows belonged to archived entities, and 41 synthetic 1536-dim
+  queries against a copy of it spent 290 of 820 top-20 slots — 35.4% — on them,
+  and 0 after the filter. The k-NN is now restricted to
+  active entity ids inside the query, with `rowid IN (…)`, which sqlite-vec
+  honours as a PRE-filter; a join is applied after k is spent and reproduces
+  the bug, and adding a `status` metadata column would mean recreating
+  `entities_vec` and re-embedding every namespace at cost.
+
+- **Three archive paths left the entity in both search indexes.**
+  `archiveEntity` always removed the FTS row and the vector; `compressWeeklyNoise`,
+  the dreamer's compaction-digest apply and `splitFusedLessons` archived with a
+  bare status UPDATE and removed neither. Measured on the same graph, 213
+  archived entities were still full-text indexed — `MATCH 'ae83279'` returned
+  the archived `commit-ae83279`. Removal from both indexes now has one owner
+  (`storage/entity-index.ts`), which `archiveEntity`, `deleteEntity`,
+  `compressWeeklyNoise` and the dreamer all call.
+
+- **Re-remembering an archived memory inserted a second, undeletable document
+  into the full-text index.** `createEntityInner` skipped the contentless FTS5
+  delete for anything `wasArchived`, on the reasoning that archiving had
+  already removed the row — which only `archiveEntity` did. For an entity
+  archived by one of the three leaky paths the row was still there, so the
+  rebuild added a SECOND document at the same rowid, and where the two
+  documents differ (a title change between archive and re-remember) the first
+  one's terms can never be deleted: a contentless delete has to repeat the text
+  that was indexed, and only the second document's text is reconstructable. The
+  previously-indexed text is now read unconditionally for an existing entity.
+
+- **A contentless FTS5 delete is no longer issued when there is no row to
+  delete.** FTS5's `'delete'` writes negative postings without looking for a
+  row, so a second delete of the same (rowid, text) drives the term counts
+  below zero and SQLite reports `database disk image is malformed` — which
+  `isBenignFtsDeleteError` deliberately does not treat as benign. Measured on
+  SQLite 3.51.3. `removeFromFts` now checks the rowid is indexed first, which
+  covers every caller including `clearEntityData`, whose comment claimed the
+  benign-error class absorbed the miss.
+
+- **One-shot repair for graphs already holding those rows.**
+  `dropArchivedIndexRows` (`storage/graph-repairs.ts`) rebuilds the keyword
+  index from active entities and deletes every vector row belonging to an
+  archived entity, at the first open after upgrade. It runs after the
+  sqlite-vec load rather than beside the other repairs, because `entities_vec`
+  does not exist as a queryable table before it, and it carries TWO markers:
+  the FTS half is always runnable, the vector half is skipped without stamping
+  anything on a platform sqlite-vec ships no binary for, so that machine still
+  repairs the row when the file is next opened where the binary is present.
+  Verified on a copy of the maintainer's graph: vectors 1013 → 600 (all 413
+  archived removed, all 600 active kept), FTS rows 1033 → 820 (all 213 archived
+  removed, all 820 active kept), entity and observation counts unchanged.
+
+- **Two new memory invariants.** `scripts/audit/memory-invariants.mjs` now fails
+  when an archived entity holds a vector row or a full-text row, naming the
+  entities. The vector check reads sqlite-vec's rowid map rather than the vec0
+  virtual table, because the audit opens read-only without loading the
+  extension and a `no such module: vec0` would have been printed as a benign
+  `skip` — a silent pass being the one outcome an invariant must not have.
+
 - **The Ollama host guard now rebuilds the request origin instead of forwarding
   the configured string.** `resolveOllamaHost` used to validate a persisted
   `llm.host` and then pass the same string to `fetch`, which left CodeQL alert

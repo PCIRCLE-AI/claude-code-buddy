@@ -348,6 +348,31 @@ export function removeFromFts(
   prevTitle?: string | null,
 ): void {
   try {
+    // Nothing indexed at this rowid, nothing to delete — and issuing the
+    // delete anyway is not harmless.
+    //
+    // A contentless FTS5 'delete' does not look for a row. It writes NEGATIVE
+    // postings for the terms it is given, trusting the caller that a matching
+    // positive set exists. Issue it twice for the same (rowid, text) and the
+    // counts go below zero; SQLite reports that as `database disk image is
+    // malformed`. Measured on SQLite 3.51.3 (Node 22+): insert one row, delete
+    // it correctly, delete it again — the second delete throws exactly that.
+    //
+    // The comment on `isBenignFtsDeleteError` below describes an older
+    // SQLite's "no such rowid" error, which 3.51 does not raise; and "disk
+    // image is malformed" is deliberately NOT in its benign set, because on
+    // every other path it means real corruption. So the miss cannot be
+    // absorbed after the fact — it has to be avoided, here, once, for every
+    // caller.
+    //
+    // This is what makes it safe for `createEntityInner` to ask for the delete
+    // unconditionally, which is what closes the double-INSERT it used to make
+    // for an entity archived by a path that left its FTS row behind.
+    const indexed = db
+      .prepare('SELECT COUNT(*) AS c FROM entities_fts WHERE rowid = ?')
+      .get(entityId) as { c: number } | undefined;
+    if (!indexed || indexed.c === 0) return;
+
     // Segment on the way out too. Contentless FTS5 locates the row by the
     // values that were INDEXED, so a delete that passed the raw text while the
     // insert segmented it would never match, and the stale row would survive
@@ -376,6 +401,15 @@ export function removeFromFts(
  * schema: the entity either was never indexed (e.g. status='archived'
  * from migration) or was already cleaned up by a prior call. We treat
  * those as no-ops.
+ *
+ * **Measured caveat, SQLite 3.51.3 (Node 22+): it does not raise that.**
+ * A delete for a rowid that was never indexed throws nothing at all, and a
+ * SECOND delete of the same (rowid, text) throws `database disk image is
+ * malformed` — which this classifier deliberately does not absorb, and
+ * rightly so. So the "no such rowid" branch below is dead on current SQLite
+ * and the miss cannot be handled after the fact; `removeFromFts` now checks
+ * that the rowid is indexed BEFORE issuing the delete. The patterns are kept
+ * for older SQLite builds, not relied on.
  *
  * "database disk image is malformed" is a DIFFERENT failure class — real
  * corruption, not a values mismatch — and this schema's delete path

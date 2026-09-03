@@ -383,6 +383,50 @@ export async function embedAndStore(
 
 /**
  * Search entities_vec for similar embeddings by cosine distance.
+ *
+ * **Restricted to ACTIVE entities, inside the query, before k is spent.**
+ *
+ * Archived rows leak into `entities_vec` — measured on the maintainer's graph,
+ * 413 of 1013 vectors belonged to entities the user had archived, and 41
+ * synthetic 1536-dim queries against a copy of it spent 290 of 820 top-20
+ * slots (35.4%) on them — 0 after this filter. Three archive
+ * paths did not drop the vector, which is fixed at the source
+ * (`dropEntityFromIndexes`), but two cases no archive-path fix can reach
+ * remain: `splitFusedLessons` archives during `openDatabase` BEFORE sqlite-vec
+ * is loaded, and an entity archived on a platform sqlite-vec ships no binary
+ * for keeps its vector until the file is opened somewhere that has one.
+ *
+ * Filtering after the fact does not work, and that is the whole reason this is
+ * in the SQL. `supplementWithVectors` already dropped archived hits during
+ * hydration — but the LIMIT had been spent on them by then, so an archived
+ * neighbour did not just get discarded, it displaced an active memory that
+ * would otherwise have been returned.
+ *
+ * `rowid IN (...)` is the form that works, and it is the only one. Measured
+ * against sqlite-vec 0.1.9 with 10 vectors, the 5 nearest archived, asking for
+ * 3:
+ *
+ *   plain `LIMIT 3`                      -> rowids 1,2,3 — all archived
+ *   `JOIN entities … WHERE status=…`     -> throws: "A LIMIT or 'k = ?'
+ *                                           constraint is required on vec0
+ *                                           knn queries"
+ *   `JOIN entities … AND k = 3`          -> [] — vec0 takes its 3 nearest
+ *                                           first and the join deletes them,
+ *                                           i.e. exactly the bug
+ *   `rowid IN (SELECT … active) LIMIT 3` -> rowids 6,7,8 — the 3 nearest
+ *                                           ACTIVE rows
+ *
+ * So vec0 honours a rowid `IN` set as a PRE-filter and a join as a post-filter.
+ * The alternative — declaring `status` as a vec0 metadata column — means
+ * recreating the virtual table, and `entities_vec` is one table for the whole
+ * database: dropping it drops every namespace's embeddings and only a full
+ * re-embed brings them back, on a paid provider at cost. Rejected on that
+ * alone. Over-fetching a multiple of `limit` and filtering in JS was the other
+ * candidate; it is a guess at a multiplier that this form makes exact.
+ *
+ * The subquery costs one indexed scan of `idx_entities_status`, and vec0 is a
+ * brute-force index either way — restricting the rowid set gives it less to
+ * scan, not more.
  */
 export function vectorSearch(
   queryEmbedding: Float32Array,
@@ -396,7 +440,10 @@ export function vectorSearch(
     if (!hasVectorIndex(db)) return [];
     const rows = db
       .prepare(
-        'SELECT rowid AS id, distance FROM entities_vec WHERE embedding MATCH ? ORDER BY distance LIMIT ?'
+        `SELECT rowid AS id, distance FROM entities_vec
+          WHERE embedding MATCH ?
+            AND rowid IN (SELECT id FROM entities WHERE status = 'active')
+          ORDER BY distance LIMIT ?`
       )
       .all(
         toVectorBlob(queryEmbedding),

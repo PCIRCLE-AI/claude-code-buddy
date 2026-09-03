@@ -514,6 +514,52 @@ describe('Feature: memory_20250818 over the knowledge graph', () => {
       ).not.toThrow();
     });
 
+    it('renaming an archived memory does not put it back in the keyword index', () => {
+      // Independent review of PR #292 (F3). `renamePath` used to
+      // unconditionally `removeFromFts` then `insertFtsRow` regardless of
+      // status. For an ACTIVE source that pair is the correct
+      // delete-then-reinsert this suite pins above. For an ARCHIVED source,
+      // `archiveEntity` already took it out of `entities_fts` — the
+      // `removeFromFts` here is a benign no-op — so the `insertFtsRow` put it
+      // straight back in, and a rename (which changes nothing about whether
+      // the memory should be findable) silently un-archived it from search's
+      // point of view. Reproduced: after this, `npm run audit:memory`'s
+      // `archived-entities-not-in-keyword-index` invariant went red on a
+      // completely ordinary operation.
+      seed('archived-draft', ['a distinctive phrase about wombats']);
+      const kg = new KnowledgeGraph(getDatabase());
+      kg.archiveEntity('archived-draft');
+
+      const result = handleMemoryCommand({
+        command: 'rename',
+        old_path: file('archived-draft'),
+        new_path: file('archived-final'),
+      });
+
+      expect(result.isError).toBe(false);
+      const renamed = kg.getEntity('archived-final');
+      expect(renamed?.archived, 'the rename must not resurrect the entity').toBe(true);
+
+      // `kg.search` filters to `status = 'active'` as a safety net regardless
+      // of the index, so it stays negative either way and is not the
+      // discriminating check — the direct table read below is. Included for
+      // completeness: the entity must not be reachable through the product's
+      // actual search path either.
+      expect(kg.search('wombats').map((e) => e.name)).not.toContain('archived-final');
+      // The discriminating assertion: no row at this id in `entities_fts` at
+      // all, which is exactly what `archived-entities-not-in-keyword-index`
+      // checks.
+      const id = renamed!.id;
+      expect(
+        (
+          getDatabase().prepare('SELECT COUNT(*) AS c FROM entities_fts WHERE rowid = ?').get(id) as {
+            c: number;
+          }
+        ).c,
+        'an archived entity picked up an FTS row after being renamed',
+      ).toBe(0);
+    });
+
     it('refuses a destination that exists, in any namespace', () => {
       // Memory names are unique database-wide. Checking only the destination
       // namespace would let the write reach SQLite and fail on the UNIQUE

@@ -58,12 +58,15 @@
 
 import type { MemeshDatabase } from './sqlite.js';
 import { rebuildFtsIndex, runOnceMigration } from './schema.js';
+import { hasVectorIndex } from './vector-index.js';
 import { lessonSlug } from '../core/lesson-slug.js';
 import { computeSignalScore } from '../core/signal-scorer.js';
 
 export const SESSION_DEDUPE_KEY = 'session_observation_dedupe';
 export const ZERO_EDIT_RETRACT_KEY = 'session_zero_edit_retract';
 export const FUSED_LESSON_SPLIT_KEY = 'fused_lesson_split';
+export const ARCHIVED_FTS_ROWS_KEY = 'archived_fts_rows';
+export const ARCHIVED_VECTOR_ROWS_KEY = 'archived_vector_rows';
 
 /** The summary suffix the Stop hook wrote when it could not see Bash edits. */
 const ZERO_EDITS = ', 0 files edited';
@@ -422,4 +425,126 @@ export function splitFusedLessons(
     },
   });
   return moved;
+}
+
+/**
+ * D11/D12 — an archived entity is in NEITHER search index.
+ *
+ * `archiveEntity` always dropped both index rows. `compressWeeklyNoise`, the
+ * dreamer's compaction apply and `splitFusedLessons` archived with a bare
+ * status UPDATE and dropped neither. Those three are fixed at the source, but
+ * every graph written before the fix still holds the rows they left. Measured
+ * on the maintainer's graph at 2136 entities (820 active, 1316 archived):
+ *
+ *   413 of 1013 vector rows belonged to archived entities — 41 real k-NN
+ *       queries spent 290 of 820 top-20 slots (35.4%) on memories the user
+ *       had put away, displacing active ones.
+ *   213 archived entities were still in `entities_fts` — `MATCH 'ae83279'`
+ *       returned the archived `commit-ae83279`.
+ *
+ * TWO `runOnceMigration` keys, not one, because the two halves have different
+ * preconditions and one must not be able to mark the other done:
+ *
+ *   `archived_fts_rows`     always runnable — FTS5 is built into SQLite.
+ *   `archived_vector_rows`  needs sqlite-vec loaded IN THIS PROCESS.
+ *
+ * On a platform sqlite-vec publishes no binary for, the vector half can never
+ * run. Folded into one key it would either strand the FTS repair on those
+ * machines forever, or stamp a marker over work that did not happen — and this
+ * file exists precisely because "a fix that only prevents new damage" is not
+ * enough. Split, each machine repairs what it can, and the vector half runs
+ * the first time the file is opened somewhere that has the binary.
+ *
+ * The FTS half rebuilds the whole index rather than deleting the archived rows
+ * one by one, for the reason the header gives: a contentless delete must repeat
+ * the exact text that was indexed, and where an entity was re-remembered while
+ * archived the index holds TWO documents at its rowid whose combined text
+ * nothing can reconstruct. `rebuildFtsIndex` starts from `delete-all` and
+ * re-inserts active rows only, so it needs no such input and clears both
+ * defects at once. It is idempotent and may already have run this open.
+ *
+ * **Must be called AFTER the sqlite-vec load in `openDatabase`**, unlike the
+ * three passes above, which run before it and therefore cannot touch
+ * `entities_vec` at all.
+ *
+ * @returns `{ ftsRows, vectorRows }` — rows removed by each half, or -1 for a
+ *          half that did not run.
+ */
+export function dropArchivedIndexRows(db: MemeshDatabase): {
+  ftsRows: number;
+  vectorRows: number;
+} {
+  const result = { ftsRows: -1, vectorRows: -1 };
+
+  runOnceMigration(db, {
+    key: ARCHIVED_FTS_ROWS_KEY,
+    version: 1,
+    describe: 'archived rows removed from the keyword index',
+    migrate: (conn) => {
+      // Counted BEFORE the rebuild, from the index itself: `entities_fts` is
+      // contentless, but its rowids are still scannable, and a rowid is what
+      // identifies the leak. Counting archived entities instead would report
+      // every archived row in the database, most of which were never indexed.
+      //
+      // This count is NOT the rebuild's gate — it is a log/note number only.
+      // It can undercount: it joins on CURRENT `e.status = 'archived'`, so it
+      // only proves something about a rowid that is archived RIGHT NOW. It
+      // cannot see a document that is stale for a reason other than "this
+      // row's status is archived" — e.g. one written under an FTS
+      // segmentation rule that has since changed, or one left behind by a
+      // sequence of archive / re-remember / archive-again that this join
+      // was never designed to characterize. `rebuildFtsIndex` starts from
+      // `delete-all` and reconstructs strictly from `entities` +
+      // `observations`, so it needs no such count as input and is the only
+      // thing here that can actually prove the index is clean. Skipping it
+      // whenever the count read zero was the D11/D12 bug's own shape one
+      // level up: a check for one specific shape of residue read all-clear
+      // on the corpus it existed to catch. `ensureFtsSegmentation`
+      // (schema.ts) already establishes unconditional rebuild as this
+      // codebase's answer to that — its own comment records a version-keyed
+      // skip that measured a real corpus it could not see. `rebuildFtsIndex`
+      // is idempotent and this whole call sits behind a one-time
+      // `runOnceMigration` key, so running it unconditionally costs one
+      // extra pass through `entities` on the machines where the count really
+      // was zero, and fixes the ones where it wasn't.
+      const stale = conn
+        .prepare(
+          `SELECT COUNT(*) AS n FROM entities_fts f
+             JOIN entities e ON e.id = f.rowid
+            WHERE e.status = 'archived'`,
+        )
+        .get() as { n: number };
+      result.ftsRows = stale.n;
+      rebuildFtsIndex(conn);
+      if (stale.n > 0) {
+        note(`removed ${stale.n} archived entit${stale.n === 1 ? 'y' : 'ies'} from the keyword index (archived before 4.8.4 by a path that left the index behind).`);
+      }
+    },
+  });
+
+  // Asked before `runOnceMigration`, not inside `migrate`: a migrate that
+  // returns early because it cannot work still gets its marker stamped, and
+  // this repair would then be permanently "done" on the one class of machine
+  // that never performed it.
+  if (!hasVectorIndex(db)) return result;
+
+  runOnceMigration(db, {
+    key: ARCHIVED_VECTOR_ROWS_KEY,
+    version: 1,
+    describe: 'archived rows removed from the vector index',
+    migrate: (conn) => {
+      const removed = conn
+        .prepare(
+          `DELETE FROM entities_vec WHERE rowid IN
+             (SELECT e.id FROM entities e WHERE e.status = 'archived')`,
+        )
+        .run();
+      result.vectorRows = Number(removed.changes);
+      if (result.vectorRows > 0) {
+        note(`removed ${result.vectorRows} archived entit${result.vectorRows === 1 ? 'y' : 'ies'} from the vector index; they were taking recall slots from live memories.`);
+      }
+    },
+  });
+
+  return result;
 }

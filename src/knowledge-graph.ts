@@ -13,7 +13,7 @@ import {
   SQL_NFC_FUNCTION,
 } from './storage/fts-index.js';
 import { computeSignalScore } from './core/signal-scorer.js';
-import { hasVectorIndex } from './storage/vector-index.js';
+import { dropEntityFromIndexes, removeVectorRow } from './storage/entity-index.js';
 
 /**
  * Cap on how many terms of a query reach the FTS5 MATCH expression. Terms are
@@ -419,10 +419,30 @@ export class KnowledgeGraph {
         .run(name);
     }
 
-    // For existing entities, capture current obs text to delete old FTS entry before rebuild.
-    // For new entities, no prior FTS entry exists — pass undefined to skip delete.
-    // For previously archived entities, the FTS entry was already removed by archiveEntity — also pass undefined.
-    const prevObs = isNewEntity || wasArchived
+    // For existing entities, capture current obs text to delete the old FTS
+    // entry before the rebuild. For new entities there is no prior entry, so
+    // the delete is skipped.
+    //
+    // A previously ARCHIVED entity used to be lumped in with the new ones,
+    // on the reasoning that "the FTS entry was already removed by
+    // archiveEntity". Only `archiveEntity` removes it. `compressWeeklyNoise`,
+    // the dreamer's compaction apply and `splitFusedLessons` all archived with
+    // a bare UPDATE, and a row archived by any of those still had its FTS
+    // entry — so re-remembering it INSERTED A SECOND DOCUMENT AT THE SAME
+    // ROWID. That is not a duplicate you can clean up later: `entities_fts` is
+    // contentless, a delete must repeat the exact text that was indexed, and
+    // after the second insert the only text any future delete can reconstruct
+    // is the SECOND one's. The first document's tokens become permanently
+    // unremovable, and keyword search goes on answering with them. Measured on
+    // the maintainer's graph: 213 archived entities were still in the index,
+    // every one of them a live candidate for this.
+    //
+    // Reading the text unconditionally is correct for BOTH archived cases.
+    // Archiving never touches observations, so this IS the text that was
+    // indexed at archive time; and when the entity was archived through
+    // `archiveEntity` and genuinely has no FTS row, `removeFromFts` classes
+    // the miss as benign and does nothing.
+    const prevObs = isNewEntity
       ? []
       : (this.db
           .prepare('SELECT content FROM observations WHERE entity_id = ? ORDER BY id')
@@ -475,9 +495,9 @@ export class KnowledgeGraph {
           .run(entityId);
       }
     }
-    const prevObsText = isNewEntity || wasArchived
+    const prevObsText = isNewEntity
       ? undefined
-      : prevObs.map((o) => o.content).join(' ');
+      : joinIndexedObservations(prevObs.map((o) => o.content));
 
     // Add observations
     if (opts?.observations?.length) {
@@ -979,19 +999,6 @@ export class KnowledgeGraph {
    * Clear all observations and tags for an entity without deleting the entity row.
    * Used by overwrite import to start fresh before re-adding data.
    */
-  /**
-   * Drop an entity's row from the vector index, if this process has one.
-   *
-   * Asked rather than caught: a bare `try {} catch {}` here would swallow a
-   * real delete failure on a database that genuinely HAS an index, and this
-   * runs on the three paths that invalidate an entity's text — archive,
-   * delete, and clear.
-   */
-  private removeVectorRow(id: number): void {
-    if (!hasVectorIndex(this.db)) return;
-    this.db.prepare('DELETE FROM entities_vec WHERE rowid = ?').run(BigInt(id));
-  }
-
   clearEntityData(name: string): void {
     const row = this.db
       .prepare('SELECT id, title FROM entities WHERE name = ?')
@@ -1004,8 +1011,15 @@ export class KnowledgeGraph {
     // the old `length > 0 ? text : undefined` skipped the delete for exactly
     // that case, and an overwrite-import of an observation-less entity
     // double-inserted the same rowid into the index. If the entity truly has
-    // no FTS row (archived, pre-index era), removeFromFts's benign-error
-    // class absorbs the miss.
+    // no FTS row (archived, pre-index era), `removeFromFts` skips the delete
+    // because the rowid is not indexed.
+    //
+    // That last sentence used to read "removeFromFts's benign-error class
+    // absorbs the miss", and it was not true: on SQLite 3.51.3 a contentless
+    // delete with no row to match either does nothing OR — when the same
+    // (rowid, text) was already deleted — raises `database disk image is
+    // malformed`, which that class deliberately does NOT absorb. The check
+    // now lives in `removeFromFts` itself, before the delete.
     const prevObsText = indexedObservationText(this.db, row.id);
 
     // One transaction, for the same reason archiveEntity has one: these four
@@ -1030,7 +1044,7 @@ export class KnowledgeGraph {
       // is a synchronous graph mutation. NO vector is a state the system
       // already knows how to see (`countMissingVectors`) and already knows
       // how to fix (`memesh reindex`); a WRONG vector is neither.
-      this.removeVectorRow(row.id);
+      removeVectorRow(this.db, row.id);
     })();
   }
 
@@ -1055,11 +1069,8 @@ export class KnowledgeGraph {
     // hasVectorIndex now answers the process question, so the throw should
     // not recur — but the atomicity is what makes a future throw survivable
     // rather than data-destroying, and that is worth having independently.
-    const observationText = indexedObservationText(this.db, row.id);
     this.db.transaction(() => {
-      removeFromFts(this.db, row.id, name, observationText, row.title);
-
-      this.removeVectorRow(row.id);
+      dropEntityFromIndexes(this.db, row.id, name);
 
       this.db
         .prepare("UPDATE entities SET status = 'archived' WHERE id = ?")
@@ -1135,13 +1146,10 @@ export class KnowledgeGraph {
     // delete committed and a throw on the vector delete left the entity row
     // in place but out of the index — a permanent orphan that no search could
     // reach and no retry could clear.
-    const observationText = indexedObservationText(this.db, row.id);
     this.db.transaction(() => {
-      removeFromFts(this.db, row.id, name, observationText, row.title);
-
-      // Mirror archiveEntity's cleanup so a hard delete does not leak orphan
-      // embeddings.
-      this.removeVectorRow(row.id);
+      // Same pair as archiveEntity, through the same owner, so a hard delete
+      // cannot leak orphan embeddings while an archive does not.
+      dropEntityFromIndexes(this.db, row.id, name);
 
       // CASCADE handles observations, relations, tags.
       this.db.prepare('DELETE FROM entities WHERE id = ?').run(row.id);

@@ -7,7 +7,7 @@ import { resolveEmbeddingDimension } from './core/config.js';
 import { computeSignalScore } from './core/signal-scorer.js';
 import { getDbPath } from './core/paths.js';
 import { insertFtsRow, joinIndexedObservations, removeFromFts } from './storage/fts-index.js';
-import { dedupeSessionObservations, retractZeroEditClaims, splitFusedLessons } from './storage/graph-repairs.js';
+import { dedupeSessionObservations, dropArchivedIndexRows, retractZeroEditClaims, splitFusedLessons } from './storage/graph-repairs.js';
 import {
   SCHEMA_SQL,
   FTS_SQL,
@@ -274,6 +274,19 @@ function migrateToCurrentSchema(db: MemeshDatabase, resolvedPath: string): void 
     const { dimension: targetDim, confident: dimensionKnown } = resolveEmbeddingDimension();
     ensureVecTable(db, resolvedPath, targetDim, dimensionKnown);
   }
+
+  // The one repair that must run AFTER the block above rather than beside the
+  // others up top: it deletes rows from `entities_vec`, which does not exist as
+  // a queryable table until sqlite-vec has loaded and `ensureVecTable` has run.
+  //
+  // Deliberately not conditional on `vectorIndexAvailable`: its FTS half is
+  // always runnable, and its vector half asks `hasVectorIndex` for itself. See
+  // `dropArchivedIndexRows` for why the two halves carry separate markers.
+  //
+  // Also after `splitFusedLessons`, which archives emptied lesson buckets and —
+  // running before the extension load — cannot drop their vectors itself. On a
+  // graph that needs both, this pass cleans up after it in the same open.
+  dropArchivedIndexRows(db);
 }
 
 // FTS_SEGMENTATION_VERSION, runOnceMigration, isTransientDbError,
