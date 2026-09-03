@@ -319,7 +319,9 @@ function renamePath(oldRaw, newRaw) {
         removeFromFts(db, entityId, source.name, obsText, source.title);
         db.prepare('UPDATE entities SET name = ?, namespace = ? WHERE id = ?')
             .run(to.name, to.namespace, entityId);
-        insertFtsRow(db, entityId, to.name, obsText, source.title);
+        if (!source.archived) {
+            insertFtsRow(db, entityId, to.name, obsText, source.title);
+        }
     })();
     return ok(`Successfully renamed ${String(oldRaw)} to ${String(newRaw)}`);
 }

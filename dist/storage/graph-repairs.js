@@ -255,10 +255,10 @@ export function dropArchivedIndexRows(db) {
             WHERE e.status = 'archived'`)
                 .get();
             result.ftsRows = stale.n;
-            if (stale.n === 0)
-                return;
             rebuildFtsIndex(conn);
-            note(`removed ${stale.n} archived entit${stale.n === 1 ? 'y' : 'ies'} from the keyword index (archived before 4.8.4 by a path that left the index behind).`);
+            if (stale.n > 0) {
+                note(`removed ${stale.n} archived entit${stale.n === 1 ? 'y' : 'ies'} from the keyword index (archived before 4.8.4 by a path that left the index behind).`);
+            }
         },
     });
     if (!hasVectorIndex(db))
