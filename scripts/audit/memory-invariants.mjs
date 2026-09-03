@@ -126,10 +126,24 @@ const AGENT_MESSAGE_SCOPE_COLUMNS = [
  * a POSIX absolute path, a UNC path, or a Windows drive path. `char(92)` is a
  * backslash — writing it as a literal inside a JS template would need three
  * levels of escaping and is the kind of thing that silently stops matching.
+ *
+ * The drive branch used to accept ANY character in front of the colon
+ * (`substr(col, 2, 1) = ':' AND substr(col, 3, 1) IN (...)`) — a different
+ * rule than the JS regex `/^[A-Za-z]:[\\/]/` it claims to mirror. A value
+ * like `1:/agent` matched this SQL but not the JS: `isFilesystemPathScopeId`
+ * accepts it (so the write path lets it in and the delete/repair path, which
+ * reuses the same JS check, can never rewrite it away), while this invariant
+ * flagged it — a permanently-red violation. GLOB is used for this branch
+ * instead of substr because a character class is how the drive letter gets
+ * restricted to `[A-Za-z]` without 52 `IN (...)` comparisons; confirmed
+ * against node:sqlite that GLOB does not treat backslash as an escape
+ * character inside `[...]`, so `char(92)` concatenates in the same way as
+ * the POSIX branch. GLOB is also case-sensitive by default, matching the JS
+ * regex's lack of a case-insensitive flag.
  */
 const PATH_SHAPED = (col) =>
   `(substr(${col}, 1, 1) IN ('/', char(92))`
-  + ` OR (substr(${col}, 2, 1) = ':' AND substr(${col}, 3, 1) IN ('/', char(92))))`;
+  + ` OR ${col} GLOB ('[A-Za-z]:[/' || char(92) || ']*'))`;
 
 /** One invariant: a SQL query whose rows are violations. Zero rows = holds. */
 const INVARIANTS = [

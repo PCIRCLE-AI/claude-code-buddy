@@ -1634,16 +1634,17 @@ kgCmd
             process.exitCode = 1;
             return;
         }
-        const preview = renameProjectTag(opts.from, opts.to, { apply: false });
+        const to = requireAgentScopeArg(opts.to, 'project', '--to');
+        const preview = renameProjectTag(opts.from, to, { apply: false });
         if (!opts.apply) {
             if (opts.json) {
                 console.log(JSON.stringify({ ...preview, dryRun: true }, null, 2));
                 return;
             }
-            console.log(`Dry-run: project:${opts.from} → project:${opts.to}`);
+            console.log(`Dry-run: project:${opts.from} → project:${to}`);
             console.log(`  ${preview.affectedEntities} entit${preview.affectedEntities === 1 ? 'y' : 'ies'} carry project:${opts.from}`);
-            console.log(`  ${preview.renamed} would be renamed, ${preview.merged} already have project:${opts.to} (their project:${opts.from} row would be removed)`);
-            console.log(`  ${preview.messageRows} durable agent-message row(s) scoped to ${opts.from} would move to ${opts.to}`);
+            console.log(`  ${preview.renamed} would be renamed, ${preview.merged} already have project:${to} (their project:${opts.from} row would be removed)`);
+            console.log(`  ${preview.messageRows} durable agent-message row(s) scoped to ${opts.from} would move to ${to}`);
             console.log(`\nNothing written. Re-run with --apply to commit (the DB is backed up first).`);
             return;
         }
@@ -1664,14 +1665,14 @@ kgCmd
             process.exitCode = 1;
             return;
         }
-        const result = renameProjectTag(opts.from, opts.to, { apply: true });
+        const result = renameProjectTag(opts.from, to, { apply: true });
         if (opts.json) {
             console.log(JSON.stringify({ ...result, backupPath }, null, 2));
             return;
         }
-        console.log(`✅ project:${opts.from} → project:${opts.to}`);
+        console.log(`✅ project:${opts.from} → project:${to}`);
         console.log(`  ${result.renamed} renamed, ${result.merged} merged (${result.affectedEntities} entities total)`);
-        console.log(`  ${result.messageRows} agent-message row(s) moved${result.messageRowsBlocked > 0 ? `, ${result.messageRowsBlocked} left in place (${opts.to} already holds an equivalent row)` : ''}`);
+        console.log(`  ${result.messageRows} agent-message row(s) moved${result.messageRowsBlocked > 0 ? `, ${result.messageRowsBlocked} left in place (${to} already holds an equivalent row)` : ''}`);
         console.log(`  Backup: ${backupPath}`);
         console.log(`  Restore if needed: cp "${backupPath}" "${dbPath}"`);
     });

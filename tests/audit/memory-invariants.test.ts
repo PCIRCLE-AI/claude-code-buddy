@@ -7,7 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { openDatabase, closeDatabase } from '../../src/db.js';
 import { KnowledgeGraph } from '../../src/knowledge-graph.js';
 import { lessonSlug } from '../../src/core/lesson-slug.js';
-import { AGENT_MESSAGE_SCOPE_COLUMNS } from '../../src/core/agent-scope-id.js';
+import { AGENT_MESSAGE_SCOPE_COLUMNS, isFilesystemPathScopeId } from '../../src/core/agent-scope-id.js';
 
 /**
  * scripts/audit/memory-invariants.mjs is the check that would have caught
@@ -702,6 +702,30 @@ describe('memory-invariants: read-only detector over a real graph', () => {
     try {
       withRawDb(dbPath, (db) => seedDelivery(db, 'm-rel', 'proj', 'team/reviewer'));
       expect(run(dbPath).status).toBe(0);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  /**
+   * The comment on PATH_SHAPED (scripts/audit/memory-invariants.mjs) says it
+   * mirrors `isFilesystemPathScopeId`, but the two used to be different
+   * rules: the JS drive-letter branch requires `[A-Za-z]` before the colon,
+   * and the old SQL branch accepted any character there. `1:/agent` is the
+   * value that told them apart — the write path (same JS function) accepts
+   * it as a legitimate scope id, so nothing can ever rewrite it away, while
+   * the old SQL flagged it as a violation. That combination is a permanently
+   * red invariant. This asserts both halves of the mirror on that one value:
+   * the JS function accepts it, and the running invariant script agrees.
+   */
+  it('message identity — JS and SQL agree that "1:/agent" is NOT a filesystem-path scope id', () => {
+    expect(isFilesystemPathScopeId('1:/agent')).toBe(false);
+    const { dir, dbPath } = freshGraph();
+    try {
+      withRawDb(dbPath, (db) => seedDelivery(db, 'm-digit-drive', 'proj', '1:/agent'));
+      const r = run(dbPath);
+      expect(r.status, r.stdout).toBe(0);
+      expect(r.stdout).not.toContain('1:/agent');
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

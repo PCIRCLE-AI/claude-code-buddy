@@ -29,7 +29,6 @@ import {
   ZERO_EDIT_RETRACT_KEY,
   bashWritesFiles,
   dropArchivedIndexRows,
-  normalizeAgentScopePaths,
 } from '../../src/storage/graph-repairs.js';
 import { lessonSlug } from '../../src/core/lesson-slug.js';
 

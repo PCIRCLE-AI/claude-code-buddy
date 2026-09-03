@@ -2142,17 +2142,26 @@ kgCmd
         return;
       }
 
+      // --to is a NEW routing identity — the same shape `agent setup` and the
+      // message surfaces already gate — so it goes through the same refusal
+      // and canonical form. --from is deliberately NOT validated or
+      // canonicalised: it names an EXISTING row the owner is repairing (it may
+      // itself be the path-shaped or NFD-spelled value this command exists to
+      // fix), and it must match that row's exact byte spelling or the repair
+      // silently matches nothing.
+      const to = requireAgentScopeArg(opts.to, 'project', '--to');
+
       // Dry-run preview first (always computed).
-      const preview = renameProjectTag(opts.from, opts.to, { apply: false });
+      const preview = renameProjectTag(opts.from, to, { apply: false });
       if (!opts.apply) {
         if (opts.json) { console.log(JSON.stringify({ ...preview, dryRun: true }, null, 2)); return; }
-        console.log(`Dry-run: project:${opts.from} → project:${opts.to}`);
+        console.log(`Dry-run: project:${opts.from} → project:${to}`);
         console.log(`  ${preview.affectedEntities} entit${preview.affectedEntities === 1 ? 'y' : 'ies'} carry project:${opts.from}`);
-        console.log(`  ${preview.renamed} would be renamed, ${preview.merged} already have project:${opts.to} (their project:${opts.from} row would be removed)`);
+        console.log(`  ${preview.renamed} would be renamed, ${preview.merged} already have project:${to} (their project:${opts.from} row would be removed)`);
         // A project identity is half the key of a durable-message inbox, so a
         // rename that moved only the tags left the messages in a scope nobody
         // polls. Reported separately because it is a different kind of row.
-        console.log(`  ${preview.messageRows} durable agent-message row(s) scoped to ${opts.from} would move to ${opts.to}`);
+        console.log(`  ${preview.messageRows} durable agent-message row(s) scoped to ${opts.from} would move to ${to}`);
         console.log(`\nNothing written. Re-run with --apply to commit (the DB is backed up first).`);
         return;
       }
@@ -2176,11 +2185,11 @@ kgCmd
         return;
       }
 
-      const result = renameProjectTag(opts.from, opts.to, { apply: true });
+      const result = renameProjectTag(opts.from, to, { apply: true });
       if (opts.json) { console.log(JSON.stringify({ ...result, backupPath }, null, 2)); return; }
-      console.log(`✅ project:${opts.from} → project:${opts.to}`);
+      console.log(`✅ project:${opts.from} → project:${to}`);
       console.log(`  ${result.renamed} renamed, ${result.merged} merged (${result.affectedEntities} entities total)`);
-      console.log(`  ${result.messageRows} agent-message row(s) moved${result.messageRowsBlocked > 0 ? `, ${result.messageRowsBlocked} left in place (${opts.to} already holds an equivalent row)` : ''}`);
+      console.log(`  ${result.messageRows} agent-message row(s) moved${result.messageRowsBlocked > 0 ? `, ${result.messageRowsBlocked} left in place (${to} already holds an equivalent row)` : ''}`);
       console.log(`  Backup: ${backupPath}`);
       console.log(`  Restore if needed: cp "${backupPath}" "${dbPath}"`);
     });
