@@ -643,4 +643,46 @@ describe('dropArchivedIndexRows — archived rows leave both indexes (D11/D12)',
     expect(marker(db, ARCHIVED_VECTOR_ROWS_KEY)).toBeUndefined();
     closeDatabase();
   });
+
+  it('F1: rebuilds even when stale.n reads zero, because stale.n only ever asks about archived rows', () => {
+    // Independent review of PR #292 (F1). The FTS half used to be gated on
+    // `stale.n === 0`, and `stale.n`'s query joins on `e.status = 'archived'`
+    // — it can only ever prove something about a rowid that is CURRENTLY
+    // archived. It has nothing to say about a rowid whose FTS document has
+    // drifted from `entities`/`observations` for any other reason, and an
+    // ACTIVE entity is exactly that: never counted by `stale.n`, regardless
+    // of what its FTS document actually holds.
+    //
+    // This seeds that drift directly with a raw SQL insert rather than
+    // reconstructing the exact archive/re-remember/archive-again sequence a
+    // leaky path is claimed to produce — that sequence could not be
+    // re-derived from the code actually read here (`createEntityInner` reads
+    // `prevObs` unconditionally on re-remember, and `rebuildFts` always takes
+    // the previous text explicitly), so this fixture is a synthetic probe of
+    // the GATE's blind spot, not a state any current-code path is known to
+    // reach. The discriminating fact it proves is only ever "does the
+    // unconditional rebuild run regardless of what stale.n reads" — which is
+    // exactly what the fix changed, independent of how any real graph could
+    // arrive at a mismatched document.
+    seed((db) => {
+      const id = insertEntity(db, 'note-drifted', 'note', [], 'active');
+      db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)')
+        .run(id, 'the real content, correctlytoken');
+      // A document that disagrees with the source of truth it is supposed to
+      // mirror. No archived row anywhere holds an FTS document, so `stale.n`
+      // reads exactly 0 — the value that used to skip the rebuild entirely.
+      db.prepare('INSERT INTO entities_fts (rowid, name, observations) VALUES (?, ?, ?)')
+        .run(id, 'note-drifted', 'staleleakedtoken');
+    });
+
+    const db = repaired();
+
+    // The unconditional rebuild ran and reconstructed this rowid purely from
+    // `entities` + `observations`, discarding the drifted document — `n=0`
+    // was a note-only number, not the rebuild's gate.
+    expect(new KnowledgeGraph(db).search('staleleakedtoken')).toHaveLength(0);
+    expect(new KnowledgeGraph(db).search('correctlytoken').map((e) => e.name)).toEqual(['note-drifted']);
+    closeDatabase();
+    expect(runInvariants().status).toBe(0);
+  });
 });

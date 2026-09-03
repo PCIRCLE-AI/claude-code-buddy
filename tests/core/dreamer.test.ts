@@ -269,6 +269,91 @@ describe('dreamer', () => {
     }
   });
 
+  /** Rows the keyword index holds for an entity id — same query as
+   *  tests/core/archived-index-hygiene.test.ts, since it targets the same
+   *  contentless FTS5 table and its rowid-is-the-unit reasoning applies here
+   *  identically. */
+  function ftsRowCount(id: number): number {
+    return (
+      db.prepare('SELECT COUNT(*) AS c FROM entities_fts WHERE rowid = ?').get(id) as { c: number }
+    ).c;
+  }
+
+  function vecRowCount(id: number): number {
+    return (
+      db.prepare('SELECT COUNT(*) AS c FROM entities_vec WHERE rowid = ?').get(BigInt(id)) as {
+        c: number;
+      }
+    ).c;
+  }
+
+  /** The suite runs with no embedder configured, so `createEntity` never
+   *  writes a vector row on its own — write one directly, which is the state
+   *  a real graph is in when the source was remembered while an embedder WAS
+   *  configured. Mirrors seedVector in archived-index-hygiene.test.ts. */
+  function seedVector(id: number): void {
+    const dim = db
+      .prepare("SELECT value FROM memesh_metadata WHERE key = 'embedding_dimension'")
+      .get() as { value: string } | undefined;
+    const width = dim ? parseInt(dim.value, 10) : 384;
+    const v = new Float32Array(width);
+    v[0] = 1;
+    db.prepare('INSERT INTO entities_vec (rowid, embedding) VALUES (?, ?)').run(
+      BigInt(id),
+      Buffer.from(v.buffer, v.byteOffset, v.byteLength),
+    );
+  }
+
+  it('apply: compaction takes its sources out of BOTH search indexes, and leaves the digest in them', async () => {
+    // Independent review of PR #292 (F2): none of that PR's break-tests cover
+    // this call — `dropEntityFromIndexes(db, sourceId, sourceRow.name)` inside
+    // the compaction branch of `applyProposal` (src/core/dreamer.ts). Deleting
+    // the call, or passing it the digest's own id/name instead of the
+    // source's, left the whole suite green. This test fails on both mutations
+    // (verified locally by reverting the call and by swapping its arguments
+    // for the digest's own id/name, then re-running this test — both went
+    // red; restored afterward).
+    const { applyProposal } = await import('../../src/core/dreamer.js');
+    const sourceIds = seedCommits(5);
+
+    // Give the FIRST source a vector row — the state a real graph is in when
+    // the source was remembered under a configured embedder. If compaction
+    // forgets the vector half, this is the row that proves it.
+    seedVector(sourceIds[0]);
+    for (const id of sourceIds) expect(ftsRowCount(id), 'fixture: source not indexed').toBe(1);
+    expect(vecRowCount(sourceIds[0]), 'fixture: vector not seeded').toBe(1);
+
+    db.prepare(`
+      INSERT INTO dream_proposals (project, cluster_key, source_ids, proposed_digest, llm_model, prompt_version)
+      VALUES ('memesh', '2026-W21', ?, ?, 'ollama/fake', 'v1')
+    `).run(JSON.stringify(sourceIds), JSON.stringify({
+      name: 'digest-index-hygiene', type: 'digest',
+      observations: ['a consolidated summary of five commits'], tags: ['digest'],
+    }));
+    const proposalId = (db.prepare(
+      "SELECT id FROM dream_proposals WHERE status='pending' ORDER BY id DESC",
+    ).get() as { id: number }).id;
+
+    const result = applyProposal(db, proposalId, kg);
+    expect(result.sourcesArchived).toBe(5);
+
+    // Every compacted source is out of BOTH indexes.
+    for (const id of sourceIds) {
+      expect(ftsRowCount(id), `source ${id} still has an FTS row after compaction`).toBe(0);
+    }
+    expect(vecRowCount(sourceIds[0]), 'compacted source still has a vector row').toBe(0);
+
+    // The digest itself — the thing that took the sources' place — is still
+    // in the keyword index. A mutation that dropped the DIGEST's own row
+    // instead of the sources' would pass every assertion above and fail only
+    // this one.
+    const digest = db.prepare('SELECT id FROM entities WHERE name = ?').get(result.digestEntityName) as
+      | { id: number }
+      | undefined;
+    expect(digest, 'the digest entity was not created').toBeTruthy();
+    expect(ftsRowCount(digest!.id), "the digest's own FTS row was removed instead of the sources'").toBe(1);
+  });
+
   it('apply: refuses a digest that would claim NONE of its sources, and writes nothing', async () => {
     // The partial-overlap case above returns a digest holding what it took. Take
     // that to its limit — every source already compacted — and the old code

@@ -653,13 +653,26 @@ function renamePath(oldRaw: unknown, newRaw: unknown): MemoryToolResult {
   // Remove under the OLD name, rename, insert under the NEW one — one
   // transaction, so no reader sees the row half-renamed and a failure anywhere
   // leaves both the table and the index as they were.
+  //
+  // `source.archived` gates the insert. An archived entity has no FTS row to
+  // begin with (`archiveEntity` takes it out of both indexes), so
+  // `removeFromFts` here is always a benign no-op for one — but renaming it
+  // used to re-insert it into the keyword index unconditionally, because
+  // nothing on this path looked at status. Independent review of PR #292
+  // (F3) reproduced it: rename an archived entity, and `npm run audit:memory`'s
+  // `archived-entities-not-in-keyword-index` invariant (added by this PR) goes
+  // red on a completely ordinary operation, because a memory the user had put
+  // away came right back into keyword search. Renaming a memory is not a
+  // statement that it should be un-archived.
   db.transaction(() => {
     // Rename never touches title — same value goes in on both sides, same
     // symmetric-match rule as everywhere else that maintains this index.
     removeFromFts(db, entityId, source.name, obsText, source.title);
     db.prepare('UPDATE entities SET name = ?, namespace = ? WHERE id = ?')
       .run(to.name, to.namespace, entityId);
-    insertFtsRow(db, entityId, to.name, obsText, source.title);
+    if (!source.archived) {
+      insertFtsRow(db, entityId, to.name, obsText, source.title);
+    }
   })();
 
   return ok(`Successfully renamed ${String(oldRaw)} to ${String(newRaw)}`);

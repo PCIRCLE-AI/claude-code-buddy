@@ -485,6 +485,28 @@ export function dropArchivedIndexRows(db: MemeshDatabase): {
       // contentless, but its rowids are still scannable, and a rowid is what
       // identifies the leak. Counting archived entities instead would report
       // every archived row in the database, most of which were never indexed.
+      //
+      // This count is NOT the rebuild's gate — it is a log/note number only.
+      // It can undercount: it joins on CURRENT `e.status = 'archived'`, so it
+      // only proves something about a rowid that is archived RIGHT NOW. It
+      // cannot see a document that is stale for a reason other than "this
+      // row's status is archived" — e.g. one written under an FTS
+      // segmentation rule that has since changed, or one left behind by a
+      // sequence of archive / re-remember / archive-again that this join
+      // was never designed to characterize. `rebuildFtsIndex` starts from
+      // `delete-all` and reconstructs strictly from `entities` +
+      // `observations`, so it needs no such count as input and is the only
+      // thing here that can actually prove the index is clean. Skipping it
+      // whenever the count read zero was the D11/D12 bug's own shape one
+      // level up: a check for one specific shape of residue read all-clear
+      // on the corpus it existed to catch. `ensureFtsSegmentation`
+      // (schema.ts) already establishes unconditional rebuild as this
+      // codebase's answer to that — its own comment records a version-keyed
+      // skip that measured a real corpus it could not see. `rebuildFtsIndex`
+      // is idempotent and this whole call sits behind a one-time
+      // `runOnceMigration` key, so running it unconditionally costs one
+      // extra pass through `entities` on the machines where the count really
+      // was zero, and fixes the ones where it wasn't.
       const stale = conn
         .prepare(
           `SELECT COUNT(*) AS n FROM entities_fts f
@@ -493,9 +515,10 @@ export function dropArchivedIndexRows(db: MemeshDatabase): {
         )
         .get() as { n: number };
       result.ftsRows = stale.n;
-      if (stale.n === 0) return;
       rebuildFtsIndex(conn);
-      note(`removed ${stale.n} archived entit${stale.n === 1 ? 'y' : 'ies'} from the keyword index (archived before 4.8.4 by a path that left the index behind).`);
+      if (stale.n > 0) {
+        note(`removed ${stale.n} archived entit${stale.n === 1 ? 'y' : 'ies'} from the keyword index (archived before 4.8.4 by a path that left the index behind).`);
+      }
     },
   });
 
