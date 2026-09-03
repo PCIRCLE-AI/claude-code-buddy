@@ -985,9 +985,14 @@ describe('the split path retires history on its own, not by leaning on the one-s
   // `retireRecallHistory` from BOTH archive points left every existing test
   // green.
   //
-  // But the repair is a `runOnceMigration`. Once it has stamped, it never
-  // looks again — so a bucket fused AFTER the upgrade (the ordinary case from
-  // then on, forever) is protected by the archive point and nothing else.
+  // But the repair is a `runOnceMigration`, already stamped at its current
+  // version (1) — it will not fire again as-is. That is not what protects
+  // an ordinary bucket the runtime fuses today: the current code no longer
+  // creates new `-other` buckets at all, so this state only matters for the
+  // next time `FUSED_LESSON_SPLIT_KEY` bumps past 2 (this split logic
+  // changing again) while the shell repair stays stamped and can no longer
+  // rescue what it misses — the archive points then have to retire the
+  // history on their own.
   // This seeds that state: the repair already done, the split still owed.
   function seedWithShellRepairAlreadyDone(bucketName: string, extraTags: string[] = []): void {
     const db = openDatabase(dbPath);

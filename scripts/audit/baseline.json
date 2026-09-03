@@ -685,6 +685,11 @@
       "class": "NOT-A-GATE",
       "reason": "real-browser (real HTTP server + real Chromium) verification that the dashboard renders the Vector Index no-embedder fix correctly translated, and distinct from the plain reindex fix, across all 11 locales, for evidence-gates output_readback/process_boundary/failure_path evidence -- invoked directly by `eg record`, not by any npm script or CI workflow. A human or eg re-runs it on demand when the dashboard i18n catalogue changes; it does not gate a commit or a release on its own.",
       "triaged": "2026-09-03"
+    },
+    "C3 scripts/qa/verify-dashboard-doctor-banner-i18n.mjs": {
+      "class": "NOT-A-GATE",
+      "reason": "real-browser (real HTTP server + real Chromium) verification that the dashboard doctor banner renders correctly translated across all 11 locales, for evidence-gates output_readback/process_boundary/failure_path evidence -- invoked directly by `eg record`, not by any npm script or CI workflow. A human or eg re-runs it on demand when the dashboard i18n catalogue changes; it does not gate a commit or a release on its own.",
+      "triaged": "2026-09-03"
     }
   }
 }

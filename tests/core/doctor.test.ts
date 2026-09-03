@@ -1483,6 +1483,14 @@ describe('doctor', () => {
     expect(result.checks.some(c => c.code === 'llm-telemetry.silent-failure')).toBe(false);
     const leaked = result.checks.filter(c => /llm_telemetry/.test(`${c.summary} ${c.fix ?? ''}`));
     expect(leaked.map(c => c.id), 'the read failure must not surface as any check').toEqual([]);
+    // The discriminating assertion: `database` is pushed 'pass' before this
+    // health check runs, then `dbChecks.length = 0` in runDoctor's outer
+    // catch would silently replace it with a 'fail' row if this function's
+    // local catch ever let the read failure escape instead of swallowing
+    // it — the two assertions above stay green even then, because the
+    // outer catch's diagnosis branches on file existence, not on this
+    // error's message, so neither ever mentions "llm_telemetry".
+    expect(result.checks.find(c => c.id === 'database')?.status).toBe('pass');
   });
 
   it('hook-activity: the 24h count and the since-tracking count are different questions', async () => {

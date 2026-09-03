@@ -196,4 +196,20 @@ describe('doctor: an AI-backed feature that quietly stopped working is reported'
     expect(check?.status, 'attempt count (4) was mistaken for call count (2) and warned early').toBe('pass');
     expect(check?.summary).toContain('2 call(s)');
   });
+
+  it('doctorChecks recovers the report when the CLI exits non-zero, instead of throwing', () => {
+    // Every scenario above is a WARN, which `memesh doctor` exits 0 for —
+    // none of them reach execFileSync's catch (`err.stdout` fallback). A
+    // database file SQLite itself refuses to open ("file is not a
+    // database") is doctor's FAIL case, which flips result.status to FAIL
+    // and the CLI's process.exitCode to 1: the one condition this helper's
+    // catch exists for, and the only way to prove it does not just let
+    // that throw escape and fail every OTHER test in this file that calls
+    // it. (A merely EMPTY file is not enough — SQLite treats 0 bytes as an
+    // ordinary fresh database and doctor initialises it clean.)
+    fs.writeFileSync(dbPath, 'not a sqlite file, just garbage bytes');
+    const checks = doctorChecks();
+    const db = checks.find((c) => c.id === 'database');
+    expect(db?.status, 'an unopenable database file must still be reported as fail, not thrown past').toBe('fail');
+  });
 });
