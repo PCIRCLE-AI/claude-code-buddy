@@ -1,4 +1,5 @@
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { describe, expect, it } from 'vitest';
@@ -151,5 +152,24 @@ describe('the Claude plugin MCP manifest is not also a project-scoped config', (
       'the plugin manifest is expected to depend on CLAUDE_PLUGIN_ROOT — that is why it must not ' +
         'sit on an auto-discovered path',
     ).toBeGreaterThan(0);
+  });
+
+  it('mcpManifestPath refuses a plugin.json that declares the manifest at the package root', () => {
+    // The guard directly, not just its consequence: a manifest declared as
+    // `./.mcp.json` is exactly the shape that shipped broken for three and a
+    // half months (this repo's own history, not a hypothetical). No test up
+    // to this point calls mcpManifestPath against anything but this repo's
+    // OWN already-fixed plugin.json, so this construct itself was unproven.
+    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-mcp-manifest-guard-'));
+    try {
+      fs.mkdirSync(path.join(tmpRoot, '.claude-plugin'), { recursive: true });
+      fs.writeFileSync(
+        path.join(tmpRoot, '.claude-plugin', 'plugin.json'),
+        JSON.stringify({ name: 'memesh', mcpServers: './.mcp.json' }),
+      );
+      expect(() => mcpManifestPath(tmpRoot)).toThrow(/project-scoped config/);
+    } finally {
+      fs.rmSync(tmpRoot, { recursive: true, force: true });
+    }
   });
 });

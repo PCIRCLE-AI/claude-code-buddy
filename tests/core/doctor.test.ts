@@ -825,6 +825,41 @@ describe('doctor', () => {
     expect(check?.code).toBe('mcp-config.entry-missing');
   });
 
+  it('fails when plugin.json declares an mcpServers path but that file does not exist', async () => {
+    // Distinct from the "declares no mcpServers path" case below: here the
+    // manifest DOES name a file, it just is not there — a different early
+    // return in inspectMcpConfig (existsSyncImpl(mcpPath) false, not
+    // relativeManifest === null), and the only test that touches
+    // 'mcp-config.missing' before this one exercises the other branch.
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+    // createPackageRoot() already writes both plugin.json (with this same
+    // mcpServers declaration) and .claude-plugin/mcp.json — remove the
+    // latter to get the state this test actually needs: declared but gone.
+    fs.rmSync(path.join(packageRoot, '.claude-plugin', 'mcp.json'));
+
+    const result = await runDoctor({
+      packageRoot,
+      packageVersion: '4.2.5',
+      openDatabaseImpl: () => makeDatabase(1) as never,
+      closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => caps({ searchLevel: 1, embeddings: 'ollama' }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck(),
+      getCurrentInstallChannelImpl: () => 'plugin-marketplace',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'plugin-marketplace', label: 'Claude Code plugin marketplace',
+        canSelfUpdate: false, recommendedCommand: 'memesh upgrade-plugin', guidance: '',
+      }),
+      nativeBindingProbeImpl: () => ({ ok: true }),
+    });
+
+    const check = result.checks.find((c) => c.id === 'mcp-config');
+    expect(check?.status).toBe('fail');
+    expect(check?.code).toBe('mcp-config.missing');
+    expect(check?.summary).toContain('.claude-plugin/mcp.json is missing');
+  });
+
   it('fails when .claude-plugin/plugin.json declares no mcpServers path', async () => {
     // With no declared path Claude Code falls back to auto-discovering
     // `.mcp.json` at the plugin root — the project-scoped path where

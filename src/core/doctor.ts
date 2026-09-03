@@ -637,17 +637,28 @@ function inspectMcpConfig(
   env: NodeJS.ProcessEnv,
 ): DoctorCheck {
   const relativeManifest = declaredMcpManifest(packageRoot, readFileSyncImpl);
-  const mcpPath = relativeManifest === null ? null : path.join(packageRoot, relativeManifest);
-  const label = relativeManifest ?? '.claude-plugin/mcp.json';
-
-  if (mcpPath === null || !existsSyncImpl(mcpPath)) {
+  if (relativeManifest === null) {
     return createCheck(
       'mcp-config',
       'MCP config',
       'fail',
-      relativeManifest === null
-        ? '.claude-plugin/plugin.json declares no `mcpServers` path, so Claude Code has no MeMesh MCP server to start.'
-        : `${label} is missing.`,
+      '.claude-plugin/plugin.json declares no `mcpServers` path, so Claude Code has no MeMesh MCP server to start.',
+      'Reinstall MeMesh so the plugin manifest and the MCP manifest it names are both restored.',
+      { code: 'mcp-config.missing' },
+    );
+  }
+  // `label` is always this — the `?? fallback` this replaced could never
+  // fire: `mcpPath === null` only when `relativeManifest === null`, and that
+  // case returns above before `label` is ever read.
+  const label = relativeManifest;
+  const mcpPath = path.join(packageRoot, relativeManifest);
+
+  if (!existsSyncImpl(mcpPath)) {
+    return createCheck(
+      'mcp-config',
+      'MCP config',
+      'fail',
+      `${label} is missing.`,
       'Reinstall MeMesh so the plugin manifest and the MCP manifest it names are both restored.',
       { code: 'mcp-config.missing' },
     );
@@ -725,7 +736,7 @@ function inspectMcpConfig(
         'MCP config',
         'fail',
         `${label} starts \`${entry}\`, and that file is not in this install — so every memesh MCP tool fails to start.`,
-        `Reinstall MeMesh; if you edited \`${label}\` by hand, point it back at \`\${MCP_PLACEHOLDER}/dist/mcp/server.js\`.`,
+        `Reinstall MeMesh; if you edited \`${label}\` by hand, point it back at \`${MCP_PLACEHOLDER}/dist/mcp/server.js\`.`,
         { code: 'mcp-config.entry-missing', params: { entry, resolved } },
       );
     }

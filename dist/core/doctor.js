@@ -255,7 +255,7 @@ function inspectMcpConfig(packageRoot, installChannel, existsSyncImpl, readFileS
             ? path.resolve(packageRoot, entry)
             : path.resolve(entry.replaceAll(MCP_PLACEHOLDER, pluginRoot));
         if (!existsSyncImpl(resolved)) {
-            return createCheck('mcp-config', 'MCP config', 'fail', `${label} starts \`${entry}\`, and that file is not in this install — so every memesh MCP tool fails to start.`, `Reinstall MeMesh; if you edited \`${label}\` by hand, point it back at \`\${MCP_PLACEHOLDER}/dist/mcp/server.js\`.`, { code: 'mcp-config.entry-missing', params: { entry, resolved } });
+            return createCheck('mcp-config', 'MCP config', 'fail', `${label} starts \`${entry}\`, and that file is not in this install — so every memesh MCP tool fails to start.`, `Reinstall MeMesh; if you edited \`${label}\` by hand, point it back at \`${MCP_PLACEHOLDER}/dist/mcp/server.js\`.`, { code: 'mcp-config.entry-missing', params: { entry, resolved } });
         }
     }
     return createCheck('mcp-config', 'MCP config', 'pass', `${label} is present, defines the memesh MCP server, and the script it starts exists.`);
