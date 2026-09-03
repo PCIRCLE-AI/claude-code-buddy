@@ -79,16 +79,6 @@ All notable changes to MeMesh are documented here.
   It now returns `'unknown'` for that state, matching what
   `getCurrentInstallChannel` already did, and the banner names both upgrade
   paths rather than guessing one.
-- **`memesh doctor`'s plugin-refresh advice guessed a host instead of saying it
-  could not tell.** `detectPluginHost(packageRoot) ?? 'claude-code'` collapsed
-  a legitimate `null` — "this path is not under any plugin cache" — into a
-  confident answer, so a Codex user whose cache location this process cannot
-  resolve was told to run `memesh upgrade-plugin`, which does nothing for them,
-  with nothing in the message marking it as a guess. When the host is
-  detectable the advice still names only that host's command; when it is not,
-  it names both. Same defect, same fix, as the session-start banner's
-  `pluginHostOf`.
-
 - **`memesh pin`/`unpin --json` no longer reports a pin that never happened.**
   `setPinned` echoed the *requested* `pinned` argument back in its result even
   when the named entity did not exist, so `memesh pin --name nonexistent
