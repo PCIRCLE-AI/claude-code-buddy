@@ -89,7 +89,8 @@ function note(line: string): void {
  * edits went through Bash. Deletes every observation whose exact content
  * already appears on the same entity with a lower id.
  *
- * SCOPE, version 2: every entity except `lesson_learned`, not `session-%`.
+ * SCOPE, version 2: every entity except the lesson family
+ * (`lesson_learned`, `lesson`, `mistake`), not `session-%`.
  *
  * Version 1 filtered on `e.name LIKE 'session-%'` — the name the one hook
  * fixed for #240 wrote. The PreCompact and PostToolUse-commit hooks kept
@@ -110,17 +111,24 @@ function note(line: string): void {
  * Re-running is safe: deleting rows that no longer exist is a no-op, so a
  * graph already cleaned by version 1 loses nothing.
  *
- * `lesson_learned` is the one type excluded, and the predicate matches the
- * invariant's exactly so the pass and the check it owns cannot drift. Every
- * reader that consumes observations as CONTENT selects `content` alone (the
- * one `created_at` select is `splitFusedLessons` below, which moves rows and
- * never displays it), so a repeated row is invisible; `groupLessons` below is
- * the sole reader that treats the list as ORDERED BLOCKS, cutting a lesson
- * bucket at each `Error: ` line. Deleting a repeat there is not removing a
- * duplicate fact, it is merging two lessons — two blocks in one bucket
- * legitimately share a `Fix:` or `Root cause:` line, and the second copy of
- * that line belongs to the second lesson. `splitFusedLessons` runs after this
- * pass and parses exactly those rows.
+ * `lesson_learned`, `lesson` and `mistake` are the types excluded — the same
+ * three types the rest of this repository already treats as one lesson
+ * family (src/core/analytics.ts, src/core/work-topology.ts,
+ * src/core/doctor.ts, scripts/hooks/_shared.js) — and the predicate matches
+ * the invariant's exactly so the pass and the check it owns cannot drift.
+ * Every reader that consumes observations as CONTENT selects `content` alone
+ * (the one `created_at` select is `splitFusedLessons` below, which moves rows
+ * and never displays it), so a repeated row is invisible on every OTHER type.
+ * On the lesson family there are two readers that treat the list as ORDERED
+ * BLOCKS instead: `groupLessons` below, cutting a lesson bucket at each
+ * `Error: ` line, and the dashboard's `parseStructuredBlocks`
+ * (dashboard/src/components/LessonCards.tsx), which does the same cut keyed
+ * on content shape rather than type — so it reaches `lesson` and `mistake`
+ * entities too, not only `lesson_learned`. Deleting a repeat there is not
+ * removing a duplicate fact, it is merging two lessons — two blocks in one
+ * bucket legitimately share a `Fix:` or `Root cause:` line, and the second
+ * copy of that line belongs to the second lesson. `splitFusedLessons` runs
+ * after this pass and parses exactly those rows.
  *
  * @returns number of duplicate rows removed, or -1 if the pass did not run
  */
@@ -135,7 +143,7 @@ export function dedupeObservations(db: MemeshDatabase): number {
         .prepare(
           `SELECT DISTINCT o.entity_id AS id FROM observations o
            JOIN entities e ON e.id = o.entity_id
-           WHERE e.type <> 'lesson_learned'
+           WHERE e.type NOT IN ('lesson_learned', 'lesson', 'mistake')
            GROUP BY o.entity_id, o.content HAVING COUNT(o.id) > 1`,
         )
         .all() as unknown as Array<{ id: number }>;

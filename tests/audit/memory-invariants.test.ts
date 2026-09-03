@@ -188,6 +188,35 @@ describe('memory-invariants: read-only detector over a real graph', () => {
     }
   });
 
+  it('#240 — the same exception applies to type=lesson and type=mistake, not only lesson_learned', () => {
+    // `groupLessons` and the dashboard's `parseStructuredBlocks`
+    // (dashboard/src/components/LessonCards.tsx) both key their positional
+    // read on CONTENT shape (an `Error:` line followed by `Fix:`/`Root
+    // cause:`), not on `type === 'lesson_learned'` — and the rest of this
+    // repository already treats `lesson_learned`, `lesson` and `mistake` as
+    // one family (src/core/analytics.ts, src/core/work-topology.ts,
+    // src/core/doctor.ts, scripts/hooks/_shared.js). An exclusion keyed to
+    // `lesson_learned` alone left these two types' legitimate repeats
+    // flagged as violations.
+    const { dir, dbPath } = freshGraph();
+    try {
+      withRawDb(dbPath, (db) => {
+        for (const type of ['lesson', 'mistake']) {
+          const id = insertEntity(db, `${type}-proj-shared-fields`, type);
+          const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+          for (const line of [
+            'Error: first thing', 'Root cause: a', 'Fix: b', 'Prevention: c',
+            'Error: second thing', 'Root cause: a', 'Fix: b', 'Prevention: c',
+          ]) ins.run(id, line);
+        }
+      });
+      const r = run(dbPath);
+      expect(r.status, r.stdout).toBe(0);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('#240 — flags "0 files edited" on a summary that recorded a Bash write', () => {
     const { dir, dbPath } = freshGraph();
     try {

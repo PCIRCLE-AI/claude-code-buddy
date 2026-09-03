@@ -154,8 +154,24 @@ export class KnowledgeGraph {
             : joinIndexedObservations(prevObs.map((o) => o.content));
         if (opts?.observations?.length) {
             const insertObs = this.db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
-            for (const obs of opts.observations) {
-                insertObs.run(entityId, obs);
+            const isLessonFamily = type === 'lesson_learned' || type === 'lesson' || type === 'mistake';
+            if (isLessonFamily) {
+                for (const obs of opts.observations) {
+                    insertObs.run(entityId, obs);
+                }
+            }
+            else {
+                const existingObsContent = new Set(isNewEntity
+                    ? []
+                    : this.db
+                        .prepare('SELECT content FROM observations WHERE entity_id = ?')
+                        .all(entityId).map((o) => o.content));
+                for (const obs of opts.observations) {
+                    if (existingObsContent.has(obs))
+                        continue;
+                    existingObsContent.add(obs);
+                    insertObs.run(entityId, obs);
+                }
             }
         }
         this.rebuildFts(entityId, name, prevObsText, previousTitle);

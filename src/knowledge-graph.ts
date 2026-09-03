@@ -499,13 +499,64 @@ export class KnowledgeGraph {
       ? undefined
       : joinIndexedObservations(prevObs.map((o) => o.content));
 
-    // Add observations
+    // Add observations — never store the same sentence twice on one entity
+    // (#240). The hooks' shared `captureEntity` (scripts/hooks/_shared.js)
+    // already guards on CONTENT for the same reason; this append branch is
+    // this function's own writer path and had no guard at all, so every
+    // non-hook caller that appends repeatedly — `remember()`/`setTaskState()`
+    // (a field that gets set and cleared several times writes the identical
+    // "next cleared" string every time), `importMemories`, the weekly-summary
+    // compressor in lifecycle.ts — could regrow the exact duplicate-row shape
+    // #240 was fixed for. The guard is on CONTENT, not existence, so a
+    // genuinely new observation still lands even when the entity already has
+    // others: only an exact repeat of stored text is dropped.
+    //
+    // NOT reusing `prevObs` here even though it looks like the same set: it
+    // is forced to `[]` for a reactivated entity (`isNewEntity || wasArchived`
+    // above) because `archiveEntity` already removed the FTS row and there is
+    // nothing to un-index. It does NOT delete `observations` rows — `forget()`
+    // "never permanently deletes data" — so a re-remember of an archived
+    // entity would see no prior content and re-insert every observation as a
+    // duplicate, the exact defect this guard exists to close. The dedup set
+    // is therefore its own query, keyed on `isNewEntity` alone.
+    //
+    // EXCLUDED: the lesson family — `lesson_learned`, `lesson`, `mistake`,
+    // the same three types `dedupeObservations` and its invariant exclude
+    // (src/storage/graph-repairs.ts, scripts/audit/memory-invariants.mjs) —
+    // for the reason those comments give: `groupLessons` there and the
+    // dashboard's `parseStructuredBlocks` (LessonCards.tsx) read a lesson
+    // entity's observations as ORDERED BLOCKS cut at each `Error: ` line, not
+    // as a bag of sentences. Re-submitting the SAME error text is the
+    // intended accumulate/reconfirm path (lesson-engine.ts:92): a second
+    // `learn(error: "X", fix: "B")` after `learn(error: "X", fix: "A")`
+    // appends a second `Error: X` block with a different `Fix:` line. A
+    // content guard would see the second `Error: X` as a repeat of the
+    // first, drop it, and fuse both blocks into one — silently discarding
+    // `Fix: A`. Every OTHER type's reader selects `content` alone with no
+    // ordering, so a repeat there is genuinely inert.
     if (opts?.observations?.length) {
       const insertObs = this.db.prepare(
         'INSERT INTO observations (entity_id, content) VALUES (?, ?)'
       );
-      for (const obs of opts.observations) {
-        insertObs.run(entityId, obs);
+      const isLessonFamily = type === 'lesson_learned' || type === 'lesson' || type === 'mistake';
+      if (isLessonFamily) {
+        for (const obs of opts.observations) {
+          insertObs.run(entityId, obs);
+        }
+      } else {
+        const existingObsContent = new Set(
+          isNewEntity
+            ? []
+            : (this.db
+                .prepare('SELECT content FROM observations WHERE entity_id = ?')
+                .all(entityId) as { content: string }[]
+              ).map((o) => o.content)
+        );
+        for (const obs of opts.observations) {
+          if (existingObsContent.has(obs)) continue;
+          existingObsContent.add(obs);
+          insertObs.run(entityId, obs);
+        }
       }
     }
 

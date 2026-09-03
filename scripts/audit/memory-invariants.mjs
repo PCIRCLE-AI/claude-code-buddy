@@ -130,7 +130,7 @@ const INVARIANTS = [
     //     type-keyed query would drop the family this invariant was written
     //     for in the first place.
     //
-    // WHY a repeat is a defect at all, and what the ONE exception is.
+    // WHY a repeat is a defect at all, and what the exception is.
     //
     // Every reader that consumes observations AS CONTENT selects `content`
     // and nothing else (`grep -rn 'FROM observations' src/ dashboard/src/` —
@@ -148,19 +148,29 @@ const INVARIANTS = [
     // repeated history line is doubly unreachable.
     //
     // The exception is a reader that treats the list as ORDERED BLOCKS rather
-    // than a bag of sentences. There is exactly one: `groupLessons`
-    // (src/storage/graph-repairs.ts:229) cuts a `lesson_learned` entity's
-    // observations into lessons at each `Error: ` line. There, a repeated line
-    // is not indistinguishable — its POSITION says which lesson it belongs to,
-    // and two lessons in one bucket sharing a `Fix:` line is ordinary. So
-    // `lesson_learned` is excluded, and note what the exclusion is keyed to: a
-    // named reader in this repository, not a writer's name and not a type used
-    // as a stand-in for one. If a second positional reader is ever added, this
-    // predicate is what has to be revisited with it.
+    // than a bag of sentences. There are two:
+    //   - `groupLessons` (src/storage/graph-repairs.ts:243) cuts a lesson
+    //     entity's observations into lessons at each `Error: ` line.
+    //   - `parseStructuredBlocks` (dashboard/src/components/LessonCards.tsx)
+    //     does the same cut in the dashboard, keyed on CONTENT (an `Error:`
+    //     line followed by a `Fix:` or `Root cause:` line) rather than type,
+    //     so it renders any entity whose observations happen to have that
+    //     shape — not only `lesson_learned`.
+    // In both, a repeated line is not indistinguishable — its POSITION says
+    // which lesson it belongs to, and two lessons in one bucket sharing a
+    // `Fix:` line is ordinary. The exclusion below is keyed to the three
+    // types the rest of this repository already treats as one lesson family
+    // (`grep -rn "lesson_learned', 'lesson', 'mistake'" src/ scripts/` —
+    // src/core/analytics.ts, src/core/work-topology.ts, src/core/doctor.ts,
+    // scripts/hooks/_shared.js), not to a single type name: `lesson_learned`
+    // alone left `lesson` and `mistake` entities with the same Error/Fix
+    // structure unprotected, and this invariant flagged their intentional
+    // repeats as violations. If a third positional reader is ever added,
+    // this predicate is what has to be revisited with it.
     sql: `
       SELECT e.name AS name, COUNT(o.id) AS total, COUNT(DISTINCT o.content) AS distinct_count
       FROM entities e JOIN observations o ON o.entity_id = e.id
-      WHERE e.type <> 'lesson_learned'
+      WHERE e.type NOT IN ('lesson_learned', 'lesson', 'mistake')
       GROUP BY e.id HAVING total > distinct_count
       ORDER BY total - distinct_count DESC LIMIT ${MAX_ROWS + 1}`,
     row: (r) => `${r.name}  observations=${r.total} unique=${r.distinct_count}`,

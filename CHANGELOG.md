@@ -244,13 +244,16 @@ All notable changes to MeMesh are documented here.
   `scripts/audit/memory-invariants.mjs` and the one-shot repair in
   `src/storage/graph-repairs.ts` were both keyed to `session-%` names and so
   were blind to every row of this; both now ask the question instead — any
-  entity whose observations repeat — excluding only `lesson_learned`, whose
-  observations `groupLessons` reads as ordered blocks where a repeated line is
-  a second lesson's field rather than a duplicate fact. The repair's
-  `runOnceMigration` version moves 1 → 2 so it runs again on graphs that
-  already recorded the narrower pass; on the maintainer's graph it removes
-  2,208 rows across 65 entities and leaves the set of distinct
-  (entity, content) pairs unchanged.
+  entity whose observations repeat — excluding `lesson_learned`, `lesson`, and
+  `mistake`, whose observations a position-sensitive reader (`groupLessons` in
+  this repair, and the dashboard's `parseStructuredBlocks`) reads as ordered
+  blocks where a repeated line is a second lesson's field rather than a
+  duplicate fact. The repair's `runOnceMigration` version moves 1 → 2 so it
+  runs again on graphs that already recorded the narrower pass; on the
+  maintainer's graph it removes 2,216 rows across 134 entities and leaves the
+  set of distinct (entity, content) pairs unchanged. `createEntity`'s own
+  append path gets the same content guard, so this dedup is now a property of
+  writing an observation at all, not just of these three hooks.
 
 - **The Ollama host guard now rebuilds the request origin instead of forwarding
   the configured string.** `resolveOllamaHost` used to validate a persisted

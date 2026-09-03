@@ -202,6 +202,38 @@ describe('#240 — duplicate observations are removed once, on ANY entity', () =
     closeDatabase();
   });
 
+  it('leaves the same field-sharing repeat alone on type=lesson and type=mistake, not only lesson_learned', () => {
+    // `groupLessons` and the dashboard's `parseStructuredBlocks`
+    // (dashboard/src/components/LessonCards.tsx) key their positional read
+    // on CONTENT shape, not on `type === 'lesson_learned'`, and the rest of
+    // this repository already treats `lesson_learned`, `lesson` and
+    // `mistake` as one family (src/core/analytics.ts,
+    // src/core/work-topology.ts, src/core/doctor.ts,
+    // scripts/hooks/_shared.js). A name that does NOT end in `-other` keeps
+    // #241's fusion-split pass out of this case, so only the dedupe pass
+    // under test is exercised.
+    for (const type of ['lesson', 'mistake']) {
+      seed((db) => {
+        const id = insertEntity(db, `${type}-proj-shared-fields`, type, [`project:${type}`]);
+        const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+        for (const line of [
+          'Error: first thing', 'Root cause: a', 'Fix: b', 'Prevention: c',
+          'Error: second thing', 'Root cause: a', 'Fix: b', 'Prevention: c',
+        ]) ins.run(id, line);
+      });
+      const before = runInvariants();
+      expect(before.status, before.stdout).toBe(0);
+      expect(before.stdout).toContain('ok   no-entity-carries-the-same-observation-twice');
+
+      const db = repaired();
+      expect(observations(db, `${type}-proj-shared-fields`)).toEqual([
+        'Error: first thing', 'Root cause: a', 'Fix: b', 'Prevention: c',
+        'Error: second thing', 'Root cause: a', 'Fix: b', 'Prevention: c',
+      ]);
+      closeDatabase();
+    }
+  });
+
   it('removes no DISTINCT observation: an entity whose lines all differ is untouched', () => {
     seed((db) => {
       const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');

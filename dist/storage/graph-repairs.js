@@ -22,7 +22,7 @@ export function dedupeObservations(db) {
             const affected = conn
                 .prepare(`SELECT DISTINCT o.entity_id AS id FROM observations o
            JOIN entities e ON e.id = o.entity_id
-           WHERE e.type <> 'lesson_learned'
+           WHERE e.type NOT IN ('lesson_learned', 'lesson', 'mistake')
            GROUP BY o.entity_id, o.content HAVING COUNT(o.id) > 1`)
                 .all();
             removed = 0;
