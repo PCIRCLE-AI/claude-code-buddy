@@ -33,7 +33,8 @@ export function recipientEverSeen(db, project, recipient) {
         const row = db.prepare(`SELECT (
          EXISTS(SELECT 1 FROM agent_principals WHERE project = ? AND principal_id = ?)
          OR EXISTS(SELECT 1 FROM agent_message_deliveries WHERE project = ? AND recipient = ?)
-       ) AS seen`).get(project, recipient, project, recipient);
+         OR EXISTS(SELECT 1 FROM agent_session_instances WHERE project = ? AND session_instance_id = ?)
+       ) AS seen`).get(project, recipient, project, recipient, project, recipient);
         return row?.seen === undefined ? undefined : Boolean(row.seen);
     }
     catch {

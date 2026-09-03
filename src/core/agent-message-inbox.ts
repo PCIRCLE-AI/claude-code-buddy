@@ -80,8 +80,15 @@ export function unreadDeliveryCount(db: InboxDb, project: string, recipient?: st
  * `principal_id`, but every row there is reached through
  * `agent_session_instances`, which `registerConnection` (agent-router.ts)
  * only ever creates AFTER upserting `agent_principals` for that same
- * principal — so a connection can never exist without the principal row,
- * and querying both would only repeat the same answer.
+ * principal — so a connection can never exist without the principal row.
+ * That does NOT make `agent_session_instances` itself redundant to check,
+ * though: `target_kind: 'session'` messages key on a session instance's OWN
+ * id (`agent_message_deliveries.recipient` stores it verbatim), and a
+ * session that connected but has not yet received a delivery has a row
+ * ONLY in `agent_session_instances` — neither of the other two tables has
+ * heard of it yet, so omitting this EXISTS misreported an actually-live,
+ * registered session as "never seen" (D8 review finding, reproduced by
+ * seeding exactly that state before this fix).
  *
  * Returns `undefined` — not `false` — when the question cannot be answered
  * at all (a database from before the message tables existed, or any query
@@ -95,8 +102,9 @@ export function recipientEverSeen(db: InboxDb, project: string, recipient: strin
       `SELECT (
          EXISTS(SELECT 1 FROM agent_principals WHERE project = ? AND principal_id = ?)
          OR EXISTS(SELECT 1 FROM agent_message_deliveries WHERE project = ? AND recipient = ?)
+         OR EXISTS(SELECT 1 FROM agent_session_instances WHERE project = ? AND session_instance_id = ?)
        ) AS seen`,
-    ).get(project, recipient, project, recipient) as { seen?: number } | undefined;
+    ).get(project, recipient, project, recipient, project, recipient) as { seen?: number } | undefined;
     return row?.seen === undefined ? undefined : Boolean(row.seen);
   } catch {
     return undefined;

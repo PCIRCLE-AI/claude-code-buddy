@@ -221,6 +221,23 @@ describe('assembleBriefing', () => {
       expect(recipientEverSeen(getDatabase(), PROJECT, 'connected-but-no-mail')).toBe(true);
     });
 
+    it('true for a session instance id that connected but has not received a delivery yet (D8 review gap)', () => {
+      // target_kind: 'session' messages key on the session instance's OWN
+      // id, not the principal id — a registered, live session that has not
+      // yet been sent anything exists ONLY in agent_session_instances, so
+      // checking agent_principals/agent_message_deliveries alone (the
+      // pre-fix query) reported it as "never seen", contradicting the
+      // registerConnection call that just created it.
+      getDatabase().prepare(
+        `INSERT INTO agent_principals (project, principal_id, activation_event_sequence) VALUES (?, ?, 0)`,
+      ).run(PROJECT, 'owning-principal');
+      getDatabase().prepare(
+        `INSERT INTO agent_session_instances (project, session_instance_id, principal_id, adapter_kind)
+         VALUES (?, ?, ?, 'codex')`,
+      ).run(PROJECT, 'sess-connected-no-mail', 'owning-principal');
+      expect(recipientEverSeen(getDatabase(), PROJECT, 'sess-connected-no-mail')).toBe(true);
+    });
+
     it('false when the recipient id has never appeared in this project', () => {
       expect(recipientEverSeen(getDatabase(), PROJECT, 'truly-unknown-recipient')).toBe(false);
     });

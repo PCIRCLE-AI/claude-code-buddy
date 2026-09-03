@@ -28,8 +28,8 @@
     },
     {
       "path": "scripts/hooks/_generated/agent-message-inbox.js",
-      "sha256": "273719e15c2da0b09f54186b874a840c418712d069e3cafe28c8b470cdc5cd73",
-      "bytes": 2472
+      "sha256": "1b604e42353272175697fc02964f7ca477388616842a6cbdf13566293d8336aa",
+      "bytes": 2596
     },
     {
       "path": "scripts/hooks/_generated/capture-flag.js",

@@ -1337,9 +1337,12 @@ export async function runDoctor(options) {
                         + 'so semantic recall cannot find them (keyword search still works)';
             const noEmbedderConfigured = detectCapabilitiesImpl().embeddings === 'tfidf';
             const vectorIndexFix = noEmbedderConfigured
-                ? `No embedder is configured, so reindex has nothing to embed with — run 'memesh config set embedder.provider ollama|openai' first, then 'memesh reindex'.`
+                ? `No embedder is configured, so reindex has nothing to embed with — run 'memesh config set embedder.provider ollama' (or 'openai') first, then 'memesh reindex'.`
                 : `Run 'memesh reindex' to fix. This will restore full search functionality.`;
-            dbChecks.push(createCheck('vector_index', 'Vector Index', 'warn', owed, vectorIndexFix, { code: 'vector-index.stale', params: { missing: missingVectors ?? -1 } }));
+            dbChecks.push(createCheck('vector_index', 'Vector Index', 'warn', owed, vectorIndexFix, {
+                code: noEmbedderConfigured ? 'vector-index.stale-no-embedder' : 'vector-index.stale',
+                params: { missing: missingVectors ?? -1 },
+            }));
         }
         const generation = readVectorGeneration();
         if (generation.state !== 'none') {

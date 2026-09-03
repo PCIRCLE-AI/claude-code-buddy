@@ -132,6 +132,13 @@ All notable changes to MeMesh are documented here.
   state, for nearly every new user. The fix line now checks the same
   `capabilities.embeddings === 'tfidf'` predicate `inspectEmbeddingProbe`
   already uses, and says to configure an embedder first when that is true.
+  The two states now carry distinct doctor codes
+  (`vector-index.stale-no-embedder` vs `vector-index.stale`) rather than
+  sharing one: the dashboard looks up its fix text by code alone, and one
+  code covering two different messages meant the no-embedder case — the
+  common one — was rendering the OTHER state's fix text there, telling
+  dashboard users to run a command that is guaranteed to fail. All 11
+  locales carry the new code's translation.
 
 - **`memesh forget --json` now agrees with `memesh forget` and with `memesh
   pin`/`unpin` on the exit code.** `--json` printed the same `{ archived:
@@ -147,10 +154,16 @@ All notable changes to MeMesh are documented here.
   recipient was real with nothing waiting, or had never been addressed in
   that project at all — a typo went unreported. A new `recipientEverSeen`
   check (`agent_principals` for a live connection, `agent_message_deliveries`
-  for any delivery, ever) distinguishes the two; the block now says so
-  explicitly when the exact recipient id has never been seen in that project,
-  and stays silent (as before) when the database predates the message tables
-  and the question cannot be answered at all.
+  for any delivery ever, `agent_session_instances` for a session that
+  connected but has not been sent anything yet) distinguishes the two; the
+  block now says so explicitly when the exact recipient id has never been
+  seen in that project, and stays silent (as before) when the database
+  predates the message tables and the question cannot be answered at all.
+  The third table closes a gap in the first draft of this check: a
+  `target_kind: 'session'` recipient keys on the session instance's own id,
+  not a principal id, and a session that only just connected exists in
+  `agent_session_instances` alone — omitting it misreported an actually-live
+  session as never seen.
 
 - **The Ollama host guard now rebuilds the request origin instead of forwarding
   the configured string.** `resolveOllamaHost` used to validate a persisted
