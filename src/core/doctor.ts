@@ -1644,6 +1644,53 @@ function inspectNativeBinding(
 }
 
 /**
+ * Read `version` from the nearest package.json above a resolved binary path.
+ *
+ * `which`/`where` return the PATH entry, and every packaged install ships
+ * `memesh` as a symlink (npm's own bin-linking) — e.g. nvm's
+ * `bin/memesh -> ../lib/node_modules/@pcircle/memesh/dist/transports/cli/cli.js`.
+ * `realpathSync` follows that, then this walks upward looking for the
+ * package.json it belongs to. It only trusts the first one found, and only
+ * when its `name` matches this package — otherwise the walk crossed a
+ * package boundary (a workspace root, an unrelated wrapper) and the version
+ * it would report describes the wrong thing.
+ */
+function readVersionFromInstalledBinary(
+  binaryPath: string,
+  existsSyncImpl: typeof fs.existsSync,
+  readFileSyncImpl: typeof fs.readFileSync,
+  realpathSyncImpl: typeof fs.realpathSync = fs.realpathSync,
+): string | null {
+  let resolved: string;
+  try {
+    resolved = realpathSyncImpl(binaryPath);
+  } catch {
+    // Broken symlink or a fake path injected by a test — fall back to the
+    // raw value so the walk below still has somewhere to start from.
+    resolved = binaryPath;
+  }
+  let dir = path.dirname(resolved);
+  // Bounded, not unbounded: a real install is at most a handful of
+  // directories below its package.json (npm-global: bin -> lib/node_modules/
+  // @pcircle/memesh, four levels; source checkout: dist/transports/cli, three).
+  // Unbounded walking risks reaching an unrelated package.json near the
+  // filesystem root and misreporting its version as memesh's own.
+  for (let depth = 0; depth < 8; depth += 1) {
+    const pkgPath = path.join(dir, 'package.json');
+    if (existsSyncImpl(pkgPath)) {
+      const parsed = parseJsonFile(pkgPath, readFileSyncImpl);
+      if (!parsed.ok) return null;
+      const { name, version } = parsed.value as { name?: unknown; version?: unknown };
+      return name === '@pcircle/memesh' && typeof version === 'string' ? version : null;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+  return null;
+}
+
+/**
  * Detect the "plugin without shell CLI" gotcha that confuses every new
  * plugin-marketplace user. Symptom: `/plugin install memesh@pcircle-memesh`
  * gives you MCP tools + hooks + the `/memesh` skill inside Claude Code,
@@ -1658,11 +1705,23 @@ function inspectNativeBinding(
  * channels the check reports PASS with the resolved path. We don't
  * gate it as FAIL because plugin-only is a valid setup for users who
  * only ever interact with memesh through Claude Code chat.
+ *
+ * A distinct shell CLI is also a distinct COPY on disk, and nothing keeps
+ * the two copies at the same version — the plugin marketplace's own
+ * auto-updater only ever touches the plugin cache (see
+ * `inspectPluginCacheCurrency`'s docstring on the #247 incident), so an
+ * agent using this install and a human typing `memesh` in a terminal can
+ * silently run different code for as long as nobody manually updates the
+ * global copy. Read the other copy's own package.json (never trust
+ * `--version` output — that would mean spawning it) and say so.
  */
 function inspectShellCli(
   installChannel: import('./install-channel.js').InstallChannel,
   packageRoot: string,
+  packageVersion: string,
   resolveShellMemeshImpl: () => string | null,
+  existsSyncImpl: typeof fs.existsSync,
+  readFileSyncImpl: typeof fs.readFileSync,
 ): DoctorCheck {
   const shellPath = resolveShellMemeshImpl();
   // Normalize and compare: a shell `memesh` that points back into the
@@ -1685,11 +1744,60 @@ function inspectShellCli(
   }
 
   if (hasDistinctShellCli) {
+    const shellVersion = readVersionFromInstalledBinary(shellPath!, existsSyncImpl, readFileSyncImpl);
+    // classifyBump(from, to) is truthy only when `to` is a real upgrade over
+    // `from` — exactly one of these two can be truthy for two distinct,
+    // parseable versions, which is what "which one is behind" needs.
+    const shellIsBehind = shellVersion ? classifyBump(shellVersion, packageVersion) : null;
+    const thisIsBehind = shellVersion ? classifyBump(packageVersion, shellVersion) : null;
+
+    if (shellIsBehind) {
+      // No `code:` here deliberately — see the block comment above
+      // `inspectPluginCacheCurrency`'s npm-global loop for why a check whose
+      // wording is generated from two runtime version strings is left
+      // uncatalogued (the dashboard's documented fallback renders `summary`/
+      // `fix` verbatim when a row carries no code; see the `code` field's
+      // docstring on `DoctorCheck`).
+      return createCheck(
+        'shell-cli',
+        'Shell CLI on PATH',
+        'warn',
+        `\`memesh\` resolves to ${shellPath} (separate from this install at ${packageRoot}), and it is running ${shellVersion} — behind this install's ${packageVersion}. Both share the same DB, but an agent using this install and a human typing \`memesh\` in a terminal are running different code.`,
+        'Run `npm install -g @pcircle/memesh@latest` to bring the shell CLI up to date — a separate global install is never updated automatically by the plugin marketplace.',
+      );
+    }
+    if (thisIsBehind) {
+      // `?? 'claude-code'` was wrong here and is the same mistake the
+      // session-start banner made: `null` is a legitimate answer from
+      // `detectPluginHost` — "this path is not under any plugin cache" — so
+      // collapsing it into a host handed a Codex user the Claude Code command
+      // with no way to tell. On a plugin-marketplace install the host normally
+      // IS detectable; when it is not (a relocated cache whose env var this
+      // process cannot see), naming one host's command is a guess presented as
+      // an instruction. Name both instead.
+      const pluginHost = installChannel === 'plugin-marketplace' ? detectPluginHost(packageRoot) : null;
+      const fix = installChannel !== 'plugin-marketplace'
+        ? `Update this install (a ${installChannel}) to ${shellVersion} or newer via its own channel — see \`memesh status\`.`
+        : pluginHost
+          ? `Run \`${PLUGIN_REFRESH_COMMANDS[pluginHost]}\` to bring this plugin copy to ${shellVersion} (or newer).`
+          : `Bring this plugin copy to ${shellVersion} (or newer) with your host's refresh command — `
+            + `Claude Code: \`${PLUGIN_REFRESH_COMMANDS['claude-code']}\`; `
+            + `Codex: \`${PLUGIN_REFRESH_COMMANDS.codex}\`.`;
+      return createCheck(
+        'shell-cli',
+        'Shell CLI on PATH',
+        'warn',
+        `\`memesh\` resolves to ${shellPath} (separate from this install at ${packageRoot}), and it is running ${shellVersion} — ahead of this install's ${packageVersion}.`,
+        fix,
+      );
+    }
+
     return createCheck(
       'shell-cli',
       'Shell CLI on PATH',
       'pass',
-      `\`memesh\` resolves to ${shellPath} (separate from this install at ${packageRoot}). Both paths coexist and share the same DB.`,
+      `\`memesh\` resolves to ${shellPath} (separate from this install at ${packageRoot}). Both paths coexist and share the same DB`
+        + (shellVersion ? `, both on ${packageVersion}.` : ' — could not read the shell copy\'s own version to compare.'),
     );
   }
 
@@ -1966,6 +2074,88 @@ function inspectPluginCacheCurrency(
     `Run \`${command}\` to refresh the cache in place, then restart ${hostLabel}.`,
     { code: 'plugin-cache.stale', params: { installed: installedSha.slice(0, 8), marketplace: marketplaceSha.slice(0, 8), host: hostLabel, command } },
   );
+}
+
+/**
+ * F3/F5 (2026-09-02 dogfood): the npm-global discovery loop that calls
+ * `inspectPluginCacheCurrency` above only ever compared the commit the
+ * cache was staged from against the marketplace HEAD. It never compared
+ * the cache's own VERSION against the npm-global process asking the
+ * question, so a real machine with npm-global at 4.8.2 and a Claude Code
+ * plugin cache at 4.8.3 got a clean `[PASS] Plugin cache source record is
+ * current` — true about the commit, silent about the fact that this
+ * npm-global copy is a full version behind and CANNOT be reached by the
+ * plugin's own auto-updater: `getCurrentInstallChannel` for a hook always
+ * resolves to whichever copy is executing it (here, the plugin), so
+ * `~/.memesh/auto-update.log` on that machine logged 45 consecutive
+ * `SKIPPED: install channel 'plugin-marketplace' does not support
+ * self-update` lines — correct for the copy that wrote them, and silently
+ * incomplete for the npm-global copy sitting right next to it, which
+ * genuinely does need `memesh update` run by hand.
+ *
+ * The discovered cache's own version is read for free from its directory
+ * name (`<cacheRoot>/<version>/`, the same layout `versionedPluginCacheRoots`
+ * already depends on) — no extra file I/O, and no risk of trusting a
+ * `--version` subprocess call. Callers only invoke this for a CLEAN
+ * discovery (no `unverifiableReason`): an ambiguous or unreadable registry
+ * should not also make a confident version claim.
+ *
+ * F5 rides along here because it needs the exact same `cacheRoot`: old
+ * versioned copies accumulate under it forever (nothing in the upgrade
+ * path removes them), so once there are more than a couple this appends
+ * one informational sentence naming the count and a cleanup command — the
+ * same `rm -rf <old-copy>` shape `scripts/upgrade-plugin.sh` itself prints
+ * when it cannot remove the copy it just replaced. This never moves
+ * `status`: unused disk space is not a correctness problem, and counting
+ * `versionedPluginCacheRoots(cacheRoot).length` costs one `readdirSync` —
+ * no directory is walked and no size is computed, which would mean a full
+ * `du` over a node_modules-sized tree on every `memesh doctor` run.
+ */
+function annotateNpmGlobalPluginCacheVersion(
+  check: DoctorCheck,
+  discoveredPackageRoot: string,
+  hostLabel: string,
+  runningVersion: string,
+): DoctorCheck {
+  const cacheRoot = path.dirname(discoveredPackageRoot);
+  const discoveredVersion = path.basename(discoveredPackageRoot);
+  let amended = check;
+
+  // classifyBump(from, to) is truthy only when `to` is a real upgrade over
+  // `from` — this only fires when the npm-global copy is the OLD one. The
+  // reverse (npm-global ahead of the plugin cache) is not this machine's
+  // problem: the plugin cache being behind is what the SHA/commit check
+  // above already exists to catch.
+  if (discoveredVersion !== runningVersion && classifyBump(runningVersion, discoveredVersion)) {
+    const skewNote = `This npm-global install is on ${runningVersion}; the ${hostLabel} plugin cache is on ${discoveredVersion}. `
+      + 'The plugin marketplace\'s own auto-updater only ever refreshes its plugin copy — it cannot and will not update this separate npm-global install.';
+    const skewFix = `Run \`memesh update\` to bring this npm-global install to ${discoveredVersion} (or newer) — it does not update itself automatically.`;
+    amended = {
+      ...amended,
+      status: amended.status === 'pass' ? 'warn' : amended.status,
+      summary: `${amended.summary} ${skewNote}`,
+      fix: amended.fix ? `${amended.fix} Also: ${skewFix}` : skewFix,
+      // Dropping the code: the appended sentence is not in the i18n
+      // catalogue, and keeping the old code would make the dashboard show
+      // ONLY the stale catalogue text, silently dropping this fact — see
+      // `DoctorCheck.code`'s own docstring for the documented fallback
+      // this relies on (raw `summary`/`fix`, in English, when `code` is
+      // absent).
+      code: undefined,
+      params: undefined,
+    };
+  }
+
+  const cachedVersions = versionedPluginCacheRoots(cacheRoot);
+  if (cachedVersions.length > 2) {
+    amended = {
+      ...amended,
+      summary: `${amended.summary} ${cachedVersions.length} versioned copies of the ${hostLabel} plugin are cached under ${cacheRoot}; old ones are never removed automatically. `
+        + `Delete ones you no longer need once no ${hostLabel} process is using them, e.g. \`rm -rf "${cachedVersions[0]}"\`.`,
+    };
+  }
+
+  return amended;
 }
 
 /**
@@ -2278,11 +2468,30 @@ async function inspectUpdateStatus(
     }
   }
 
+  // F1 (2026-09-02 dogfood): this branch used to print an unqualified
+  // "Version X is current." — a fact doctor cannot actually know, because
+  // `getUpdateCheckImpl` is always called with `preferFresh: false` (no
+  // network call from doctor — see the module docstring above) and the
+  // cache backing it is only refreshed by something ELSE running `memesh
+  // status`/`memesh update`. A real npm-global install sat on a cache that
+  // was ~23h44m old (inside the 24h STALE_AFTER_MS window, so still
+  // 'cached' not 'stale') and doctor printed `[PASS] Version 4.8.2 is
+  // current` at the exact moment npm had already published 4.8.3 — true
+  // when the cache was written, false when doctor read it, and nothing in
+  // the sentence let a reader tell the difference. Naming the check's own
+  // age makes the claim falsifiable instead of an assertion doctor cannot
+  // back up.
+  const checkedHoursAgo = update.lastSuccessfulCheckAt === null
+    ? null
+    : (Date.now() - Date.parse(update.lastSuccessfulCheckAt)) / 3600_000;
+  const checkedAgo = formatHoursAgo(checkedHoursAgo);
   return createCheck(
     'update-status',
     'Update status',
     update.freshness === 'stale' ? 'warn' : 'pass',
-    `Version ${packageVersion} is current${update.freshness === 'stale' ? ', but cached update data is stale.' : '.'}`,
+    update.freshness === 'stale'
+      ? `As of the last check (${checkedAgo}), ${packageVersion} was the latest version — that check is more than 24h old, so a newer release may exist since. Doctor never makes a live registry call itself.`
+      : `As of the last check (${checkedAgo}), ${packageVersion} was the latest version.`,
     update.freshness === 'stale'
       ? 'Run `memesh status` while online to refresh cached update metadata.'
       : undefined,
@@ -3234,12 +3443,23 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
     for (const discovered of discoveredPluginCaches) {
       if (discovered.host === 'codex') codexPluginCacheDetected = true;
       if (discovered.host === 'claude-code') claudePluginCacheDetected = true;
-      const check = discovered.unverifiableReason
+      let check = discovered.unverifiableReason
         ? pluginCacheUnverifiable(discovered.host, discovered.unverifiableReason)
         : inspectPluginCacheCurrency(
           'plugin-marketplace', discovered.host, discovered.packageRoot,
           discovered.installedPluginsPath, readFileSyncImpl, existsSyncImpl, marketplaceHeadShaImpl,
         );
+      // Only for a CLEAN discovery — see annotateNpmGlobalPluginCacheVersion's
+      // docstring for why an ambiguous/unreadable registry should not also
+      // carry a confident version claim.
+      if (check && !discovered.unverifiableReason) {
+        check = annotateNpmGlobalPluginCacheVersion(
+          check,
+          discovered.packageRoot,
+          discovered.host === 'codex' ? 'Codex' : 'Claude Code',
+          packageVersion,
+        );
+      }
       if (check) {
         const hostName = discovered.host;
         const index = (discoveredCounts.get(discovered.host) ?? 0) + 1;
@@ -3270,7 +3490,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   // the context that explains it.
   checks.push(inspectNodeRuntime(packageRoot, existsSyncImpl, readFileSyncImpl));
   checks.push(inspectNativeBinding(packageRoot, existsSyncImpl, nativeBindingProbeImpl));
-  checks.push(inspectShellCli(install, packageRoot, resolveShellMemeshImpl));
+  checks.push(inspectShellCli(install, packageRoot, packageVersion, resolveShellMemeshImpl, existsSyncImpl, readFileSyncImpl));
   checks.push(verifySkillsManifest(packageRoot, existsSyncImpl, readFileSyncImpl, installSupport));
   checks.push(inspectMessageCapability(packageRoot, probeMessageCapability, messageCapabilityProbeImpl));
   checks.push(await inspectMessageRouterStatus(probeMessageRouterStatus, messageRouterStatusProbeImpl));

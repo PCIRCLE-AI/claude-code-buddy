@@ -619,7 +619,32 @@ function inspectNativeBinding(packageRoot, _existsSyncImpl, probeImpl = defaultN
     }
     return createCheck('native-binding', 'SQLite and vector search', 'warn', `sqlite-vec could not be loaded: ${result.message}. Memories are still saved and found by keyword; only search by meaning is off.`, `Run: cd "${packageRoot}" && npm install --omit=dev`, { code: 'native-binding.load-failed', params: { detail: result.message, root: packageRoot } });
 }
-function inspectShellCli(installChannel, packageRoot, resolveShellMemeshImpl) {
+function readVersionFromInstalledBinary(binaryPath, existsSyncImpl, readFileSyncImpl, realpathSyncImpl = fs.realpathSync) {
+    let resolved;
+    try {
+        resolved = realpathSyncImpl(binaryPath);
+    }
+    catch {
+        resolved = binaryPath;
+    }
+    let dir = path.dirname(resolved);
+    for (let depth = 0; depth < 8; depth += 1) {
+        const pkgPath = path.join(dir, 'package.json');
+        if (existsSyncImpl(pkgPath)) {
+            const parsed = parseJsonFile(pkgPath, readFileSyncImpl);
+            if (!parsed.ok)
+                return null;
+            const { name, version } = parsed.value;
+            return name === '@pcircle/memesh' && typeof version === 'string' ? version : null;
+        }
+        const parent = path.dirname(dir);
+        if (parent === dir)
+            return null;
+        dir = parent;
+    }
+    return null;
+}
+function inspectShellCli(installChannel, packageRoot, packageVersion, resolveShellMemeshImpl, existsSyncImpl, readFileSyncImpl) {
     const shellPath = resolveShellMemeshImpl();
     const isSameAsCurrent = shellPath ? path.resolve(shellPath).startsWith(path.resolve(packageRoot)) : false;
     const hasDistinctShellCli = !!shellPath && !isSameAsCurrent;
@@ -629,7 +654,25 @@ function inspectShellCli(installChannel, packageRoot, resolveShellMemeshImpl) {
             : 'Running from npm-global install — shell access available in this terminal.');
     }
     if (hasDistinctShellCli) {
-        return createCheck('shell-cli', 'Shell CLI on PATH', 'pass', `\`memesh\` resolves to ${shellPath} (separate from this install at ${packageRoot}). Both paths coexist and share the same DB.`);
+        const shellVersion = readVersionFromInstalledBinary(shellPath, existsSyncImpl, readFileSyncImpl);
+        const shellIsBehind = shellVersion ? classifyBump(shellVersion, packageVersion) : null;
+        const thisIsBehind = shellVersion ? classifyBump(packageVersion, shellVersion) : null;
+        if (shellIsBehind) {
+            return createCheck('shell-cli', 'Shell CLI on PATH', 'warn', `\`memesh\` resolves to ${shellPath} (separate from this install at ${packageRoot}), and it is running ${shellVersion} — behind this install's ${packageVersion}. Both share the same DB, but an agent using this install and a human typing \`memesh\` in a terminal are running different code.`, 'Run `npm install -g @pcircle/memesh@latest` to bring the shell CLI up to date — a separate global install is never updated automatically by the plugin marketplace.');
+        }
+        if (thisIsBehind) {
+            const pluginHost = installChannel === 'plugin-marketplace' ? detectPluginHost(packageRoot) : null;
+            const fix = installChannel !== 'plugin-marketplace'
+                ? `Update this install (a ${installChannel}) to ${shellVersion} or newer via its own channel — see \`memesh status\`.`
+                : pluginHost
+                    ? `Run \`${PLUGIN_REFRESH_COMMANDS[pluginHost]}\` to bring this plugin copy to ${shellVersion} (or newer).`
+                    : `Bring this plugin copy to ${shellVersion} (or newer) with your host's refresh command — `
+                        + `Claude Code: \`${PLUGIN_REFRESH_COMMANDS['claude-code']}\`; `
+                        + `Codex: \`${PLUGIN_REFRESH_COMMANDS.codex}\`.`;
+            return createCheck('shell-cli', 'Shell CLI on PATH', 'warn', `\`memesh\` resolves to ${shellPath} (separate from this install at ${packageRoot}), and it is running ${shellVersion} — ahead of this install's ${packageVersion}.`, fix);
+        }
+        return createCheck('shell-cli', 'Shell CLI on PATH', 'pass', `\`memesh\` resolves to ${shellPath} (separate from this install at ${packageRoot}). Both paths coexist and share the same DB`
+            + (shellVersion ? `, both on ${packageVersion}.` : ' — could not read the shell copy\'s own version to compare.'));
     }
     if (installChannel === 'plugin-marketplace') {
         const host = detectPluginHost(packageRoot) === 'codex' ? 'Codex CLI' : 'Claude Code';
@@ -827,6 +870,33 @@ function inspectPluginCacheCurrency(installChannel, pluginHost, packageRoot, ins
     }
     return createCheck('plugin-cache', `Plugin cache source record is current (${hostLabel})`, 'warn', `The plugin cache records commit ${installedSha.slice(0, 8)}, but the marketplace has moved to ${marketplaceSha.slice(0, 8)} under the same version — ${hostLabel} does not normally refresh a cache whose version did not change, so refresh the cache before relying on the newer marketplace code.`, `Run \`${command}\` to refresh the cache in place, then restart ${hostLabel}.`, { code: 'plugin-cache.stale', params: { installed: installedSha.slice(0, 8), marketplace: marketplaceSha.slice(0, 8), host: hostLabel, command } });
 }
+function annotateNpmGlobalPluginCacheVersion(check, discoveredPackageRoot, hostLabel, runningVersion) {
+    const cacheRoot = path.dirname(discoveredPackageRoot);
+    const discoveredVersion = path.basename(discoveredPackageRoot);
+    let amended = check;
+    if (discoveredVersion !== runningVersion && classifyBump(runningVersion, discoveredVersion)) {
+        const skewNote = `This npm-global install is on ${runningVersion}; the ${hostLabel} plugin cache is on ${discoveredVersion}. `
+            + 'The plugin marketplace\'s own auto-updater only ever refreshes its plugin copy — it cannot and will not update this separate npm-global install.';
+        const skewFix = `Run \`memesh update\` to bring this npm-global install to ${discoveredVersion} (or newer) — it does not update itself automatically.`;
+        amended = {
+            ...amended,
+            status: amended.status === 'pass' ? 'warn' : amended.status,
+            summary: `${amended.summary} ${skewNote}`,
+            fix: amended.fix ? `${amended.fix} Also: ${skewFix}` : skewFix,
+            code: undefined,
+            params: undefined,
+        };
+    }
+    const cachedVersions = versionedPluginCacheRoots(cacheRoot);
+    if (cachedVersions.length > 2) {
+        amended = {
+            ...amended,
+            summary: `${amended.summary} ${cachedVersions.length} versioned copies of the ${hostLabel} plugin are cached under ${cacheRoot}; old ones are never removed automatically. `
+                + `Delete ones you no longer need once no ${hostLabel} process is using them, e.g. \`rm -rf "${cachedVersions[0]}"\`.`,
+        };
+    }
+    return amended;
+}
 function inspectClaudeChannelRegistration(existsSyncImpl, readFileSyncImpl) {
     const configPath = path.join(homeDir(), '.claude.json');
     let parsed = null;
@@ -977,7 +1047,13 @@ async function inspectUpdateStatus(packageVersion, getUpdateCheckImpl, installSu
             return createCheck('update-status', 'Update status', 'pass', `Running pre-release version (${packageVersion}), npm latest is ${update.latestVersion}`);
         }
     }
-    return createCheck('update-status', 'Update status', update.freshness === 'stale' ? 'warn' : 'pass', `Version ${packageVersion} is current${update.freshness === 'stale' ? ', but cached update data is stale.' : '.'}`, update.freshness === 'stale'
+    const checkedHoursAgo = update.lastSuccessfulCheckAt === null
+        ? null
+        : (Date.now() - Date.parse(update.lastSuccessfulCheckAt)) / 3600_000;
+    const checkedAgo = formatHoursAgo(checkedHoursAgo);
+    return createCheck('update-status', 'Update status', update.freshness === 'stale' ? 'warn' : 'pass', update.freshness === 'stale'
+        ? `As of the last check (${checkedAgo}), ${packageVersion} was the latest version — that check is more than 24h old, so a newer release may exist since. Doctor never makes a live registry call itself.`
+        : `As of the last check (${checkedAgo}), ${packageVersion} was the latest version.`, update.freshness === 'stale'
         ? 'Run `memesh status` while online to refresh cached update metadata.'
         : undefined, update.freshness === 'stale'
         ? { code: 'update-status.stale', params: { version: packageVersion } }
@@ -1426,9 +1502,12 @@ export async function runDoctor(options) {
                 codexPluginCacheDetected = true;
             if (discovered.host === 'claude-code')
                 claudePluginCacheDetected = true;
-            const check = discovered.unverifiableReason
+            let check = discovered.unverifiableReason
                 ? pluginCacheUnverifiable(discovered.host, discovered.unverifiableReason)
                 : inspectPluginCacheCurrency('plugin-marketplace', discovered.host, discovered.packageRoot, discovered.installedPluginsPath, readFileSyncImpl, existsSyncImpl, marketplaceHeadShaImpl);
+            if (check && !discovered.unverifiableReason) {
+                check = annotateNpmGlobalPluginCacheVersion(check, discovered.packageRoot, discovered.host === 'codex' ? 'Codex' : 'Claude Code', packageVersion);
+            }
             if (check) {
                 const hostName = discovered.host;
                 const index = (discoveredCounts.get(discovered.host) ?? 0) + 1;
@@ -1450,7 +1529,7 @@ export async function runDoctor(options) {
     checks.push(inspectDashboardArtifact(packageRoot, existsSyncImpl));
     checks.push(inspectNodeRuntime(packageRoot, existsSyncImpl, readFileSyncImpl));
     checks.push(inspectNativeBinding(packageRoot, existsSyncImpl, nativeBindingProbeImpl));
-    checks.push(inspectShellCli(install, packageRoot, resolveShellMemeshImpl));
+    checks.push(inspectShellCli(install, packageRoot, packageVersion, resolveShellMemeshImpl, existsSyncImpl, readFileSyncImpl));
     checks.push(verifySkillsManifest(packageRoot, existsSyncImpl, readFileSyncImpl, installSupport));
     checks.push(inspectMessageCapability(packageRoot, probeMessageCapability, messageCapabilityProbeImpl));
     checks.push(await inspectMessageRouterStatus(probeMessageRouterStatus, messageRouterStatusProbeImpl));

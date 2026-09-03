@@ -79,7 +79,6 @@ All notable changes to MeMesh are documented here.
   It now returns `'unknown'` for that state, matching what
   `getCurrentInstallChannel` already did, and the banner names both upgrade
   paths rather than guessing one.
-
 - **`memesh pin`/`unpin --json` no longer reports a pin that never happened.**
   `setPinned` echoed the *requested* `pinned` argument back in its result even
   when the named entity did not exist, so `memesh pin --name nonexistent
@@ -107,6 +106,24 @@ All notable changes to MeMesh are documented here.
   the code lives; `tests/host-runtime/fail-closed.test.ts` keeps the spawn
   tests too, which prove each shipped binary really routes through it.
   Found by the new entry-point gate, not by review.
+- **`memesh doctor` now catches a stale npm-global install sitting next to a
+  newer plugin copy.** A machine can have two live installs at once — a
+  terminal's `npm install -g @pcircle/memesh` and Claude Code's plugin
+  marketplace cache — and nothing kept them in sync: the plugin's own
+  auto-updater only ever refreshes the plugin copy (`~/.memesh/auto-update.log`
+  correctly logs `SKIPPED: install channel 'plugin-marketplace' does not
+  support self-update` for it, and says nothing about the separate global
+  install). Doctor's shell-CLI check now reads the *other* copy's own
+  `package.json` (never a spawned `--version`) when `memesh` on PATH resolves
+  somewhere other than the running install, and warns naming both versions
+  and which one is behind. The npm-global plugin-cache-discovery check
+  similarly now compares the discovered plugin cache's version against the
+  running npm-global process, not only the commit it was staged from, and
+  when there are more than two versioned copies cached it also reports the
+  count and a cleanup command. The "Update status" row's cached-PASS branch
+  no longer prints an unqualified "Version X is current." — it names how old
+  the cache backing that claim actually is, since doctor never makes a live
+  registry call itself.
 
 - **The Ollama host guard now rebuilds the request origin instead of forwarding
   the configured string.** `resolveOllamaHost` used to validate a persisted
