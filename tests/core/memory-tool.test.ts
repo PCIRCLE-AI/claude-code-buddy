@@ -400,7 +400,15 @@ describe('Feature: memory_20250818 over the knowledge graph', () => {
     it('refuses an ambiguous old_str instead of picking one', () => {
       // A write, and the wrong one is silent. The contract asks for the line
       // numbers so the model can widen the match rather than guess.
-      seed('dup', ['status: draft', 'other', 'status: draft']);
+      //
+      // `seed` now goes through createEntity's own content dedup guard
+      // (#288), so a literal repeat within one call no longer lands twice —
+      // the third observation here has to be inserted directly to build the
+      // ambiguous state this test is actually about, bypassing the guard on
+      // purpose rather than testing it.
+      seed('dup', ['status: draft', 'other']);
+      const entityId = (getDatabase().prepare('SELECT id FROM entities WHERE name = ?').get('dup') as { id: number }).id;
+      getDatabase().prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(entityId, 'status: draft');
       const before = observationsOf('dup');
 
       const result = handleMemoryCommand({
