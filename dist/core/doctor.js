@@ -229,12 +229,13 @@ function declaredMcpManifest(packageRoot, readFileSyncImpl) {
 }
 function inspectMcpConfig(packageRoot, installChannel, existsSyncImpl, readFileSyncImpl, env) {
     const relativeManifest = declaredMcpManifest(packageRoot, readFileSyncImpl);
-    const mcpPath = relativeManifest === null ? null : path.join(packageRoot, relativeManifest);
-    const label = relativeManifest ?? '.claude-plugin/mcp.json';
-    if (mcpPath === null || !existsSyncImpl(mcpPath)) {
-        return createCheck('mcp-config', 'MCP config', 'fail', relativeManifest === null
-            ? '.claude-plugin/plugin.json declares no `mcpServers` path, so Claude Code has no MeMesh MCP server to start.'
-            : `${label} is missing.`, 'Reinstall MeMesh so the plugin manifest and the MCP manifest it names are both restored.', { code: 'mcp-config.missing' });
+    if (relativeManifest === null) {
+        return createCheck('mcp-config', 'MCP config', 'fail', '.claude-plugin/plugin.json declares no `mcpServers` path, so Claude Code has no MeMesh MCP server to start.', 'Reinstall MeMesh so the plugin manifest and the MCP manifest it names are both restored.', { code: 'mcp-config.missing' });
+    }
+    const label = relativeManifest;
+    const mcpPath = path.join(packageRoot, relativeManifest);
+    if (!existsSyncImpl(mcpPath)) {
+        return createCheck('mcp-config', 'MCP config', 'fail', `${label} is missing.`, 'Reinstall MeMesh so the plugin manifest and the MCP manifest it names are both restored.', { code: 'mcp-config.missing' });
     }
     const parsed = parseJsonFile(mcpPath, readFileSyncImpl);
     if (!parsed.ok) {
