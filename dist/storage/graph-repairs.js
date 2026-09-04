@@ -1,26 +1,30 @@
 import { rebuildFtsIndex, runOnceMigration } from './schema.js';
+import { hasVectorIndex } from './vector-index.js';
 import { lessonSlug } from '../core/lesson-slug.js';
 import { AGENT_MESSAGE_SCOPE_COLUMNS, isFilesystemPathScopeId, lastPathSegment, } from '../core/agent-scope-id.js';
 import { computeSignalScore } from '../core/signal-scorer.js';
 export const SESSION_DEDUPE_KEY = 'session_observation_dedupe';
 export const ZERO_EDIT_RETRACT_KEY = 'session_zero_edit_retract';
 export const FUSED_LESSON_SPLIT_KEY = 'fused_lesson_split';
+export const ARCHIVED_FTS_ROWS_KEY = 'archived_fts_rows';
+export const ARCHIVED_VECTOR_ROWS_KEY = 'archived_vector_rows';
 const ZERO_EDITS = ', 0 files edited';
 const ZERO_EDITS_RETRACTED = ', files edited through Bash (count not recorded before 4.8.2)';
 function note(line) {
     process.stderr.write(`MeMesh: ${line}\n`);
 }
-export function dedupeSessionObservations(db) {
+export function dedupeObservations(db) {
     let removed = -1;
     runOnceMigration(db, {
         key: SESSION_DEDUPE_KEY,
-        version: 1,
-        describe: 'session observation dedupe',
+        version: 2,
+        describe: 'observation dedupe',
         migrate: (conn) => {
             const affected = conn
-                .prepare(`SELECT DISTINCT e.id FROM entities e JOIN observations o ON o.entity_id = e.id
-           WHERE e.name LIKE 'session-%'
-           GROUP BY e.id, o.content HAVING COUNT(o.id) > 1`)
+                .prepare(`SELECT DISTINCT o.entity_id AS id FROM observations o
+           JOIN entities e ON e.id = o.entity_id
+           WHERE e.type NOT IN ('lesson_learned', 'lesson', 'mistake')
+           GROUP BY o.entity_id, o.content HAVING COUNT(o.id) > 1`)
                 .all();
             removed = 0;
             const del = conn.prepare(`DELETE FROM observations WHERE entity_id = ? AND id NOT IN (
@@ -29,7 +33,7 @@ export function dedupeSessionObservations(db) {
                 removed += Number(del.run(row.id, row.id).changes);
             if (removed > 0) {
                 rebuildFtsIndex(conn);
-                note(`removed ${removed} duplicate observation(s) from ${affected.length} session entit${affected.length === 1 ? 'y' : 'ies'} (written by 4.8.1 hooks).`);
+                note(`removed ${removed} duplicate observation(s) from ${affected.length} entit${affected.length === 1 ? 'y' : 'ies'} (written by hooks up to 4.8.3).`);
             }
         },
     });
@@ -239,6 +243,44 @@ export function splitFusedLessons(db, deps) {
         },
     });
     return moved;
+}
+export function dropArchivedIndexRows(db) {
+    const result = { ftsRows: -1, vectorRows: -1 };
+    runOnceMigration(db, {
+        key: ARCHIVED_FTS_ROWS_KEY,
+        version: 1,
+        describe: 'archived rows removed from the keyword index',
+        migrate: (conn) => {
+            const stale = conn
+                .prepare(`SELECT COUNT(*) AS n FROM entities_fts f
+             JOIN entities e ON e.id = f.rowid
+            WHERE e.status = 'archived'`)
+                .get();
+            result.ftsRows = stale.n;
+            rebuildFtsIndex(conn);
+            if (stale.n > 0) {
+                note(`removed ${stale.n} archived entit${stale.n === 1 ? 'y' : 'ies'} from the keyword index (archived before 4.8.4 by a path that left the index behind).`);
+            }
+        },
+    });
+    if (!hasVectorIndex(db))
+        return result;
+    runOnceMigration(db, {
+        key: ARCHIVED_VECTOR_ROWS_KEY,
+        version: 1,
+        describe: 'archived rows removed from the vector index',
+        migrate: (conn) => {
+            const removed = conn
+                .prepare(`DELETE FROM entities_vec WHERE rowid IN
+             (SELECT e.id FROM entities e WHERE e.status = 'archived')`)
+                .run();
+            result.vectorRows = Number(removed.changes);
+            if (result.vectorRows > 0) {
+                note(`removed ${result.vectorRows} archived entit${result.vectorRows === 1 ? 'y' : 'ies'} from the vector index; they were taking recall slots from live memories.`);
+            }
+        },
+    });
+    return result;
 }
 export const AGENT_SCOPE_PATH_KEY = 'agent_scope_path_identity';
 export function normalizeAgentScopePaths(db) {
