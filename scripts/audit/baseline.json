@@ -690,6 +690,16 @@
       "class": "NOT-A-GATE",
       "reason": "real-browser (real HTTP server + real Chromium) verification that the dashboard doctor banner renders the mcp-config.placeholder-unresolved (quiet) and mcp-config.missing (translated banner) states correctly across all 11 locales, for evidence-gates output_readback/process_boundary/failure_path evidence -- invoked directly by `eg record`, not by any npm script or CI workflow. Renamed from verify-dashboard-doctor-banner-i18n.mjs during a rebase over PR #293, which already claimed that filename for its own llm-telemetry.silent-failure banner script -- distinct doctor codes, distinct files. A human or eg re-runs it on demand when the dashboard i18n catalogue changes; it does not gate a commit or a release on its own.",
       "triaged": "2026-09-04"
+    },
+    "C1 tests/upgrade-plugin-cache-sweep.test.ts": {
+      "class": "SAFE",
+      "reason": "the one emptiness assertion ('is a no-op on an empty cache root', toEqual([])) is the genuinely-expected outcome of sweeping an empty directory -- there is no vacuity risk to guard against, because the setup creates zero entries on purpose and the test is pinning that the sweep does not fabricate a failure or create anything. Every other test in the file pins real content (toEqual(['4.8.4']), file-existence checks) after seeding non-empty fixtures, so the file is not relying on an empty-by-accident setup anywhere.",
+      "triaged": "2026-09-05"
+    },
+    "C4 scripts/upgrade-plugin.sh:62": {
+      "class": "SAFE",
+      "reason": "set -uo pipefail at file top (line 31) preserves the left command's verdict; printf cannot meaningfully fail on a literal string, so the `if printf ... | grep -qE ...; then` reads grep's own match result -- the intended verdict, not a swallowed one.",
+      "triaged": "2026-09-05"
     }
   }
 }

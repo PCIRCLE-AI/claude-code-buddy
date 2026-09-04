@@ -22,23 +22,41 @@ import {
   checkReleasePreconditions,
   extractChangelogSection,
   shippedPathsFromPackageJson,
+  findUsableLiveJourneyReceipt,
+  LIVE_JOURNEY_RECEIPT_PATHS,
 } from '../scripts/lib/release-preconditions.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const HEAD = 'a'.repeat(40);
+
+/** A `qa:live-journey` candidate list with exactly one usable PASS receipt for HEAD. */
+function readyLiveJourney() {
+  return [
+    {
+      host: 'codex',
+      path: '.qa/codex-report.json',
+      report: { schema_version: 'memesh-live-journey/v1', revision: HEAD, dirty: false, verdict: 'PASS', host: 'codex' },
+      readError: null,
+    },
+    { host: 'claude', path: '.qa/claude-report.json', report: null, readError: 'not found' },
+  ];
+}
 
 /** A state where cutting 4.7.0 is exactly the right thing to do. */
 function ready(overrides: Record<string, unknown> = {}) {
   return {
     branch: 'main',
     isClean: true,
-    headSha: 'a'.repeat(40),
-    remoteHeadSha: 'a'.repeat(40),
+    headSha: HEAD,
+    remoteHeadSha: HEAD,
     pkgVersion: '4.7.0',
     localTags: ['v4.6.0', 'v4.6.1'],
     remoteTags: ['v4.6.0', 'v4.6.1'],
     repoSlug: 'PCIRCLE-AI/memesh',
     notes: '### Added\n\n- something',
     shippedFilesChangedSinceBump: [],
+    qaPreReleaseStatus: 0,
+    liveJourneyCandidates: readyLiveJourney(),
     ...overrides,
   };
 }
@@ -152,6 +170,119 @@ describe('release preconditions', () => {
   it('reports every reason at once, not just the first', () => {
     const r = checkReleasePreconditions(ready({ branch: 'topic', isClean: false, notes: null }));
     expect(r.blockers.length).toBeGreaterThanOrEqual(3);
+  });
+
+  // G4: real-credential gates. `qa:pre-release` is run fresh by
+  // finish-release.mjs and its EXIT CODE gates; `qa:live-journey` cannot run
+  // unattended, so a recorded receipt gates instead — see
+  // `findUsableLiveJourneyReceipt` below for what makes one usable.
+  it('refuses when `npm run qa:pre-release` did not pass', () => {
+    const r = checkReleasePreconditions(ready({ qaPreReleaseStatus: 1 }));
+    expect(r.ok).toBe(false);
+    expect(r.blockers.join('\n')).toContain('qa:pre-release');
+  });
+
+  it('refuses when `npm run qa:pre-release` could not even run', () => {
+    const r = checkReleasePreconditions(ready({ qaPreReleaseStatus: null }));
+    expect(r.ok).toBe(false);
+    expect(r.blockers.join('\n')).toContain('could not run it at all');
+  });
+
+  it('refuses when no qa:live-journey receipt is usable', () => {
+    const r = checkReleasePreconditions(ready({ liveJourneyCandidates: [] }));
+    expect(r.ok).toBe(false);
+    expect(r.blockers.join('\n')).toContain('qa:live-journey');
+  });
+
+  it('accepts a Claude-host receipt just as readily as a Codex one', () => {
+    const claudeOnly = [
+      { host: 'codex', path: '.qa/codex-report.json', report: null, readError: 'not found' },
+      {
+        host: 'claude',
+        path: '.qa/claude-report.json',
+        report: { schema_version: 'memesh-live-journey/v1', revision: HEAD, dirty: false, verdict: 'PASS', host: 'claude' },
+        readError: null,
+      },
+    ];
+    const r = checkReleasePreconditions(ready({ liveJourneyCandidates: claudeOnly }));
+    expect(r.ok).toBe(true);
+  });
+});
+
+describe('findUsableLiveJourneyReceipt', () => {
+  const pass = { schema_version: 'memesh-live-journey/v1', revision: HEAD, dirty: false, verdict: 'PASS', host: 'codex' };
+
+  it('accepts a PASS receipt for the exact HEAD revision', () => {
+    const r = findUsableLiveJourneyReceipt([{ host: 'codex', path: '.qa/codex-report.json', report: pass, readError: null }], HEAD);
+    expect(r.ok).toBe(true);
+    expect(r.usable?.host).toBe('codex');
+  });
+
+  it('refuses a receipt for a different revision', () => {
+    const stale = { ...pass, revision: 'b'.repeat(40) };
+    const r = findUsableLiveJourneyReceipt([{ host: 'codex', path: '.qa/codex-report.json', report: stale, readError: null }], HEAD);
+    expect(r.ok).toBe(false);
+    expect(r.reasons.join('\n')).toContain('does not match HEAD');
+  });
+
+  it('refuses a FAIL verdict', () => {
+    const failed = { ...pass, verdict: 'FAIL' };
+    const r = findUsableLiveJourneyReceipt([{ host: 'codex', path: '.qa/codex-report.json', report: failed, readError: null }], HEAD);
+    expect(r.ok).toBe(false);
+    expect(r.reasons.join('\n')).toContain('not PASS');
+  });
+
+  it('refuses a receipt recorded against a dirty working tree', () => {
+    const dirty = { ...pass, dirty: true };
+    const r = findUsableLiveJourneyReceipt([{ host: 'codex', path: '.qa/codex-report.json', report: dirty, readError: null }], HEAD);
+    expect(r.ok).toBe(false);
+    expect(r.reasons.join('\n')).toContain('dirty');
+  });
+
+  it('refuses a missing file rather than treating absence as pass', () => {
+    const r = findUsableLiveJourneyReceipt([{ host: 'codex', path: '.qa/codex-report.json', report: null, readError: 'not found' }], HEAD);
+    expect(r.ok).toBe(false);
+    expect(r.reasons.join('\n')).toContain('not found');
+  });
+
+  it('refuses an unreadable file distinctly from a missing one', () => {
+    const r = findUsableLiveJourneyReceipt([{ host: 'codex', path: '.qa/codex-report.json', report: null, readError: 'Unexpected token' }], HEAD);
+    expect(r.reasons.join('\n')).toContain('unreadable — Unexpected token');
+  });
+
+  it('refuses a report of the wrong shape (not a memesh-live-journey/v1 report)', () => {
+    const r = findUsableLiveJourneyReceipt([{ host: 'codex', path: '.qa/codex-report.json', report: { foo: 'bar' }, readError: null }], HEAD);
+    expect(r.ok).toBe(false);
+    expect(r.reasons.join('\n')).toContain('not a memesh-live-journey/v1 report');
+  });
+
+  it('falls through to the second candidate when the first is unusable', () => {
+    const r = findUsableLiveJourneyReceipt(
+      [
+        { host: 'codex', path: '.qa/codex-report.json', report: null, readError: 'not found' },
+        { host: 'claude', path: '.qa/claude-report.json', report: pass, readError: null },
+      ],
+      HEAD,
+    );
+    expect(r.ok).toBe(true);
+    expect(r.usable?.host).toBe('claude');
+  });
+
+  it('refuses with no candidates rather than vacuously passing', () => {
+    expect(findUsableLiveJourneyReceipt([], HEAD).ok).toBe(false);
+  });
+
+  it('refuses when headSha itself is unknown, rather than matching against null', () => {
+    const r = findUsableLiveJourneyReceipt([{ host: 'codex', path: '.qa/codex-report.json', report: pass, readError: null }], null);
+    expect(r.ok).toBe(false);
+  });
+
+  it('LIVE_JOURNEY_RECEIPT_PATHS names both hosts under the gitignored .qa/ directory', () => {
+    const hosts = LIVE_JOURNEY_RECEIPT_PATHS.map((c: { host: string }) => c.host).sort();
+    expect(hosts).toEqual(['claude', 'codex']);
+    for (const c of LIVE_JOURNEY_RECEIPT_PATHS) {
+      expect((c as { relativePath: string }).relativePath.startsWith('.qa/')).toBe(true);
+    }
   });
 });
 
@@ -271,6 +402,28 @@ describe('finish-release cuts the release in one call', () => {
   it('is wired to an npm script, so it is the documented way in', () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
     expect(pkg.scripts['release:finish']).toContain('scripts/finish-release.mjs');
+  });
+
+  it('runs `npm run qa:pre-release` itself, gating on its real exit code (G4)', () => {
+    expect(code).toMatch(/'run',\s*'qa:pre-release'/);
+    expect(code).toMatch(/qaPreReleaseStatus/);
+  });
+
+  it('checks for a qa:live-journey receipt for THIS commit, not merely that the command exists (G4)', () => {
+    expect(code).toMatch(/findUsableLiveJourneyReceipt/);
+    expect(code).toMatch(/LIVE_JOURNEY_RECEIPT_PATHS/);
+  });
+
+  it('fails fast on the wrong branch before spending minutes on qa:pre-release', () => {
+    // The wrong-branch exit and the expensive spawn are both pinned, and in
+    // that order — deleting the fast-fail (or moving it after the spawn)
+    // would satisfy every other test in this file while reintroducing the
+    // multi-minute wait on a one-line mistake this check exists to avoid.
+    const branchGuardAt = code.indexOf("branch !== 'main'");
+    const qaSpawnAt = code.indexOf("'run', 'qa:pre-release'");
+    expect(branchGuardAt, 'no fast-fail branch guard found').toBeGreaterThan(-1);
+    expect(qaSpawnAt, 'the qa:pre-release spawn is not there — this file is not what it was').toBeGreaterThan(-1);
+    expect(branchGuardAt).toBeLessThan(qaSpawnAt);
   });
 });
 

@@ -212,9 +212,14 @@ close that gap by requiring evidence that could only have come out of a running
 model.
 
 ```bash
-TMPDIR=/private/tmp npm run qa:live-journey -- --host codex  --out codex-report.json
-TMPDIR=/private/tmp npm run qa:live-journey -- --host claude --out claude-report.json
+TMPDIR=/private/tmp npm run qa:live-journey -- --host codex  --out .qa/codex-report.json
+TMPDIR=/private/tmp npm run qa:live-journey -- --host claude --out .qa/claude-report.json
 ```
+
+`.qa/` is where `npm run release:finish` looks for these reports (any ONE
+host's PASS, against the exact commit being released, is enough — see
+`scripts/lib/release-preconditions.mjs`'s `findUsableLiveJourneyReceipt`). The
+directory is gitignored; a report is owner-machine evidence, never shipped.
 
 `TMPDIR` is not decoration on macOS. The router's Unix socket lives beside the
 database inside the temporary directory, and `AF_UNIX` caps a socket path at

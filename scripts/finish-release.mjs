@@ -36,16 +36,27 @@
 // object either: "Protect release and benchmark tags" covers `refs/tags/v*`
 // with `deletion` and `non_fast_forward` rules only, so creating a new tag is
 // not what it blocks.
+//
+// REAL-CREDENTIAL CHECKS, NOT JUST DOCUMENTED ONES
+//
+// `npm run qa:pre-release` and `npm run qa:live-journey` both existed before
+// this file called either — available, but not required, which is a check
+// that gets skipped exactly when a release is rushed. This file now runs
+// `qa:pre-release` itself and blocks on its real exit code, and requires a
+// `qa:live-journey` receipt for THIS exact commit (either host) before it
+// will proceed. See the "G4" comment further down for the mechanics.
 
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
   checkReleasePreconditions,
   shippedPathsFromPackageJson,
   extractChangelogSection,
+  findUsableLiveJourneyReceipt,
+  LIVE_JOURNEY_RECEIPT_PATHS,
 } from './lib/release-preconditions.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -100,6 +111,21 @@ const statusOut = capture('git', ['status', '--porcelain']);
 const isClean = statusOut === null ? null : statusOut === '';
 const headSha = capture('git', ['rev-parse', 'HEAD']);
 
+// Fail fast on the single most common mistake — running this from the
+// release branch itself, before its PR is merged — before paying for the
+// several-minutes-long `qa:pre-release` run below. This duplicates exactly
+// ONE condition from `checkReleasePreconditions`, not the sequence itself;
+// that function still re-checks it for real once every input is gathered,
+// so this early exit can never be the only thing standing between a mistake
+// and a tag.
+if (branch !== 'main') {
+  console.error(
+    `\n✗ refusing to cut ${tag}: not on main (branch: ${branch ?? 'undiscoverable'}) — ` +
+      'a release is cut from main after the release PR is merged, never from the branch that raised it'
+  );
+  process.exit(1);
+}
+
 const remoteMainLine = capture('git', ['ls-remote', 'origin', 'refs/heads/main']);
 const remoteHeadSha = remoteMainLine ? remoteMainLine.split(/\s+/)[0] : null;
 
@@ -138,6 +164,44 @@ const shippedFilesChangedSinceBump = bumpCommit && shippedPaths
 // the three things that must be true before anything is created.
 const repoSlug = capture('gh', ['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner']);
 
+// --- G4: real-credential checks, run HERE rather than merely documented ----
+//
+// `npm run qa:pre-release` (build + verify:artifact + audit:memory) and
+// `npm run qa:live-journey` (a real Codex thread or a real interactive Claude
+// Code session) both exist and both catch what CI structurally cannot — CI
+// runs on a fresh checkout with no logins, while the incidents this command
+// exists to stop (v4.7.0's ghost publish, v4.8.2's stale plugin cache) lived
+// in state only THIS machine has. Before this, both were available but
+// optional — `scripts/qa/pre-release.mjs`'s own NOT_CHECKED list named this
+// gap. A check nobody has to run is a check that gets skipped exactly when a
+// release is rushed, which is when it is needed most.
+//
+// `qa:pre-release` is fully scriptable, so it is RUN, not merely checked for
+// — a receipt can go stale the moment the next commit lands, and re-running a
+// few minutes of build+test is cheaper than trusting a stale one.
+console.log(`\n--- npm run qa:pre-release (build + verify:artifact + audit:memory; several minutes)`);
+const qaPreReleaseResult = spawnSync('npm', ['run', 'qa:pre-release'], {
+  cwd: repoRoot,
+  stdio: 'inherit',
+  shell: process.platform === 'win32',
+});
+const qaPreReleaseStatus = qaPreReleaseResult.status;
+
+// `qa:live-journey` needs a Codex login or a person at an interactive Claude
+// Code session — nothing this script can open itself, so this stays
+// receipt-based. `--host codex --out .qa/codex-report.json` (or `claude`)
+// writes a `memesh-live-journey/v1` report; any ONE of the two hosts is
+// accepted; the check is which is on-disk, current-revision and PASS, not a
+// fixed host, because only Codex can be driven unattended today.
+const liveJourneyCandidates = LIVE_JOURNEY_RECEIPT_PATHS.map(({ host, relativePath }) => {
+  const receiptPath = path.join(repoRoot, relativePath);
+  try {
+    return { host, path: receiptPath, report: JSON.parse(fs.readFileSync(receiptPath, 'utf8')), readError: null };
+  } catch (e) {
+    return { host, path: receiptPath, report: null, readError: e.code === 'ENOENT' ? 'not found' : e.message };
+  }
+});
+
 let notes = null;
 if (notesFile) {
   try {
@@ -164,13 +228,22 @@ const { ok, blockers } = checkReleasePreconditions({
   repoSlug,
   notes,
   shippedFilesChangedSinceBump,
+  qaPreReleaseStatus,
+  liveJourneyCandidates,
 });
 
-console.log(`finish-release: ${tag}`);
+console.log(`\nfinish-release: ${tag}`);
 console.log(`  repo:        ${repoSlug ?? '(gh could not say)'}`);
 console.log(`  branch:      ${branch ?? '(undiscoverable)'}`);
 console.log(`  commit:      ${headSha ? headSha.slice(0, 8) : '(unknown)'}`);
 console.log(`  notes:       ${notesFile ?? `CHANGELOG.md [${pkgVersion}]`} (${notes ? notes.length : 0} chars)`);
+console.log(`  qa:pre-release: ${qaPreReleaseStatus === 0 ? 'PASS' : `FAIL (exit ${qaPreReleaseStatus ?? '(could not run)'})`}`);
+{
+  const liveJourney = findUsableLiveJourneyReceipt(liveJourneyCandidates, headSha);
+  console.log(
+    `  live-journey: ${liveJourney.ok ? `PASS (${liveJourney.usable.host}, ${liveJourney.usable.path})` : 'no usable receipt — see blockers below if any'}`
+  );
+}
 
 // Print the head of the body BEFORE acting, in both paths. The default source
 // is the CHANGELOG section, which for 4.6.1 was 26,355 characters — while the

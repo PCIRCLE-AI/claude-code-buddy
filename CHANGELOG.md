@@ -4,15 +4,34 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+## [4.8.4] — 2026-09-04
+
 ### Added
 
 - **`npm run qa:pre-release` — one door before a release, that says what it did
   not check.** It runs `npm run build`, `verify:artifact` (lint, typecheck,
-  version coherence, doc claims, the isolated suite, the packed artifact and
-  every derived upgrade path — the same sequence `prepublishOnly` runs, now
-  named once instead of copied) and `audit:memory`, reports each step's real
-  exit code, and prints the checks it cannot run: the interactive live journey,
-  the post-release check, and the entry-point start gate.
+  version coherence, doc claims, the isolated suite, the packed artifact,
+  every derived upgrade path, and now the entry-point start gate below — the
+  same sequence `prepublishOnly` runs, now named once instead of copied) and
+  `audit:memory`, reports each step's real exit code, and prints the checks it
+  still cannot run here: the interactive live journey (gated separately by
+  `release:finish`, below) and the post-release check.
+- **A release gate that actually starts every shipped entry point.** Eight
+  binaries and nine hooks ship; every existing check only asked whether a
+  file existed, whether JSON parsed, or whether a referenced path resolved —
+  none of them ran the code. `scripts/check-entry-points-start.mjs`
+  (`npm run check:entry-points-start`, folded into `verify:release`) spawns
+  each of the 17 for real against a throwaway `MEMESH_DIR`: a CLI must accept
+  `--version`, an MCP server must exit 0 on stdin EOF, a long-lived daemon
+  must reach its "running" signal (a log line, or its socket file appearing),
+  and a host runtime with no config must fail closed with a named message,
+  never a raw stack trace. It also fails on any unresolved `${...}` left in
+  `.mcp.json` or `hooks/hooks.json`, evaluated against each manifest's own
+  real substitution environment — `CLAUDE_PLUGIN_ROOT` is always defined for
+  the plugin-loader-only `hooks/hooks.json`, but not for `.mcp.json`, which
+  Claude Code also auto-discovers with no plugin loader involved at all. The
+  Windows skip list is pinned to exactly one entry (`memesh-router`, no
+  `AF_UNIX` there) so it cannot grow silently.
 - **`npm run qa:post-release` — the check that runs on the machine, not on a
   fresh clone.** Every gate here runs on a fresh checkout or a fresh install,
   and all three release incidents lived in state that already existed: v4.7.0
@@ -26,8 +45,54 @@ All notable changes to MeMesh are documented here.
   resolve, not the first one: two installs on one PATH, four releases apart,
   is the shape of the incident, and a check that stops at the first hit cannot
   see it.
+- **Repeatable owner-run live delivery checks.** `npm run qa:live-journey -- --host codex|claude`
+  (`scripts/qa/live-journey.mjs`) starts this checkout's router in a throwaway
+  `MEMESH_DIR`, registers one real host session, sends one exact-session
+  envelope, and passes only on model-visible proof: the Codex path requires the
+  model to quote the envelope's `message_id` and `delivery_id` back on its next
+  turn; the Claude path requires an `intake` receipt written by the interactive
+  session the operator launched with the printed command. Both then stop the
+  session and require `recipient_unavailable` while the durable row stays
+  fetchable and the router still answers `discover`. It refuses to run against
+  `$HOME/.memesh`, reads no auth files, never runs in CI, and records its
+  limitations in the JSON report — including that the Codex registration is
+  harness-driven because `codex exec --ignore-user-config` bypasses the plugin
+  `SessionStart` hook, and that print-mode Claude is unsupported (#275).
+  Closes the "repeatable check in the repository" box on #270 and #272.
+- **A write-side reminder hook.** The read side of MeMesh was already automatic
+  (SessionStart and PreToolUse inject memories) but nothing prompted an agent
+  to *store* anything, so decisions made mid-session were routinely lost until
+  the user said "remember this" (#277). A ninth hook,
+  `scripts/hooks/decision-nudge.js`, runs on `PostToolUse` for `ExitPlanMode`
+  and `AskUserQuestion` — the two calls where a decision has most likely just
+  been made — and adds one line of context asking the model to `remember` it
+  if it is worth keeping. At most once per tool per session, enforced by an
+  `O_EXCL` flag file under `MEMESH_DIR/decision-nudge-flags/`; the hook never
+  opens the database, exits 0 on any malformed input, and writes nothing to
+  the graph itself. Hook inventories in the READMEs (three languages),
+  `docs/ARCHITECTURE.md`, `AGENTS.md`, `CODEMAP.md` and the skill now list nine
+  hooks, and `check-codemap-parity` no longer hard-codes the count.
 
 ### Changed
+
+- **`npm run release:finish` now runs the real-credential checks instead of
+  merely documenting that they exist.** `qa:pre-release` and `qa:live-journey`
+  were both available since the previous release but neither was in the one
+  command that actually cuts a release — a check nobody has to run is a check
+  that gets skipped exactly when a release is rushed. `finish-release.mjs` now
+  runs `npm run qa:pre-release` itself (build + `verify:artifact` +
+  `audit:memory`, several minutes, streamed live) and blocks on its exit code;
+  a receipt cannot substitute here because it can go stale the moment the next
+  commit lands. `qa:live-journey` cannot run unattended — it needs a Codex
+  login or a person at an interactive Claude Code session — so it stays
+  receipt-based: `npm run qa:live-journey -- --host codex|claude --out
+  .qa/<host>-report.json` writes a report, and `release:finish` requires ONE
+  of the two hosts' reports to be readable, `verdict: "PASS"`, recorded
+  against a clean tree, and naming this exact commit — an older PASS proves an
+  earlier revision, not this one. Neither host is preferred; only Codex can be
+  driven unattended today, but a human-run Claude receipt satisfies the gate
+  exactly as well. `.qa/` is gitignored — a receipt is owner-machine evidence,
+  never shipped.
 
 - **The packed-upgrade gate derives its upgrade paths instead of pinning
   them.** `scripts/smoke-packed-upgrade.mjs` named both ends by hand
@@ -44,6 +109,19 @@ All notable changes to MeMesh are documented here.
   the tags unique index. Both rows pass today.
 
 ### Fixed
+
+- **The Claude Code plugin cache never cleaned up an old version after an
+  upgrade — only the ONE it had just replaced.** `upgrade-plugin.sh`'s atomic
+  swap always removed the previous cache directory, but anything left behind
+  by an interrupted upgrade, or one from before this swap mechanism existed,
+  had no path back to zero: measured on the maintainer's machine, 9 stale
+  version directories, 1.2 GB, with nothing ever sweeping them. A new
+  `sweep_stale_cache_versions` removes every OTHER directory under the cache
+  root whose name is exactly `<major>.<minor>.<patch>` after a successful
+  upgrade — never the version just installed, and never the registry's own
+  recorded install path even when that path is a stray non-canonical
+  directory the "repairing it" branch above deliberately leaves for a human,
+  whatever it happens to be named.
 
 - **Three release-gate guards that could not fail, and the silent failure one
   of them was hiding.** A mutation audit reintroduced the defect each guard was
@@ -450,37 +528,6 @@ All notable changes to MeMesh are documented here.
   project-local install still get separate cache slots. `_shared.js`'s
   independent `readUpdateCheckCache()` path formula is untouched by this —
   it only reads, and the filename scheme did not change.
-
-### Added
-
-- **Repeatable owner-run live delivery checks.** `npm run qa:live-journey -- --host codex|claude`
-  (`scripts/qa/live-journey.mjs`) starts this checkout's router in a throwaway
-  `MEMESH_DIR`, registers one real host session, sends one exact-session
-  envelope, and passes only on model-visible proof: the Codex path requires the
-  model to quote the envelope's `message_id` and `delivery_id` back on its next
-  turn; the Claude path requires an `intake` receipt written by the interactive
-  session the operator launched with the printed command. Both then stop the
-  session and require `recipient_unavailable` while the durable row stays
-  fetchable and the router still answers `discover`. It refuses to run against
-  `$HOME/.memesh`, reads no auth files, never runs in CI, and records its
-  limitations in the JSON report — including that the Codex registration is
-  harness-driven because `codex exec --ignore-user-config` bypasses the plugin
-  `SessionStart` hook, and that print-mode Claude is unsupported (#275).
-  Closes the "repeatable check in the repository" box on #270 and #272.
-
-- **A write-side reminder hook.** The read side of MeMesh was already automatic
-  (SessionStart and PreToolUse inject memories) but nothing prompted an agent
-  to *store* anything, so decisions made mid-session were routinely lost until
-  the user said "remember this" (#277). A ninth hook,
-  `scripts/hooks/decision-nudge.js`, runs on `PostToolUse` for `ExitPlanMode`
-  and `AskUserQuestion` — the two calls where a decision has most likely just
-  been made — and adds one line of context asking the model to `remember` it
-  if it is worth keeping. At most once per tool per session, enforced by an
-  `O_EXCL` flag file under `MEMESH_DIR/decision-nudge-flags/`; the hook never
-  opens the database, exits 0 on any malformed input, and writes nothing to
-  the graph itself. Hook inventories in the READMEs (three languages),
-  `docs/ARCHITECTURE.md`, `AGENTS.md`, `CODEMAP.md` and the skill now list nine
-  hooks, and `check-codemap-parity` no longer hard-codes the count.
 
 ## [4.8.3] — 2026-08-31
 

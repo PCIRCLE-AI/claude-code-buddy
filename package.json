@@ -1,7 +1,7 @@
 {
   "name": "@pcircle/memesh",
-  "version": "4.8.3",
-  "description": "MeMesh \u2014 agentic memory for coding agents. Captured from the agent's real work via hooks, recalled when it acts. One SQLite file, zero cloud required.",
+  "version": "4.8.4",
+  "description": "MeMesh — agentic memory for coding agents. Captured from the agent's real work via hooks, recalled when it acts. One SQLite file, zero cloud required.",
   "main": "dist/index.js",
   "type": "module",
   "bin": {
@@ -50,7 +50,8 @@
     "check:surface-parity": "node scripts/check-readme-tool-parity.mjs && node scripts/check-codemap-parity.mjs",
     "audit:prod": "node scripts/check-consumer-audit.mjs",
     "audit:memory": "node scripts/audit/memory-invariants.mjs",
-    "verify:release": "npm run lint && npm run typecheck && node scripts/check-version-coherence.mjs && node scripts/check-generated-mirror.mjs && node scripts/check-agent-message-sync.mjs && npm run check:surface-parity && node scripts/check-doc-claims.mjs && node scripts/audit/verification-audit.mjs && npm run audit:prod",
+    "check:entry-points-start": "node scripts/check-entry-points-start.mjs",
+    "verify:release": "npm run lint && npm run typecheck && node scripts/check-version-coherence.mjs && node scripts/check-generated-mirror.mjs && node scripts/check-agent-message-sync.mjs && npm run check:surface-parity && node scripts/check-doc-claims.mjs && node scripts/audit/verification-audit.mjs && npm run audit:prod && npm run check:entry-points-start",
     "release:finish": "node scripts/finish-release.mjs",
     "verify:artifact": "npm run verify:release && npm run test:isolated && npm run test:packaged && npm run test:packaged:upgrade",
     "prepublishOnly": "npm run build && npm run verify:artifact",

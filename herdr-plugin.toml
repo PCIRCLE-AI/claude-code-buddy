@@ -13,7 +13,7 @@
 # is the honest floor rather than a copied one.
 id = "memesh"
 name = "MeMesh"
-version = "4.8.3"
+version = "4.8.4"
 min_herdr_version = "0.7.0"
 description = "Local SQLite memory shared across coding agents — decisions, lessons, and why the code looks the way it does."
 platforms = ["linux", "macos", "windows"]
