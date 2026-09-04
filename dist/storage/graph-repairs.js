@@ -1,6 +1,7 @@
 import { rebuildFtsIndex, runOnceMigration } from './schema.js';
 import { hasVectorIndex } from './vector-index.js';
 import { lessonSlug } from '../core/lesson-slug.js';
+import { AGENT_MESSAGE_SCOPE_COLUMNS, isFilesystemPathScopeId, lastPathSegment, } from '../core/agent-scope-id.js';
 import { computeSignalScore } from '../core/signal-scorer.js';
 export const SESSION_DEDUPE_KEY = 'session_observation_dedupe';
 export const ZERO_EDIT_RETRACT_KEY = 'session_zero_edit_retract';
@@ -334,5 +335,71 @@ export function repairFusedLessonShellHistory(db) {
         },
     });
     return retired;
+}
+export const AGENT_SCOPE_PATH_KEY = 'agent_scope_path_identity';
+export function normalizeAgentScopePaths(db) {
+    let rewritten = -1;
+    runOnceMigration(db, {
+        key: AGENT_SCOPE_PATH_KEY,
+        version: 1,
+        describe: 'agent message scope path identities',
+        migrate: (conn) => {
+            rewritten = 0;
+            let merged = 0;
+            let blocked = 0;
+            let discarded = 0;
+            const pairs = new Set();
+            for (const { table, columns } of AGENT_MESSAGE_SCOPE_COLUMNS) {
+                for (const column of columns) {
+                    let values;
+                    try {
+                        values = conn.prepare(`SELECT DISTINCT ${column} AS v FROM ${table}`).all();
+                    }
+                    catch {
+                        continue;
+                    }
+                    const update = conn.prepare(`UPDATE ${table} SET ${column} = ? WHERE rowid = ?`);
+                    const drop = conn.prepare(`DELETE FROM ${table} WHERE rowid = ?`);
+                    const ids = conn.prepare(`SELECT rowid AS rid FROM ${table} WHERE ${column} = ?`);
+                    const exists = conn.prepare(`SELECT 1 AS hit FROM ${table} WHERE ${column} = ? LIMIT 1`);
+                    for (const { v } of values) {
+                        if (typeof v !== 'string' || !isFilesystemPathScopeId(v))
+                            continue;
+                        const target = lastPathSegment(v);
+                        if (target === null)
+                            continue;
+                        const isMerge = exists.get(target) !== undefined;
+                        const rows = ids.all(v);
+                        for (const { rid } of rows) {
+                            try {
+                                const changed = Number(update.run(target, rid).changes);
+                                rewritten += changed;
+                                if (changed > 0 && isMerge)
+                                    merged += changed;
+                            }
+                            catch {
+                                if (table === 'agent_message_cursors') {
+                                    discarded += Number(drop.run(rid).changes);
+                                }
+                                else {
+                                    blocked += 1;
+                                }
+                            }
+                        }
+                        if (rows.length > 0)
+                            pairs.add(`${v} → ${target}`);
+                    }
+                }
+            }
+            if (rewritten > 0 || discarded > 0) {
+                const detail = [...pairs].join(', ');
+                note(`rewrote ${rewritten} filesystem-path message scope value(s) to their identity name (${detail})`
+                    + `${merged > 0 ? `; ${merged} joined an identity that already existed` : ''}`
+                    + `${discarded > 0 ? `; ${discarded} duplicate poll cursor(s) dropped` : ''}`
+                    + `${blocked > 0 ? `; ${blocked} left in place because the canonical spelling already holds an equivalent row` : ''}.`);
+            }
+        },
+    });
+    return rewritten;
 }
 //# sourceMappingURL=graph-repairs.js.map

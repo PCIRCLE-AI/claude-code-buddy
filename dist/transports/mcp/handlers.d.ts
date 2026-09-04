@@ -321,15 +321,15 @@ export declare const TOOL_DEFINITIONS: readonly [{
             };
             readonly project: {
                 readonly type: "string";
-                readonly description: "Local project scope shared by sender and recipient.";
+                readonly description: "Local project scope shared by sender and recipient. A stable identifier, never a filesystem path; compared exactly, after Unicode NFC normalisation.";
             };
             readonly sender: {
                 readonly type: "string";
-                readonly description: "Required for send. Stable local sender/agent identifier.";
+                readonly description: "Required for send. Stable local sender/agent identifier; provenance only, and stored exactly as given.";
             };
             readonly recipient: {
                 readonly type: "string";
-                readonly description: "Required for every action except discover. Stable target local agent/host identifier.";
+                readonly description: "Required for every action except discover. Stable target local agent/host identifier, never a filesystem path; compared exactly, after Unicode NFC normalisation, so no prefix is treated as a namespace.";
             };
             readonly target_kind: {
                 readonly type: "string";

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { NAMESPACES } from '../core/types.js';
 import { TITLE_MAX_LENGTH } from '../core/title.js';
 import { AGENT_MESSAGE_JSON_MAX_BYTES, AGENT_NATIVE_MESSAGE_MAX_BYTES } from '../core/agent-messaging.js';
+import { AGENT_SCOPE_ID_MAX_LENGTH, agentScopeIdRejection, canonicalAgentScopeId, } from '../core/agent-scope-id.js';
 const sanitizeName = (s) => s.replace(/[\r\n\t]+/g, ' ').trim();
 const nameField = z.string().min(1).max(255).transform(sanitizeName).refine(s => s.length > 0, {
     message: 'Name must not be blank after sanitization',
@@ -75,9 +76,15 @@ export const TaskStateSchema = z.object({
     blocked: z.string().max(1000).optional(),
     done: z.string().max(1000).optional(),
 }).strict();
+const nonBlankBounded = (max) => z.string().trim().min(1).max(max);
+const agentScopeId = (field) => nonBlankBounded(AGENT_SCOPE_ID_MAX_LENGTH)
+    .transform(canonicalAgentScopeId)
+    .refine((value) => agentScopeIdRejection(field, value) === null, {
+    error: (issue) => agentScopeIdRejection(field, String(issue.input)) ?? `${field} is not a valid identifier.`,
+});
 export const BriefingSchema = z.object({
-    project: z.string().min(1).max(200).optional(),
-    recipient: z.string().trim().min(1).max(200).optional(),
+    project: agentScopeId('project').optional(),
+    recipient: agentScopeId('recipient').optional(),
 }).strict();
 export const WhySchema = z.object({
     file: z.string().min(1).max(500),
@@ -89,7 +96,6 @@ export const UserPatternsSchema = z.object({
     categories: z.array(z.enum(['workSchedule', 'focusAreas', 'workflow', 'strengths', 'learningAreas'])).optional()
         .describe('Specific categories to return. Omit for all.'),
 }).strict();
-const nonBlankBounded = (max) => z.string().trim().min(1).max(max);
 export const ImprovementSchema = z.discriminatedUnion('action', [
     z.object({
         action: z.literal('propose'),
@@ -107,14 +113,15 @@ export const ImprovementSchema = z.discriminatedUnion('action', [
         proposal_id: z.number().int().positive(),
     }).strict(),
 ]);
-const messageProject = nonBlankBounded(200);
-const messageAgentId = nonBlankBounded(200);
+const messageProject = agentScopeId('project');
+const messageRecipient = agentScopeId('recipient');
+const messageSender = nonBlankBounded(AGENT_SCOPE_ID_MAX_LENGTH);
 const messageId = nonBlankBounded(255);
 const messageCursor = nonBlankBounded(160);
 const messageIdempotencyKey = nonBlankBounded(200);
 const messageReceiptBase = {
     project: messageProject,
-    recipient: messageAgentId,
+    recipient: messageRecipient,
     message_id: messageId,
     idempotency_key: messageIdempotencyKey,
 };
@@ -122,8 +129,8 @@ export const MessageSchema = z.discriminatedUnion('action', [
     z.object({
         action: z.literal('send'),
         project: messageProject,
-        sender: messageAgentId,
-        recipient: messageAgentId,
+        sender: messageSender,
+        recipient: messageRecipient,
         target_kind: z.enum(['principal', 'session']).default('principal'),
         idempotency_key: messageIdempotencyKey,
         payload: z.json().refine((value) => new TextEncoder().encode(JSON.stringify(value)).byteLength <= AGENT_MESSAGE_JSON_MAX_BYTES, { message: `payload must be at most ${AGENT_MESSAGE_JSON_MAX_BYTES} UTF-8 bytes when encoded as JSON` }).describe(`Untrusted JSON value. The encoded payload is limited to ${AGENT_MESSAGE_JSON_MAX_BYTES} bytes (64 KiB); native delivery additionally requires the complete envelope to fit ${AGENT_NATIVE_MESSAGE_MAX_BYTES} bytes (16 KiB).`),
@@ -135,7 +142,7 @@ export const MessageSchema = z.discriminatedUnion('action', [
     z.object({
         action: z.literal('poll'),
         project: messageProject,
-        recipient: messageAgentId,
+        recipient: messageRecipient,
         cursor: messageCursor.optional(),
         wait_ms: z.number().int().min(0).max(30_000).default(0),
         limit: z.number().int().min(1).max(100).default(20),
@@ -148,7 +155,7 @@ export const MessageSchema = z.discriminatedUnion('action', [
     z.object({
         action: z.literal('fetch'),
         project: messageProject,
-        recipient: messageAgentId,
+        recipient: messageRecipient,
         target_kind: z.enum(['principal', 'session']).default('principal'),
         message_id: messageId,
     }).strict(),
@@ -176,7 +183,7 @@ export const MessageSchema = z.discriminatedUnion('action', [
     z.object({
         action: z.literal('receipts'),
         project: messageProject,
-        recipient: messageAgentId,
+        recipient: messageRecipient,
         message_id: messageId,
     }).strict(),
 ]);

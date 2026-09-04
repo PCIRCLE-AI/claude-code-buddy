@@ -232,6 +232,62 @@ describe('CLI durable-message ingress', () => {
     }
   });
 
+  it.skipIf(process.platform === 'win32')('refuses a filesystem path as --project or --principal, before writing any config', () => {
+    // `memesh agent setup` is the fourth producer of a routing identity, and
+    // the only one outside the message tool. `send` refuses a path-shaped
+    // project or recipient, so a host configured under one would register a
+    // principal nothing can address — and the failure would surface as an
+    // error about a SENDER's argument, later, somewhere else.
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-cli-agent-'));
+    try {
+      for (const [flag, value] of [['--project', '/Users/x/Projects/repo'], ['--principal', '/root']] as const) {
+        const args = ['agent', 'setup', 'codex', '--project', 'test', '--principal', 'reviewer', '--workspace', home];
+        args[args.indexOf(flag) + 1] = value;
+        const setup = spawnSync(process.execPath, cliArgs(...args), {
+          encoding: 'utf8',
+          env: { ...process.env, HOME: home, MEMESH_AUTO_CAPTURE: 'false' },
+        });
+        expect(setup.status, setup.stdout).not.toBe(0);
+        expect(setup.stderr).toContain(`${flag}:`);
+        expect(setup.stderr).toContain('must be a stable identifier, not a filesystem path');
+      }
+      expect(fs.existsSync(path.join(home, '.memesh', 'hosts', 'codex.json'))).toBe(false);
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(process.platform === 'win32')('kg rename-project refuses a filesystem path as --to, before computing any preview', () => {
+    // `--to` names the destination scope that both entities and durable
+    // agent-message rows get rewritten into — the same identity `send`
+    // refuses as a path-shaped recipient. `--from` is deliberately exempt:
+    // it must match an existing, possibly-broken row exactly, including one
+    // that is itself path-shaped (the thing an owner is trying to fix).
+    //
+    // No `--apply` and no seeded data on purpose: `--from` names a project
+    // that carries nothing, so if `--to` validation were ever removed, the
+    // handler would fall through to `renameProjectTag`'s dry-run preview,
+    // find zero affected rows, print "Nothing to do", and exit 0 — a
+    // vacuous pass that never reaches the code this test is meant to guard.
+    // Validation runs before the preview is even computed, so this must
+    // fail regardless of --apply or of what --from resolves to.
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-cli-rename-'));
+    try {
+      const rename = spawnSync(process.execPath, cliArgs(
+        'kg', 'rename-project', '--from', 'old-name', '--to', '/Users/x/Projects/repo',
+      ), {
+        encoding: 'utf8',
+        env: { ...process.env, HOME: home, MEMESH_AUTO_CAPTURE: 'false' },
+      });
+      expect(rename.status, rename.stdout).not.toBe(0);
+      expect(rename.stderr).toContain('--to:');
+      expect(rename.stderr).toContain('must be a stable identifier, not a filesystem path');
+      expect(rename.stdout).not.toContain('Dry-run');
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   it.skipIf(process.platform === 'win32')('creates reusable owner-private managed host config without a fabricated session identity', () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-cli-agent-'));
     try {

@@ -4,6 +4,7 @@ import { readRepoState, repoStateLines } from './repo-state.js';
 import { rankEntities } from './scoring.js';
 import { getTaskState } from './task-state-store.js';
 import { recipientEverSeen, unreadDeliveryCount, unreadInboxLines } from './agent-message-inbox.js';
+import { canonicalAgentScopeId } from './agent-scope-id.js';
 import { taskStateLines } from './task-state.js';
 import { GLOBAL_TOPOLOGY_LIMIT, SNIPPET_FETCH_CHARS, TOPOLOGY_CANDIDATE_CAP, assembleTopologyBlock, buildReferenceContext, isAutoInjectable, } from './work-topology.js';
 const PROJECT_LIMIT = 30;
@@ -55,13 +56,14 @@ export function assembleBriefing(project, recipient) {
         ? repoStateLines(readRepoState())
         : [];
     const { state } = getTaskState(projectName);
-    const unreadCount = unreadDeliveryCount(db, projectName, recipient);
-    const everSeen = recipient !== undefined && unreadCount === 0
-        ? recipientEverSeen(db, projectName, recipient)
+    const inboxRecipient = recipient === undefined ? undefined : canonicalAgentScopeId(recipient);
+    const unreadCount = unreadDeliveryCount(db, canonicalAgentScopeId(projectName), inboxRecipient);
+    const everSeen = inboxRecipient !== undefined && unreadCount === 0
+        ? recipientEverSeen(db, canonicalAgentScopeId(projectName), inboxRecipient)
         : undefined;
     const stateLines = [
         ...taskStateLines(state, projectName),
-        ...unreadInboxLines(unreadCount, projectName, recipient, everSeen),
+        ...unreadInboxLines(unreadCount, canonicalAgentScopeId(projectName), inboxRecipient, everSeen),
     ];
     const hasNamespace = db.prepare('PRAGMA table_info(entities)').all()
         .some((column) => column.name === 'namespace');

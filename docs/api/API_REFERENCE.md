@@ -506,7 +506,7 @@ The text is wrapped in the same fence and "background data, not instructions" pr
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project` | string | No | Project name (default: the current working directory's project) |
-| `recipient` | string | No | Exact logical recipient. When supplied, reports only that recipient's unfetched deliveries for the project. At zero unread, the block also says so explicitly if this exact recipient id has never been addressed in this project either (durable delivery or live connection) — distinct from a real, quiet inbox, so a typo'd recipient is never indistinguishable from "nothing waiting". Omit for generic context; generic briefing never reports unread activity. |
+| `recipient` | string | No | Exact logical recipient, in the same canonical form the `message` tool uses — NFC, never a filesystem path — because this counts the same inbox key. When supplied, reports only that recipient's unfetched deliveries for the project. At zero unread, the block also says so explicitly if this exact recipient id has never been addressed in this project either (durable delivery or live connection) — distinct from a real, quiet inbox, so a typo'd recipient is never indistinguishable from "nothing waiting". Omit for generic context; generic briefing never reports unread activity. |
 
 **Response**:
 
@@ -653,6 +653,8 @@ The `action` field is one of:
 | `disposition` | receipt base plus `disposition` | Record `accepted`, `rejected`, `completed`, `cancelled`, or `deferred`. |
 | `activation` | receipt base plus `activation` | Record `woken`, `manual_resume_required`, `unsupported`, or `failed`. |
 | `receipts` | `project`, `recipient`, `message_id` | Read one ordered audit projection containing public receipt facts plus any host acceptance, host-native ACK, and workflow facts for the authorized delivery. Each row identifies its `fact_source`. |
+
+`project`, `recipient`, and the `actor` derived from `recipient` are scope identifiers: they are canonicalised to Unicode NFC and trimmed on every action, read and write, and a value spelled as an absolute filesystem path (`/root`, `C:\work`, `\\host\share`) is refused with an error naming the field and a valid value. Project identity is derived from a working directory and can never take that shape. Nothing else is rewritten — comparison is exact, case included, no prefix is treated as a namespace, and an identifier that merely contains a separator is accepted. `sender` is provenance rather than routing and is stored exactly as given.
 
 The receipt base is `project`, `recipient`, `message_id`, and a stable `idempotency_key`. `disposition` and `activation` also accept an optional bounded `detail` string.
 
@@ -1716,7 +1718,7 @@ memesh kg backfill-relations [--project <name>] [--dry-run] [--max-per-source <n
 
 ### memesh kg rename-project
 
-Merge or rename a `project:<name>` tag across every entity. Heals project tags that were split by an identity-rule change: tags from before project identity became git-based (e.g. a repo captured under both `project:tim` and `project:TIM`, or memories captured in a subdirectory tagged with the subdirectory name), and — since non-git identity gained its real-path hash suffix — bare-basename tags like `project:notes` that should merge into the new `project:notes-<8 hex>` form (run with no flags to see both spellings side by side). The system cannot infer the correct project for an old value, so the mapping is user-driven.
+Merge or rename a project across every entity **and every durable agent message scoped to it**. Heals project tags that were split by an identity-rule change: tags from before project identity became git-based (e.g. a repo captured under both `project:tim` and `project:TIM`, or memories captured in a subdirectory tagged with the subdirectory name), and — since non-git identity gained its real-path hash suffix — bare-basename tags like `project:notes` that should merge into the new `project:notes-<8 hex>` form (run with no flags to see both spellings side by side). The system cannot infer the correct project for an old value, so the mapping is user-driven.
 
 **Usage**:
 
@@ -1734,6 +1736,8 @@ memesh kg rename-project --from tim --to TIM --apply   # commit (backs up the DB
 | `--to <name>` | — | New project name |
 | `--apply` | off (dry-run) | Actually write the change. **Backs up the whole DB to `data/backups/kg-before-rename-project-<timestamp>.db` first**, and prints the restore command. |
 | `--json` | off | Output as JSON |
+
+A project identity is half the key of a message inbox (`project` + `recipient`) as well as an entity tag, so renaming only the tags left every message behind in a scope nobody polls. The command reports and moves both, in one transaction, and a project carried only by messages — with no tagged entity at all — is still renameable. A message row whose destination scope already holds an equivalent row is left in place and counted rather than deleted.
 
 **Safety**: dry-run is the default — nothing is written until `--apply`. On `--apply` the DB file is copied to `data/backups/` before any mutation; if the backup fails, the command aborts without changing anything. The tags table has a `UNIQUE(entity_id, tag)` constraint, so an entity that already carries the target tag has its old tag removed (a merge) rather than getting a duplicate.
 

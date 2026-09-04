@@ -312,6 +312,49 @@ The limitations these checks always declare:
   `message fetch` still returned the payload. That pairing, not the string, is
   what attributes the failure to the stopped recipient.
 
+## Scope identifiers
+
+`project` and `recipient` together key one inbox, and `actor` is derived from
+`recipient`, so how those three are spelled is part of the contract rather than
+a formatting detail. Two spellings of one name are two inboxes: the recipient
+that fetches under one never sees what was sent under the other, and a
+`briefing` unread count is computed per spelling.
+
+Every message action canonicalises them to Unicode NFC and trims surrounding
+whitespace, on reads as well as writes, so a decomposed spelling reaches the
+rows a composed one wrote.
+
+A value spelled as an **absolute filesystem path is refused** — a POSIX path
+(`/root`), a Windows drive path (`C:\work`), or a UNC path (`\\host\share`).
+Project identity is derived from the working directory and can never take that
+shape, so such a value is not an identity MeMesh produced; the error names the
+field and a valid value. Callers that previously passed a home directory or a
+checkout path where the agent's or project's NAME belonged must pass the name.
+Nothing else is rewritten: identifiers are compared exactly, case included, and
+an identifier that merely contains a separator (`team/reviewer`) is accepted.
+MeMesh does not treat any prefix as a namespace, so `claude-code:reviewer` and
+`reviewer` are two different recipients.
+
+The same rule covers every surface that reads or writes that key, not only the
+`message` tool: `briefing` counts unfetched deliveries for one exact
+(`project`, `recipient`), and `memesh agent setup --project/--principal` writes
+the identity a host will register under. A path-shaped value is refused there
+too, at the moment the config is written, rather than surfacing later as an
+error about some other agent's send.
+
+`sender` is not covered by any of this. It is provenance rather than routing —
+it keys no inbox, and it keys the send idempotency record — so it is stored
+exactly as given, and the transport-bound provenance remains the field to trust.
+
+Rows written before this rule are repaired once, in place, at the first
+database open after upgrade. Renaming a project across both its entity tags and
+its message scopes is a separate, deliberate, owner-run operation:
+
+```bash
+memesh kg rename-project --from <old> --to <new>          # dry run
+memesh kg rename-project --from <old> --to <new> --apply  # backs up first
+```
+
 ## Identity and lifecycle
 
 A **principal** is the stable logical recipient. A **session** is one live host connection for that principal. A **generation** changes when that session is replaced. An exact-session target never reroutes. A principal target can deliver only to an eligible active session after its activation checkpoint; it does not replay historical inbox contents into a first session.
