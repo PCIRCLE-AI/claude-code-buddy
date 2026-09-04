@@ -74,6 +74,19 @@ All notable changes to MeMesh are documented here.
 
 ### Fixed
 
+- **The Claude Code plugin cache never cleaned up an old version after an
+  upgrade — only the ONE it had just replaced.** `upgrade-plugin.sh`'s atomic
+  swap always removed the previous cache directory, but anything left behind
+  by an interrupted upgrade, or one from before this swap mechanism existed,
+  had no path back to zero: measured on the maintainer's machine, 9 stale
+  version directories, 1.2 GB, with nothing ever sweeping them. A new
+  `sweep_stale_cache_versions` removes every OTHER directory under the cache
+  root whose name is exactly `<major>.<minor>.<patch>` after a successful
+  upgrade — never the version just installed, and never the registry's own
+  recorded install path even when that path is a stray non-canonical
+  directory the "repairing it" branch above deliberately leaves for a human,
+  whatever it happens to be named.
+
 - **Three release-gate guards that could not fail, and the silent failure one
   of them was hiding.** A mutation audit reintroduced the defect each guard was
   written for and re-ran the suite: with all three defects present at once,

@@ -30,6 +30,54 @@
 
 set -uo pipefail
 
+# D9: removes every OTHER stale version directory under $root, not just the
+# one an upgrade just swapped out. Before the atomic-swap rename elsewhere in
+# this script, an interrupted or pre-this-mechanism upgrade could leave a
+# version directory behind with nothing left to remove it later — measured
+# on a real machine: 9 old version directories, 1.2 GB, accumulated with no
+# bound. Only entries whose full name is exactly `<major>.<minor>.<patch>`
+# are touched, so a `.staging-*`/`.previous-*` marker from a genuinely
+# concurrent run (should be impossible under $LOCK_DIR, but this check does
+# not rely on that) or anything else unexpected under $root is left alone.
+# $keep_version is always excluded; an optional $also_keep protects a second
+# name — the registry's OWN recorded install path (however it is spelled),
+# so the noncanonical-path repair in section 2 below can keep leaving that
+# one directory alone for a human to clean up, exactly as it already did
+# before this function existed.
+#
+# Defined this early, and callable on its own, so
+# `tests/upgrade-plugin-cache-sweep.test.ts` can source this file with
+# MEMESH_UPGRADE_PLUGIN_SOURCE_ONLY=1 (below) and call it directly against a
+# throwaway root — testing the shipped function, not a hand-copied
+# reimplementation of it — without running the rest of this script, which
+# talks to a real Claude Code marketplace checkout.
+sweep_stale_cache_versions() {
+  local root="$1" keep_version="$2" also_keep="${3:-}" entry name
+  [ -d "$root" ] || return 0
+  for entry in "$root"/*; do
+    [ -d "$entry" ] || continue
+    name="$(basename "$entry")"
+    [ "$name" = "$keep_version" ] && continue
+    [ -n "$also_keep" ] && [ "$name" = "$also_keep" ] && continue
+    if printf '%s' "$name" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+      rm -rf "$entry" 2>/dev/null
+      if [ -e "$entry" ]; then
+        echo "WARNING: could not remove stale cached version at $entry — remove it manually." >&2
+      fi
+    fi
+  done
+}
+
+# Test-only escape hatch: source this file with this variable set to load
+# `sweep_stale_cache_versions` (and any other function defined above this
+# guard) without running the rest of the script. `return` exits a sourced
+# file without killing the parent shell; `|| exit 0` is the fallback for the
+# (unsupported, but harmless to guard) case of someone executing the script
+# directly with the variable set.
+if [ "${MEMESH_UPGRADE_PLUGIN_SOURCE_ONLY:-0}" = "1" ]; then
+  return 0 2>/dev/null || exit 0
+fi
+
 if [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
   CLAUDE_CONFIG_ROOT="$CLAUDE_CONFIG_DIR"
 elif [ -n "${HOME:-}" ]; then
@@ -282,12 +330,28 @@ ENTRY_SNAPSHOT="$(INSTALL_REGISTRY="$INSTALL_REGISTRY" CACHE_ROOT="$CACHE_ROOT" 
     && path.resolve(entry.installPath) === expectedPath
     ? 'canonical'
     : 'noncanonical';
-  process.stdout.write(['selected', index, version, sha, registrySha256, installPathState, String(opened.dev), String(opened.ino)].join('\\t'));
+  // D9's cache sweep must never remove a directory the registry ITSELF
+  // still points to, canonical or not — this is the one directory the
+  // 'noncanonical … repairing it' path above (section 2) deliberately
+  // leaves in place. Reported as a bare basename, and only when that
+  // basename resolves back under this same cache root with no '..'
+  // segment, so a crafted absolute installPath from a tampered registry
+  // cannot smuggle an arbitrary path into the sweep's exclusion list.
+  const rootDir = path.resolve(process.env.CACHE_ROOT);
+  let recordedBasename = '';
+  if (typeof entry.installPath === 'string' && path.isAbsolute(entry.installPath)) {
+    const resolved = path.resolve(entry.installPath);
+    const base = path.basename(resolved);
+    if (path.join(rootDir, base) === resolved && !/[\\r\\n\\t]/.test(base)) {
+      recordedBasename = base;
+    }
+  }
+  process.stdout.write(['selected', index, version, sha, registrySha256, installPathState, String(opened.dev), String(opened.ino), recordedBasename].join('\\t'));
 ")" || {
   echo "ERROR: could not read the installed memesh entries from $INSTALL_REGISTRY" >&2
   exit 1
 }
-IFS=$'\t' read -r ENTRY_STATE ENTRY_INDEX CURRENT_VERSION INSTALLED_SHA ORIGINAL_REGISTRY_SHA256 INSTALL_PATH_STATE ORIGINAL_REGISTRY_DEV ORIGINAL_REGISTRY_INO <<< "$ENTRY_SNAPSHOT"
+IFS=$'\t' read -r ENTRY_STATE ENTRY_INDEX CURRENT_VERSION INSTALLED_SHA ORIGINAL_REGISTRY_SHA256 INSTALL_PATH_STATE ORIGINAL_REGISTRY_DEV ORIGINAL_REGISTRY_INO RECORDED_INSTALL_BASENAME <<< "$ENTRY_SNAPSHOT"
 case "$ENTRY_STATE" in
   identity-changed)
     echo "ERROR: installed_plugins.json changed file identity while this upgrade was reading it — refusing to continue." >&2
@@ -619,6 +683,11 @@ if [ -e "$PREVIOUS_PATH" ] || [ -L "$PREVIOUS_PATH" ]; then
   echo "WARNING: upgrade succeeded, but the previous cache could not be removed at $PREVIOUS_PATH." >&2
   echo "         Remove it manually when no Claude Code process is using it: rm -rf \"$PREVIOUS_PATH\"" >&2
 fi
+
+# D9: sweep every OTHER stale version directory under $CACHE_ROOT, not just
+# the one this run just swapped out — see `sweep_stale_cache_versions`'s own
+# definition near the top of this file for why.
+sweep_stale_cache_versions "$CACHE_ROOT" "$NEW_VERSION" "$RECORDED_INSTALL_BASENAME"
 
 # ─── 7. Done ─────────────────────────────────────────────────────────────
 echo ""
