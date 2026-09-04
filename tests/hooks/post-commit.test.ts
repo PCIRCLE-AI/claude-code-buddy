@@ -530,4 +530,42 @@ describe('Feature: Post-Commit Hook', () => {
 
     expect(fs.existsSync(dbPath), 'a disabled hook must not even create the database').toBe(false);
   });
+  /**
+   * #240, widened. This hook runs on PostToolUse, so every later Bash call
+   * while HEAD is unchanged rebuilds the same `commit-<sha>` payload. It used
+   * to APPEND it: three ACTIVE commit entities on the maintainer's graph stood
+   * at 6 observations / 3 distinct, one identical triple re-written 107
+   * seconds after the first.
+   */
+  it('Scenario: re-capturing the same commit appends no duplicate observation', () => {
+    const c = commit('feat(auth): add PKCE flow');
+    const input = {
+      tool_name: 'Bash',
+      cwd: repoDir,
+      tool_input: { command: 'git commit -m "feat(auth): add PKCE flow"' },
+      tool_output: c.output,
+    };
+
+    runHook(input);
+    const db1 = openDb();
+    const first = (db1.prepare(
+      'SELECT o.content AS content FROM observations o JOIN entities e ON e.id = o.entity_id WHERE e.name = ? ORDER BY o.id',
+    ).all(`commit-${c.hash}`) as Row[]).map((r) => r.content);
+    db1.close();
+    expect(first.length, 'the first capture must store the commit').toBeGreaterThan(0);
+
+    // The same tool output seen again — a user scrolling back, a retried Bash
+    // call, or simply the next command in the same session.
+    runHook(input);
+    runHook(input);
+
+    const db = openDb();
+    const rows = (db.prepare(
+      'SELECT o.content AS content FROM observations o JOIN entities e ON e.id = o.entity_id WHERE e.name = ? ORDER BY o.id',
+    ).all(`commit-${c.hash}`) as Row[]).map((r) => r.content);
+    db.close();
+
+    expect(rows).toEqual(first);
+    expect(new Set(rows).size, 'every stored line is distinct').toBe(rows.length);
+  });
 });

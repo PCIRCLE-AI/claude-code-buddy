@@ -430,4 +430,86 @@ describe('Feature: PreCompact Hook', () => {
     expect(parsed.systemMessage).toContain('could not save');
     expect(parsed.systemMessage).not.toMatch(/^Saved /);
   });
+  /**
+   * #240, widened. The Stop hook got a duplicate guard in 4.8.2; this hook did
+   * not, and it is the one that runs MOST often per session — a session
+   * compacts many times. On the maintainer's real graph that produced 2,188
+   * duplicate observation rows across 58 `pre-compact-<sessionId>` entities
+   * (worst: 220 observations, 2 distinct), and the entity for the session that
+   * found the defect was still growing while it was being read.
+   *
+   * The guard is on CONTENT, not on "this session already has an entity",
+   * because a session legitimately compacts more than once — the second test
+   * below is the one an existence guard would fail.
+   */
+  it('Scenario: a second compaction of the same session appends no duplicate observation', () => {
+    const input = {
+      session_id: 'sess-repeat',
+      transcript_path: '',
+      cwd: '/tmp/myproject',
+      hook_event_name: 'PreCompact',
+      trigger: 'auto',
+    };
+    runHook(input);
+    runHook(input);
+    runHook(input);
+
+    const db = openDb();
+    const rows = db.prepare(
+      'SELECT o.content AS content FROM observations o JOIN entities e ON e.id = o.entity_id WHERE e.name = ? ORDER BY o.id',
+    ).all('pre-compact-sess-repeat') as Row[];
+    const entities = db.prepare('SELECT COUNT(*) AS n FROM entities WHERE name = ?').get('pre-compact-sess-repeat') as { n: number };
+    db.close();
+
+    expect(entities.n).toBe(1);
+    expect(rows.map((r) => r.content)).toEqual(['Compaction reason: auto', 'Tool calls: 0']);
+  });
+
+  it('Scenario: a later compaction that recorded DIFFERENT work is still stored', () => {
+    // What a per-session existence guard would have thrown away. The first
+    // compaction saw nothing; the second saw a real transcript. Both are true,
+    // and only the repeated line is dropped.
+    const transcript = path.join(testDir, 'transcript.jsonl');
+    fs.writeFileSync(transcript, JSON.stringify({
+      type: 'assistant',
+      message: { content: [{ type: 'tool_use', name: 'Edit', input: { file_path: '/repo/src/auth.ts' } }] },
+    }) + '\n');
+
+    runHook({ session_id: 'sess-grows', transcript_path: '', cwd: '/tmp/myproject', trigger: 'auto' });
+    runHook({ session_id: 'sess-grows', transcript_path: transcript, cwd: '/tmp/myproject', trigger: 'manual' });
+
+    const db = openDb();
+    const rows = db.prepare(
+      'SELECT o.content AS content FROM observations o JOIN entities e ON e.id = o.entity_id WHERE e.name = ? ORDER BY o.id',
+    ).all('pre-compact-sess-grows') as Row[];
+    db.close();
+
+    expect(rows.map((r) => r.content)).toEqual([
+      'Compaction reason: auto',
+      'Tool calls: 0',
+      'Compaction reason: manual',
+      'Tool calls: 1',
+      'Files edited: auth.ts',
+    ]);
+  });
+
+  it('Scenario: a no-op re-capture does not claim "Saved 2 observations"', () => {
+    // The message read `Saved ${obsLines.length}` — the count BUILT, not the
+    // count stored. With the dedupe in place that sentence would announce a
+    // save on a run that wrote nothing: a success-shaped lie of exactly the
+    // kind this hook's own comments exist to prevent.
+    const input = {
+      session_id: 'sess-message',
+      transcript_path: '',
+      cwd: '/tmp/myproject',
+      hook_event_name: 'PreCompact',
+      trigger: 'auto',
+    };
+    const first = JSON.parse(runHook(input).trim());
+    expect(first.systemMessage).toBe('Saved 2 observations to MeMesh before compaction');
+
+    const second = JSON.parse(runHook(input).trim());
+    expect(second.systemMessage).not.toMatch(/^Saved /);
+    expect(second.systemMessage).toContain('already captured');
+  });
 });

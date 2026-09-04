@@ -168,6 +168,17 @@ process.stdin.on('end', () => {
       // TYPE, which a hand-typed `memesh learn` satisfied all by itself.
       // The commit subject IS the title — git authors already wrote a
       // one-line human summary; nothing to synthesize.
+      //
+      // Re-capture of an already-stored commit is expected and harmless: this
+      // hook runs on PostToolUse, so any later Bash call while HEAD is
+      // unchanged rebuilds the same `commit-<sha>` payload. It used to APPEND
+      // it — three commit entities on the maintainer's graph reached 6
+      // observations / 3 distinct, one triple re-written 107 seconds after the
+      // first. captureEntity now refuses to store an observation whose exact
+      // content is already on the entity (#240, widened), which is the right
+      // guard here rather than "skip if the entity exists": a sha is immutable,
+      // so any line that DOES differ on a later run (diff stats that failed the
+      // first time and succeeded now) is new information and must still land.
       const written = captureEntity(db, {
         name: entityName,
         type: 'commit',

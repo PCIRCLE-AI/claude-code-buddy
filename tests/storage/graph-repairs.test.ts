@@ -105,7 +105,7 @@ const nameA = `lesson-proj-${lessonSlug('fake did not echo the write')}`;
 const nameB = `lesson-proj-${lessonSlug('shared pattern list has three consumers')}`;
 const nameC = `lesson-proj-${lessonSlug('zebra-token watcher grep exit is not a verdict')}`;
 
-describe('#240 — duplicate session observations are removed once', () => {
+describe('#240 — duplicate observations are removed once, on ANY entity', () => {
   it('keeps one of each and the invariant detector goes green', () => {
     seed((db) => {
       const id = insertEntity(db, 'session-abc-summary', 'session-insight');
@@ -115,9 +115,29 @@ describe('#240 — duplicate session observations are removed once', () => {
         ins.run(id, 'Command: git status --short');
         ins.run(id, 'Command: npm view @pcircle/memesh version');
       }
-      // A non-session entity with repeats is NOT the hook's defect and is left alone.
+      // Version 1 of this pass filtered `e.name LIKE 'session-%'`, so the two
+      // families below — the ones that actually held 2,202 duplicate rows on
+      // the maintainer's graph — were unreachable by it. They are the reason
+      // the scope is now every entity.
+      const pre = insertEntity(db, 'pre-compact-019ff9f6-6b8f', 'session-summary');
+      for (let compaction = 0; compaction < 3; compaction++) {
+        ins.run(pre, 'Compaction reason: auto');
+        ins.run(pre, 'Tool calls: 0');
+      }
+      const commit = insertEntity(db, 'commit-32e98b8', 'commit');
+      for (let capture = 0; capture < 2; capture++) {
+        ins.run(commit, 'fix(memory): stop re-appending the same observation');
+        ins.run(commit, 'Branch: main');
+        ins.run(commit, 'Diff stats: 3 files changed, 45 insertions(+), 12 deletions(-)');
+      }
+      // A name nothing in this project writes, to pin that the pass is keyed
+      // to the QUESTION and not to a third name pattern.
       const other = insertEntity(db, 'plain-note', 'note');
       ins.run(other, 'same'); ins.run(other, 'same');
+      // A history log: the duplicate is unreachable (no reader selects
+      // observations.created_at) so it is repaired like any other.
+      const task = insertEntity(db, 'task-state:proj', 'task-state');
+      ins.run(task, 'next cleared'); ins.run(task, 'done: shipped'); ins.run(task, 'next cleared');
     });
     expect(runInvariants().status, 'fixture must reproduce the defect before repair').toBe(1);
 
@@ -127,13 +147,117 @@ describe('#240 — duplicate session observations are removed once', () => {
       'Command: git status --short',
       'Command: npm view @pcircle/memesh version',
     ]);
-    expect(observations(db, 'plain-note')).toEqual(['same', 'same']);
-    expect(db.prepare('SELECT value FROM memesh_metadata WHERE key = ?').get(SESSION_DEDUPE_KEY)).toEqual({ value: '1' });
+    expect(observations(db, 'pre-compact-019ff9f6-6b8f')).toEqual([
+      'Compaction reason: auto',
+      'Tool calls: 0',
+    ]);
+    expect(observations(db, 'commit-32e98b8')).toEqual([
+      'fix(memory): stop re-appending the same observation',
+      'Branch: main',
+      'Diff stats: 3 files changed, 45 insertions(+), 12 deletions(-)',
+    ]);
+    expect(observations(db, 'plain-note')).toEqual(['same']);
+    expect(observations(db, 'task-state:proj')).toEqual(['next cleared', 'done: shipped']);
+    expect(db.prepare('SELECT value FROM memesh_metadata WHERE key = ?').get(SESSION_DEDUPE_KEY)).toEqual({ value: '2' });
     const kg = new KnowledgeGraph(db);
     expect(kg.search('Significant').map((e) => e.name)).toEqual(['session-abc-summary']);
+    expect(kg.search('Compaction').map((e) => e.name)).toEqual(['pre-compact-019ff9f6-6b8f']);
     closeDatabase();
 
     expect(runInvariants().status).toBe(0);
+  });
+
+  it('leaves a lesson bucket alone: a repeated line there is a BLOCK field, not a duplicate fact', () => {
+    // The one exception, and the reason it is not an allowlist: `groupLessons`
+    // (graph-repairs.ts) cuts a lesson entity's observations into lessons at
+    // each `Error: ` line, so the list is ORDERED BLOCKS and a repeat is
+    // positional. Two lessons in one bucket sharing "Root cause: a" is
+    // ordinary; deleting the second copy merges them, and the split that runs
+    // right after this pass would then write one lesson where there were two.
+    // Every other reader selects `content` and never `created_at`, which is
+    // why a repeat is unreachable everywhere else.
+    seed((db) => {
+      const id = insertEntity(db, 'lesson-proj-other', 'lesson_learned', ['project:proj', 'source:explicit']);
+      const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+      for (const line of [
+        'Error: first thing', 'Root cause: a', 'Fix: b', 'Prevention: c',
+        'Error: second thing', 'Root cause: a', 'Fix: b', 'Prevention: c',
+      ]) ins.run(id, line);
+    });
+    // Exit 1 here is #241's verdict on the fused bucket, which is correct and
+    // is what the split below repairs. The point of this case is the OTHER
+    // invariant: shared block fields must not read as duplicate observations.
+    const before = runInvariants();
+    expect(before.status).toBe(1);
+    expect(before.stdout).toContain('ok   no-entity-carries-the-same-observation-twice');
+    expect(before.stdout).not.toContain('FAIL no-entity-carries-the-same-observation-twice');
+
+    const db = repaired();
+    // The split ran (that IS this bucket's defect, #241) and every field
+    // followed its own lesson — nothing was merged by a dedupe.
+    expect(observations(db, `lesson-proj-${lessonSlug('first thing')}`))
+      .toEqual(['Error: first thing', 'Root cause: a', 'Fix: b', 'Prevention: c']);
+    expect(observations(db, `lesson-proj-${lessonSlug('second thing')}`))
+      .toEqual(['Error: second thing', 'Root cause: a', 'Fix: b', 'Prevention: c']);
+    closeDatabase();
+  });
+
+  it('leaves the same field-sharing repeat alone on type=lesson and type=mistake, not only lesson_learned', () => {
+    // `groupLessons` and the dashboard's `parseStructuredBlocks`
+    // (dashboard/src/components/LessonCards.tsx) key their positional read
+    // on CONTENT shape, not on `type === 'lesson_learned'`, and the rest of
+    // this repository already treats `lesson_learned`, `lesson` and
+    // `mistake` as one family (src/core/analytics.ts,
+    // src/core/work-topology.ts, src/core/doctor.ts,
+    // scripts/hooks/_shared.js). A name that does NOT end in `-other` keeps
+    // #241's fusion-split pass out of this case, so only the dedupe pass
+    // under test is exercised.
+    for (const type of ['lesson', 'mistake']) {
+      seed((db) => {
+        const id = insertEntity(db, `${type}-proj-shared-fields`, type, [`project:${type}`]);
+        const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+        for (const line of [
+          'Error: first thing', 'Root cause: a', 'Fix: b', 'Prevention: c',
+          'Error: second thing', 'Root cause: a', 'Fix: b', 'Prevention: c',
+        ]) ins.run(id, line);
+      });
+      const before = runInvariants();
+      expect(before.status, before.stdout).toBe(0);
+      expect(before.stdout).toContain('ok   no-entity-carries-the-same-observation-twice');
+
+      const db = repaired();
+      expect(observations(db, `${type}-proj-shared-fields`)).toEqual([
+        'Error: first thing', 'Root cause: a', 'Fix: b', 'Prevention: c',
+        'Error: second thing', 'Root cause: a', 'Fix: b', 'Prevention: c',
+      ]);
+      closeDatabase();
+    }
+  });
+
+  it('removes no DISTINCT observation: an entity whose lines all differ is untouched', () => {
+    seed((db) => {
+      const ins = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+      // Two real compactions of one session that recorded different work.
+      // A per-session EXISTENCE guard would have thrown the second away; the
+      // content guard keeps every line that says something new.
+      const pre = insertEntity(db, 'pre-compact-two-real', 'session-summary');
+      ins.run(pre, 'Compaction reason: auto');
+      ins.run(pre, 'Tool calls: 0');
+      ins.run(pre, 'Compaction reason: manual');
+      ins.run(pre, 'Tool calls: 47');
+      ins.run(pre, 'Files edited: graph-repairs.ts, pre-compact.js');
+    });
+    expect(runInvariants().status, 'nothing here is a duplicate').toBe(0);
+
+    const db = repaired();
+    expect(observations(db, 'pre-compact-two-real')).toEqual([
+      'Compaction reason: auto',
+      'Tool calls: 0',
+      'Compaction reason: manual',
+      'Tool calls: 47',
+      'Files edited: graph-repairs.ts, pre-compact.js',
+    ]);
+    closeDatabase();
   });
 
   it('is idempotent: a second open changes nothing', () => {

@@ -12,17 +12,18 @@ const ZERO_EDITS_RETRACTED = ', files edited through Bash (count not recorded be
 function note(line) {
     process.stderr.write(`MeMesh: ${line}\n`);
 }
-export function dedupeSessionObservations(db) {
+export function dedupeObservations(db) {
     let removed = -1;
     runOnceMigration(db, {
         key: SESSION_DEDUPE_KEY,
-        version: 1,
-        describe: 'session observation dedupe',
+        version: 2,
+        describe: 'observation dedupe',
         migrate: (conn) => {
             const affected = conn
-                .prepare(`SELECT DISTINCT e.id FROM entities e JOIN observations o ON o.entity_id = e.id
-           WHERE e.name LIKE 'session-%'
-           GROUP BY e.id, o.content HAVING COUNT(o.id) > 1`)
+                .prepare(`SELECT DISTINCT o.entity_id AS id FROM observations o
+           JOIN entities e ON e.id = o.entity_id
+           WHERE e.type NOT IN ('lesson_learned', 'lesson', 'mistake')
+           GROUP BY o.entity_id, o.content HAVING COUNT(o.id) > 1`)
                 .all();
             removed = 0;
             const del = conn.prepare(`DELETE FROM observations WHERE entity_id = ? AND id NOT IN (
@@ -31,7 +32,7 @@ export function dedupeSessionObservations(db) {
                 removed += Number(del.run(row.id, row.id).changes);
             if (removed > 0) {
                 rebuildFtsIndex(conn);
-                note(`removed ${removed} duplicate observation(s) from ${affected.length} session entit${affected.length === 1 ? 'y' : 'ies'} (written by 4.8.1 hooks).`);
+                note(`removed ${removed} duplicate observation(s) from ${affected.length} entit${affected.length === 1 ? 'y' : 'ies'} (written by hooks up to 4.8.3).`);
             }
         },
     });

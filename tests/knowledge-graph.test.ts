@@ -167,6 +167,73 @@ describe('Feature: Knowledge Graph', () => {
       expect(entity!.observations).toContain('Second observation');
     });
 
+    it('never stores the same observation content twice on one entity (#240, widened to createEntity)', () => {
+      kg.createEntity('Rust', 'language', {
+        observations: ['Memory safety without a garbage collector'],
+      });
+      // Re-append the SAME content plus one genuinely new observation — the
+      // repeat must be dropped, the new one must land.
+      kg.createEntity('Rust', 'language', {
+        observations: ['Memory safety without a garbage collector', 'Ownership model'],
+      });
+
+      const entity = kg.getEntity('Rust');
+      expect(entity!.observations).toEqual([
+        'Memory safety without a garbage collector',
+        'Ownership model',
+      ]);
+    });
+
+    it('does not re-duplicate observations when re-remembering a reactivated (archived) entity', () => {
+      // archiveEntity() removes the FTS row but never deletes the
+      // `observations` rows (forget() "never permanently deletes data"), so
+      // the dedup set for a reactivated entity must still see prior content
+      // rather than treating it as empty.
+      kg.createEntity('Zig', 'language', {
+        observations: ['Comptime is the whole language'],
+      });
+      kg.archiveEntity('Zig');
+      kg.createEntity('Zig', 'language', {
+        observations: ['Comptime is the whole language'],
+      });
+
+      const entity = kg.getEntity('Zig');
+      expect(entity!.observations).toEqual(['Comptime is the whole language']);
+    });
+
+    it('does NOT dedupe observations on lesson-family entities — groupLessons reads them as ordered blocks', () => {
+      // learn() intentionally allows re-submitting the SAME error text onto
+      // the same entity (lesson-engine.ts: "re-submitting the SAME error
+      // text still lands on the same slug"), appending a second `Error:`
+      // block with a different Fix. A content-dedup guard here would drop
+      // the second `Error: X` as a repeat of the first and fuse both blocks
+      // into one, silently discarding `Fix: A`.
+      for (const type of ['lesson_learned', 'lesson', 'mistake']) {
+        const name = `lesson-${type}-fixture`;
+        kg.createEntity(name, type, {
+          observations: [
+            'Error: X',
+            'Root cause: Not specified',
+            'Fix: A',
+            'Prevention: Review similar code paths',
+          ],
+        });
+        kg.createEntity(name, type, {
+          observations: [
+            'Error: X',
+            'Root cause: Not specified',
+            'Fix: B',
+            'Prevention: Review similar code paths',
+          ],
+        });
+
+        const entity = kg.getEntity(name);
+        expect(entity!.observations.filter((o) => o === 'Error: X')).toHaveLength(2);
+        expect(entity!.observations).toContain('Fix: A');
+        expect(entity!.observations).toContain('Fix: B');
+      }
+    });
+
     it('should dedupe tags and preserve original type on duplicate entity', () => {
       kg.createEntity('TypeScript', 'language', {
         tags: ['frontend'],

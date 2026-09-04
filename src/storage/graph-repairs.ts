@@ -22,7 +22,7 @@
 //
 // Three passes, each owning exactly one invariant from memory-invariants.mjs:
 //
-//   dedupeSessionObservations  → stop-summary-no-duplicate-observations
+//   dedupeObservations         → no-entity-carries-the-same-observation-twice
 //   retractZeroEditClaims      → stop-summary-does-not-assert-zero-edits-for-bash-sessions
 //   splitFusedLessons          → explicit-lessons-not-fused-into-other-bucket
 //
@@ -83,26 +83,68 @@ function note(line: string): void {
 }
 
 /**
- * #240 — session entities carry each observation once.
+ * #240 — an entity carries each observation once.
  *
  * The Stop hook re-appended the same summary on every Stop when a session's
  * edits went through Bash. Deletes every observation whose exact content
- * already appears on the same `session-*` entity with a lower id.
+ * already appears on the same entity with a lower id.
+ *
+ * SCOPE, version 2: every entity except the lesson family
+ * (`lesson_learned`, `lesson`, `mistake`), not `session-%`.
+ *
+ * Version 1 filtered on `e.name LIKE 'session-%'` — the name the one hook
+ * fixed for #240 wrote. The PreCompact and PostToolUse-commit hooks kept
+ * writing the same duplicates under `pre-compact-<sessionId>` and
+ * `commit-<sha>`, and this repair could not touch a row of it: 2,202
+ * duplicate rows on the maintainer's graph, unreachable by the pass whose
+ * whole job was to remove them. The invariant this pass owns
+ * (`no-entity-carries-the-same-observation-twice`) was re-keyed to the
+ * question rather than the name; so is this.
+ *
+ * The version bump from 1 to 2 is what makes it run again. `runOnceMigration`
+ * stores the version under `SESSION_DEDUPE_KEY`, and every graph that opened
+ * under 4.8.2+ already has `1` there — widening the SQL alone would be a
+ * repair that reads as applied and never fires. The key STRING is unchanged
+ * on purpose: it is persisted state, and renaming it would restart the
+ * bookkeeping rather than continue it.
+ *
+ * Re-running is safe: deleting rows that no longer exist is a no-op, so a
+ * graph already cleaned by version 1 loses nothing.
+ *
+ * `lesson_learned`, `lesson` and `mistake` are the types excluded — the same
+ * three types the rest of this repository already treats as one lesson
+ * family (src/core/analytics.ts, src/core/work-topology.ts,
+ * src/core/doctor.ts, scripts/hooks/_shared.js) — and the predicate matches
+ * the invariant's exactly so the pass and the check it owns cannot drift.
+ * Every reader that consumes observations as CONTENT selects `content` alone
+ * (the one `created_at` select is `splitFusedLessons` below, which moves rows
+ * and never displays it), so a repeated row is invisible on every OTHER type.
+ * On the lesson family there are two readers that treat the list as ORDERED
+ * BLOCKS instead: `groupLessons` below, cutting a lesson bucket at each
+ * `Error: ` line, and the dashboard's `parseStructuredBlocks`
+ * (dashboard/src/components/LessonCards.tsx), which does the same cut keyed
+ * on content shape rather than type — so it reaches `lesson` and `mistake`
+ * entities too, not only `lesson_learned`. Deleting a repeat there is not
+ * removing a duplicate fact, it is merging two lessons — two blocks in one
+ * bucket legitimately share a `Fix:` or `Root cause:` line, and the second
+ * copy of that line belongs to the second lesson. `splitFusedLessons` runs
+ * after this pass and parses exactly those rows.
  *
  * @returns number of duplicate rows removed, or -1 if the pass did not run
  */
-export function dedupeSessionObservations(db: MemeshDatabase): number {
+export function dedupeObservations(db: MemeshDatabase): number {
   let removed = -1;
   runOnceMigration(db, {
     key: SESSION_DEDUPE_KEY,
-    version: 1,
-    describe: 'session observation dedupe',
+    version: 2,
+    describe: 'observation dedupe',
     migrate: (conn) => {
       const affected = conn
         .prepare(
-          `SELECT DISTINCT e.id FROM entities e JOIN observations o ON o.entity_id = e.id
-           WHERE e.name LIKE 'session-%'
-           GROUP BY e.id, o.content HAVING COUNT(o.id) > 1`,
+          `SELECT DISTINCT o.entity_id AS id FROM observations o
+           JOIN entities e ON e.id = o.entity_id
+           WHERE e.type NOT IN ('lesson_learned', 'lesson', 'mistake')
+           GROUP BY o.entity_id, o.content HAVING COUNT(o.id) > 1`,
         )
         .all() as unknown as Array<{ id: number }>;
       removed = 0;
@@ -113,7 +155,7 @@ export function dedupeSessionObservations(db: MemeshDatabase): number {
       for (const row of affected) removed += Number(del.run(row.id, row.id).changes);
       if (removed > 0) {
         rebuildFtsIndex(conn);
-        note(`removed ${removed} duplicate observation(s) from ${affected.length} session entit${affected.length === 1 ? 'y' : 'ies'} (written by 4.8.1 hooks).`);
+        note(`removed ${removed} duplicate observation(s) from ${affected.length} entit${affected.length === 1 ? 'y' : 'ies'} (written by hooks up to 4.8.3).`);
       }
     },
   });
