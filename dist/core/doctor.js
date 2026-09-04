@@ -28,6 +28,7 @@ import { autoCaptureDecision } from './capture-flag.js';
 import { guardFromMetadata } from './guards.js';
 import { getAgentMessageStorageReport } from './agent-message-storage.js';
 import { readHostConfigFile } from '../host-runtime/config.js';
+import { summariseTelemetry } from './llm-telemetry.js';
 const EMBEDDING_PROBE_TIMEOUT_MS = 15000;
 const EXPECTED_HOOK_TYPES = ['PreToolUse', 'SessionStart', 'PostToolUse', 'Stop', 'PreCompact'];
 const AGENT_MESSAGE_STORAGE_QUOTA_ENV = 'MEMESH_AGENT_MESSAGE_STORAGE_QUOTA_BYTES';
@@ -1251,6 +1252,33 @@ async function inspectEmbeddingProbe(capabilities, probeCapabilities, embedTextI
         clearTimeout(timer);
     }
 }
+const LLM_TELEMETRY_HEALTH_WINDOW_DAYS = 7;
+const LLM_TELEMETRY_HEALTH_MIN_CALLS = 3;
+function inspectLlmTelemetryHealth(db, windowDays = LLM_TELEMETRY_HEALTH_WINDOW_DAYS, minCalls = LLM_TELEMETRY_HEALTH_MIN_CALLS) {
+    let summaries;
+    try {
+        summaries = summariseTelemetry(windowDays, db);
+    }
+    catch {
+        return undefined;
+    }
+    if (summaries.length === 0)
+        return undefined;
+    const broken = summaries
+        .filter((s) => s.total_calls >= minCalls && s.successes === 0)
+        .sort((a, b) => b.total_calls - a.total_calls);
+    if (broken.length > 0) {
+        const detail = broken.map((s) => `${s.flow} (${s.total_calls} call${s.total_calls === 1 ? '' : 's'}, 0 succeeded)`).join(', ');
+        return createCheck('llm_telemetry_health', 'AI feature health', 'warn', `${broken.length} AI-backed feature${broken.length === 1 ? '' : 's'} failed every call in the last `
+            + `${windowDays} days: ${detail}. Those features are silently doing nothing.`, 'Run `memesh telemetry` for the full per-flow detail, then check the model/provider configured for '
+            + 'the failing flow. `memesh doctor --probe` confirms whether it answers a live call.', { code: 'llm-telemetry.silent-failure', params: { count: broken.length, detail, windowDays } });
+    }
+    const totalCalls = summaries.reduce((n, s) => n + s.total_calls, 0);
+    const totalSuccesses = summaries.reduce((n, s) => n + s.successes, 0);
+    const rate = totalCalls > 0 ? Math.round((totalSuccesses / totalCalls) * 100) : 100;
+    return createInfo('llm_telemetry_health', 'AI feature health', `${summaries.length} AI-backed flow${summaries.length === 1 ? '' : 's'} made ${totalCalls} call(s) in the `
+        + `last ${windowDays} days; ${rate}% succeeded.`);
+}
 async function inspectLlmProbe(capabilities, probeCapabilities, probeProviderImpl) {
     const llm = capabilities.llm;
     if (!llm) {
@@ -1423,6 +1451,9 @@ export async function runDoctor(options) {
                 dbChecks.push(createInfo('citation_compliance', 'Memory citation rate', `${cited} of ${citationTotal} session(s) with injected memories cited at least one (${rate}%).`));
             }
         }
+        const llmTelemetryHealth = inspectLlmTelemetryHealth(db);
+        if (llmTelemetryHealth)
+            dbChecks.push(llmTelemetryHealth);
     }
     catch (err) {
         const message = err instanceof Error ? err.message : 'unknown database error';

@@ -7,10 +7,33 @@ export const ZERO_EDIT_RETRACT_KEY = 'session_zero_edit_retract';
 export const FUSED_LESSON_SPLIT_KEY = 'fused_lesson_split';
 export const ARCHIVED_FTS_ROWS_KEY = 'archived_fts_rows';
 export const ARCHIVED_VECTOR_ROWS_KEY = 'archived_vector_rows';
+export const FUSED_LESSON_SHELL_HISTORY_RESET_KEY = 'fused_lesson_shell_history_reset';
 const ZERO_EDITS = ', 0 files edited';
 const ZERO_EDITS_RETRACTED = ', files edited through Bash (count not recorded before 4.8.2)';
 function note(line) {
     process.stderr.write(`MeMesh: ${line}\n`);
+}
+function retireRecallHistory(conn, id) {
+    const row = conn
+        .prepare('SELECT metadata, recall_hits, recall_misses FROM entities WHERE id = ?')
+        .get(id);
+    if (!row)
+        return;
+    const hits = row.recall_hits ?? 0;
+    const misses = row.recall_misses ?? 0;
+    if (hits === 0 && misses === 0)
+        return;
+    let metadata = {};
+    try {
+        const parsed = row.metadata ? JSON.parse(row.metadata) : {};
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed))
+            metadata = parsed;
+    }
+    catch { }
+    metadata.retired_recall = { hits, misses };
+    conn
+        .prepare('UPDATE entities SET metadata = ?, recall_hits = 0, recall_misses = 0 WHERE id = ?')
+        .run(JSON.stringify(metadata), id);
 }
 export function dedupeObservations(db) {
     let removed = -1;
@@ -193,7 +216,8 @@ export function splitFusedLessons(db, deps) {
                     bucket.name.slice('lesson-'.length, -'-other'.length);
                 const movedFromBucket = moveLessonGroups(bucket, project, groups, tags);
                 dropExplicit.run(bucket.id, bucket.id);
-                archive.run(bucket.id, bucket.id);
+                if (archive.run(bucket.id, bucket.id).changes > 0)
+                    retireRecallHistory(conn, bucket.id);
                 if (movedFromBucket > 0)
                     bucketsTouched += 1;
             }
@@ -223,7 +247,8 @@ export function splitFusedLessons(db, deps) {
                 if (!groups.every((group) => `lesson-${project}-${legacyReadableLessonSlug(group.error)}` === entity.name))
                     continue;
                 const movedFromEntity = moveLessonGroups(entity, project, groups, tags);
-                archive.run(entity.id, entity.id);
+                if (archive.run(entity.id, entity.id).changes > 0)
+                    retireRecallHistory(conn, entity.id);
                 legacyReadableMoved += movedFromEntity;
             }
             if (moved > 0) {
@@ -280,5 +305,34 @@ export function dropArchivedIndexRows(db) {
         },
     });
     return result;
+}
+export function repairFusedLessonShellHistory(db) {
+    let retired = -1;
+    runOnceMigration(db, {
+        key: FUSED_LESSON_SHELL_HISTORY_RESET_KEY,
+        version: 1,
+        describe: 'fused lesson shell history reset',
+        migrate: (conn) => {
+            const shells = conn
+                .prepare(`SELECT e.id, e.name FROM entities e
+           WHERE e.type = 'lesson_learned' AND e.status = 'archived'
+             AND (COALESCE(e.recall_hits, 0) > 0 OR COALESCE(e.recall_misses, 0) > 0)
+             AND NOT EXISTS (SELECT 1 FROM observations o WHERE o.entity_id = e.id)
+             AND EXISTS (
+               SELECT 1 FROM entities s
+               WHERE json_extract(s.metadata, '$.split_from') = e.name
+             )`)
+                .all();
+            retired = 0;
+            for (const shell of shells) {
+                retireRecallHistory(conn, shell.id);
+                retired += 1;
+            }
+            if (retired > 0) {
+                note(`retired stale recall history on ${retired} archived lesson shell(s) split before this fix existed.`);
+            }
+        },
+    });
+    return retired;
 }
 //# sourceMappingURL=graph-repairs.js.map

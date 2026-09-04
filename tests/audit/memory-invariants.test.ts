@@ -540,6 +540,71 @@ describe('memory-invariants: read-only detector over a real graph', () => {
     }
   });
 
+
+  it('D15 — flags an archived split shell that still carries recall history', () => {
+    const { dir, dbPath } = freshGraph();
+    try {
+      withRawDb(dbPath, (db) => {
+        // The shell: emptied and archived by splitFusedLessons, no
+        // observations left, but its recall_hits/recall_misses were never
+        // touched by the split — the exact shape measured on a real graph
+        // (lesson-memesh-cloud-other: 3 hits / 61 misses).
+        insertEntity(db, 'lesson-proj-other', 'lesson_learned', {
+          status: 'archived',
+          recall_hits: '3',
+          recall_misses: '61',
+        });
+        // A successor the split produced, naming the shell it came from —
+        // the only signal that distinguishes a split shell from any other
+        // archived, empty lesson.
+        insertEntity(db, 'lesson-proj-abc12345', 'lesson_learned', {
+          metadata: JSON.stringify({ split_from: 'lesson-proj-other' }),
+        });
+      });
+      const r = run(dbPath);
+      expect(r.status, r.stdout).toBe(1);
+      expect(r.stdout).toContain('FAIL split-lesson-shell-carries-no-recall-history');
+      expect(r.stdout).toContain('lesson-proj-other  hits=3 misses=61');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('D15 — an archived empty lesson with no split successor is not a violation (not every empty archive is a shell)', () => {
+    const { dir, dbPath } = freshGraph();
+    try {
+      withRawDb(dbPath, (db) => {
+        // Same shape (archived, empty, nonzero history) but nothing names it
+        // as a split source — e.g. a lesson a user emptied and forgot by
+        // hand. The invariant must not treat every archived-and-empty lesson
+        // as a shell.
+        insertEntity(db, 'lesson-proj-unrelated', 'lesson_learned', {
+          status: 'archived',
+          recall_hits: '2',
+          recall_misses: '5',
+        });
+      });
+      expect(run(dbPath).status).toBe(0);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('D15 — a split shell already at 0/0 is not a violation', () => {
+    const { dir, dbPath } = freshGraph();
+    try {
+      withRawDb(dbPath, (db) => {
+        insertEntity(db, 'lesson-proj-other', 'lesson_learned', { status: 'archived' });
+        insertEntity(db, 'lesson-proj-def67890', 'lesson_learned', {
+          metadata: JSON.stringify({ split_from: 'lesson-proj-other' }),
+        });
+      });
+      expect(run(dbPath).status).toBe(0);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('#242 — reports (does not fail on) a global-namespace entity with no project tag', () => {
     const { dir, dbPath } = freshGraph();
     try {

@@ -191,6 +191,9 @@ function makeDatabase(
      *  every test predating the measured Vector Index row assumes a graph
      *  that is fully embedded. */
     missingVectors?: number;
+    /** Make every read of `llm_telemetry` throw — a database from before the
+     *  table existed, or one whose table cannot be read. Default false. */
+    telemetryUnreadable?: boolean;
   } = {},
 ) {
   const sqliteTs = (hoursAgo: number) =>
@@ -254,6 +257,16 @@ function makeDatabase(
       }
       if (sql.includes('source_host')) {
         return { get: () => ({ c: opts.recentClaudeCodeWrites ?? 1 }) };
+      }
+      // llm_telemetry health (D13): every test in this file predates the
+      // row and asserts nothing about it, so the default is "no telemetry
+      // recorded" — the same "opt-in options, default absent" convention
+      // as citationCounters above. A real predicate (window filtering,
+      // per-flow grouping) is exercised against a real database in
+      // tests/cli/doctor-llm-telemetry-health.test.ts, not here.
+      if (sql.includes('FROM llm_telemetry')) {
+        if (opts.telemetryUnreadable) throw new Error('no such table: llm_telemetry');
+        return { all: () => [] };
       }
       // Three DIFFERENT questions used to share one canned answer.
       //
@@ -1453,6 +1466,32 @@ describe('doctor', () => {
     const result = await runDoctor(args);
     return { result, activity: result.checks.find(c => c.id === 'hook-activity')! };
   }
+
+  it('llm-telemetry health: a telemetry table doctor cannot read is not a finding, and not a crash', async () => {
+    // inspectLlmTelemetryHealth swallows the read failure and returns
+    // undefined: a database from before `llm_telemetry` existed has nothing
+    // to diagnose, and reporting it as broken — or letting the throw escape
+    // into runDoctor's outer catch, which would print it as a database
+    // failure — would both be claims about a table nobody read. Every other
+    // test in this file gives the stub an empty table, so this branch had no
+    // test that could go red until this one.
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+    const { result } = await activityCheck(
+      hookActivityDoctorArgs(packageRoot, makeDatabase(0, { telemetryUnreadable: true })),
+    );
+    expect(result.checks.some(c => c.code === 'llm-telemetry.silent-failure')).toBe(false);
+    const leaked = result.checks.filter(c => /llm_telemetry/.test(`${c.summary} ${c.fix ?? ''}`));
+    expect(leaked.map(c => c.id), 'the read failure must not surface as any check').toEqual([]);
+    // The discriminating assertion: `database` is pushed 'pass' before this
+    // health check runs, then `dbChecks.length = 0` in runDoctor's outer
+    // catch would silently replace it with a 'fail' row if this function's
+    // local catch ever let the read failure escape instead of swallowing
+    // it — the two assertions above stay green even then, because the
+    // outer catch's diagnosis branches on file existence, not on this
+    // error's message, so neither ever mentions "llm_telemetry".
+    expect(result.checks.find(c => c.id === 'database')?.status).toBe('pass');
+  });
 
   it('hook-activity: the 24h count and the since-tracking count are different questions', async () => {
     // Three probes shared one canned answer in this fixture, so a row that

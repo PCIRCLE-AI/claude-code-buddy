@@ -11,7 +11,11 @@
 // legacy entity and its new digest-named successor.
 // A fix that only prevents new damage leaves `scripts/audit/memory-invariants.mjs`
 // red on every existing install forever, and leaves recall matching the fused
-// buckets (retrieved 61 times, matched 3) instead of the lessons in them.
+// buckets (retrieved 61 times, matched 3) instead of the lessons in them. That
+// same 61/3 also stayed on the bucket forever after a split, because the split
+// moved observations and left the entity's recall_hits/recall_misses columns
+// untouched — see `retireRecallHistory` for why that number belongs to no
+// lesson once the bucket has been split apart.
 //
 // So the data is repaired here, once, at the first open through the core
 // `openDatabase` after upgrade — CLI, MCP, HTTP, and the two hook paths that
@@ -20,11 +24,12 @@
 // in db.ts: a `runOnceMigration` keyed in `memesh_metadata`, transactional,
 // non-fatal, one line on stderr when it changed something.
 //
-// Three passes, each owning exactly one invariant from memory-invariants.mjs:
+// Four passes, each owning exactly one invariant from memory-invariants.mjs:
 //
-//   dedupeObservations         → no-entity-carries-the-same-observation-twice
-//   retractZeroEditClaims      → stop-summary-does-not-assert-zero-edits-for-bash-sessions
-//   splitFusedLessons          → explicit-lessons-not-fused-into-other-bucket
+//   dedupeObservations            → no-entity-carries-the-same-observation-twice
+//   retractZeroEditClaims         → stop-summary-does-not-assert-zero-edits-for-bash-sessions
+//   splitFusedLessons             → explicit-lessons-not-fused-into-other-bucket
+//   repairFusedLessonShellHistory → split-lesson-shell-carries-no-recall-history
 //
 // What each pass does NOT do, and why:
 //   - The dedupe keeps the lowest id of each (entity, content) pair and leaves
@@ -67,6 +72,7 @@ export const ZERO_EDIT_RETRACT_KEY = 'session_zero_edit_retract';
 export const FUSED_LESSON_SPLIT_KEY = 'fused_lesson_split';
 export const ARCHIVED_FTS_ROWS_KEY = 'archived_fts_rows';
 export const ARCHIVED_VECTOR_ROWS_KEY = 'archived_vector_rows';
+export const FUSED_LESSON_SHELL_HISTORY_RESET_KEY = 'fused_lesson_shell_history_reset';
 
 /** The summary suffix the Stop hook wrote when it could not see Bash edits. */
 const ZERO_EDITS = ', 0 files edited';
@@ -80,6 +86,68 @@ interface ObsRow {
 
 function note(line: string): void {
   process.stderr.write(`MeMesh: ${line}\n`);
+}
+
+/**
+ * Zero an emptied entity's `recall_hits` / `recall_misses` and, if either was
+ * nonzero, keep the number under `metadata.retired_recall` rather than just
+ * dropping it.
+ *
+ * Why zero rather than divide among the lessons the entity was split into,
+ * or copy the full count onto each: a hit/miss is recorded against the
+ * BUCKET id (the Stop hook's `[mem:<id>]` marker names what was injected),
+ * never against one observation inside it, so there is no record of which
+ * split-out lesson a given hit belonged to. Dividing invents a fraction
+ * nothing earned; copying the total onto every successor claims each one
+ * independently has the bucket's whole track record. Neither is a number
+ * that happened.
+ *
+ * Zero is not "we don't know" either, so it is not simply the honest
+ * default: this repair's own header names the reason the bucket's rate
+ * cannot be trusted for ANY successor even in aggregate — "recall matching
+ * the fused buckets ... instead of the lessons in them". A bucket that
+ * fuses N unrelated lessons is broad enough to get injected often and, being
+ * mostly irrelevant to any one need, cited rarely — a rate produced by
+ * fusion, the exact defect being repaired here, not a measurement of what
+ * the individual lessons are worth. Inheriting it in any proportion would
+ * carry that artifact into entities the fusion never touched.
+ *
+ * That leaves an entity that no longer holds any lesson still holding a real
+ * historical number. It is not deleted outright: `metadata.retired_recall`
+ * keeps it for forensic reading, the same way `split_from` keeps where a
+ * successor came from — only the live `recall_hits`/`recall_misses` columns,
+ * which feed `impactScore` (scoring.ts) and the unfiltered
+ * `SUM(recall_hits) FROM entities` in `scripts/audit/measure-signals.mjs`,
+ * are cleared. Archived rows are excluded from the default FTS/vector
+ * candidate set (`archiveEntity()` removes the FTS row; `search()`'s
+ * `statusFilter` defaults to active-only), so a shell's stale rate is not
+ * currently swaying live ranking — but it does inflate that audit sum
+ * forever, and it is wrong on any code path that reads an entity by id with
+ * `includeArchived: true`.
+ *
+ * No-ops (and touches nothing) when both counters are already 0 — the
+ * common case: 45 of the 49 archived shells measured on a real graph on
+ * 2026-09-02 had never earned a hit or a miss before being split.
+ */
+function retireRecallHistory(conn: MemeshDatabase, id: number): void {
+  const row = conn
+    .prepare('SELECT metadata, recall_hits, recall_misses FROM entities WHERE id = ?')
+    .get(id) as { metadata: string | null; recall_hits: number | null; recall_misses: number | null } | undefined;
+  if (!row) return;
+  const hits = row.recall_hits ?? 0;
+  const misses = row.recall_misses ?? 0;
+  if (hits === 0 && misses === 0) return;
+
+  let metadata: Record<string, unknown> = {};
+  try {
+    const parsed: unknown = row.metadata ? JSON.parse(row.metadata) : {};
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) metadata = parsed as Record<string, unknown>;
+  } catch { /* unreadable metadata: overwrite rather than merge into garbage */ }
+  metadata.retired_recall = { hits, misses };
+
+  conn
+    .prepare('UPDATE entities SET metadata = ?, recall_hits = 0, recall_misses = 0 WHERE id = ?')
+    .run(JSON.stringify(metadata), id);
 }
 
 /**
@@ -418,7 +486,7 @@ export function splitFusedLessons(
           bucket.name.slice('lesson-'.length, -'-other'.length);
         const movedFromBucket = moveLessonGroups(bucket, project, groups, tags);
         dropExplicit.run(bucket.id, bucket.id);
-        archive.run(bucket.id, bucket.id);
+        if (archive.run(bucket.id, bucket.id).changes > 0) retireRecallHistory(conn, bucket.id);
         if (movedFromBucket > 0) bucketsTouched += 1;
       }
 
@@ -449,7 +517,7 @@ export function splitFusedLessons(
         if (!groups.every((group) => `lesson-${project}-${legacyReadableLessonSlug(group.error)}` === entity.name)) continue;
 
         const movedFromEntity = moveLessonGroups(entity, project, groups, tags);
-        archive.run(entity.id, entity.id);
+        if (archive.run(entity.id, entity.id).changes > 0) retireRecallHistory(conn, entity.id);
         legacyReadableMoved += movedFromEntity;
       }
 
@@ -589,4 +657,56 @@ export function dropArchivedIndexRows(db: MemeshDatabase): {
   });
 
   return result;
+}
+
+/**
+ * D15 — one-shot: shells `splitFusedLessons` already emptied and archived,
+ * before this file learned to zero their history, still carry the
+ * `recall_hits`/`recall_misses` earned under the fused bucket. See
+ * `retireRecallHistory` for why zero (into `metadata.retired_recall`) is the
+ * truthful value rather than dividing or copying the count onto the
+ * successors.
+ *
+ * Finds a shell the same way `retireRecallHistory`'s callers already
+ * identify one that this pass created — archived, no observations left —
+ * plus one more test the live pass gets for free by running inline: at
+ * least one OTHER entity's `metadata.split_from` names it, so this can only
+ * ever touch a row `splitFusedLessons` itself produced, never an unrelated
+ * lesson a user emptied and archived some other way. Measured on a real
+ * graph on 2026-09-02: 49 archived, empty `lesson_learned` entities, all 49
+ * with a `split_from` referrer, 4 of them (1/35, 3/61, 3/1, 0/1 hits/misses)
+ * still carrying nonzero history — the other 45 were already at 0/0.
+ *
+ * @returns number of shells whose history was retired, or -1 if the pass did not run
+ */
+export function repairFusedLessonShellHistory(db: MemeshDatabase): number {
+  let retired = -1;
+  runOnceMigration(db, {
+    key: FUSED_LESSON_SHELL_HISTORY_RESET_KEY,
+    version: 1,
+    describe: 'fused lesson shell history reset',
+    migrate: (conn) => {
+      const shells = conn
+        .prepare(
+          `SELECT e.id, e.name FROM entities e
+           WHERE e.type = 'lesson_learned' AND e.status = 'archived'
+             AND (COALESCE(e.recall_hits, 0) > 0 OR COALESCE(e.recall_misses, 0) > 0)
+             AND NOT EXISTS (SELECT 1 FROM observations o WHERE o.entity_id = e.id)
+             AND EXISTS (
+               SELECT 1 FROM entities s
+               WHERE json_extract(s.metadata, '$.split_from') = e.name
+             )`,
+        )
+        .all() as unknown as Array<{ id: number; name: string }>;
+      retired = 0;
+      for (const shell of shells) {
+        retireRecallHistory(conn, shell.id);
+        retired += 1;
+      }
+      if (retired > 0) {
+        note(`retired stale recall history on ${retired} archived lesson shell(s) split before this fix existed.`);
+      }
+    },
+  });
+  return retired;
 }
