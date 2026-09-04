@@ -4,6 +4,8 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+## [4.8.4] — 2026-09-04
+
 ### Added
 
 - **`npm run qa:pre-release` — one door before a release, that says what it did
