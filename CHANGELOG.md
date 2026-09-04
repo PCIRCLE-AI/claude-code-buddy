@@ -28,6 +28,33 @@ All notable changes to MeMesh are documented here.
   resolve, not the first one: two installs on one PATH, four releases apart,
   is the shape of the incident, and a check that stops at the first hit cannot
   see it.
+- **Repeatable owner-run live delivery checks.** `npm run qa:live-journey -- --host codex|claude`
+  (`scripts/qa/live-journey.mjs`) starts this checkout's router in a throwaway
+  `MEMESH_DIR`, registers one real host session, sends one exact-session
+  envelope, and passes only on model-visible proof: the Codex path requires the
+  model to quote the envelope's `message_id` and `delivery_id` back on its next
+  turn; the Claude path requires an `intake` receipt written by the interactive
+  session the operator launched with the printed command. Both then stop the
+  session and require `recipient_unavailable` while the durable row stays
+  fetchable and the router still answers `discover`. It refuses to run against
+  `$HOME/.memesh`, reads no auth files, never runs in CI, and records its
+  limitations in the JSON report — including that the Codex registration is
+  harness-driven because `codex exec --ignore-user-config` bypasses the plugin
+  `SessionStart` hook, and that print-mode Claude is unsupported (#275).
+  Closes the "repeatable check in the repository" box on #270 and #272.
+- **A write-side reminder hook.** The read side of MeMesh was already automatic
+  (SessionStart and PreToolUse inject memories) but nothing prompted an agent
+  to *store* anything, so decisions made mid-session were routinely lost until
+  the user said "remember this" (#277). A ninth hook,
+  `scripts/hooks/decision-nudge.js`, runs on `PostToolUse` for `ExitPlanMode`
+  and `AskUserQuestion` — the two calls where a decision has most likely just
+  been made — and adds one line of context asking the model to `remember` it
+  if it is worth keeping. At most once per tool per session, enforced by an
+  `O_EXCL` flag file under `MEMESH_DIR/decision-nudge-flags/`; the hook never
+  opens the database, exits 0 on any malformed input, and writes nothing to
+  the graph itself. Hook inventories in the READMEs (three languages),
+  `docs/ARCHITECTURE.md`, `AGENTS.md`, `CODEMAP.md` and the skill now list nine
+  hooks, and `check-codemap-parity` no longer hard-codes the count.
 
 ### Changed
 
@@ -452,37 +479,6 @@ All notable changes to MeMesh are documented here.
   project-local install still get separate cache slots. `_shared.js`'s
   independent `readUpdateCheckCache()` path formula is untouched by this —
   it only reads, and the filename scheme did not change.
-
-### Added
-
-- **Repeatable owner-run live delivery checks.** `npm run qa:live-journey -- --host codex|claude`
-  (`scripts/qa/live-journey.mjs`) starts this checkout's router in a throwaway
-  `MEMESH_DIR`, registers one real host session, sends one exact-session
-  envelope, and passes only on model-visible proof: the Codex path requires the
-  model to quote the envelope's `message_id` and `delivery_id` back on its next
-  turn; the Claude path requires an `intake` receipt written by the interactive
-  session the operator launched with the printed command. Both then stop the
-  session and require `recipient_unavailable` while the durable row stays
-  fetchable and the router still answers `discover`. It refuses to run against
-  `$HOME/.memesh`, reads no auth files, never runs in CI, and records its
-  limitations in the JSON report — including that the Codex registration is
-  harness-driven because `codex exec --ignore-user-config` bypasses the plugin
-  `SessionStart` hook, and that print-mode Claude is unsupported (#275).
-  Closes the "repeatable check in the repository" box on #270 and #272.
-
-- **A write-side reminder hook.** The read side of MeMesh was already automatic
-  (SessionStart and PreToolUse inject memories) but nothing prompted an agent
-  to *store* anything, so decisions made mid-session were routinely lost until
-  the user said "remember this" (#277). A ninth hook,
-  `scripts/hooks/decision-nudge.js`, runs on `PostToolUse` for `ExitPlanMode`
-  and `AskUserQuestion` — the two calls where a decision has most likely just
-  been made — and adds one line of context asking the model to `remember` it
-  if it is worth keeping. At most once per tool per session, enforced by an
-  `O_EXCL` flag file under `MEMESH_DIR/decision-nudge-flags/`; the hook never
-  opens the database, exits 0 on any malformed input, and writes nothing to
-  the graph itself. Hook inventories in the READMEs (three languages),
-  `docs/ARCHITECTURE.md`, `AGENTS.md`, `CODEMAP.md` and the skill now list nine
-  hooks, and `check-codemap-parity` no longer hard-codes the count.
 
 ## [4.8.3] — 2026-08-31
 
