@@ -326,9 +326,9 @@ export const TOOL_DEFINITIONS = [
           enum: ['send', 'poll', 'discover', 'fetch', 'intake', 'ack', 'disposition', 'activation', 'receipts'],
           description: 'Message lifecycle or live-directory action. Each action validates only its documented fields and rejects unknown fields.',
         },
-        project: { type: 'string', description: 'Local project scope shared by sender and recipient.' },
-        sender: { type: 'string', description: 'Required for send. Stable local sender/agent identifier.' },
-        recipient: { type: 'string', description: 'Required for every action except discover. Stable target local agent/host identifier.' },
+        project: { type: 'string', description: 'Local project scope shared by sender and recipient. A stable identifier, never a filesystem path; compared exactly, after Unicode NFC normalisation.' },
+        sender: { type: 'string', description: 'Required for send. Stable local sender/agent identifier; provenance only, and stored exactly as given.' },
+        recipient: { type: 'string', description: 'Required for every action except discover. Stable target local agent/host identifier, never a filesystem path; compared exactly, after Unicode NFC normalisation, so no prefix is treated as a namespace.' },
         target_kind: {
           type: 'string',
           enum: ['principal', 'session'],

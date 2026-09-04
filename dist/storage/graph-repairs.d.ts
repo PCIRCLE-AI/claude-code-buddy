@@ -17,4 +17,6 @@ export declare function dropArchivedIndexRows(db: MemeshDatabase): {
     vectorRows: number;
 };
 export declare function repairFusedLessonShellHistory(db: MemeshDatabase): number;
+export declare const AGENT_SCOPE_PATH_KEY = "agent_scope_path_identity";
+export declare function normalizeAgentScopePaths(db: MemeshDatabase): number;
 //# sourceMappingURL=graph-repairs.d.ts.map

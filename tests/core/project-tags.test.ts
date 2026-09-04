@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { remember } from '../../src/core/operations.js';
 import { getDatabase } from '../../src/db.js';
 import { listProjectTags, renameProjectTag } from '../../src/core/project-tags.js';
+import { sendAgentMessage, pollAgentEvents } from '../../src/core/agent-messaging.js';
 import { useTestDatabase } from '../helpers/db-fixture.js';
 
 useTestDatabase('memesh-projtags-');
@@ -64,5 +65,51 @@ describe('project-tags: renameProjectTag', () => {
     const r = renameProjectTag('ghost', 'TIM', { apply: true });
     expect(r.affectedEntities).toBe(0);
     expect(projectTagsOf('a')).toEqual(['project:other']);
+  });
+});
+
+/**
+ * A project identity lives in two places: `project:<name>` tags on entities,
+ * and the `project` column of the durable-message tables — half the key of an
+ * inbox. Renaming only the tags left the messages in a scope nobody polls,
+ * which is how `memesh` and `memesh-llm-memory` (one repository, renamed on
+ * GitHub) came to hold 38 and 28 messages in two separate inboxes on the
+ * maintainer's graph. This is the owner-driven half of that fix: the one-shot
+ * repair deliberately will not merge two project NAMES, because only a network
+ * call proves they are the same repo. This command can, because a person asked.
+ */
+describe('project-tags: renameProjectTag moves durable message scopes too', () => {
+  function send(project: string, key: string): void {
+    sendAgentMessage(getDatabase(), {
+      project, sender: 'author', recipient: 'reviewer', idempotency_key: key,
+      content_type: 'text/plain', payload: 'x',
+    });
+  }
+
+  it('dry-run counts the message rows and writes nothing', () => {
+    send('memesh-llm-memory', 'k1');
+    const r = renameProjectTag('memesh-llm-memory', 'memesh', { apply: false });
+    expect(r.messageRows).toBeGreaterThan(0);
+    expect(r.applied).toBe(false);
+    expect(pollAgentEvents(getDatabase(), { project: 'memesh-llm-memory', recipient: 'reviewer' }).events).toHaveLength(1);
+    expect(pollAgentEvents(getDatabase(), { project: 'memesh', recipient: 'reviewer' }).events).toHaveLength(0);
+  });
+
+  it('apply moves the message rows, so the destination inbox holds both', () => {
+    send('memesh-llm-memory', 'k1');
+    send('memesh', 'k2');
+    const r = renameProjectTag('memesh-llm-memory', 'memesh', { apply: true });
+    expect(r.messageRowsBlocked).toBe(0);
+    expect(pollAgentEvents(getDatabase(), { project: 'memesh-llm-memory', recipient: 'reviewer' }).events).toHaveLength(0);
+    expect(pollAgentEvents(getDatabase(), { project: 'memesh', recipient: 'reviewer' }).events).toHaveLength(2);
+  });
+
+  it('a project with messages but no tagged entities is still renameable', () => {
+    // The CLI used to stop at "no entities carry project:<x>", which would
+    // have refused exactly the case this fix exists for.
+    send('memesh-llm-memory', 'k1');
+    const r = renameProjectTag('memesh-llm-memory', 'memesh', { apply: false });
+    expect(r.affectedEntities).toBe(0);
+    expect(r.messageRows).toBeGreaterThan(0);
   });
 });

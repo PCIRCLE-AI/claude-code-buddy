@@ -71,7 +71,8 @@ MeMesh separates concerns into two layers:
 - `transcript-source.ts` — read-only discovery half of transcript mining: locates the session JSONL files Claude Code writes for a project and reports what is available to mine (no LLM, no writes); dropout-proof because it reads the files directly rather than relying on the capture hook having fired
 - `transcript-extractor.ts` — extraction half: reads a session's conversation, asks the LLM for the durable memories hidden in the prose, drops any candidate carrying a secret, vector-dedups against entities already in the graph, and stages the rest as `dream_proposals` for human `dream accept` (emits the `transcript_extractor` telemetry flow)
 - `kg-backfill.ts` — non-LLM heuristic relation backfill: 4 rules (tag co-occurrence, project clustering, session co-occurrence, name-token similarity)
-- `project-tags.ts` — list / merge / rename `project:<name>` tags (heals tags mis-homed before git-based project identity); backs `memesh kg rename-project`
+- `project-tags.ts` — list / merge / rename `project:<name>` tags AND the `project` scope column of the durable-message tables, in one transaction (heals tags mis-homed before git-based project identity, and the split inboxes that go with them); backs `memesh kg rename-project`
+- `agent-scope-id.ts` — the canonical form (Unicode NFC + trim) and the fail-closed validation for durable-message scope identifiers (`project`, `recipient`, `actor`), plus the one list of columns that hold them; imported by the transport boundary, the core write path, and the one-shot repair, and mirrored by `scripts/audit/memory-invariants.mjs`
 - `prompt-safety.ts` — F7 prompt-injection hardening (delimiter escaping for 3 LLM call sites)
 - `failure-analyzer.ts` / `auto-tagger.ts` / `digest-validator.ts` — Smart-Mode LLM flows (all use `callLLM` failover + telemetry)
 - `version-check.ts` — npm registry version check for update notifications

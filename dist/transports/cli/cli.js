@@ -9,6 +9,7 @@ import { remember, recallWithConflicts, forget, exportMemories, importMemories, 
 import { readConfig, writeConfig, maskApiKey, detectCapabilities } from '../../core/config.js';
 import { MAX_LANGUAGE_LENGTH, languageValueError } from '../../core/output-language.js';
 import { getDbPath, getProjectName, homeDir, redactSecrets, redactUserPaths } from '../../core/paths.js';
+import { agentScopeIdRejection, canonicalAgentScopeId } from '../../core/agent-scope-id.js';
 import { flushPendingEmbeddings, canRefillVectorIndex } from '../../core/embedder.js';
 import { NAMESPACES } from '../../core/types.js';
 import { assembleBriefing } from '../../core/briefing.js';
@@ -825,8 +826,8 @@ agentCmd
     const common = {
         router_socket: path.join(messageDir, 'agent-router.sock'),
         token_file: routerTokenFile,
-        project: opts.project,
-        principal_id: opts.principal,
+        project: requireAgentScopeArg(opts.project, 'project', '--project'),
+        principal_id: requireAgentScopeArg(opts.principal, 'recipient', '--principal'),
         ...(opts.model === undefined ? {} : { model: boundedCliDeclaration(opts.model, '--model', 200) }),
         ...(opts.workSummary === undefined ? {} : { work_summary: boundedCliDeclaration(opts.workSummary, '--work-summary', 200) }),
     };
@@ -1596,9 +1597,15 @@ kgCmd
         }
     });
 });
+function requireAgentScopeArg(value, field, flag) {
+    const rejection = agentScopeIdRejection(field, value);
+    if (rejection)
+        throw new Error(`${flag}: ${rejection}`);
+    return canonicalAgentScopeId(value);
+}
 kgCmd
     .command('rename-project')
-    .description('Merge or rename a project:<name> tag across all entities (heals mis-homed tags from before git-based project identity)')
+    .description('Merge or rename a project across all entities AND durable agent messages (heals mis-homed tags from before git-based project identity, and the message scopes that go with them)')
     .option('--from <name>', 'Existing project name to rewrite. Omit both --from/--to to just LIST all project tags + counts.')
     .option('--to <name>', 'New project name to rewrite it to')
     .option('--apply', 'Actually write the change. Default is a dry-run preview. Backs up the DB first.')
@@ -1627,20 +1634,22 @@ kgCmd
             process.exitCode = 1;
             return;
         }
-        const preview = renameProjectTag(opts.from, opts.to, { apply: false });
+        const to = requireAgentScopeArg(opts.to, 'project', '--to');
+        const preview = renameProjectTag(opts.from, to, { apply: false });
         if (!opts.apply) {
             if (opts.json) {
                 console.log(JSON.stringify({ ...preview, dryRun: true }, null, 2));
                 return;
             }
-            console.log(`Dry-run: project:${opts.from} → project:${opts.to}`);
+            console.log(`Dry-run: project:${opts.from} → project:${to}`);
             console.log(`  ${preview.affectedEntities} entit${preview.affectedEntities === 1 ? 'y' : 'ies'} carry project:${opts.from}`);
-            console.log(`  ${preview.renamed} would be renamed, ${preview.merged} already have project:${opts.to} (their project:${opts.from} row would be removed)`);
+            console.log(`  ${preview.renamed} would be renamed, ${preview.merged} already have project:${to} (their project:${opts.from} row would be removed)`);
+            console.log(`  ${preview.messageRows} durable agent-message row(s) scoped to ${opts.from} would move to ${to}`);
             console.log(`\nNothing written. Re-run with --apply to commit (the DB is backed up first).`);
             return;
         }
-        if (preview.affectedEntities === 0) {
-            console.log(`No entities carry project:${opts.from} — nothing to do.`);
+        if (preview.affectedEntities === 0 && preview.messageRows === 0) {
+            console.log(`Nothing carries project ${opts.from} — no entity tags and no agent-message rows. Nothing to do.`);
             return;
         }
         const dbPath = getDbPath();
@@ -1656,13 +1665,14 @@ kgCmd
             process.exitCode = 1;
             return;
         }
-        const result = renameProjectTag(opts.from, opts.to, { apply: true });
+        const result = renameProjectTag(opts.from, to, { apply: true });
         if (opts.json) {
             console.log(JSON.stringify({ ...result, backupPath }, null, 2));
             return;
         }
-        console.log(`✅ project:${opts.from} → project:${opts.to}`);
+        console.log(`✅ project:${opts.from} → project:${to}`);
         console.log(`  ${result.renamed} renamed, ${result.merged} merged (${result.affectedEntities} entities total)`);
+        console.log(`  ${result.messageRows} agent-message row(s) moved${result.messageRowsBlocked > 0 ? `, ${result.messageRowsBlocked} left in place (${to} already holds an equivalent row)` : ''}`);
         console.log(`  Backup: ${backupPath}`);
         console.log(`  Restore if needed: cp "${backupPath}" "${dbPath}"`);
     });

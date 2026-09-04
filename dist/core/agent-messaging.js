@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { agentMessagePayloadStorageBytes, enforceAgentMessageStorageQuota, } from './agent-message-storage.js';
-const MAX_SCOPE_FIELD = 200;
+import { AGENT_SCOPE_ID_MAX_LENGTH, agentScopeIdRejection, canonicalAgentScopeId, } from './agent-scope-id.js';
+const MAX_SCOPE_FIELD = AGENT_SCOPE_ID_MAX_LENGTH;
 const MAX_IDEMPOTENCY_KEY = 200;
 const MAX_CURSOR_TOKEN = 160;
 export const AGENT_MESSAGE_JSON_MAX_BYTES = 64 * 1024;
@@ -109,8 +110,8 @@ export function sendAgentMessage(db, input, options = {}) {
     return finishSentMessage(stored, options);
 }
 export function pollAgentEvents(db, input) {
-    const project = requireText('project', input.project, MAX_SCOPE_FIELD);
-    const recipient = requireText('recipient', input.recipient, MAX_SCOPE_FIELD);
+    const project = requireScopeId('project', input.project);
+    const recipient = requireScopeId('recipient', input.recipient);
     const limit = normalizeLimit(input.limit);
     const cursor = resolveCursor(db, project, recipient, input.cursor ?? null);
     const rows = db.prepare(`
@@ -168,8 +169,8 @@ export async function waitForAgentEvents(db, input, signal) {
     }
 }
 export function fetchAgentMessage(db, input) {
-    const project = requireText('project', input.project, MAX_SCOPE_FIELD);
-    const recipient = requireText('recipient', input.recipient, MAX_SCOPE_FIELD);
+    const project = requireScopeId('project', input.project);
+    const recipient = requireScopeId('recipient', input.recipient);
     const messageId = requireText('message_id', input.message_id, MAX_SCOPE_FIELD);
     const targetKind = parseTargetKind(input.target_kind ?? 'principal');
     const row = db.prepare(`
@@ -255,8 +256,8 @@ export function recordAgentReceipt(db, input) {
     return rowToReceipt(stored);
 }
 export function readAgentMessageReceipts(db, input) {
-    const project = requireText('project', input.project, MAX_SCOPE_FIELD);
-    const recipient = requireText('recipient', input.recipient, MAX_SCOPE_FIELD);
+    const project = requireScopeId('project', input.project);
+    const recipient = requireScopeId('recipient', input.recipient);
     const messageId = requireText('message_id', input.message_id, MAX_SCOPE_FIELD);
     assertMessageAccess(db, project, recipient, messageId);
     const rows = db.prepare(`
@@ -270,7 +271,7 @@ export function readAgentMessageReceipts(db, input) {
 export function recordAgentAckFact(db, input) {
     const deliveryId = requireText('delivery_id', input.delivery_id, MAX_SCOPE_FIELD);
     const hostAcceptId = requireText('host_accept_id', input.host_accept_id, MAX_SCOPE_FIELD);
-    const actor = requireText('actor', input.actor, MAX_SCOPE_FIELD);
+    const actor = requireScopeId('actor', input.actor);
     const idempotencyKey = requireText('idempotency_key', input.idempotency_key, MAX_IDEMPOTENCY_KEY);
     const detail = normalizeBoundedDetail(input.detail);
     const requestHash = hashCanonical({ delivery_id: deliveryId, host_accept_id: hostAcceptId, actor, detail });
@@ -306,7 +307,7 @@ export function recordAgentAckFact(db, input) {
 }
 export function recordAgentWorkflowFact(db, input) {
     const deliveryId = requireText('delivery_id', input.delivery_id, MAX_SCOPE_FIELD);
-    const actor = requireText('actor', input.actor, MAX_SCOPE_FIELD);
+    const actor = requireScopeId('actor', input.actor);
     const workflowState = requireText('workflow_state', input.workflow_state, MAX_SCOPE_FIELD);
     const idempotencyKey = requireText('idempotency_key', input.idempotency_key, MAX_IDEMPOTENCY_KEY);
     const detail = normalizeBoundedDetail(input.detail);
@@ -338,7 +339,7 @@ export function recordAgentWorkflowFact(db, input) {
 }
 export function recordAgentRetentionFact(db, input) {
     const messageId = requireText('message_id', input.message_id, MAX_SCOPE_FIELD);
-    const actor = requireText('actor', input.actor, MAX_SCOPE_FIELD);
+    const actor = requireScopeId('actor', input.actor);
     const retentionState = requireText('retention_state', input.retention_state, MAX_SCOPE_FIELD);
     const idempotencyKey = requireText('idempotency_key', input.idempotency_key, MAX_IDEMPOTENCY_KEY);
     const detail = normalizeBoundedDetail(input.detail);
@@ -371,9 +372,9 @@ export function recordAgentRetentionFact(db, input) {
     return rowToRetentionFact(stored);
 }
 function normalizeSendInput(input) {
-    const project = requireText('project', input.project, MAX_SCOPE_FIELD);
+    const project = requireScopeId('project', input.project);
     const sender = requireText('sender', input.sender, MAX_SCOPE_FIELD);
-    const recipient = requireText('recipient', input.recipient, MAX_SCOPE_FIELD);
+    const recipient = requireScopeId('recipient', input.recipient);
     const target_kind = parseTargetKind(input.target_kind ?? 'principal');
     const idempotency_key = requireText('idempotency_key', input.idempotency_key, MAX_IDEMPOTENCY_KEY);
     const content_type = parseContentType(input.content_type);
@@ -412,10 +413,10 @@ function normalizeSendInput(input) {
     };
 }
 function normalizeReceiptInput(input) {
-    const project = requireText('project', input.project, MAX_SCOPE_FIELD);
-    const recipient = requireText('recipient', input.recipient, MAX_SCOPE_FIELD);
+    const project = requireScopeId('project', input.project);
+    const recipient = requireScopeId('recipient', input.recipient);
     const message_id = requireText('message_id', input.message_id, MAX_SCOPE_FIELD);
-    const actor = requireText('actor', input.actor, MAX_SCOPE_FIELD);
+    const actor = requireScopeId('actor', input.actor);
     const idempotency_key = requireText('idempotency_key', input.idempotency_key, MAX_IDEMPOTENCY_KEY);
     const detail = input.detail === undefined
         ? {}
@@ -861,6 +862,13 @@ function requireText(label, value, maxLength) {
         throw new AgentMessagingError(`${label} must be at most ${maxLength} characters.`);
     }
     return trimmed;
+}
+function requireScopeId(label, value) {
+    const text = requireText(label, value, MAX_SCOPE_FIELD);
+    const rejection = agentScopeIdRejection(label, text);
+    if (rejection)
+        throw new AgentMessagingError(rejection);
+    return canonicalAgentScopeId(text);
 }
 function optionalText(label, value, maxLength) {
     if (value === null)

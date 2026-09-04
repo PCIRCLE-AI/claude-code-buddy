@@ -20,6 +20,7 @@ import { removeTempDir } from '../helpers/temp-dir.js';
 import { createExplicitLesson } from '../../src/core/lesson-engine.js';
 import { KnowledgeGraph } from '../../src/knowledge-graph.js';
 import {
+  AGENT_SCOPE_PATH_KEY,
   ARCHIVED_FTS_ROWS_KEY,
   ARCHIVED_VECTOR_ROWS_KEY,
   FUSED_LESSON_SHELL_HISTORY_RESET_KEY,
@@ -52,7 +53,7 @@ function seed(fn: (db: Db) => void): void {
   const db = openDatabase(dbPath);
   fn(db);
   db.prepare(
-    'DELETE FROM memesh_metadata WHERE key LIKE ? OR key LIKE ? OR key LIKE ? OR key LIKE ? OR key LIKE ? OR key LIKE ?',
+    'DELETE FROM memesh_metadata WHERE key LIKE ? OR key LIKE ? OR key LIKE ? OR key LIKE ? OR key LIKE ? OR key LIKE ? OR key LIKE ?',
   ).run(
     `${SESSION_DEDUPE_KEY}%`,
     `${ZERO_EDIT_RETRACT_KEY}%`,
@@ -60,6 +61,7 @@ function seed(fn: (db: Db) => void): void {
     `${ARCHIVED_FTS_ROWS_KEY}%`,
     `${ARCHIVED_VECTOR_ROWS_KEY}%`,
     `${FUSED_LESSON_SHELL_HISTORY_RESET_KEY}%`,
+    `${AGENT_SCOPE_PATH_KEY}%`,
   );
   closeDatabase();
 }
@@ -1050,5 +1052,134 @@ describe('the split path retires history on its own, not by leaning on the one-s
     expect(recallOf(db, legacy)).toEqual({ hits: 0, misses: 0 });
     expect(metadataOf(db, legacy).retired_recall).toEqual({ hits: 2, misses: 11 });
     closeDatabase();
+  });
+});
+
+/**
+ * The fourth pass: durable-message scope identities spelled as filesystem
+ * paths. Seeded with the exact rows measured on the maintainer's graph —
+ * `/root` beside `root`, one absolute-path `project`, the `claude-code:`
+ * session pair, and the `memesh` / `memesh-llm-memory` project pair — because
+ * what this pass must NOT touch is as much of the contract as what it must.
+ */
+describe('normalizeAgentScopePaths — message scope identities spelled as paths', () => {
+  function message(db: Db, id: string, project: string, recipient: string): void {
+    db.prepare(
+      `INSERT INTO agent_messages (message_id, project, sender, recipient, content_type, privacy, payload_json, provenance_json)
+       VALUES (?, ?, 'author', ?, 'text/plain', 'private', '"x"', '{}')`,
+    ).run(id, project, recipient);
+    db.prepare(
+      `INSERT INTO agent_message_deliveries (delivery_id, message_id, project, recipient, target_kind)
+       VALUES (?, ?, ?, ?, 'principal')`,
+    ).run(`d-${id}`, id, project, recipient);
+    db.prepare(
+      `INSERT INTO agent_message_events (event_id, message_id, delivery_id, project, recipient, event_kind)
+       VALUES (?, ?, ?, ?, ?, 'message_available')`,
+    ).run(`e-${id}`, id, `d-${id}`, project, recipient);
+  }
+
+  function recipients(db: Db): Array<{ recipient: string; project: string; n: number }> {
+    return db.prepare(
+      'SELECT project, recipient, COUNT(*) AS n FROM agent_message_deliveries GROUP BY project, recipient ORDER BY project, recipient',
+    ).all() as unknown as Array<{ recipient: string; project: string; n: number }>;
+  }
+
+  it('rewrites a path-shaped project, recipient and actor to the identity name, once', () => {
+    seed((db) => {
+      message(db, 'm1', 'memesh-llm-memory', '/root');
+      message(db, 'm2', 'memesh-llm-memory', 'root');
+      message(db, 'm3', '/Users/ktseng/Developer/Projects/memesh-llm-memory', '/root');
+      db.prepare(
+        `INSERT INTO agent_message_receipts
+           (receipt_id, message_id, project, recipient, receipt_kind, actor, idempotency_key, request_hash, detail_json)
+         VALUES ('r1', 'm1', 'memesh-llm-memory', '/root', 'ack', '/root', 'k1', 'h1', '{}')`,
+      ).run();
+    });
+
+    const db = openDatabase(dbPath);
+    expect(recipients(db)).toEqual([
+      { project: 'memesh-llm-memory', recipient: 'root', n: 3 },
+    ]);
+    const receipt = db.prepare('SELECT project, recipient, actor FROM agent_message_receipts').get() as
+      { project: string; recipient: string; actor: string };
+    expect(receipt).toEqual({ project: 'memesh-llm-memory', recipient: 'root', actor: 'root' });
+    // Every message survives: this moves identities, it does not delete mail.
+    expect((db.prepare('SELECT COUNT(*) AS c FROM agent_messages').get() as { c: number }).c).toBe(3);
+
+    // Idempotent: a second open changes nothing.
+    closeDatabase();
+    const again = openDatabase(dbPath);
+    expect(recipients(again)).toEqual([
+      { project: 'memesh-llm-memory', recipient: 'root', n: 3 },
+    ]);
+  });
+
+  it('leaves `claude-code:session_X` and `session_X` apart, and `memesh` apart from `memesh-llm-memory`', () => {
+    // Both pairs are in the real graph and neither is a mechanical spelling
+    // variant. `claude-code:` exists nowhere in this repository, so there is
+    // no convention to normalise against; `memesh` vs `memesh-llm-memory` IS
+    // one project, but only a network call against one owner's GitHub account
+    // proves it, and a migration running from an arbitrary directory cannot.
+    //
+    // What this covers, precisely: the REPAIR leaves both pairs alone. It
+    // seeds through raw SQL, so it never calls `canonicalAgentScopeId` and
+    // cannot see a write-path canonicaliser that starts stripping the
+    // `claude-code:` prefix — mutating that function leaves this file green.
+    // That half is guarded in `tests/core/agent-messaging.test.ts` ("two
+    // genuinely different identities stay apart"). Two files, two halves;
+    // neither title should be read as covering the other's.
+    seed((db) => {
+      message(db, 'm1', 'memesh', 'session_01PDMer3P4cVYeHr4KRen3Un');
+      message(db, 'm2', 'memesh', 'claude-code:session_01PDMer3P4cVYeHr4KRen3Un');
+      message(db, 'm3', 'memesh-llm-memory', 'root');
+    });
+    const db = openDatabase(dbPath);
+    expect(recipients(db)).toEqual([
+      { project: 'memesh', recipient: 'claude-code:session_01PDMer3P4cVYeHr4KRen3Un', n: 1 },
+      { project: 'memesh', recipient: 'session_01PDMer3P4cVYeHr4KRen3Un', n: 1 },
+      { project: 'memesh-llm-memory', recipient: 'root', n: 1 },
+    ]);
+  });
+
+  it('drops a poll cursor that collides, and only a cursor', () => {
+    // `idx_agent_message_cursors_unique_scope_sequence` is UNIQUE on
+    // (project, recipient, event_sequence). When the canonical identity
+    // already holds that position, the path-spelled token is unreachable —
+    // `poll` refuses the path spelling it is bound to — so it is dropped.
+    seed((db) => {
+      message(db, 'm1', 'opencae-hpc', 'root');
+      const ins = db.prepare(
+        'INSERT INTO agent_message_cursors (cursor_token, project, recipient, event_sequence) VALUES (?, ?, ?, ?)',
+      );
+      ins.run('tok-canonical', 'opencae-hpc', 'root', 0);
+      ins.run('tok-path', 'opencae-hpc', '/root', 0);
+      ins.run('tok-path-unique', 'opencae-hpc', '/root', 7);
+    });
+    const db = openDatabase(dbPath);
+    const cursors = db.prepare(
+      'SELECT cursor_token, project, recipient, event_sequence FROM agent_message_cursors ORDER BY event_sequence, cursor_token',
+    ).all() as unknown as Array<{ cursor_token: string; recipient: string; event_sequence: number }>;
+    // The colliding token is gone; the non-colliding one is RENAMED, not
+    // dropped — an owner keeps every resume point that can still be honoured.
+    expect(cursors.map((c) => `${c.cursor_token}:${c.recipient}:${c.event_sequence}`)).toEqual([
+      'tok-canonical:root:0',
+      'tok-path-unique:root:7',
+    ]);
+  });
+
+  it('turns the invariant from red to green, and a graph with no messages is a no-op', () => {
+    const invariantStatus = () => spawnSync(process.execPath, [invariants, '--db', dbPath], { encoding: 'utf8' });
+    seed((db) => {
+      message(db, 'm1', 'sports-platform', '/root');
+    });
+    closeDatabase();
+    const before = invariantStatus();
+    expect(before.status, before.stdout).toBe(1);
+    expect(before.stdout).toContain('agent-message-scope-ids-are-not-filesystem-paths');
+
+    openDatabase(dbPath);
+    closeDatabase();
+    const after = invariantStatus();
+    expect(after.status, after.stdout).toBe(0);
   });
 });
