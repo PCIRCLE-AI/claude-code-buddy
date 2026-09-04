@@ -123,3 +123,6 @@ docs/guides/
 PRE_RELEASE_CHECKLIST.md
 docs/notes/
 .smoke-test*.db-*
+
+# === qa:live-journey receipts (owner-machine evidence, never shipped) ===
+.qa/

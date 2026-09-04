@@ -65,11 +65,28 @@ describe('the plan', () => {
     expect(scripts.prepublishOnly).not.toContain('test:packaged:upgrade');
   });
 
-  it('says what it cannot check, including the two gates that live elsewhere', () => {
+  it('reaches the entry-point start gate transitively, through verify:release', () => {
+    // `qa:pre-release` runs `verify:artifact`, which runs `verify:release`.
+    // Pinned here, not just in verify:release's own test, because THIS is
+    // the file whose NOT_CHECKED list claims the entry-point gate is covered
+    // — if `verify:release` ever stopped calling it, this is where that
+    // claim would go silently false.
+    const scripts = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8')).scripts;
+    expect(scripts['verify:release']).toContain('check:entry-points-start');
+    expect(scripts['check:entry-points-start']).toContain('check-entry-points-start.mjs');
+  });
+
+  it('says what it cannot check, including the one gate that still lives elsewhere', () => {
+    // The entry-point start gate used to be named here too — it is not
+    // anymore, because it is wired into `verify:release` (and therefore into
+    // `verify:artifact`, one of the STEPS above) rather than merely
+    // documented as missing. This test would go green again if that wiring
+    // were ever quietly removed while this line was deleted along with it,
+    // so the negative assertion matters as much as the positive ones.
     const text = NOT_CHECKED.join('\n');
     expect(text).toMatch(/live-journey/);
     expect(text).toMatch(/qa:post-release/);
-    expect(text).toMatch(/entry-point/);
+    expect(text).not.toMatch(/entry-point/);
   });
 
   it('detects a step whose npm script has been renamed away', () => {

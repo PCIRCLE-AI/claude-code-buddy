@@ -146,12 +146,21 @@ The same `operations.ts` memory functions run identically from all three transpo
 - Owner-run live checks (never CI): `scripts/qa/live-journey.mjs` — `npm run qa:live-journey -- --host codex|claude`
   drives a real Codex thread or an interactive Claude channel session and requires model-visible proof.
   Its pure half is pinned by `tests/qa/live-journey.test.ts`; the contract is in `docs/platforms/agent-messaging.md`.
-- Release gates, in the order a release meets them: `npm run qa:pre-release`
-  (`scripts/qa/pre-release.mjs`) runs build + `verify:artifact` + `audit:memory` as one door
-  and prints what it could not check; `verify:artifact` is the same sequence `prepublishOnly`
-  runs, named once. `scripts/smoke-packed-upgrade.mjs` derives every upgrade path it proves
-  from `package.json` and the registry (`scripts/lib/upgrade-matrix.mjs`) instead of pinning
-  a version pair. After publishing, `npm run qa:post-release` (`scripts/qa/post-release.mjs`)
-  checks registry acceptance, a fresh install from the registry, and whether this machine is
-  on the release — read-only, printing fixes rather than running them.
+- Release gates, in the order a release meets them: `verify:release` (called by `qa:pre-release`
+  below) now ends with `npm run check:entry-points-start`
+  (`scripts/check-entry-points-start.mjs`), which spawns every one of the 17 shipped bins and
+  hooks for real and fails on any unresolved `${...}` left in `.mcp.json`/`hooks/hooks.json`.
+  `npm run qa:pre-release` (`scripts/qa/pre-release.mjs`) runs build + `verify:artifact` +
+  `audit:memory` as one door and prints what it could not check; `verify:artifact` is the same
+  sequence `prepublishOnly` runs, named once. `scripts/smoke-packed-upgrade.mjs` derives every
+  upgrade path it proves from `package.json` and the registry (`scripts/lib/upgrade-matrix.mjs`)
+  instead of pinning a version pair. `npm run release:finish` (`scripts/finish-release.mjs`) runs
+  `qa:pre-release` itself and blocks on its exit code, and requires a `qa:live-journey` receipt
+  under `.qa/` (named `<host>-report.json` — codex or claude, either satisfies it) that is
+  `PASS`, clean-tree, and names the exact commit being released
+  (`scripts/lib/release-preconditions.mjs`'s
+  `findUsableLiveJourneyReceipt`) — real-credential checks CI cannot run, now required rather
+  than merely available. After publishing, `npm run qa:post-release`
+  (`scripts/qa/post-release.mjs`) checks registry acceptance, a fresh install from the registry,
+  and whether this machine is on the release — read-only, printing fixes rather than running them.
 - Version anchors that must agree on a bump: `package.json`, both root entries in `package-lock.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `herdr-plugin.toml`, `CHANGELOG.md`, `CODEMAP.md`, `docs/ARCHITECTURE.md`, and `docs/api/API_REFERENCE.md`. Run `npm run build` after to regenerate `dist/skills-manifest.json`.

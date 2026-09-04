@@ -45,9 +45,9 @@ export const STEPS = [
  * cannot run here, so nobody reads a green verdict as more than it is.
  */
 export const NOT_CHECKED = [
-  'npm run qa:live-journey -- --host claude — needs an interactive Claude Code session a script cannot open.',
+  'npm run qa:live-journey -- --host claude — needs an interactive Claude Code session a script cannot open. ' +
+    'A --host codex or --host claude receipt is required by `release:finish` instead (see release-preconditions.mjs).',
   'npm run qa:post-release — only meaningful after the release is published; run it next.',
-  'The entry-point start gate — unreviewed on branch fix/entry-point-execution-gate, deliberately not wired in.',
 ];
 
 /**

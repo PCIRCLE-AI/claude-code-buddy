@@ -10,11 +10,28 @@ All notable changes to MeMesh are documented here.
 
 - **`npm run qa:pre-release` — one door before a release, that says what it did
   not check.** It runs `npm run build`, `verify:artifact` (lint, typecheck,
-  version coherence, doc claims, the isolated suite, the packed artifact and
-  every derived upgrade path — the same sequence `prepublishOnly` runs, now
-  named once instead of copied) and `audit:memory`, reports each step's real
-  exit code, and prints the checks it cannot run: the interactive live journey,
-  the post-release check, and the entry-point start gate.
+  version coherence, doc claims, the isolated suite, the packed artifact,
+  every derived upgrade path, and now the entry-point start gate below — the
+  same sequence `prepublishOnly` runs, now named once instead of copied) and
+  `audit:memory`, reports each step's real exit code, and prints the checks it
+  still cannot run here: the interactive live journey (gated separately by
+  `release:finish`, below) and the post-release check.
+- **A release gate that actually starts every shipped entry point.** Eight
+  binaries and nine hooks ship; every existing check only asked whether a
+  file existed, whether JSON parsed, or whether a referenced path resolved —
+  none of them ran the code. `scripts/check-entry-points-start.mjs`
+  (`npm run check:entry-points-start`, folded into `verify:release`) spawns
+  each of the 17 for real against a throwaway `MEMESH_DIR`: a CLI must accept
+  `--version`, an MCP server must exit 0 on stdin EOF, a long-lived daemon
+  must reach its "running" signal (a log line, or its socket file appearing),
+  and a host runtime with no config must fail closed with a named message,
+  never a raw stack trace. It also fails on any unresolved `${...}` left in
+  `.mcp.json` or `hooks/hooks.json`, evaluated against each manifest's own
+  real substitution environment — `CLAUDE_PLUGIN_ROOT` is always defined for
+  the plugin-loader-only `hooks/hooks.json`, but not for `.mcp.json`, which
+  Claude Code also auto-discovers with no plugin loader involved at all. The
+  Windows skip list is pinned to exactly one entry (`memesh-router`, no
+  `AF_UNIX` there) so it cannot grow silently.
 - **`npm run qa:post-release` — the check that runs on the machine, not on a
   fresh clone.** Every gate here runs on a fresh checkout or a fresh install,
   and all three release incidents lived in state that already existed: v4.7.0
@@ -57,6 +74,25 @@ All notable changes to MeMesh are documented here.
   hooks, and `check-codemap-parity` no longer hard-codes the count.
 
 ### Changed
+
+- **`npm run release:finish` now runs the real-credential checks instead of
+  merely documenting that they exist.** `qa:pre-release` and `qa:live-journey`
+  were both available since the previous release but neither was in the one
+  command that actually cuts a release — a check nobody has to run is a check
+  that gets skipped exactly when a release is rushed. `finish-release.mjs` now
+  runs `npm run qa:pre-release` itself (build + `verify:artifact` +
+  `audit:memory`, several minutes, streamed live) and blocks on its exit code;
+  a receipt cannot substitute here because it can go stale the moment the next
+  commit lands. `qa:live-journey` cannot run unattended — it needs a Codex
+  login or a person at an interactive Claude Code session — so it stays
+  receipt-based: `npm run qa:live-journey -- --host codex|claude --out
+  .qa/<host>-report.json` writes a report, and `release:finish` requires ONE
+  of the two hosts' reports to be readable, `verdict: "PASS"`, recorded
+  against a clean tree, and naming this exact commit — an older PASS proves an
+  earlier revision, not this one. Neither host is preferred; only Codex can be
+  driven unattended today, but a human-run Claude receipt satisfies the gate
+  exactly as well. `.qa/` is gitignored — a receipt is owner-machine evidence,
+  never shipped.
 
 - **The packed-upgrade gate derives its upgrade paths instead of pinning
   them.** `scripts/smoke-packed-upgrade.mjs` named both ends by hand
