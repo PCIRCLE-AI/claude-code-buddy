@@ -250,14 +250,30 @@ function looksLikeStackTrace(stderr) {
 
 async function main() {
   const gateRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'mep-'));
+  // Belt-and-suspenders: mkdtemp already defaults to 0700 on every platform
+  // this gate runs on, but the router's own startup check (agent-router.ts
+  // `start()`: `(directoryMode & 0o077) !== 0` throws `insecure_socket_directory`)
+  // is exactly the kind of check this gate exists to actually exercise, not
+  // assume past. Making it explicit removes any dependency on umask.
+  fs.chmodSync(gateRoot, 0o700);
   const memeshDir = path.join(gateRoot, '.memesh');
   fs.mkdirSync(memeshDir, { recursive: true });
   const memeshDbPath = path.join(memeshDir, 'kg.db');
-  // AF_UNIX paths are capped at 103 bytes (src/core/agent-router.ts:1482) —
-  // sibling of gateRoot, not nested under it, to stay short regardless of
-  // how deep the platform's tmpdir already is.
-  const routerSocket = `${gateRoot}-r.sock`;
-  const routerTokenFile = `${gateRoot}-r.token`;
+  // NESTED under gateRoot, not a sibling of it — a sibling's directory is
+  // `os.tmpdir()` itself, which is the shared, world-writable system temp dir
+  // on Linux (`/tmp`, mode 1777), not gateRoot's own private (0700)
+  // directory. That is precisely the failure this router rejects: measured
+  // on ubuntu-latest CI, `memesh-router` refused to start with
+  // `insecure_socket_directory: Router socket directory must be private` —
+  // masked locally on macOS only because `os.tmpdir()` there already
+  // resolves to a per-user 0700 directory, so the bug was invisible on the
+  // one platform this gate had been run on before it first reached CI.
+  // AF_UNIX paths are capped at 103 bytes (agent-router.ts `validateSocketPath`);
+  // nesting one level costs one path separator — measured 66 bytes total on
+  // macOS's unusually long tmpdir (`/var/folders/.../T/mep-XXXXXX/r.sock`),
+  // well inside the limit, and shorter still on Linux's `/tmp`.
+  const routerSocket = path.join(gateRoot, 'r.sock');
+  const routerTokenFile = path.join(gateRoot, 'r.token');
 
   const baseEnv = {
     ...process.env,
