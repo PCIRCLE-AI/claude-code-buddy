@@ -349,8 +349,8 @@ export class KnowledgeGraph {
     const isNewEntity = insertResult.changes > 0;
 
     const row = this.db
-      .prepare('SELECT id, status, namespace, title FROM entities WHERE name = ?')
-      .get(name) as { id: number; status: string; namespace: string | null; title: string | null };
+      .prepare('SELECT id, status, namespace, title, type FROM entities WHERE name = ?')
+      .get(name) as { id: number; status: string; namespace: string | null; title: string | null; type: string };
     const entityId = row.id;
 
     // Title update on an EXISTING entity — the INSERT OR IGNORE above never
@@ -534,11 +534,26 @@ export class KnowledgeGraph {
     // first, drop it, and fuse both blocks into one — silently discarding
     // `Fix: A`. Every OTHER type's reader selects `content` alone with no
     // ordering, so a repeat there is genuinely inert.
+    //
+    // The membership check reads the entity's STORED type (`row.type`) for
+    // an existing entity, never the incoming `type` argument: `INSERT OR
+    // IGNORE` above is a no-op on a name collision, so the row's real type
+    // never changes on re-remember (pinned by "should ... preserve original
+    // type on duplicate entity" above) — but `type` still holds whatever
+    // string this call passed. A caller is free to pass any 1-100 char
+    // string (`transports/schemas.ts`'s `type: z.string().min(1).max(100)`,
+    // no enum), so re-remembering an existing lesson under some OTHER type
+    // string would have made this check take the non-lesson branch and run
+    // content dedup against ordered lesson blocks anyway — silently dropping
+    // a repeated `Root cause:`/`Fix:`/`Prevention:` line the lesson family is
+    // exempted specifically to keep. `isNewEntity` still uses the incoming
+    // `type` because there is no stored type yet to read.
     if (opts?.observations?.length) {
       const insertObs = this.db.prepare(
         'INSERT INTO observations (entity_id, content) VALUES (?, ?)'
       );
-      const isLessonFamily = type === 'lesson_learned' || type === 'lesson' || type === 'mistake';
+      const effectiveType = isNewEntity ? type : row.type;
+      const isLessonFamily = effectiveType === 'lesson_learned' || effectiveType === 'lesson' || effectiveType === 'mistake';
       if (isLessonFamily) {
         for (const obs of opts.observations) {
           insertObs.run(entityId, obs);

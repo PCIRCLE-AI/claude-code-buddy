@@ -234,6 +234,38 @@ describe('Feature: Knowledge Graph', () => {
       }
     });
 
+    it('re-remembering a lesson entity under a different type string still skips content dedup', () => {
+      // The lesson-family exemption above must key on the entity's STORED
+      // type, not the type string this particular call happens to pass.
+      // `type` here is caller-controlled (schemas.ts: any 1-100 char string,
+      // no enum) and, per the test below, re-remembering an existing entity
+      // under a different type never changes its stored type — so a second
+      // call naming some other type must still be treated as the lesson it
+      // actually is, or the ordered-block guard above is bypassable.
+      kg.createEntity('lesson-mismatched-type-fixture', 'lesson_learned', {
+        observations: [
+          'Error: X',
+          'Root cause: Not specified',
+          'Fix: A',
+          'Prevention: Review similar code paths',
+        ],
+      });
+      kg.createEntity('lesson-mismatched-type-fixture', 'note', {
+        observations: [
+          'Error: X',
+          'Root cause: Not specified',
+          'Fix: B',
+          'Prevention: Review similar code paths',
+        ],
+      });
+
+      const entity = kg.getEntity('lesson-mismatched-type-fixture');
+      expect(entity!.type).toBe('lesson_learned');
+      expect(entity!.observations.filter((o) => o === 'Error: X')).toHaveLength(2);
+      expect(entity!.observations).toContain('Fix: A');
+      expect(entity!.observations).toContain('Fix: B');
+    });
+
     it('should dedupe tags and preserve original type on duplicate entity', () => {
       kg.createEntity('TypeScript', 'language', {
         tags: ['frontend'],

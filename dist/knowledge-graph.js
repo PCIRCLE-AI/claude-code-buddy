@@ -89,7 +89,7 @@ export class KnowledgeGraph {
             .run(name, type, JSON.stringify(incomingMetadata), opts?.namespace ?? 'personal', opts?.title ?? null);
         const isNewEntity = insertResult.changes > 0;
         const row = this.db
-            .prepare('SELECT id, status, namespace, title FROM entities WHERE name = ?')
+            .prepare('SELECT id, status, namespace, title, type FROM entities WHERE name = ?')
             .get(name);
         const entityId = row.id;
         const previousTitle = row.title;
@@ -154,7 +154,8 @@ export class KnowledgeGraph {
             : joinIndexedObservations(prevObs.map((o) => o.content));
         if (opts?.observations?.length) {
             const insertObs = this.db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
-            const isLessonFamily = type === 'lesson_learned' || type === 'lesson' || type === 'mistake';
+            const effectiveType = isNewEntity ? type : row.type;
+            const isLessonFamily = effectiveType === 'lesson_learned' || effectiveType === 'lesson' || effectiveType === 'mistake';
             if (isLessonFamily) {
                 for (const obs of opts.observations) {
                     insertObs.run(entityId, obs);
