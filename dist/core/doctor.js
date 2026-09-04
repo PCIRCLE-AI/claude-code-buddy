@@ -217,28 +217,49 @@ function inspectConfigFile(existsSyncImpl, readFileSyncImpl, getConfigPathImpl, 
         return createCheck('config', 'Config', 'fail', `${configPath} could not be read or parsed (${msg}). Every setting in it — LLM provider, fallbacks, embedder — is being silently ignored right now.`, `Fix the JSON or remove the file to fall back to defaults: mv ${configPath} ${configPath}.bak`, { code: 'config-parse.unreadable', params: { path: configPath, detail: msg } });
     }
 }
-function inspectMcpConfig(packageRoot, existsSyncImpl, readFileSyncImpl) {
-    const mcpPath = path.join(packageRoot, '.mcp.json');
+const MCP_PLACEHOLDER = '${CLAUDE_PLUGIN_ROOT}';
+function declaredMcpManifest(packageRoot, readFileSyncImpl) {
+    const parsed = parseJsonFile(path.join(packageRoot, '.claude-plugin', 'plugin.json'), readFileSyncImpl);
+    if (!parsed.ok)
+        return null;
+    const declared = parsed.value.mcpServers;
+    if (typeof declared !== 'string' || !declared.startsWith('./'))
+        return null;
+    return declared.slice(2);
+}
+function inspectMcpConfig(packageRoot, installChannel, existsSyncImpl, readFileSyncImpl, env) {
+    const relativeManifest = declaredMcpManifest(packageRoot, readFileSyncImpl);
+    if (relativeManifest === null) {
+        return createCheck('mcp-config', 'MCP config', 'fail', '.claude-plugin/plugin.json declares no `mcpServers` path, so Claude Code has no MeMesh MCP server to start.', 'Reinstall MeMesh so the plugin manifest and the MCP manifest it names are both restored.', { code: 'mcp-config.missing' });
+    }
+    const label = relativeManifest;
+    const mcpPath = path.join(packageRoot, relativeManifest);
     if (!existsSyncImpl(mcpPath)) {
-        return createCheck('mcp-config', 'MCP config', 'fail', '.mcp.json is missing.', 'Restore `.mcp.json` from the package or reinstall MeMesh.', { code: 'mcp-config.missing' });
+        return createCheck('mcp-config', 'MCP config', 'fail', `${label} is missing.`, 'Reinstall MeMesh so the plugin manifest and the MCP manifest it names are both restored.', { code: 'mcp-config.missing' });
     }
     const parsed = parseJsonFile(mcpPath, readFileSyncImpl);
     if (!parsed.ok) {
-        return createCheck('mcp-config', 'MCP config', 'fail', '.mcp.json is not valid JSON.', `Fix ${mcpPath} so Claude Code can read the MCP server definition.`, { code: 'mcp-config.invalid-json', params: { path: mcpPath } });
+        return createCheck('mcp-config', 'MCP config', 'fail', `${label} is not valid JSON.`, `Fix ${mcpPath} so Claude Code can read the MCP server definition.`, { code: 'mcp-config.invalid-json', params: { path: mcpPath } });
     }
     const server = parsed.value.mcpServers?.memesh;
     if (!server || typeof server.command !== 'string') {
-        return createCheck('mcp-config', 'MCP config', 'fail', '.mcp.json does not define a usable `memesh` MCP server entry.', 'Reinstall MeMesh or restore the `mcpServers.memesh` entry in `.mcp.json`.', { code: 'mcp-config.no-entry' });
+        return createCheck('mcp-config', 'MCP config', 'fail', `${label} does not define a usable \`memesh\` MCP server entry.`, `Reinstall MeMesh or restore the \`mcpServers.memesh\` entry in \`${label}\`.`, { code: 'mcp-config.no-entry' });
     }
     const args = Array.isArray(server.args) ? server.args : [];
     const entry = typeof args[0] === 'string' ? args[0] : null;
     if (entry) {
-        const resolved = path.resolve(entry.replaceAll('${CLAUDE_PLUGIN_ROOT}', packageRoot));
+        const pluginRoot = installChannel === 'plugin-marketplace' ? packageRoot : (env.CLAUDE_PLUGIN_ROOT || null);
+        if (entry.includes(MCP_PLACEHOLDER) && pluginRoot === null) {
+            return createCheck('mcp-config', 'MCP config', 'warn', `${label} starts \`${entry}\`. NOT VERIFIED: \`${MCP_PLACEHOLDER}\` is substituted by the Claude Code plugin runtime, and this is a ${installChannel} install with CLAUDE_PLUGIN_ROOT unset — so the file it names was not checked.`, `Verify it the way the plugin runtime would: CLAUDE_PLUGIN_ROOT=${packageRoot} memesh doctor`, { code: 'mcp-config.placeholder-unresolved', params: { entry, channel: installChannel } });
+        }
+        const resolved = pluginRoot === null
+            ? path.resolve(packageRoot, entry)
+            : path.resolve(entry.replaceAll(MCP_PLACEHOLDER, pluginRoot));
         if (!existsSyncImpl(resolved)) {
-            return createCheck('mcp-config', 'MCP config', 'fail', `.mcp.json starts \`${entry}\`, and that file is not in this install — so every memesh MCP tool fails to start.`, 'Reinstall MeMesh; if you edited `.mcp.json` by hand, point it back at `${CLAUDE_PLUGIN_ROOT}/dist/mcp/server.js`.', { code: 'mcp-config.entry-missing', params: { entry, resolved } });
+            return createCheck('mcp-config', 'MCP config', 'fail', `${label} starts \`${entry}\`, and that file is not in this install — so every memesh MCP tool fails to start.`, `Reinstall MeMesh; if you edited \`${label}\` by hand, point it back at \`${MCP_PLACEHOLDER}/dist/mcp/server.js\`.`, { code: 'mcp-config.entry-missing', params: { entry, resolved } });
         }
     }
-    return createCheck('mcp-config', 'MCP config', 'pass', '.mcp.json is present, defines the memesh MCP server, and the script it starts exists.');
+    return createCheck('mcp-config', 'MCP config', 'pass', `${label} is present, defines the memesh MCP server, and the script it starts exists.`);
 }
 function extractHookScriptPaths(hooksConfig, packageRoot) {
     const hooks = hooksConfig.hooks;
@@ -1308,7 +1329,7 @@ function summarizeOverallStatus(checks) {
     return 'PASS';
 }
 export async function runDoctor(options) {
-    const { packageRoot, packageVersion, probeHttp = false, probeCapabilities = false, embedTextImpl = embedText, probeProviderImpl = probeProvider, httpBaseUrl = 'http://127.0.0.1:3737', platform = process.platform, openDatabaseImpl = openDatabase, closeDatabaseImpl = closeDatabase, isDatabaseOpenImpl = isDatabaseOpen, detectCapabilitiesImpl = detectCapabilities, getConfigPathImpl = getConfigPath, getUpdateCheckImpl = getUpdateCheck, getCurrentInstallChannelImpl = getCurrentInstallChannel, installedPluginsPathImpl, marketplaceHeadShaImpl = defaultMarketplaceHeadSha, pluginCacheDiscoveryImpl, getInstallChannelSupportImpl = getInstallChannelSupport, existsSyncImpl = fs.existsSync, readFileSyncImpl = fs.readFileSync, statSyncImpl = fs.statSync, fetchImpl = fetch, agentMessageStoragePolicy, nativeBindingProbeImpl, resolveShellMemeshImpl = defaultResolveShellMemesh, probeMessageCapability = process.env.MEMESH_DOCTOR_PROBE_MESSAGE_CAPABILITY === '1', messageCapabilityProbeImpl = probeInstalledMessageCapability, probeMessageRouterStatus = process.env.MEMESH_DOCTOR_PROBE_MESSAGE_ROUTER === '1', messageRouterStatusProbeImpl = defaultMessageRouterStatusProbe, } = options;
+    const { packageRoot, packageVersion, probeHttp = false, probeCapabilities = false, embedTextImpl = embedText, probeProviderImpl = probeProvider, httpBaseUrl = 'http://127.0.0.1:3737', platform = process.platform, envImpl = process.env, openDatabaseImpl = openDatabase, closeDatabaseImpl = closeDatabase, isDatabaseOpenImpl = isDatabaseOpen, detectCapabilitiesImpl = detectCapabilities, getConfigPathImpl = getConfigPath, getUpdateCheckImpl = getUpdateCheck, getCurrentInstallChannelImpl = getCurrentInstallChannel, installedPluginsPathImpl, marketplaceHeadShaImpl = defaultMarketplaceHeadSha, pluginCacheDiscoveryImpl, getInstallChannelSupportImpl = getInstallChannelSupport, existsSyncImpl = fs.existsSync, readFileSyncImpl = fs.readFileSync, statSyncImpl = fs.statSync, fetchImpl = fetch, agentMessageStoragePolicy, nativeBindingProbeImpl, resolveShellMemeshImpl = defaultResolveShellMemesh, probeMessageCapability = process.env.MEMESH_DOCTOR_PROBE_MESSAGE_CAPABILITY === '1', messageCapabilityProbeImpl = probeInstalledMessageCapability, probeMessageRouterStatus = process.env.MEMESH_DOCTOR_PROBE_MESSAGE_ROUTER === '1', messageRouterStatusProbeImpl = defaultMessageRouterStatusProbe, } = options;
     const wasDbOpenBeforeUs = isDatabaseOpenImpl();
     const safeCloseDatabaseImpl = wasDbOpenBeforeUs
         ? () => undefined
@@ -1521,7 +1542,7 @@ export async function runDoctor(options) {
         }
     }
     checks.push(inspectConfigFile(existsSyncImpl, readFileSyncImpl, getConfigPathImpl, detectCapabilitiesImpl().llm));
-    checks.push(inspectMcpConfig(packageRoot, existsSyncImpl, readFileSyncImpl));
+    checks.push(inspectMcpConfig(packageRoot, install, existsSyncImpl, readFileSyncImpl, envImpl));
     checks.push(...inspectHooksConfig(packageRoot, platform, existsSyncImpl, readFileSyncImpl, statSyncImpl));
     const pluginHost = detectPluginHost(packageRoot);
     let codexPluginCacheDetected = pluginHost === 'codex';

@@ -276,14 +276,14 @@ describe('finish-release cuts the release in one call', () => {
 
 describe('shipped paths come from package.json, not a hand-kept list', () => {
   it('lists every `files` entry plus package.json and the lockfile, directories without the trailing slash', () => {
-    const paths = shippedPathsFromPackageJson({ files: ['dist/', 'dashboard/dist/', '.mcp.json', 'hooks/hooks.json'] });
-    expect(paths).toEqual(['dist', 'dashboard/dist', '.mcp.json', 'hooks/hooks.json', 'package.json', 'package-lock.json']);
+    const paths = shippedPathsFromPackageJson({ files: ['dist/', 'dashboard/dist/', '.claude-plugin/', 'hooks/hooks.json'] });
+    expect(paths).toEqual(['dist', 'dashboard/dist', '.claude-plugin', 'hooks/hooks.json', 'package.json', 'package-lock.json']);
   });
 
   it('covers the surfaces the first hand-kept list missed, using the real package.json', () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
     const paths = shippedPathsFromPackageJson(pkg)!;
-    for (const must of ['dist', 'dashboard/dist', '.mcp.json', 'hooks/hooks.json', 'scripts/hooks', 'skills', '.claude-plugin', 'package.json']) {
+    for (const must of ['dist', 'dashboard/dist', 'hooks/hooks.json', 'scripts/hooks', 'skills', '.claude-plugin', 'package.json']) {
       expect(paths, `${must} is shipped and must be guarded`).toContain(must);
     }
   });

@@ -44,6 +44,7 @@ interface DoctorOptions {
     existsSyncImpl?: typeof fs.existsSync;
     readFileSyncImpl?: typeof fs.readFileSync;
     statSyncImpl?: typeof fs.statSync;
+    envImpl?: NodeJS.ProcessEnv;
     fetchImpl?: typeof fetch;
     agentMessageStoragePolicy?: {
         storage_quota_bytes?: number;

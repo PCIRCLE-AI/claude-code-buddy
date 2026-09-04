@@ -286,6 +286,43 @@ All notable changes to MeMesh are documented here.
   this state, and `scripts/audit/memory-invariants.mjs` gained
   `split-lesson-shell-carries-no-recall-history` to keep it caught.
 
+- **The Claude plugin no longer ships an MCP config on the path Claude Code
+  auto-discovers as a project config.** `.mcp.json` at the repository root was
+  loaded twice: by the plugin runtime, where `${CLAUDE_PLUGIN_ROOT}` resolves
+  to the plugin directory, and as a project-scoped MCP config for anyone who
+  merely opened the repository, where it is undefined. In the second role the
+  server started as `node /dist/mcp/server.js`, exited 1 with
+  `Cannot find module`, and a live session reported
+  `memesh (CONNECTION_CLOSED)` — for three and a half months, since the
+  placeholder replaced a working `npx -y -p @pcircle/memesh memesh-mcp` form.
+  The manifest now lives at `.claude-plugin/mcp.json`, declared by
+  `.claude-plugin/plugin.json` as `"mcpServers": "./.claude-plugin/mcp.json"`,
+  and the root file is deleted — custom component paths supplement the
+  defaults rather than replacing them, so declaring a path while leaving the
+  root file in place would have loaded both. `${CLAUDE_PLUGIN_ROOT}` is kept,
+  because it is the documented and correct placeholder inside a plugin
+  manifest; what was wrong was the path, not the variable. Verified with
+  `claude mcp list` against a throwaway `CLAUDE_CONFIG_DIR`: before the change
+  it reported `[Warning] [memesh] mcpServers.memesh: Missing environment
+  variables: CLAUDE_PLUGIN_ROOT` from the project config, and after it the
+  plugin install registers `plugin:memesh:memesh` with the placeholder already
+  substituted.
+
+- **`memesh doctor`'s MCP-config check can now fail on the channels where it
+  could not.** It substituted `${CLAUDE_PLUGIN_ROOT}` with the package root
+  unconditionally, so on `source-checkout`, `npm-global` and `npm-local` the
+  substitution was self-fulfilling — it rebuilt a path that exists by
+  construction, and the check could not report a fault whatever the manifest
+  said. That green row is why the defect above survived three releases. Doctor
+  now substitutes only where something really does substitute
+  (`plugin-marketplace`, or an explicit `CLAUDE_PLUGIN_ROOT` in the
+  environment) and otherwise reports `mcp-config.placeholder-unresolved` —
+  a warn that states plainly that the target was NOT verified and gives the
+  command that would verify it, instead of the old "the script it starts
+  exists". It also reads the manifest path from `.claude-plugin/plugin.json`
+  rather than hardcoding one, so a future move cannot leave the check pointing
+  at a file nobody loads.
+
 - **The Ollama host guard now rebuilds the request origin instead of forwarding
   the configured string.** `resolveOllamaHost` used to validate a persisted
   `llm.host` and then pass the same string to `fetch`, which left CodeQL alert

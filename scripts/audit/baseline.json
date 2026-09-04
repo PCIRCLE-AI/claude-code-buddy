@@ -690,6 +690,11 @@
       "class": "NOT-A-GATE",
       "reason": "real-browser (real HTTP server + real Chromium) verification that the dashboard doctor banner renders correctly translated across all 11 locales, for evidence-gates output_readback/process_boundary/failure_path evidence -- invoked directly by `eg record`, not by any npm script or CI workflow. A human or eg re-runs it on demand when the dashboard i18n catalogue changes; it does not gate a commit or a release on its own.",
       "triaged": "2026-09-03"
+    },
+    "C3 scripts/qa/verify-dashboard-mcp-config-banner-i18n.mjs": {
+      "class": "NOT-A-GATE",
+      "reason": "real-browser (real HTTP server + real Chromium) verification that the dashboard doctor banner renders the mcp-config.placeholder-unresolved (quiet) and mcp-config.missing (translated banner) states correctly across all 11 locales, for evidence-gates output_readback/process_boundary/failure_path evidence -- invoked directly by `eg record`, not by any npm script or CI workflow. Renamed from verify-dashboard-doctor-banner-i18n.mjs during a rebase over PR #293, which already claimed that filename for its own llm-telemetry.silent-failure banner script -- distinct doctor codes, distinct files. A human or eg re-runs it on demand when the dashboard i18n catalogue changes; it does not gate a commit or a release on its own.",
+      "triaged": "2026-09-04"
     }
   }
 }

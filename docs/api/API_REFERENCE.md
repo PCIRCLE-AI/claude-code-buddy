@@ -1875,7 +1875,7 @@ Two behaviours worth stating because they differ from a filesystem:
 
 ## Connection
 
-MeMesh runs as a stdio MCP server. Claude Code manages the connection automatically via the plugin's `.mcp.json` configuration.
+MeMesh runs as a stdio MCP server. Claude Code manages the connection automatically via the MCP manifest the plugin declares in `.claude-plugin/plugin.json` (`mcpServers: "./.claude-plugin/mcp.json"`).
 
 ```json
 {

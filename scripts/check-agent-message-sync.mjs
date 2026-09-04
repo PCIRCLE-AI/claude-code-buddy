@@ -31,6 +31,9 @@ const requireText = (relative, needles) => {
     if (!text.includes(needle)) missing.push(`${relative} (missing ${JSON.stringify(needle)})`);
   }
 };
+const requireAbsent = (relative, why) => {
+  if (fs.existsSync(path.join(root, relative))) missing.push(`${relative} (must NOT exist: ${why})`);
+};
 const requirePattern = (relative, pattern, description) => {
   const text = read(relative);
   if (!pattern.test(text)) missing.push(`${relative} (missing ${description})`);
@@ -184,8 +187,15 @@ requireText('docs/platforms/agent-messaging.md', [
   'exact-session', 'principal target', 'Local', 'Cloud', 'Bounded storage and audit retention',
 ]);
 requireText('skills/memesh/SKILL.md', ['message', 'polling', 'active compatible managed host', 'stopped, missing, or replaced session', 'message storage report']);
-requireText('.mcp.json', ['memesh', '${CLAUDE_PLUGIN_ROOT}/dist/mcp/server.js']);
-requireText('.claude-plugin/plugin.json', ['"name": "memesh"', '"version"']);
+requireText('.claude-plugin/mcp.json', ['memesh', '${CLAUDE_PLUGIN_ROOT}/dist/mcp/server.js']);
+requireText('.claude-plugin/plugin.json', ['"name": "memesh"', '"version"', '"mcpServers": "./.claude-plugin/mcp.json"']);
+requireAbsent(
+  '.mcp.json',
+  'Claude Code auto-discovers a root .mcp.json as a PROJECT-scoped MCP config for anyone who ' +
+    'opens this repository, and ${CLAUDE_PLUGIN_ROOT} is undefined there — the server dies with ' +
+    '-32000 Connection closed. Custom component paths supplement the defaults rather than ' +
+    'replacing them, so .claude-plugin/plugin.json declaring a path is only half the fix.'
+);
 requireText('.codex-plugin/plugin.json', ['"name": "memesh"', '"version"', '"mcpServers": "./.codex-plugin/mcp.json"']);
 requireText('.codex-plugin/mcp.json', ['"memesh"', '"command": "node"', '"./dist/mcp/server.js"', '"cwd": "."']);
 requireText('.claude-plugin/marketplace.json', ['"name": "pcircle-memesh"', '"version"']);

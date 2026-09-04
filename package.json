@@ -17,7 +17,6 @@
   "files": [
     "dist/",
     "dashboard/dist/",
-    ".mcp.json",
     "hooks/hooks.json",
     "scripts/hooks/",
     "scripts/upgrade-plugin.sh",

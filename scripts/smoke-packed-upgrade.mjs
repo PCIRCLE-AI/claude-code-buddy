@@ -287,7 +287,7 @@ function proveUpgradePath({ fromVersion, candidateVersion, candidateTarball, cac
 
   for (const requiredFile of [
     'package.json',
-    '.mcp.json',
+    '.claude-plugin/mcp.json',
     'dist/transports/cli/cli.js',
     'dist/mcp/server.js',
     'dist/core/doctor.js',

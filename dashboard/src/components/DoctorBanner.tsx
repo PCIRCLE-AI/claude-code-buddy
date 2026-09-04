@@ -72,6 +72,10 @@ export const QUIET_WARN_CODES = new Set([
   'shell-cli.not-on-path',         // plugin-only installs work fully
   'skills-manifest.missing-dev',   // normal for source checkouts
   'install-channel.unknown',       // nothing is broken
+  'mcp-config.placeholder-unresolved', // not a failure of this install — npm
+                                   // and source-checkout channels have no
+                                   // plugin root to resolve `${CLAUDE_PLUGIN_ROOT}`
+                                   // against, so there is nothing broken to act on
   'http-probe.no-server',          // you are LOOKING at the dashboard
   'readme-parity.unreadable',      // contributor-facing
   'readme-parity.drift',           // contributor-facing
