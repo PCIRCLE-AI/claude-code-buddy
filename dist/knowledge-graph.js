@@ -523,26 +523,31 @@ export class KnowledgeGraph {
         return { archived: true, name, previousStatus: row.status };
     }
     removeObservation(entityName, observationContent) {
-        const row = this.db
-            .prepare('SELECT id, title FROM entities WHERE name = ?')
-            .get(entityName);
-        if (!row)
-            return { removed: false, remainingObservations: 0, entityFound: false };
-        const prevObs = this.db
-            .prepare('SELECT content FROM observations WHERE entity_id = ? ORDER BY id')
-            .all(row.id);
-        const prevObsText = joinIndexedObservations(prevObs.map((o) => o.content));
-        const deleteResult = this.db
-            .prepare('DELETE FROM observations WHERE entity_id = ? AND content = ?')
-            .run(row.id, observationContent);
-        if (deleteResult.changes === 0) {
-            return { removed: false, remainingObservations: prevObs.length, entityFound: true };
-        }
-        this.rebuildFts(row.id, entityName, prevObsText, row.title);
-        const remaining = this.db
-            .prepare('SELECT COUNT(*) as c FROM observations WHERE entity_id = ?')
-            .get(row.id);
-        return { removed: true, remainingObservations: remaining.c, entityFound: true };
+        return this.db.transaction(() => {
+            const row = this.db
+                .prepare('SELECT id, title, status FROM entities WHERE name = ?')
+                .get(entityName);
+            if (!row)
+                return { removed: false, remainingObservations: 0, entityFound: false };
+            const prevObs = this.db
+                .prepare('SELECT content FROM observations WHERE entity_id = ? ORDER BY id')
+                .all(row.id);
+            const prevObsText = joinIndexedObservations(prevObs.map((o) => o.content));
+            const deleteResult = this.db
+                .prepare('DELETE FROM observations WHERE entity_id = ? AND content = ?')
+                .run(row.id, observationContent);
+            if (deleteResult.changes === 0) {
+                return { removed: false, remainingObservations: prevObs.length, entityFound: true };
+            }
+            if (row.status !== 'archived') {
+                this.rebuildFts(row.id, entityName, prevObsText, row.title);
+            }
+            removeVectorRow(this.db, row.id);
+            const remaining = this.db
+                .prepare('SELECT COUNT(*) as c FROM observations WHERE entity_id = ?')
+                .get(row.id);
+            return { removed: true, remainingObservations: remaining.c, entityFound: true };
+        }).immediate();
     }
     deleteEntity(name) {
         const row = this.db

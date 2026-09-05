@@ -4,6 +4,13 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Removing an observation now updates stored content and search indexes in one
+  transaction and invalidates its obsolete vector. Index failures roll back the
+  removal instead of leaving partially updated memory. Editing an archived
+  entity's observations no longer recreates its FTS entry.
+
 ## [4.8.5] — 2026-09-05
 
 ### Added
