@@ -80,8 +80,8 @@ side of it.
 
 Do not report a test result, a CI status or a benchmark number you did not
 produce in this session. Paste the runner's actual output. `npm run verify:release` is the same gate the publish path runs, and
-`scripts/check-doc-claims.mjs` — which it calls — checks every claim the public
-documents make about the code.
+`scripts/check-doc-claims.mjs` — which it calls — checks selected source-derived
+documentation claims. Other descriptions still need source-backed review.
 
 **Read the exit code, not a grep of the output.** `cmd 2>&1 | grep …` returns
 *grep's* status and hides every line the pattern misses. Vitest prints

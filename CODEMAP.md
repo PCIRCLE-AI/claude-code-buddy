@@ -57,7 +57,7 @@ docs/                # ARCHITECTURE.md, api/API_REFERENCE.md
 ### Recall / search (the LLM-free hot path)
 - Ranking / scoring weights → `src/core/scoring.ts` (`rankEntities`)
 - FTS5 + sqlite-vec query, access tracking → `src/knowledge-graph.ts`
-- Recall operation (cross_project / namespace / include_archived) → `src/core/operations.ts` (`recallEnhanced`)
+- Shared transport recall operation (cross_project / namespace / include_archived) → `src/core/operations.ts` (`recallWithConflicts`, backed by `recallEnhanced`)
 - Vector index / embedding dimension / migration → `src/db.ts`, `src/core/embedder.ts`
 
 ### Write flows (remember / forget / learn / pin)
@@ -84,13 +84,13 @@ docs/                # ARCHITECTURE.md, api/API_REFERENCE.md
 
 ### Project identity + tags
 - `getProjectName()` (git-remote-slug → repo-root → cwd-basename, cached) → `src/core/paths.ts`
-  (mirrored in `scripts/hooks/_shared.js` — F5 boundary; kept in sync by `tests/core/project-identity.test.ts`)
+  (shared through build-generated `scripts/hooks/_generated/core-paths.js`, imported by `_shared.js`)
 - List / merge / rename `project:*` tags → `src/core/project-tags.ts` (backs `memesh kg rename-project`)
 - Heuristic relation backfill (orphan connector) → `src/core/kg-backfill.ts`
 
 ### Config / capabilities / self-update
 - Config read/write + capability detection + env auto-detect → `src/core/config.ts`
-- Path resolution (HOME-first) → `src/core/paths.ts`
+- Path resolution (explicit `MEMESH_DIR` / `MEMESH_DB_PATH` overrides, then HOME defaults) → `src/core/paths.ts`
 - `memesh doctor` health check + real probes → `src/core/doctor.ts`
 - npm version check / self-update → `src/core/version-check.ts`, `src/core/updater.ts`, `src/core/install-channel.ts`, `src/core/install-hooks.ts`
 
@@ -114,7 +114,7 @@ docs/                # ARCHITECTURE.md, api/API_REFERENCE.md
 | `session-start.js` | SessionStart | inject top-N memories (additionalContext), banner, lesson warnings, auto-update |
 | `pre-edit-recall.js` | PreToolUse Edit/Write | inject file-relevant memories |
 | `guard-check.js` | PreToolUse Bash | enforce accepted lesson guards before risky repeats |
-| `src/host-runtime/codex-session.ts` | SessionStart | register the exact configured Codex thread for metadata-only wakeups |
+| `src/host-runtime/codex-session.ts` | SessionStart | register the exact configured Codex thread for bounded full-message native delivery |
 | `session-summary.js` | Stop | auto-capture, LLM failure analysis, dream auto-trigger |
 | `pre-compact.js` | PreCompact | end-of-context save |
 | `post-commit.js` | PostToolUse Bash | git commit tracking |
@@ -130,7 +130,7 @@ is invoked by the session-start flow rather than registered directly in the mani
 
 ```
 transport (cli/http/mcp) → validate (transports/schemas.ts, Zod)
-  → operations.recallEnhanced()
+  → operations.recallWithConflicts() → recallEnhanced()
     → knowledge-graph FTS5 + sqlite-vec  → scoring.rankEntities()
       → conflict detection (storage/conflicts.ts) → result
 ```
@@ -141,7 +141,7 @@ The same `operations.ts` memory functions run identically from all three transpo
 
 ## Tests & docs
 
-- Tests: `tests/` mirrors `src/`. Run `npm test -- --run` (pool: forks, not threads — native modules).
+- Tests: `tests/` mirrors `src/`. Run `node scripts/run-tests-isolated.mjs` (throwaway HOME; forks pool, one worker).
   Cross-hook contract gate: `tests/hooks/hook-output-contract.test.ts` (validates every hook's stdout against the real Claude Code contract).
 - Owner-run live checks (never CI): `scripts/qa/live-journey.mjs` — `npm run qa:live-journey -- --host codex|claude`
   drives a real Codex thread or an interactive Claude channel session and requires model-visible proof.
@@ -163,4 +163,4 @@ The same `operations.ts` memory functions run identically from all three transpo
   than merely available. After publishing, `npm run qa:post-release`
   (`scripts/qa/post-release.mjs`) checks registry acceptance, a fresh install from the registry,
   and whether this machine is on the release — read-only, printing fixes rather than running them.
-- Version anchors that must agree on a bump: `package.json`, both root entries in `package-lock.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `herdr-plugin.toml`, `CHANGELOG.md`, `CODEMAP.md`, `docs/ARCHITECTURE.md`, and `docs/api/API_REFERENCE.md`. Run `npm run build` after to regenerate `dist/skills-manifest.json`.
+- Version anchors that must agree on a bump: `package.json`, both root entries in `package-lock.json`, `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `herdr-plugin.toml`, `CHANGELOG.md`, `CODEMAP.md`, `docs/ARCHITECTURE.md`, and `docs/api/API_REFERENCE.md`. Run `npm run build` after to regenerate `dist/skills-manifest.json`.

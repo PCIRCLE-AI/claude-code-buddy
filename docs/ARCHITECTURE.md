@@ -14,7 +14,7 @@ The package is intentionally local-first and inspectable:
 - one SQLite database under the user's control
 - no cloud service required
 - Claude Code hook integration for session-start, pre-edit recall, user-prompt-intent detection, post-commit capture, session-summary learning, and pre-compact save
-- optional smarter retrieval and extraction when an LLM is configured
+- optional semantic retrieval when an embedding provider is configured, and extraction when an LLM is configured
 
 This repository is the standalone local package. Hosted workspace and enterprise operating-system products are intentionally out of scope for this package architecture.
 
@@ -218,7 +218,7 @@ Thin adapter: imports shared Zod schemas from `transports/schemas.ts`, validates
 | Tool | Schema | Handler |
 |------|--------|---------|
 | `remember` | RememberSchema | Delegates to `operations.remember()` |
-| `recall` | RecallSchema | Delegates to `operations.recallEnhanced()` |
+| `recall` | RecallSchema | Delegates to `operations.recallWithConflicts()` |
 | `forget` | ForgetSchema | Delegates to `operations.forget()` |
 | `export` | ExportSchema | Delegates to `operations.exportMemories()` |
 | `import` | ImportSchema | Delegates to `operations.importMemories()` |
@@ -231,7 +231,7 @@ Thin adapter: imports shared Zod schemas from `transports/schemas.ts`, validates
 
 ### transports/http/server.ts -- HTTP REST API Server
 
-Express server exposed via `memesh serve` (default port 3737; the endpoint count is stated once, in the module list above, and checked against `server.ts` by `scripts/check-doc-claims.mjs`). Delegates all operations to `core/operations`. Includes `GET /v1/analytics` for computed health score, 30-day timeline, value metrics, and cleanup suggestions. See [HTTP REST API](#http-rest-api) in the API Reference.
+Express server exposed via `memesh serve` (default port 3737; the endpoint count is stated once, in the module list above, and checked against `server.ts` by `scripts/check-doc-claims.mjs`). Delegates memory operations to `core/operations` and message actions to `transports/agent-messaging`. Includes `GET /v1/analytics` for computed health score, 30-day timeline, value metrics, and cleanup suggestions. See [HTTP REST API](api/API_REFERENCE.md#http-rest-api) in the API Reference.
 
 ### transports/cli/cli.ts -- CLI
 
@@ -307,12 +307,12 @@ not a second durable registry, and the read creates no message or receipt facts.
 ```
 Tool call: recall({query, tag, limit})
   -> Zod validation (RecallSchema)
-  -> recallEnhanced() in core/operations
+  -> recallWithConflicts() in core/operations, backed by recallEnhanced()
      -> KnowledgeGraph.search() — FTS5 keyword match
      -> supplementWithVectors() — sqlite-vec embedding similarity merge
      -> rankEntities() applies multi-factor scoring (relevance, recency, frequency, confidence, impact)
      -> KnowledgeGraph.findConflicts() checks for contradicts relations among results
-  -> If conflicts: return {entities, conflicts}; else return Entity[]
+  -> Return {entities, retrieval, conflicts?}; omit conflicts when empty
 ```
 
 ### Mine memory from transcripts (`dream run --from-transcripts`)
@@ -332,17 +332,19 @@ memesh dream run --from-transcripts   (current project only)
      -> accept creates the entity AND embeds it, so the next run recognises it
 ```
 
-### Delete knowledge (forget)
+### Archive knowledge or remove an observation (forget)
 
 ```
-Tool call: forget({name})
+Tool call: forget({name, observation?})
   -> Zod validation (ForgetSchema)
-  -> KnowledgeGraph.deleteEntity(name)
-     -> SELECT entity by name (return false if not found)
-     -> SELECT all observations for entity (needed for FTS5 delete)
-     -> Delete FTS5 entry (contentless delete requires original indexed values)
-     -> DELETE FROM entities (CASCADE handles observations, relations, tags)
-  -> Return {deleted: true/false}
+  -> operations.forget()
+     -> With observation: KnowledgeGraph.removeObservation()
+        -> Return {observation_removed, name, observation,
+                   remaining_observations, entity_found}
+     -> Without observation: KnowledgeGraph.archiveEntity()
+        -> Remove entity from search indexes and set status = 'archived'
+           in one transaction; preserve observations, relations, and tags
+        -> Return {archived: true, name}, or {archived: false, message}
 ```
 
 ---
@@ -424,7 +426,7 @@ Hooks are defined in `hooks/hooks.json` and executed by Claude Code at specific 
 
 - **Trigger**: `Stop` event (when Claude finishes responding)
 - **Matcher**: `*` (all sessions)
-- **Behavior**: Extracts session knowledge (files edited, errors fixed, decisions made) and stores it as entities in the knowledge graph. When LLM is configured (Level 1), additionally runs failure analysis to create structured `lesson_learned` entities from session errors. Also reads `~/.memesh/last-session-injected.json` to track recall effectiveness — updates `recall_hits` (entity name found in transcript) or `recall_misses` (not found). Opt-out via `MEMESH_AUTO_CAPTURE=false`
+- **Behavior**: Extracts session knowledge (files edited, errors fixed, decisions made) and stores it as entities in the knowledge graph. When LLM is configured (Level 1), additionally runs failure analysis to create structured `lesson_learned` entities from session errors. Also reads matching session-injection records under the database directory's `sessions/` folder: explicit `[mem:id]` citations for injected memories increment `recall_hits`, after excluding hook-output echoes; `recall_misses` remains unchanged. Opt-out via `MEMESH_AUTO_CAPTURE=false`
 
 ### Pre-Compact (`scripts/hooks/pre-compact.js`)
 
@@ -470,7 +472,7 @@ MeMesh supports three integration tiers:
 | | Custom apps | Direct stdio MCP connection |
 | **HTTP API** | Custom apps/scripts | HTTP REST API (`memesh serve`, 37 endpoints) |
 
-See [docs/platforms/](../platforms/) for platform-specific integration guides.
+See [docs/platforms/](platforms/) for platform-specific integration guides.
 
 ### Anthropic API Feature Alignment
 
@@ -593,7 +595,7 @@ Session with errors
 
 ```
 type: "lesson_learned"
-name: "lesson-{project}-{errorPattern}" (upsert-safe; explicit `learn` without errorPattern → "lesson-{project}-{error-slug}")
+name: "lesson-{project}-{errorPattern}" (upsert-safe; explicit `learn` without errorPattern → "lesson-{project}-{readable-prefix}-{digest}")
 observations:
   - "Error: <what went wrong>"
   - "Root cause: <why>"
