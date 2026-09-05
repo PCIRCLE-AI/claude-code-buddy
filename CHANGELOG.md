@@ -4,7 +4,7 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
-## [4.8.4] — 2026-09-04
+## [4.8.5] — 2026-09-05
 
 ### Added
 
@@ -528,6 +528,21 @@ All notable changes to MeMesh are documented here.
   project-local install still get separate cache slots. `_shared.js`'s
   independent `readUpdateCheckCache()` path formula is untouched by this —
   it only reads, and the filename scheme did not change.
+
+- **The Claude channel's own instructions told the model it did not need to
+  acknowledge a message it received.** `npm run qa:live-journey -- --host
+  claude` requires the session's own model to call `intake` on an incoming
+  envelope as model-visible proof it was seen; two runs failed identically,
+  because `CHANNEL_INSTRUCTIONS` literally said "no ... acknowledgement of
+  model receipt" is needed, and the model followed that correctly. The
+  instructions now say to call `message` with `action: "intake"` on a full
+  envelope. This does not fix `--host claude` itself — two further runs
+  (one with `--setting-sources ""` removed as a diagnostic) still failed the
+  same way, which appears to be how the currently installed Claude Code
+  CLI's "Channels (experimental)" feature surfaces notifications to the
+  model rather than anything in this repository. `--host claude` remains a
+  known-non-functional `qa:live-journey` path; `--host codex` is what
+  produced this release's live-journey receipt.
 
 ## [4.8.3] — 2026-08-31
 
