@@ -225,10 +225,14 @@ function gitLines(args) {
 // exists — is skipped by the same rule that catches a merged one.
 const branch =
   process.env.GITHUB_REF_NAME ?? (gitLines(['rev-parse', '--abbrev-ref', 'HEAD']) ?? [null])[0];
+// Set only by `finish-release.mjs` around its own internal `qa:pre-release`
+// spawn — the one caller genuinely seconds from creating this exact tag, not
+// CI, not a PR check, not a plain manual run. See published-version.mjs.
 const publishedTag = checkMainDeclaresPublishedVersion({
   branch,
   pkgVersion,
   tags: gitLines(['tag', '--list', 'v*']) ?? [],
+  aboutToTagThisVersion: process.env.MEMESH_FINISH_RELEASE_TAGGING === '1',
 });
 findings.push(`main-declares-published-version: ${publishedTag.status} — ${publishedTag.message}`);
 if (publishedTag.status === 'error') {

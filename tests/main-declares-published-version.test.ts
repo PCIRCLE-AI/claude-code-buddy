@@ -82,4 +82,49 @@ describe('main must declare a published version', () => {
     });
     expect(r.status).toBe('skipped');
   });
+
+  /**
+   * `finish-release.mjs` runs `qa:pre-release` as its own precondition, on
+   * `main`, before the tag it is about to create exists — the one moment
+   * this check cannot help but call an error against its own caller.
+   * `aboutToTagThisVersion` is how that one caller says so.
+   */
+  describe('aboutToTagThisVersion (set only by finish-release.mjs)', () => {
+    it('skips instead of erroring when other tags are visible but not this one', () => {
+      const r = checkMainDeclaresPublishedVersion({
+        branch: 'main',
+        pkgVersion: '4.2.12',
+        tags: ['v4.2.10', 'v4.2.11'],
+        aboutToTagThisVersion: true,
+      });
+      expect(r.status).toBe('skipped');
+      expect(r.message).toContain('4.2.12');
+    });
+
+    it('still passes outright when the tag already exists', () => {
+      const r = checkMainDeclaresPublishedVersion({
+        branch: 'main',
+        pkgVersion: '4.2.11',
+        tags: ['v4.2.10', 'v4.2.11'],
+        aboutToTagThisVersion: true,
+      });
+      expect(r.status).toBe('ok');
+    });
+
+    // Break-test: a shallow checkout with no tag data at all is still a real
+    // failure whether or not the caller is about to tag — the flag narrows to
+    // "this one tag is missing", not "trust me". If this ever went green, the
+    // flag would also paper over the exact defect `actions/checkout` fetching
+    // no tags reintroduces.
+    it('does NOT rescue a checkout where no tags are visible at all', () => {
+      const r = checkMainDeclaresPublishedVersion({
+        branch: 'main',
+        pkgVersion: '4.2.11',
+        tags: [],
+        aboutToTagThisVersion: true,
+      });
+      expect(r.status).toBe('error');
+      expect(r.message).toContain('fetch-tags');
+    });
+  });
 });
