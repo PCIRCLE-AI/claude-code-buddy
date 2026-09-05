@@ -180,10 +180,17 @@ const repoSlug = capture('gh', ['repo', 'view', '--json', 'nameWithOwner', '-q',
 // — a receipt can go stale the moment the next commit lands, and re-running a
 // few minutes of build+test is cheaper than trusting a stale one.
 console.log(`\n--- npm run qa:pre-release (build + verify:artifact + audit:memory; several minutes)`);
+// MEMESH_FINISH_RELEASE_TAGGING=1 tells check-version-coherence.mjs's
+// main-declares-published-version check that THIS run is the one about to
+// create v<pkgVersion> seconds from now — the one caller for whom "main
+// declares a version with no tag yet" is expected, not the five-day gap the
+// check exists to catch. Set only here, at this one spawn; unset for CI, PR
+// checks, and every other way qa:pre-release runs. See published-version.mjs.
 const qaPreReleaseResult = spawnSync('npm', ['run', 'qa:pre-release'], {
   cwd: repoRoot,
   stdio: 'inherit',
   shell: process.platform === 'win32',
+  env: { ...process.env, MEMESH_FINISH_RELEASE_TAGGING: '1' },
 });
 const qaPreReleaseStatus = qaPreReleaseResult.status;
 

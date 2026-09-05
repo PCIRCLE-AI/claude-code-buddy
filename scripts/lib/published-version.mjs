@@ -25,13 +25,28 @@
 // nobody break-tested is the defect class this repository keeps finding.
 
 /**
+ * `finish-release.mjs` runs `npm run qa:pre-release` as its own precondition,
+ * and that spawns this exact check, on `main`, before the tag it is about to
+ * create exists — the one moment this check cannot help but call an error.
+ * `aboutToTagThisVersion` is how the caller who is actually about to create
+ * `v<pkgVersion>` says so. It narrows to exactly the branch that condition
+ * can affect: tags ARE visible and simply do not include this one yet. It
+ * does nothing to the "no tags visible at all" branch above — a shallow
+ * checkout with no tag data is still a real failure, about-to-tag or not —
+ * and it does nothing to any of `check-version-coherence.mjs`'s other nine
+ * anchors, which this function never sees.
+ *
  * @param {object} input
  * @param {string|null} input.branch      Current branch, or null if undiscoverable.
  * @param {string}      input.pkgVersion  `package.json` version.
  * @param {string[]}    input.tags        Every `v*` tag visible to the checkout.
+ * @param {boolean}     [input.aboutToTagThisVersion] Set only by the caller that is
+ *   itself seconds away from creating `v<pkgVersion>` (`finish-release.mjs`,
+ *   via `MEMESH_FINISH_RELEASE_TAGGING=1`) — never by CI, a PR check, or a
+ *   plain manual run.
  * @returns {{status: 'ok'|'skipped'|'error', message: string}}
  */
-export function checkMainDeclaresPublishedVersion({ branch, pkgVersion, tags }) {
+export function checkMainDeclaresPublishedVersion({ branch, pkgVersion, tags, aboutToTagThisVersion = false }) {
   if (branch !== 'main') {
     return {
       status: 'skipped',
@@ -57,6 +72,16 @@ export function checkMainDeclaresPublishedVersion({ branch, pkgVersion, tags }) 
 
   if (tags.includes(`v${pkgVersion}`)) {
     return { status: 'ok', message: `v${pkgVersion} is tagged` };
+  }
+
+  if (aboutToTagThisVersion) {
+    return {
+      status: 'skipped',
+      message:
+        `main declares ${pkgVersion} with no \`v${pkgVersion}\` tag yet, but the ` +
+        'caller running this check is finish-release.mjs itself, seconds from ' +
+        'creating that exact tag — not a stale bump.',
+    };
   }
 
   return {
