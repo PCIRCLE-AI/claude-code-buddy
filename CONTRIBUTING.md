@@ -4,7 +4,7 @@ MeMesh is intentionally small. Changes should preserve that shape: a minimal MCP
 
 ## Prerequisites
 
-- Node.js 22.5 or newer (`package.json` `engines.node`; Node 20 reached end of life on 2026-03-24)
+- Node.js 22.13.0 or newer (see `package.json` `engines.node`)
 - npm
 
 ## Local Setup
@@ -13,7 +13,7 @@ MeMesh is intentionally small. Changes should preserve that shape: a minimal MCP
 npm install
 npm run typecheck
 npm run build
-npm test -- --run
+node scripts/run-tests-isolated.mjs
 npm run test:packaged
 ```
 
@@ -27,7 +27,7 @@ Documentation is part of the change, not follow-up work. The CI's `Version coher
 - Update `docs/api/API_REFERENCE.md` when the MCP / HTTP / CLI surface changes (and bump its `**Version**: ` line on a release).
 - Update `docs/ARCHITECTURE.md` when module structure, storage behavior, or packaging flow changes (and bump its `**Version**: ` line on a release).
 - Read `DESIGN.md` before any dashboard change that touches colour, type, spacing or an interaction, and update it when a token or rule changes. It is derived from `dashboard/src/styles/global.css`; when the two disagree the CSS is what ships, so fix whichever is wrong rather than leaving them apart.
-- Keep version metadata coherent: `package.json` + **`package-lock.json` (both the root `version` and `packages[""].version`)** + `.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json` `plugins[].version` + `CHANGELOG.md` `## [X.Y.Z]` header + the two `**Version**:` lines above must all match. The `node scripts/check-version-coherence.mjs` check (run as a CI step) catches partial bumps. `package-lock.json` is called out because it is the one that drifted silently across four releases (4.2.6 through 4.2.10) while every other anchor stayed correct — `npm version` updates it, hand-editing `package.json` does not.
+- Keep version metadata coherent: `package.json`, both the root `version` and `packages[""].version` in `package-lock.json`, `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, `.claude-plugin/marketplace.json` `plugins[].version`, `herdr-plugin.toml`, the `CHANGELOG.md` release header, and the `**Version**:` lines in `CODEMAP.md`, `docs/ARCHITECTURE.md`, and `docs/api/API_REFERENCE.md`. Run `node scripts/check-version-coherence.mjs` to check these anchors. `npm version` updates the lockfile; hand-editing `package.json` does not.
 - After ANY change to `.claude-plugin/`, `scripts/hooks/`, `skills/`, or version files, run `npm run build` so `dist/skills-manifest.json` regenerates. Otherwise `memesh doctor` reports `Skills + hooks integrity FAIL` and users see "memesh setup is incomplete" in their dashboard. CI's `Doctor` step catches this before merge.
 
 `CLAUDE.md` carries the same rules in the form an AI coding assistant reads. It is a pointer file — this document is the source of truth for anything that applies to a human contributor.
