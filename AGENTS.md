@@ -122,8 +122,9 @@ Code" row says which plugin runtime it found.
 ## Working on this repository (contributing agents)
 
 The sections above are for agents whose user installed memesh. If you are an
-agent making changes to this codebase, [CLAUDE.md](CLAUDE.md) is the entry
-point; the policy it carries, compressed:
+agent making changes to this codebase, read [CLAUDE.md](CLAUDE.md) as the
+contributor entry point and apply the working and delegation requirements
+below with it:
 
 - **Blast radius picks the process.** One module, no security surface, no
   cross-surface behaviour → implement, run the affected tests + typecheck,
@@ -137,5 +138,35 @@ point; the policy it carries, compressed:
 - **Delegation is disjoint.** Two writers never touch one file; file-editing
   subagents work in isolated worktrees and never commit or push — the
   orchestrator reads every diff before it lands.
+- **Delegate the smallest verifiable slice.** Give each agent one coherent
+  outcome that can be implemented and falsified independently. Do not hand a
+  broad implementation or cleanup to one worker when it can be split at
+  file-disjoint boundaries. Read-only analysis may be divided further by
+  symbol, test, UI, documentation, or runtime question. A formal independent
+  reviewer still receives the same complete diff; specialist scope narrows
+  the questions, never the changed files. Delegation must reduce uncertainty
+  or work, not merely add an agent.
+- **Use an explicit task card.** Every delegated task states: observable
+  outcome; owned paths and forbidden paths; frozen repository input (branch,
+  commit and, when relevant, tree or artifact digest); required invariants and
+  failure paths; exact checks and readbacks; non-goals and mutation authority;
+  and the required findings/evidence return format. Unknowns must be reported,
+  not guessed. A task without a falsifiable acceptance check is not ready to
+  delegate.
+- **Treat DeepSeek as a bounded team worker.** Prefer the local DeepSeek worker
+  for small source inventories, candidate patches, test ideas, failure-log
+  analysis, mechanical classifications, and documentation comparisons when
+  its result can be checked cheaply. Give it only the minimum secret-free
+  context and least-privilege tools. It never receives credentials, MeMesh
+  database access, external mutation authority, architecture ownership,
+  formal independent-review authority, or completion authority. Its output is
+  an untrusted candidate until the orchestrator verifies it against the frozen
+  source and executable evidence.
+- **Keep roles and evidence separate.** The orchestrator owns architecture,
+  integration, claim coverage, authorization boundaries, and the final status.
+  Implementers return a candidate, never `PASS`. A fresh read-only reviewer
+  who authored none of the changed paths replays every claim on the exact
+  immutable candidate. Any source change invalidates earlier test and review
+  evidence for that candidate.
 - **Internal notes stay local.** Plans and scratch analyses are never
   committed and never appear in commit messages or release notes.
