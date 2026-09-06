@@ -20,7 +20,7 @@
 
 Mit jeder neuen Sitzung fängt dein KI-Coding-Assistent (Agent) bei null an. Er schlägt wieder den Ansatz vor, den du letzten Monat verworfen hast, scheitert wieder am selben Test und lässt sich die Architektur erklären, die er selbst mit entworfen hat.
 
-MeMesh merkt sich das für ihn. Entscheidungen, Lektionen und der letzte Arbeitsstand werden während der Arbeit festgehalten und dem Agenten im richtigen Moment wieder vorgelegt. Funktioniert mit Claude Code, Codex, Cursor und jedem lokalen Tool, das MCP spricht.
+MeMesh merkt sich das für ihn. Entscheidungen, Lektionen und der letzte Arbeitsstand werden während der Arbeit festgehalten und dem Agenten wieder vorgelegt. Funktioniert mit Claude Code, Codex, Cursor und anderen MCP-Clients.
 
 ```
    du arbeitest mit dem Agenten
@@ -40,8 +40,8 @@ MeMesh merkt sich das für ihn. Entscheidungen, Lektionen und der letzte Arbeits
    +----------------------------------------+
 ```
 
-- **Nichts von Hand notieren.** In Claude Code übernehmen **9 Hooks** das Festhalten und Erinnern: beim Sitzungsstart, vor Dateiänderungen, nach `git commit`, wenn Claude aufhört, vor dem Kürzen des Kontexts, wenn du „merk dir das“ sagst (in 5 Sprachen) und vor einem riskanten Befehl, der einen bekannten Fehler wiederholen würde.
-- **Ein Gedächtnis für alle Tools.** Was du heute in Claude Code speicherst, findet morgen auch Codex oder Cursor.
+- **Nichts von Hand notieren.** In Claude Code laufen **9 Hooks** zu festen Zeitpunkten: Sitzungsstart, vor Dateiänderungen, nach `git commit`, nach einem freigegebenen Plan oder einer beantworteten Frage, wenn Claude aufhört, vor dem Kürzen des Kontexts, wenn du „remember this“ sagst (in 5 Sprachen, Deutsch nicht darunter), vor einem riskanten Befehl, der eine von dir bestätigte Lektion wiederholen würde, und wenn eine angemeldete Codex-Sitzung startet.
+- **Ein Gedächtnis für alle Tools.** Was du heute in Claude Code speicherst, steht morgen auch Codex oder Cursor zur Verfügung.
 - **Agenten können sich Nachrichten hinterlassen.** Ein Posteingang auf deinem Rechner, der auch nach einem Neustart nichts verliert.
 - **Ein Dashboard** zum Stöbern: 5 Tabs, 11 Sprachen, unter `http://localhost:3737/dashboard`.
 
@@ -59,13 +59,15 @@ MeMesh merkt sich das für ihn. Entscheidungen, Lektionen und der letzte Arbeits
 | Eigene Skripte und Apps | HTTP-API aus `memesh serve` | [docs/platforms/universal.md](docs/platforms/universal.md) |
 | ChatGPT, Gemini im Browser und andere gehostete Chats | HTTP-API über eine lokale Brücke, die du selbst betreibst | [docs/platforms/README.md](docs/platforms/README.md) |
 
-Optionale KI-Modelle für die Extras (automatische Schlagwörter, Lektionen aus Fehlschlägen, Widerspruchsprüfung): Anthropic, OpenAI oder ein lokales Ollama. Optionale Suche nach Bedeutung: Embeddings von Ollama oder OpenAI. Ohne all das läuft alles oben weiterhin mit Stichwortsuche.
+Automatisches Festhalten und Erinnern sind Claude-Code-Hooks. Andere Clients rufen die Tools `recall` und `briefing` selbst auf.
+
+Optionale KI-Modelle für die Extras (automatische Schlagwörter, Lektionen aus Fehlschlägen, Widerspruchsprüfung): Anthropic, OpenAI oder ein lokales Ollama. Optionale Suche nach Bedeutung: Embeddings von Ollama oder OpenAI. Ohne all das laufen Gedächtnis, Abruf und Nachrichten mit Stichwortsuche.
 
 ---
 
 ## Installation
 
-Es gibt zwei Wege. Beide nutzen dieselbe Datenbank und kommen sich nicht in die Quere. Wer Claude Code nutzt, installiert meist beide.
+Es gibt zwei Wege, beide nutzen dieselbe Datenbank. Wer Claude Code nutzt, installiert meist beide.
 
 ```
    Claude-Code-Chat                Terminal, Codex, Cursor
@@ -112,15 +114,15 @@ Codex: `codex mcp add memesh -- memesh-mcp`. Cursor: `{ "mcpServers": { "memesh"
 ## Loslegen
 
 ```bash
-memesh remember "Für den neuen Login OAuth 2.0 mit PKCE verwenden"
-memesh recall "Login-Sicherheit"
-# -> findet die PKCE-Entscheidung, obwohl du andere Wörter benutzt hast
+memesh remember "Login verwendet OAuth 2.0 mit PKCE"
+memesh recall "Login"
+# -> findet die PKCE-Entscheidung
 
 memesh briefing        # was der Agent über dieses Projekt weiß und wo du aufgehört hast
 memesh serve           # Dashboard öffnen
 ```
 
-In Claude Code brauchst du nicht einmal das Terminal: Sag im Chat „merk dir das“, und das Briefing kommt bei jedem Sitzungsstart von selbst.
+In Claude Code brauchst du nicht einmal das Terminal: Sag im Chat „remember this“, und das Briefing kommt bei jedem Sitzungsstart von selbst.
 
 Zwei Dinge, die du kennen solltest, sobald Erinnerungen da sind:
 

@@ -20,7 +20,7 @@
 
 Each session, your AI coding agent starts from zero. It proposes the approach you rejected last month, trips over the same failing test, and asks you to explain the architecture it helped design.
 
-MeMesh remembers for it. Decisions, lessons and where you left off are captured while you work and handed back to the agent at the right moment. It works with Claude Code, Codex, Cursor and any local MCP client.
+MeMesh remembers for it. Decisions, lessons and where you left off are captured while you work and handed back to the agent. It works with Claude Code, Codex, Cursor and other MCP clients.
 
 ```
    you work with the agent
@@ -40,9 +40,9 @@ MeMesh remembers for it. Decisions, lessons and where you left off are captured 
    +----------------------------------------+
 ```
 
-- **Nothing to write by hand.** In Claude Code, **9 hooks** do the capturing and reminding: at session start, before file edits, after `git commit`, when Claude stops, before context compaction, when you say "remember this" (5 languages), and before a risky command that repeats a recorded mistake.
-- **One memory for all your tools.** A decision stored from Claude Code is recalled from Codex or Cursor the next day.
-- **Agents can leave each other messages.** A durable inbox on your machine, picked up even after a restart.
+- **Nothing to write by hand.** In Claude Code, **9 hooks** run at fixed moments: session start, before file edits, after `git commit`, after a plan is approved or a question answered, when Claude stops, before context compaction, when you say "remember this" (5 languages), before a risky command that repeats a lesson you accepted, and when an opted-in Codex session starts.
+- **One memory for all your tools.** A decision stored from Claude Code is available to Codex or Cursor the next day.
+- **Agents can leave each other messages.** A durable inbox on your machine that the receiver fetches, also after a restart.
 - **A dashboard** to browse it all: 5 tabs, 11 languages, at `http://localhost:3737/dashboard`.
 
 ---
@@ -59,13 +59,15 @@ MeMesh remembers for it. Decisions, lessons and where you left off are captured 
 | Your own scripts and apps | HTTP API from `memesh serve` | [docs/platforms/universal.md](docs/platforms/universal.md) |
 | ChatGPT, Gemini web and other hosted chat | HTTP API through a local bridge you run | [docs/platforms/README.md](docs/platforms/README.md) |
 
-Optional AI models for the extras (auto-tagging, lessons from failures, conflict checks): Anthropic, OpenAI, or a local Ollama. Optional meaning-based search: Ollama or OpenAI embeddings. Without any of these, everything above still works on keyword search.
+Automatic capture and recall are Claude Code hooks. Other clients call the `recall` and `briefing` tools themselves.
+
+Optional AI models for the extras (auto-tagging, lessons from failures, conflict checks): Anthropic, OpenAI, or a local Ollama. Optional meaning-based search: Ollama or OpenAI embeddings. Without any of these, memory, recall and messaging work on keyword search.
 
 ---
 
 ## Install
 
-Two install paths. They share one database and never conflict. Most Claude Code users want both.
+Two install paths. They share one database. Most Claude Code users want both.
 
 ```
    Claude Code chat                Terminal, Codex, Cursor
@@ -112,9 +114,9 @@ For Codex: `codex mcp add memesh -- memesh-mcp`. For Cursor, add `{ "mcpServers"
 ## Get started
 
 ```bash
-memesh remember "Use OAuth 2.0 with PKCE for the new auth"
-memesh recall "login security"
-# -> finds the PKCE decision even though you used different words
+memesh remember "Login uses OAuth 2.0 with PKCE"
+memesh recall "login"
+# -> finds the PKCE decision
 
 memesh briefing        # what the agent knows about this project, where you left off
 memesh serve           # open the dashboard

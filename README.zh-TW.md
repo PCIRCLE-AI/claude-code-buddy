@@ -20,7 +20,7 @@
 
 每次開新對話，AI 寫程式助手（agent）都像失憶一樣：上個月你否決過的做法，它又提一次；同一個測試失敗，它又踩一次；連它自己參與設計的架構，都要你重新解釋。
 
-MeMesh 幫它記住。你工作時，做過的決定、踩過的坑、上次做到哪都會自動記下來，等 agent 需要時再交還給它。Claude Code、Codex、Cursor，以及任何支援 MCP 的本機工具都能用。
+MeMesh 幫它記住。你工作時，做過的決定、踩過的坑、上次做到哪都會記下來，再交還給 agent。Claude Code、Codex、Cursor 和其他 MCP 用戶端都能用。
 
 ```
    you work with the agent
@@ -42,9 +42,9 @@ MeMesh 幫它記住。你工作時，做過的決定、踩過的坑、上次做�
 
 左邊是自動記錄（對話、commit、修掉的錯誤），右邊是適時提醒（開新對話時、改檔案之前），中間是存放決定、教訓與關聯的那個檔案。
 
-- **不用手動寫筆記。** 在 Claude Code 裡有 **9 個 hook** 負責記錄與提醒：開新對話、改檔案前、`git commit` 後、Claude 停下來時、對話被壓縮前、你說「記下來」時（聽得懂 5 種語言），以及快要重蹈覆轍的危險指令前。
-- **所有工具共用一份記憶。** 今天在 Claude Code 存的決定，明天在 Codex 或 Cursor 就找得到。
-- **agent 之間可以留言。** 訊息存在你電腦上的收件匣，對方重開過也拿得到。
+- **不用手動寫筆記。** 在 Claude Code 裡有 **9 個 hook** 在固定時機執行：開新對話、改檔案前、`git commit` 後、計畫核准或你回答問題後、Claude 停下來時、對話被壓縮前、你說「記下來」時（聽得懂 5 種語言）、會重犯你已接受的教訓的危險指令前，以及有加入的 Codex 對話啟動時。
+- **所有工具共用一份記憶。** 今天在 Claude Code 存的決定，明天 Codex 或 Cursor 也用得到。
+- **agent 之間可以留言。** 訊息存在你電腦上的收件匣，由收件方自己去取，重開過也一樣。
 - **有儀表板** 可以瀏覽全部內容：5 個分頁、11 種語言，在 `http://localhost:3737/dashboard`。
 
 ---
@@ -61,13 +61,15 @@ MeMesh 幫它記住。你工作時，做過的決定、踩過的坑、上次做�
 | 你自己的程式或腳本 | `memesh serve` 提供的 HTTP API | [docs/platforms/universal.md](docs/platforms/universal.md) |
 | ChatGPT、Gemini 網頁版等線上聊天 | 透過你自己架的本機橋接走 HTTP API | [docs/platforms/README.md](docs/platforms/README.md) |
 
-加分功能（自動貼標籤、從失敗整理教訓、檢查矛盾）可選接的 AI 模型：Anthropic、OpenAI，或本機的 Ollama。語意搜尋可選用 Ollama 或 OpenAI 的 embedding。這些都不接，上面的功能照樣能用關鍵字搜尋跑。
+自動記錄與提醒是 Claude Code 的 hook。其他用戶端要自己呼叫 `recall` 和 `briefing` 工具。
+
+加分功能（自動貼標籤、從失敗整理教訓、檢查矛盾）可選接的 AI 模型：Anthropic、OpenAI，或本機的 Ollama。語意搜尋可選用 Ollama 或 OpenAI 的 embedding。這些都不接，記憶、回想和留言照樣用關鍵字搜尋跑。
 
 ---
 
 ## 怎麼安裝
 
-安裝方式有兩種。兩種用的是同一個資料庫，裝在一起不會打架。用 Claude Code 的人通常兩種都裝。
+安裝方式有兩種，用的是同一個資料庫。用 Claude Code 的人通常兩種都裝。
 
 ```
    Claude Code chat                Terminal, Codex, Cursor
@@ -114,9 +116,9 @@ Codex：`codex mcp add memesh -- memesh-mcp`。Cursor：把 `{ "mcpServers": { "
 ## 怎麼開始
 
 ```bash
-memesh remember "新的登入功能用 OAuth 2.0 加 PKCE"
-memesh recall "登入安全"
-# -> 用的字不一樣，還是找得到那筆 PKCE 的決定
+memesh remember "登入功能用 OAuth 2.0 加 PKCE"
+memesh recall "登入"
+# -> 找到那筆 PKCE 的決定
 
 memesh briefing        # agent 對這個專案知道多少、上次做到哪
 memesh serve           # 打開儀表板
