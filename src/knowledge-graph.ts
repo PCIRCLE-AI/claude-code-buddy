@@ -1150,37 +1150,44 @@ export class KnowledgeGraph {
     entityName: string,
     observationContent: string
   ): { removed: boolean; remainingObservations: number; entityFound: boolean } {
-    const row = this.db
-      .prepare('SELECT id, title FROM entities WHERE name = ?')
-      .get(entityName) as { id: number; title: string | null } | undefined;
+    // Read the indexed text under the same write lock as the deletion: FTS
+    // and vectors must not outlive the observation they describe.
+    return this.db.transaction(() => {
+      const row = this.db
+        .prepare('SELECT id, title, status FROM entities WHERE name = ?')
+        .get(entityName) as { id: number; title: string | null; status: string } | undefined;
 
-    // `entityFound` exists because "no such entity" and "that text does not
-    // match any observation" are different problems with opposite next steps,
-    // and the caller could not tell them apart: both arrived as
-    // `removed: false`, and the CLI printed "Entity not found" for the second
-    // one — sending the user to re-create a memory that was sitting right there.
-    if (!row) return { removed: false, remainingObservations: 0, entityFound: false };
+      // `entityFound` exists because "no such entity" and "that text does not
+      // match any observation" are different problems with opposite next steps,
+      // and the caller could not tell them apart: both arrived as
+      // `removed: false`, and the CLI printed "Entity not found" for the second
+      // one — sending the user to re-create a memory that was sitting right there.
+      if (!row) return { removed: false, remainingObservations: 0, entityFound: false };
 
-    const prevObs = this.db
-      .prepare('SELECT content FROM observations WHERE entity_id = ? ORDER BY id')
-      .all(row.id) as { content: string }[];
-    const prevObsText = joinIndexedObservations(prevObs.map((o) => o.content));
+      const prevObs = this.db
+        .prepare('SELECT content FROM observations WHERE entity_id = ? ORDER BY id')
+        .all(row.id) as { content: string }[];
+      const prevObsText = joinIndexedObservations(prevObs.map((o) => o.content));
 
-    const deleteResult = this.db
-      .prepare('DELETE FROM observations WHERE entity_id = ? AND content = ?')
-      .run(row.id, observationContent);
+      const deleteResult = this.db
+        .prepare('DELETE FROM observations WHERE entity_id = ? AND content = ?')
+        .run(row.id, observationContent);
 
-    if (deleteResult.changes === 0) {
-      return { removed: false, remainingObservations: prevObs.length, entityFound: true };
-    }
+      if (deleteResult.changes === 0) {
+        return { removed: false, remainingObservations: prevObs.length, entityFound: true };
+      }
 
-    this.rebuildFts(row.id, entityName, prevObsText, row.title);
+      if (row.status !== 'archived') {
+        this.rebuildFts(row.id, entityName, prevObsText, row.title);
+      }
+      removeVectorRow(this.db, row.id);
 
-    const remaining = this.db
-      .prepare('SELECT COUNT(*) as c FROM observations WHERE entity_id = ?')
-      .get(row.id) as { c: number };
+      const remaining = this.db
+        .prepare('SELECT COUNT(*) as c FROM observations WHERE entity_id = ?')
+        .get(row.id) as { c: number };
 
-    return { removed: true, remainingObservations: remaining.c, entityFound: true };
+      return { removed: true, remainingObservations: remaining.c, entityFound: true };
+    }).immediate();
   }
 
   /**
